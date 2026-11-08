@@ -15,9 +15,20 @@ dependencies {
 	implementation(project(":index"))
 }
 
+/** The JDK the modules are compiled for: Compose runs and packages the app on it, whatever JDK runs Gradle. */
+val toolchainJdk =
+	javaToolchains.launcherFor {
+		languageVersion =
+			JavaLanguageVersion.of(libs.versions.jdk.get())
+	}
+
 compose.desktop {
 	application {
 		mainClass = "barion.app.MainKt"
+		javaHome =
+			toolchainJdk
+				.get()
+				.metadata.installationPath.asFile.absolutePath
 		jvmArgs += listOf("--enable-native-access=ALL-UNNAMED")
 		nativeDistributions {
 			targetFormats(TargetFormat.AppImage)

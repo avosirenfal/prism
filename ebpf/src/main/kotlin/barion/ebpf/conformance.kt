@@ -219,8 +219,8 @@ private fun differs(
 		declared is Ptr<*> ->
 			when {
 				!kernel.isPointer -> "is ${kernel.name.ifEmpty { "not a pointer" }}"
-				// A pointer to plain bytes is read as whatever it points at: a name, a buffer.
-				declared.target === Bytes -> null
+				// A pointer to plain bytes is read as whatever it points at (a name, a buffer); an opaque one is not read.
+				declared.target === Bytes || declared.target === Opaque -> null
 				else -> pointeeDiffers(declared.target, btf.resolved(kernel.refers))
 			}
 		else -> "type cannot be a kernel type"

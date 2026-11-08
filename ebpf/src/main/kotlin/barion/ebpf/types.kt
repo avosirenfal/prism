@@ -86,6 +86,16 @@ object Bytes : KernelStruct<Bytes>("char") {
 }
 
 /**
+ * What a pointer points at when a program never reads through it: a parameter declared so that the ones after it are
+ * in their places (`struct inode **delegated_inode`). Nothing can be read through it, since it declares no fields.
+ */
+object Opaque : KernelStruct<Opaque>("void") {
+	override val cDeclaration: String get() = "void"
+
+	override val needsDeclaration: Boolean get() = false
+}
+
+/**
  * A pointer to a record: what a ring buffer's reservation and a map's lookup give back, and what a hook's body
  * reaches a record's fields through. The record is part of the type, so one record's pointer cannot be read
  * through another's fields.

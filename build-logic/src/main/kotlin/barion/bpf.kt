@@ -1,5 +1,6 @@
 package barion
 
+import java.io.ByteArrayOutputStream
 import javax.inject.Inject
 import org.gradle.api.DefaultTask
 import org.gradle.api.GradleException
@@ -97,6 +98,11 @@ abstract class CompileBpf : DefaultTask() {
 
 		if (units.isEmpty())
 			throw GradleException("no .bpf.c under $sourcesDir: the emitter wrote nothing")
+		if (!targetsBpf())
+			throw GradleException(
+				"the probes need a clang with the BPF target to compile, and '${clang.get()}' is not one: install clang, " +
+					"or name one with -Pbarion.clang=PATH or \$BARION_CLANG",
+			)
 
 		for (unit in units)
 			execOperations.exec {
@@ -115,4 +121,20 @@ abstract class CompileBpf : DefaultTask() {
 				)
 			}
 	}
+
+	/** Whether [clang] runs and lists the BPF target. */
+	private fun targetsBpf(): Boolean =
+		try {
+			val listed = ByteArrayOutputStream()
+			val result =
+				execOperations.exec {
+					commandLine(clang.get(), "-print-targets")
+					standardOutput = listed
+					isIgnoreExitValue = true
+				}
+
+			result.exitValue == 0 && "bpf" in listed.toString()
+		} catch (missing: GradleException) {
+			false
+		}
 }
