@@ -33,6 +33,9 @@ tasks.withType<Test>().configureEach {
 	useJUnitPlatform()
 	jvmArgs("--enable-native-access=ALL-UNNAMED")
 	systemProperty("barion.clang", clang.get())
+	// The JVM names files in the locale's encoding, so under a locale that is not UTF-8 (a bare container's POSIX one)
+	// it cannot make a Path of a name like "Téléchargements". A desktop session's locale is UTF-8; the tests' is too.
+	environment("LC_ALL", "C.UTF-8")
 	testLogging {
 		events("skipped", "failed")
 		exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
