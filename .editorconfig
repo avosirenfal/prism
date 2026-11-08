@@ -1,0 +1,71 @@
+root = true
+
+[*.{kt,kts}]
+indent_style = tab
+indent_size = 4
+max_line_length = 90
+ij_continuation_indent_size = 4
+ij_kotlin_code_style_defaults = KOTLIN_OFFICIAL
+ktlint_function_signature_rule_force_multiline_when_parameter_count_greater_or_equal_than=5
+ktlint_code_style = ktlint_official
+ktlint_standard_multiline-if-else = disabled
+ktlint_standard_if-else-wrapping = disabled
+# The house rules below put braceless bodies on their own line; this standard rule would then add braces to loops.
+ktlint_standard_multiline-loop = disabled
+# `when` entries stay brace-free like braceless `if` bodies, even when one entry spans several lines.
+ktlint_standard_when-entry-bracing = disabled
+ktlint_standard_filename = disabled
+# Composable functions are PascalCase by the Compose convention.
+ktlint_function_naming_ignore_when_annotated_with = Composable
+
+# House rules (ktlint-rules module): see README "Formatting".
+ktlint_house = enabled
+# A local declaration spanning more lines than this gets a blank line on both sides instead of grouping with its neighbours.
+ktlint_house_max_light_declaration_lines = 8
+# An if/else whose branches are plain values and whose text is shorter than this may stay on one line.
+ktlint_house_simple_ternary_max_length = 50
+
+# Never undo hand-placed line breaks (this is what preserves the if-body-on-next-line and chain choices)
+ij_kotlin_keep_line_breaks = true
+ij_kotlin_keep_first_column_comment = true
+
+# Imports: explicit, alphabetical, no wildcards ever
+ij_kotlin_name_count_to_use_star_import = 2147483647
+ij_kotlin_name_count_to_use_star_import_for_members = 2147483647
+ij_kotlin_packages_to_use_import_on_demand = unset
+ij_kotlin_imports_layout = *,^
+
+# Chop-down-if-long for params, args, chains; ( on same line, ) on its own line
+ij_kotlin_method_parameters_wrap = split_into_lines
+ij_kotlin_method_parameters_new_line_after_left_paren = true
+ij_kotlin_method_parameters_right_paren_on_new_line = true
+ij_kotlin_call_parameters_wrap = split_into_lines
+ij_kotlin_call_parameters_new_line_after_left_paren = true
+ij_kotlin_call_parameters_right_paren_on_new_line = true
+ij_kotlin_method_call_chain_wrap = split_into_lines
+ij_kotlin_wrap_first_method_in_call_chain = true
+ij_kotlin_enum_constants_wrap = on_every_item
+ij_kotlin_wrap_elvis_expressions = 1
+ij_kotlin_assignment_wrap = normal
+ij_kotlin_extends_list_wrap = normal
+
+# Indent, don't align to the opening paren
+ij_kotlin_align_multiline_parameters = false
+ij_kotlin_align_multiline_parameters_in_calls = false
+ij_kotlin_align_multiline_method_parentheses = false
+ij_kotlin_align_multiline_binary_operation = false
+
+# Braces / conditionals
+ij_kotlin_else_on_new_line = false
+ij_kotlin_lbrace_on_next_line = false
+ij_kotlin_line_break_after_multiline_when_entry = false
+
+# Blank lines: keep yours, don't add any
+ij_kotlin_keep_blank_lines_in_code = 1
+ij_kotlin_keep_blank_lines_in_declarations = 1
+ij_kotlin_keep_blank_lines_before_right_brace = 0
+ij_kotlin_blank_lines_after_class_header = 0
+ij_kotlin_blank_lines_around_block_when_branches = 0
+
+ij_kotlin_allow_trailing_comma = true
+ij_kotlin_allow_trailing_comma_on_call_site = true

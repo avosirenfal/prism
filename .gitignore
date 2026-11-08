@@ -1,0 +1,11 @@
+.gradle/
+build/
+out/
+*.iml
+.idea/
+.kotlin/
+.direnv
+*.log
+# Rendered pictures of the picker (barion snapshot, the screenshot test) are made, not kept; docs/ keeps its own.
+*.png
+!docs/*.png
