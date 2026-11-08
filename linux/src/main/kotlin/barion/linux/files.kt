@@ -157,14 +157,14 @@ private val statxHandle =
 fun openat(dir: Fd, path: MemorySegment, flags: OpenFlags): Sys<Fd> {
 	val result =
 		openatHandle.invokeExact(
-			Libc.callState(),
+			CallState.segment(),
 			dir.number,
 			path,
 			flags.bits,
 			0,
 		) as Int
 
-	return Libc.outcome("openat", result.toLong()) { Fd(it.toInt()) }
+	return CallState.outcome("openat", result.toLong()) { Fd(it.toInt()) }
 }
 
 /** `openat(2)` of a path given as text (UTF-8, as the JVM names files). */
@@ -172,9 +172,9 @@ fun openat(dir: Fd, path: String, flags: OpenFlags): Sys<Fd> =
 	Arena.ofConfined().use { arena -> openat(dir, arena.allocateFrom(path), flags) }
 
 fun close(fd: Fd): Sys<Unit> {
-	val result = closeHandle.invokeExact(Libc.callState(), fd.number) as Int
+	val result = closeHandle.invokeExact(CallState.segment(), fd.number) as Int
 
-	return Libc.outcome("close", result.toLong()) { }
+	return CallState.outcome("close", result.toLong()) { }
 }
 
 /** Opens [path] for the duration of [use], closing it however [use] ends. */
@@ -209,7 +209,7 @@ fun statx(
 
 	val result =
 		statxHandle.invokeExact(
-			Libc.callState(),
+			CallState.segment(),
 			dir.number,
 			path,
 			flags.bits,
@@ -217,7 +217,7 @@ fun statx(
 			scratch,
 		) as Int
 
-	return Libc.outcome("statx", result.toLong()) {
+	return CallState.outcome("statx", result.toLong()) {
 		val mode = scratch.get(JAVA_SHORT, 28).toInt() and 0xFFFF
 
 		Stat(
@@ -258,13 +258,13 @@ class DirentBuffer(
 	fun fill(dir: Fd): Sys<Int> {
 		val result =
 			getdentsHandle.invokeExact(
-				Libc.callState(),
+				CallState.segment(),
 				dir.number,
 				segment,
 				segment.byteSize(),
 			) as Long
 
-		return Libc.outcome("getdents64", result) { it.toInt() }
+		return CallState.outcome("getdents64", result) { it.toInt() }
 	}
 
 	/**

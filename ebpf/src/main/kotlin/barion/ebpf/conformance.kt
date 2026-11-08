@@ -92,6 +92,28 @@ fun kernelMismatches(program: Program, btf: Btf): List<Mismatch> =
 			addAll(callableMismatches(hook, btf))
 	}.distinctBy { it.message }
 
+/**
+ * What [hook] alone and [btf] differ on: its own signature, and every structure its body reads. A hook with any is
+ * one the loader leaves out, so that the rest of the program can still be loaded against a kernel that moved one
+ * function.
+ */
+fun kernelMismatches(hook: Hook, btf: Btf): List<Mismatch> {
+	val read = LinkedHashSet<KernelStruct<*>>()
+
+	walk(hook.body) { expr ->
+		if (expr is KernelRead) {
+			read += expr.field.owner
+			if (expr.field.address)
+				read += (expr.field.type as Ptr<*>).target
+		}
+	}
+
+	return (
+		read.filter { it.needsDeclaration }.flatMap { structMismatches(it, btf) } +
+			callableMismatches(hook, btf)
+	).distinctBy { it.message }
+}
+
 private fun structMismatches(struct: KernelStruct<*>, btf: Btf): List<Mismatch> {
 	val kernel = btf.struct(struct.cName) ?: return listOf(Mismatch.NoSuchStruct(struct))
 

@@ -206,7 +206,29 @@ fun program(
 	name: String,
 	license: License = License.Gpl,
 	declared: ProgramBuilder.() -> Unit,
-): Program = ProgramBuilder(name, license).apply(declared).built()
+): Program = declared(name, license, declared).program
+
+/**
+ * A program and what its declaration handed back: the maps the host reaches it through, as the declaration's own
+ * typed handles. So the ring the host reads is the ring the program sends to, by construction, and not a map found
+ * by a name typed twice.
+ */
+class Declared<M> internal constructor(
+	val program: Program,
+	val maps: M,
+)
+
+/** [declared] as a program named [name], with the maps it hands back for the host. */
+fun <M> declared(
+	name: String,
+	license: License = License.Gpl,
+	declared: ProgramBuilder.() -> M,
+): Declared<M> {
+	val builder = ProgramBuilder(name, license)
+	val maps = builder.declared()
+
+	return Declared(builder.built(), maps)
+}
 
 /**
  * A program as it came out: its maps, its hooks, and what it reaches of the kernel and shares with the host. The

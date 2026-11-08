@@ -7,4 +7,6 @@ plugins {
 dependencies {
 	api(project(":ebpf"))
 	api(project(":linux"))
+
+	testImplementation(testFixtures(project(":ebpf")))
 }

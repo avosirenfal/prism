@@ -77,21 +77,21 @@ class Epoll private constructor(
 
 			val result =
 				ctlHandle.invokeExact(
-					Libc.callState(),
+					CallState.segment(),
 					fd.number,
 					EPOLL_CTL_ADD,
 					watched.number,
 					event,
 				) as Int
 
-			Libc.outcome("epoll_ctl", result.toLong()) { }
+			CallState.outcome("epoll_ctl", result.toLong()) { }
 		}
 
 	/** The tags of the descriptors with input, after waiting as [wait] says; none when it timed out or was interrupted. */
 	fun await(wait: Wait): Sys<List<Long>> {
 		val ready =
 			waitHandle.invokeExact(
-				Libc.callState(),
+				CallState.segment(),
 				fd.number,
 				events,
 				capacity,
@@ -108,8 +108,8 @@ class Epoll private constructor(
 						)
 					},
 				)
-			Libc.errno() == Errno.EINTR -> Sys.Ok(emptyList())
-			else -> Sys.Failed("epoll_wait", Libc.errno())
+			CallState.errno() == Errno.EINTR -> Sys.Ok(emptyList())
+			else -> Sys.Failed("epoll_wait", CallState.errno())
 		}
 	}
 
@@ -120,9 +120,9 @@ class Epoll private constructor(
 	companion object {
 		/** A new instance reporting up to [capacity] ready descriptors a wait; its events live in [arena]. */
 		fun create(arena: Arena, capacity: Int = 16): Sys<Epoll> {
-			val result = createHandle.invokeExact(Libc.callState(), EPOLL_CLOEXEC) as Int
+			val result = createHandle.invokeExact(CallState.segment(), EPOLL_CLOEXEC) as Int
 
-			return Libc.outcome("epoll_create1", result.toLong()) {
+			return CallState.outcome("epoll_create1", result.toLong()) {
 				Epoll(Fd(it.toInt()), arena.allocate(capacity * eventSize, 8), capacity)
 			}
 		}

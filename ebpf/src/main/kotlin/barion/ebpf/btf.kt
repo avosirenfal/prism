@@ -112,7 +112,10 @@ class Btf private constructor(
 	 * first parameter is the kernel's own `void *__data` and whose rest are the tracepoint's own.
 	 */
 	fun tracepoint(name: String): BtfType? =
-		typedefs["btf_trace_$name"]?.let { resolved(it.refers) }
+		typedefs["btf_trace_$name"]
+			?.let { resolved(it.refers) }
+			// The typedef names a pointer to the function: `typedef void (*btf_trace_sys_enter)(void *, ...)`.
+			?.let { if (it.isPointer) resolved(it.refers) else it }
 
 	/** [id] with the names, `const`s and `volatile`s followed through to the type they stand for. */
 	fun resolved(id: Int): BtfType? {

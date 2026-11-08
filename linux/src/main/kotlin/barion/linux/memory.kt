@@ -65,7 +65,7 @@ class Mapping internal constructor(
 fun map(fd: Fd, length: Long, offset: Long, protection: Protection): Sys<Mapping> {
 	val address =
 		mmapHandle.invokeExact(
-			Libc.callState(),
+			CallState.segment(),
 			MemorySegment.NULL,
 			length,
 			protection.bits,
@@ -76,7 +76,7 @@ fun map(fd: Fd, length: Long, offset: Long, protection: Protection): Sys<Mapping
 			as MemorySegment
 
 	return if (address.address() == MAP_FAILED)
-		Sys.Failed("mmap", Libc.errno())
+		Sys.Failed("mmap", CallState.errno())
 	else
 		Sys.Ok(Mapping(address.reinterpret(length)))
 }
@@ -84,10 +84,10 @@ fun map(fd: Fd, length: Long, offset: Long, protection: Protection): Sys<Mapping
 fun unmap(mapping: Mapping): Sys<Unit> {
 	val result =
 		munmapHandle.invokeExact(
-			Libc.callState(),
+			CallState.segment(),
 			mapping.segment,
 			mapping.length,
 		) as Int
 
-	return Libc.outcome("munmap", result.toLong()) { }
+	return CallState.outcome("munmap", result.toLong()) { }
 }

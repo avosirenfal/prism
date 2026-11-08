@@ -6,6 +6,7 @@ import java.lang.foreign.Linker
 import java.lang.foreign.MemoryLayout
 import java.lang.foreign.MemorySegment
 import java.lang.foreign.StructLayout
+import java.lang.foreign.SymbolLookup
 import java.lang.invoke.MethodHandle
 import java.lang.invoke.VarHandle
 
@@ -112,62 +113,87 @@ class SystemCallFailed(
 	val failure: Sys.Failed,
 ) : Exception(failure.toString())
 
-/** libc as the FFM API reaches it. */
-internal object Libc {
-	val linker: Linker = Linker.nativeLinker()
-	private val lookup = linker.defaultLookup()
-	private val captureErrno = Linker.Option.captureCallState("errno")
-	private val stateLayout: StructLayout = Linker.Option.captureStateLayout()
+/**
+ * The errno each thread's last capturing call left. The JVM may run code between a native call and a read of errno
+ * that changes it, so a capturing downcall has the linker copy errno into a segment the moment the call returns:
+ * one segment per thread, which every capturing call of that thread writes and [errno] reads straight after.
+ */
+object CallState {
+	internal val option: Linker.Option = Linker.Option.captureCallState("errno")
+	private val layout: StructLayout = Linker.Option.captureStateLayout()
 	private val errnoHandle: VarHandle =
-		stateLayout.varHandle(
+		layout.varHandle(
 			MemoryLayout.PathElement.groupElement("errno"),
 		)
-
-	/** Each thread's segment the calls it makes write their errno into; read straight after the call. */
 	private val state: ThreadLocal<MemorySegment> =
 		ThreadLocal.withInitial {
-			Arena.ofAuto().allocate(stateLayout)
+			Arena.ofAuto().allocate(layout)
 		}
 
-	/**
-	 * A downcall to [name], of [descriptor] as C declares it; the linker puts the errno segment ([callState]) before
-	 * the arguments. [variadicFrom] is the index of the first argument of a `...`.
-	 */
-	fun capturing(
-		name: String,
-		descriptor: FunctionDescriptor,
-		variadicFrom: Int? = null,
-	): MethodHandle =
-		linker.downcallHandle(
-			lookup.find(name).orElseThrow { UnsatisfiedLinkError("libc has no $name") },
-			descriptor,
-			*listOfNotNull(
-				captureErrno,
-				variadicFrom?.let {
-					Linker.Option.firstVariadicArg(it)
-				},
-			).toTypedArray(),
-		)
+	/** The current thread's segment, which a capturing call takes as its first argument. */
+	fun segment(): MemorySegment = state.get()
 
-	/** A downcall to [name] that cannot fail. */
-	fun plain(name: String, descriptor: FunctionDescriptor): MethodHandle =
-		linker.downcallHandle(
-			lookup.find(name).orElseThrow {
-				UnsatisfiedLinkError("libc has no $name")
-			},
-			descriptor,
-		)
-
-	/** The current thread's errno segment, for a [capturing] call. */
-	fun callState(): MemorySegment = state.get()
-
-	/** The errno the current thread's last [capturing] call left. */
+	/** The errno the current thread's last capturing call left. */
 	fun errno(): Errno = Errno(errnoHandle.get(state.get(), 0L) as Int)
 
-	/** [result] of [call] as a [Sys]: a negative result is the errno it left. */
+	/** [result] of [call] as a [Sys]: a negative result is the errno the call left. */
 	inline fun <T> outcome(call: String, result: Long, value: (Long) -> T): Sys<T> =
 		if (result < 0)
 			Sys.Failed(call, errno())
 		else
 			Sys.Ok(value(result))
 }
+
+/**
+ * A shared library as the FFM API reaches it: libc, or one barion opens by its soname (libbpf). A library that is not
+ * installed is null from [open], never an exception later, so whoever needs it says what to do without it.
+ */
+class NativeLibrary private constructor(
+	val name: String,
+	private val lookup: SymbolLookup,
+) {
+	/**
+	 * A downcall to [symbol], of [descriptor] as C declares it; the linker puts the errno segment
+	 * ([CallState.segment]) before the arguments. [variadicFrom] is the index of the first argument of a `...`.
+	 */
+	fun capturing(
+		symbol: String,
+		descriptor: FunctionDescriptor,
+		variadicFrom: Int? = null,
+	): MethodHandle =
+		linker.downcallHandle(
+			find(symbol),
+			descriptor,
+			*listOfNotNull(
+				CallState.option,
+				variadicFrom?.let {
+					Linker.Option.firstVariadicArg(it)
+				},
+			).toTypedArray(),
+		)
+
+	/** A downcall to [symbol] that cannot fail, or whose failure is in its result alone. */
+	fun plain(symbol: String, descriptor: FunctionDescriptor): MethodHandle =
+		linker.downcallHandle(find(symbol), descriptor)
+
+	private fun find(symbol: String): MemorySegment =
+		lookup.find(symbol).orElseThrow { UnsatisfiedLinkError("$name has no $symbol") }
+
+	override fun toString(): String = name
+
+	companion object {
+		internal val linker: Linker = Linker.nativeLinker()
+
+		val libc: NativeLibrary = NativeLibrary("libc", linker.defaultLookup())
+
+		/** The shared library [soname] (`libbpf.so.1`), loaded for the life of the process, or null where there is none. */
+		fun open(soname: String): NativeLibrary? =
+			try {
+				NativeLibrary(soname, SymbolLookup.libraryLookup(soname, Arena.global()))
+			} catch (missing: IllegalArgumentException) {
+				null
+			}
+	}
+}
+
+internal val Libc: NativeLibrary = NativeLibrary.libc

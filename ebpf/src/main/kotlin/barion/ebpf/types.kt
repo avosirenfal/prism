@@ -179,11 +179,12 @@ internal fun snakeCase(name: String): String =
 class Declaring<D> internal constructor(
 	private val named: (String) -> D,
 ) {
-	operator fun provideDelegate(owner: Any?, property: KProperty<*>): Declared<D> =
-		Declared(named(snakeCase(property.name)))
+	operator fun provideDelegate(owner: Any?, property: KProperty<*>): Delegate<D> =
+		Delegate(named(snakeCase(property.name)))
 }
 
-class Declared<D> internal constructor(
+/** What a `by` declaration reads back: the token it registered. */
+class Delegate<D> internal constructor(
 	private val token: D,
 ) {
 	operator fun getValue(owner: Any?, property: KProperty<*>): D = token

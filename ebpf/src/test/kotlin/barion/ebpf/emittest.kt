@@ -1,17 +1,10 @@
 package barion.ebpf
 
 import java.nio.file.Path
-import kotlin.io.path.copyTo
-import kotlin.io.path.createDirectories
-import kotlin.io.path.div
-import kotlin.io.path.exists
-import kotlin.io.path.fileSize
 import kotlin.io.path.readBytes
-import kotlin.io.path.writeText
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
-import org.junit.jupiter.api.Assumptions.assumeTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 
@@ -24,54 +17,7 @@ class EmitTest {
 	@TempDir
 	lateinit var work: Path
 
-	private val clang: String = System.getProperty("barion.clang", "clang")
-
-	private fun compiled(program: Program): Path {
-		val source = work / program.fileName
-		val objectFile = work / "${program.name}.bpf.o"
-
-		source.writeText(program.emittedOrThrow())
-		System.getProperty("ebpf.emit")?.takeIf { it.isNotBlank() }?.let { into ->
-			Path.of(into).createDirectories()
-			source.copyTo(Path.of(into) / source.fileName.toString(), overwrite = true)
-		}
-		assumeTrue(targetsBpf(), "no clang with the BPF target")
-
-		val clanged =
-			ProcessBuilder(
-				clang,
-				"-target",
-				"bpf",
-				"-O2",
-				"-g",
-				"-Wall",
-				"-Werror",
-				"-c",
-				source.toString(),
-				"-o",
-				objectFile.toString(),
-			).redirectErrorStream(true).start()
-
-		val said = clanged.inputStream.readBytes().decodeToString()
-
-		assertEquals(
-			0,
-			clanged.waitFor(),
-			"clang refused the emitted C:\n$said\n\n${source.readBytes().decodeToString()}",
-		)
-		assertTrue(objectFile.exists() && objectFile.fileSize() > 0, "clang wrote no object")
-
-		return objectFile
-	}
-
-	private fun targetsBpf(): Boolean =
-		try {
-			val listed = ProcessBuilder(clang, "-print-targets").redirectErrorStream(true).start()
-
-			listed.waitFor() == 0 && "bpf" in listed.inputStream.readBytes().decodeToString()
-		} catch (missing: java.io.IOException) {
-			false
-		}
+	private fun compiled(program: Program): Path = Clang.compiled(program, work)
 
 	@Test
 	fun clangCompilesWhatIsEmitted() {
