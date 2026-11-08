@@ -64,9 +64,19 @@ class FilesTest {
 
 	@Test
 	fun failuresAreTheirErrno() {
-		val missing = assertInstanceOf(Sys.Failed::class.java, openat(Fd.CWD, dir.resolve("nope").toString(), OpenFlags.DIRECTORY_FOR_READING))
+		val missing =
+			assertInstanceOf(
+				Sys.Failed::class.java,
+				openat(Fd.CWD, dir.resolve("nope").toString(), OpenFlags.DIRECTORY_FOR_READING),
+			)
+
 		dir.resolve("file").writeText("")
-		val notDirectory = assertInstanceOf(Sys.Failed::class.java, openat(Fd.CWD, dir.resolve("file").toString(), OpenFlags.DIRECTORY_FOR_READING))
+
+		val notDirectory =
+			assertInstanceOf(
+				Sys.Failed::class.java,
+				openat(Fd.CWD, dir.resolve("file").toString(), OpenFlags.DIRECTORY_FOR_READING),
+			)
 
 		assertEquals(Errno.ENOENT, missing.errno)
 		assertEquals(Errno.ENOTDIR, notDirectory.errno)

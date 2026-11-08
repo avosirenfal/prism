@@ -4,7 +4,9 @@
 // the Kotlin compiler it brings) from the plugin portal alone.
 pluginManagement {
 	repositories {
-		maven("https://maven-central.storage-download.googleapis.com/maven2/") { name = "GoogleMavenCentralMirror" }
+		maven("https://maven-central.storage-download.googleapis.com/maven2/") {
+			name = "GoogleMavenCentralMirror"
+		}
 		gradlePluginPortal()
 		mavenCentral()
 		google()
@@ -14,7 +16,9 @@ pluginManagement {
 dependencyResolutionManagement {
 	repositoriesMode = RepositoriesMode.FAIL_ON_PROJECT_REPOS
 	repositories {
-		maven("https://maven-central.storage-download.googleapis.com/maven2/") { name = "GoogleMavenCentralMirror" }
+		maven("https://maven-central.storage-download.googleapis.com/maven2/") {
+			name = "GoogleMavenCentralMirror"
+		}
 		gradlePluginPortal()
 		mavenCentral()
 		google()

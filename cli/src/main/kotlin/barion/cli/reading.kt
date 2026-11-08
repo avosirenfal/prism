@@ -50,7 +50,10 @@ tailrec fun invocation(
 					Invocation.Wrong(
 						node,
 						path,
-						if (first.startsWith("-")) "unknown option $first" else "no command '$first'",
+						if (first.startsWith("-"))
+							"unknown option $first"
+						else
+							"no command '$first'",
 					)
 				else -> invocation(child, words.drop(1), path + child.name)
 			}
@@ -109,9 +112,19 @@ private tailrec fun options(
 
 	val taken: Parsed<Pair<Int, Any?>> =
 		when (opt) {
-			is Flag -> if (inline != null) Parsed.Invalid("$name takes no value") else Parsed.Value(0 to true)
+			is Flag ->
+				if (inline !=
+					null
+				)
+					Parsed.Invalid("$name takes no value")
+				else
+					Parsed.Value(0 to true)
 			is Valued<*, *> -> {
-				val next = words.getOrNull(1)?.takeUnless { isOption(it) && it.substringBefore('=') in byName }
+				val next =
+					words.getOrNull(1)?.takeUnless {
+						isOption(it) &&
+							it.substringBefore('=') in byName
+					}
 
 				when {
 					inline != null -> value(opt.type, inline, name).then { Parsed.Value(0 to it) }
@@ -126,13 +139,23 @@ private tailrec fun options(
 		is Parsed.Value -> {
 			val (count, value) = taken.value
 
-			options(words.drop(1 + count), byName, read.copy(options = read.options + (opt to given + value)))
+			options(
+				words.drop(1 + count),
+				byName,
+				read.copy(
+					options =
+						read.options + (opt to given + value),
+				),
+			)
 		}
 	}
 }
 
 /** Each option's value from what was given of it: its default, or null, where it was not. */
-private fun optionValues(opts: List<Opt<*>>, given: Map<Opt<*>, List<Any?>>): Parsed<Map<Param<*>, Any?>> =
+private fun optionValues(
+	opts: List<Opt<*>>,
+	given: Map<Opt<*>, List<Any?>>,
+): Parsed<Map<Param<*>, Any?>> =
 	parseAll(opts) { opt ->
 		val values = given[opt].orEmpty()
 
@@ -152,23 +175,42 @@ private fun optionValues(opts: List<Opt<*>>, given: Map<Opt<*>, List<Any?>>): Pa
 	}.then { Parsed.Value(it.toMap()) }
 
 /** The words that are not options, as [params] in order: the optional ones take what is there, the last [Arguments] what is left. */
-private fun positionalValues(params: List<Positional<*, *>>, words: List<String>): Parsed<Map<Param<*>, Any?>> {
+private fun positionalValues(
+	params: List<Positional<*, *>>,
+	words: List<String>,
+): Parsed<Map<Param<*>, Any?>> {
 	val required = params.filterIsInstance<Argument<*>>()
 	val optional = params.filterIsInstance<OptionalArgument<*>>()
 	val rest = params.filterIsInstance<Arguments<*>>().singleOrNull()
 	val single = required + optional
 
 	if (words.size < required.size)
-		return Parsed.Invalid("missing ${required.drop(words.size).joinToString(" ") { it.name }}")
+		return Parsed.Invalid(
+			"missing ${required.drop(words.size).joinToString(" ") { it.name }}",
+		)
 	if (rest == null && words.size > single.size)
 		return Parsed.Invalid("unexpected word '${words[single.size]}'")
 
 	val given =
-		parseAll(single.zip(words)) { (param, word) -> value(param.type, word, param.name).then { Parsed.Value(param to it) } }
-	val defaults = optional.drop((words.size - required.size).coerceAtLeast(0)).map { it to it.default() }
+		parseAll(single.zip(words)) { (param, word) ->
+			value(param.type, word, param.name).then {
+				Parsed.Value(param to it)
+			}
+		}
+
+	val defaults =
+		optional.drop((words.size - required.size).coerceAtLeast(0)).map {
+			it to
+				it.default()
+		}
+
 	val remaining =
 		rest?.let { param ->
-			parseAll(words.drop(single.size)) { value(param.type, it, param.name) }.then { Parsed.Value(listOf(param to it)) }
+			parseAll(words.drop(single.size)) { value(param.type, it, param.name) }.then {
+				Parsed.Value(
+					listOf(param to it),
+				)
+			}
 		} ?: Parsed.Value(emptyList())
 
 	return given.then { values ->

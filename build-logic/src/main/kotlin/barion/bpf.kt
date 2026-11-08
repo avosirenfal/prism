@@ -88,7 +88,12 @@ abstract class CompileBpf : DefaultTask() {
 		target.mkdirs()
 
 		val sourcesDir = sources.get().asFile
-		val units = sourcesDir.listFiles { file -> file.name.endsWith(".bpf.c") }.orEmpty().sortedBy { it.name }
+		val units =
+			sourcesDir
+				.listFiles { file ->
+					file.name.endsWith(".bpf.c")
+				}.orEmpty()
+				.sortedBy { it.name }
 
 		if (units.isEmpty())
 			throw GradleException("no .bpf.c under $sourcesDir: the emitter wrote nothing")

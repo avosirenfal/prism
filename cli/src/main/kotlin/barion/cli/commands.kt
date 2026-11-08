@@ -37,7 +37,12 @@ class Group(
 	}
 
 	fun child(name: String): Node? =
-		categories.firstNotNullOfOrNull { category -> category.nodes.firstOrNull { it.name == name } }
+		categories.firstNotNullOfOrNull { category ->
+			category.nodes.firstOrNull {
+				it.name ==
+					name
+			}
+		}
 }
 
 /**
@@ -61,7 +66,12 @@ abstract class Command(
 		val taken = declared.filterIsInstance<Opt<*>>().flatMap { it.names }.toSet()
 		val positional = declared.filterIsInstance<Positional<*, *>>()
 
-		require(param !is Opt<*> || param.names.none { it in taken }) { "$name: an option named twice: $param" }
+		require(
+			param !is Opt<*> ||
+				param.names.none {
+					it in taken
+				},
+		) { "$name: an option named twice: $param" }
 		require(positional.none { it is Arguments<*> } || param !is Positional<*, *>) {
 			"$name: only the last argument takes the rest of the words"
 		}
@@ -73,7 +83,8 @@ abstract class Command(
 		return param
 	}
 
-	fun flag(vararg names: String, help: String): Param<Boolean> = declared(Flag(names.toList(), help))
+	fun flag(vararg names: String, help: String): Param<Boolean> =
+		declared(Flag(names.toList(), help))
 
 	fun <T> option(vararg names: String, type: ParamType<T>, help: String): Param<T?> =
 		declared(Single(names.toList(), type, help))

@@ -44,17 +44,26 @@ private fun usage(node: Node, path: List<String>): String =
 		when (node) {
 			is Group -> "${path.joinToString(" ")} COMMAND ..."
 			is Command ->
-				(path.dropLast(1) + synopsis(node) + listOfNotNull("[OPTIONS]".takeIf { node.params.any { it is Opt<*> } }))
-					.joinToString(" ")
+				(
+					path.dropLast(1) + synopsis(node) +
+						listOfNotNull("[OPTIONS]".takeIf { node.params.any { it is Opt<*> } })
+				).joinToString(" ")
 		}
 
 /** How wide help is: its descriptions wrap within it. */
 private const val HELP_WIDTH = 100
 
 /** Rows of a term and its description, the descriptions in one column [width] past the terms' indent, wrapped. */
-private fun rows(items: List<Pair<String, String>>, width: Int = items.maxOfOrNull { it.first.length } ?: 0): List<String> =
+private fun rows(
+	items: List<Pair<String, String>>,
+	width: Int =
+		items.maxOfOrNull { it.first.length }
+			?: 0,
+): List<String> =
 	items.flatMap { (term, text) ->
-		wrap(text, HELP_WIDTH, "  ${term.padEnd(width)}  ", " ".repeat(width + 4)).ifEmpty { listOf("  $term") }
+		wrap(text, HELP_WIDTH, "  ${term.padEnd(width)}  ", " ".repeat(width + 4)).ifEmpty {
+			listOf("  $term")
+		}
 	}
 
 /** What help says of a parameter beyond its own words: its default, and whether it repeats or is needed. */
@@ -63,14 +72,21 @@ private fun Param<*>.notes(): List<String> =
 		is Defaulted<*> -> listOf("default $defaultShown")
 		is OptionalArgument<*> -> listOf("default $defaultShown")
 		is Required<*> -> listOf("required")
-		is Repeated<*> -> listOf("repeatable") + listOfNotNull("required".takeIf { atLeastOnce })
+		is Repeated<*> ->
+			listOf("repeatable") +
+				listOfNotNull("required".takeIf { atLeastOnce })
 		is Flag, is Single<*>, is Argument<*>, is Arguments<*> -> emptyList()
 	}
 
 private fun Param<*>.described(): String =
 	(listOf(help).filter { it.isNotEmpty() } + notes().map { "($it)" }).joinToString(" ")
 
-private fun Opt<*>.term(): String = names.joinToString(", ") + if (this is Valued<*, *>) " ${type.metavar}" else ""
+private fun Opt<*>.term(): String =
+	names.joinToString(", ") +
+		if (this is Valued<*, *>)
+			" ${type.metavar}"
+		else
+			""
 
 /** [node]'s help, reached by [path]. */
 fun help(node: Node, path: List<String>): String =
@@ -82,7 +98,8 @@ fun help(node: Node, path: List<String>): String =
 					val width = listed.flatMap { it.nodes }.maxOfOrNull { synopsis(it).length } ?: 0
 
 					listed.flatMap { category ->
-						listOf("", "${category.name}:") + rows(category.nodes.map { synopsis(it) to it.help }, width)
+						listOf("", "${category.name}:") +
+							rows(category.nodes.map { synopsis(it) to it.help }, width)
 					} + listOf("", "${path.joinToString(" ")} COMMAND --help: what a command takes")
 				}
 				is Command -> {
@@ -94,14 +111,17 @@ fun help(node: Node, path: List<String>): String =
 						else
 							listOf("", "arguments:") + rows(positional.map { it.name to it.described() })
 
-					arguments + listOf("", "options:") + rows(opts.map { it.term() to it.described() } + ("-h, --help" to "this help"))
+					arguments + listOf("", "options:") +
+						rows(opts.map { it.term() to it.described() } + ("-h, --help" to "this help"))
 				}
 			}
 	).joinToString("\n")
 
 /** [path]'s mistake, as said on stderr: what is wrong, and the usage. */
 fun mistake(node: Node, path: List<String>, message: String): String =
-	"${path.joinToString(" ")}: $message\n${usage(node, path)}; ${path.joinToString(" ")} --help says more"
+	"${path.joinToString(
+		" ",
+	)}: $message\n${usage(node, path)}; ${path.joinToString(" ")} --help says more"
 
 /**
  * What [words] run in [root], as the process would show it: the text for stdout, the text for stderr, and the exit
@@ -117,7 +137,12 @@ data class Ran(
 fun execute(root: Node, words: List<String>): Ran =
 	when (val invocation = invocation(root, words)) {
 		is Invocation.Help -> Ran(help(invocation.node, invocation.path), "", 0)
-		is Invocation.Wrong -> Ran("", mistake(invocation.node, invocation.path, invocation.message), 1)
+		is Invocation.Wrong ->
+			Ran(
+				"",
+				mistake(invocation.node, invocation.path, invocation.message),
+				1,
+			)
 		is Invocation.Run ->
 			try {
 				val outcome = invocation.command.run(invocation.args)

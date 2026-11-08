@@ -137,15 +137,32 @@ private val openatHandle =
 		FunctionDescriptor.of(JAVA_INT, JAVA_INT, ADDRESS, JAVA_INT, JAVA_INT),
 		variadicFrom = 3,
 	)
-private val closeHandle = Libc.capturing("close", FunctionDescriptor.of(JAVA_INT, JAVA_INT))
+private val closeHandle =
+	Libc.capturing(
+		"close",
+		FunctionDescriptor.of(JAVA_INT, JAVA_INT),
+	)
 private val getdentsHandle =
-	Libc.capturing("getdents64", FunctionDescriptor.of(JAVA_LONG, JAVA_INT, ADDRESS, JAVA_LONG))
+	Libc.capturing(
+		"getdents64",
+		FunctionDescriptor.of(JAVA_LONG, JAVA_INT, ADDRESS, JAVA_LONG),
+	)
 private val statxHandle =
-	Libc.capturing("statx", FunctionDescriptor.of(JAVA_INT, JAVA_INT, ADDRESS, JAVA_INT, JAVA_INT, ADDRESS))
+	Libc.capturing(
+		"statx",
+		FunctionDescriptor.of(JAVA_INT, JAVA_INT, ADDRESS, JAVA_INT, JAVA_INT, ADDRESS),
+	)
 
 /** `openat(2)`: [path], a NUL-terminated C string, relative to [dir]. */
 fun openat(dir: Fd, path: MemorySegment, flags: OpenFlags): Sys<Fd> {
-	val result = openatHandle.invokeExact(Libc.callState(), dir.number, path, flags.bits, 0) as Int
+	val result =
+		openatHandle.invokeExact(
+			Libc.callState(),
+			dir.number,
+			path,
+			flags.bits,
+			0,
+		) as Int
 
 	return Libc.outcome("openat", result.toLong()) { Fd(it.toInt()) }
 }
@@ -161,7 +178,12 @@ fun close(fd: Fd): Sys<Unit> {
 }
 
 /** Opens [path] for the duration of [use], closing it however [use] ends. */
-inline fun <T> withOpened(dir: Fd, path: String, flags: OpenFlags, use: (Fd) -> Sys<T>): Sys<T> =
+inline fun <T> withOpened(
+	dir: Fd,
+	path: String,
+	flags: OpenFlags,
+	use: (Fd) -> Sys<T>,
+): Sys<T> =
 	openat(dir, path, flags).then { fd ->
 		try {
 			use(fd)
@@ -177,11 +199,23 @@ private const val STATX_SIZE = 256L
 private const val STATX_MASK = 0x7FF or 0x1000
 
 /** `statx(2)` of [path] (a C string) relative to [dir], into [scratch] (at least 256 bytes), as a [Stat]. */
-fun statx(dir: Fd, path: MemorySegment, flags: AtFlags, scratch: MemorySegment): Sys<Stat> {
+fun statx(
+	dir: Fd,
+	path: MemorySegment,
+	flags: AtFlags,
+	scratch: MemorySegment,
+): Sys<Stat> {
 	require(scratch.byteSize() >= STATX_SIZE) { "statx writes 256 bytes" }
 
 	val result =
-		statxHandle.invokeExact(Libc.callState(), dir.number, path, flags.bits, STATX_MASK, scratch) as Int
+		statxHandle.invokeExact(
+			Libc.callState(),
+			dir.number,
+			path,
+			flags.bits,
+			STATX_MASK,
+			scratch,
+		) as Int
 
 	return Libc.outcome("statx", result.toLong()) {
 		val mode = scratch.get(JAVA_SHORT, 28).toInt() and 0xFFFF
@@ -192,7 +226,11 @@ fun statx(dir: Fd, path: MemorySegment, flags: AtFlags, scratch: MemorySegment):
 			dev = Dev(scratch.get(JAVA_INT, 136), scratch.get(JAVA_INT, 140)),
 			ino = scratch.get(JAVA_LONG, 32),
 			size = scratch.get(JAVA_LONG, 40),
-			modified = Instant.ofEpochSecond(scratch.get(JAVA_LONG, 112), scratch.get(JAVA_INT, 120).toLong()),
+			modified =
+				Instant.ofEpochSecond(
+					scratch.get(JAVA_LONG, 112),
+					scratch.get(JAVA_INT, 120).toLong(),
+				),
 			links = scratch.get(JAVA_INT, 16),
 			mountId = scratch.get(JAVA_LONG, 144),
 		)
@@ -201,7 +239,9 @@ fun statx(dir: Fd, path: MemorySegment, flags: AtFlags, scratch: MemorySegment):
 
 /** `statx(2)` of a path given as text. */
 fun statx(dir: Fd, path: String, flags: AtFlags = AtFlags.NONE): Sys<Stat> =
-	Arena.ofConfined().use { arena -> statx(dir, arena.allocateFrom(path), flags, arena.allocate(STATX_SIZE)) }
+	Arena.ofConfined().use { arena ->
+		statx(dir, arena.allocateFrom(path), flags, arena.allocate(STATX_SIZE))
+	}
 
 /**
  * A buffer `getdents64(2)` fills with a directory's entries, read in place: each entry's inode, kind and name are
@@ -216,7 +256,13 @@ class DirentBuffer(
 
 	/** Fills the buffer with [dir]'s next entries: the bytes written, 0 at the end of the directory. */
 	fun fill(dir: Fd): Sys<Int> {
-		val result = getdentsHandle.invokeExact(Libc.callState(), dir.number, segment, segment.byteSize()) as Long
+		val result =
+			getdentsHandle.invokeExact(
+				Libc.callState(),
+				dir.number,
+				segment,
+				segment.byteSize(),
+			) as Long
 
 		return Libc.outcome("getdents64", result) { it.toInt() }
 	}
@@ -226,7 +272,10 @@ class DirentBuffer(
 	 * kind (null where the file system does not say), and where its name starts in [segment], NUL-terminated, with
 	 * its length in bytes.
 	 */
-	inline fun forEach(length: Int, visit: (ino: Long, kind: FileKind?, name: Long, nameLength: Int) -> Unit) {
+	inline fun forEach(
+		length: Int,
+		visit: (ino: Long, kind: FileKind?, name: Long, nameLength: Int) -> Unit,
+	) {
 		var at = 0L
 
 		while (at < length) {
@@ -246,13 +295,18 @@ class DirentBuffer(
 	}
 
 	/** The bytes of the name at [name], [length] long. */
-	fun nameBytes(name: Long, length: Int): ByteArray = segment.asSlice(name, length.toLong()).toArray(JAVA_BYTE)
+	fun nameBytes(name: Long, length: Int): ByteArray =
+		segment.asSlice(name, length.toLong()).toArray(JAVA_BYTE)
 
 	/** The name at [name] as text, decoded as the JVM names files (UTF-8). */
 	fun nameString(name: Long): String = segment.getString(name)
 
 	/** The name at [name] as a C string, for a call relative to the directory it is in. */
-	fun nameSegment(name: Long, length: Int): MemorySegment = segment.asSlice(name, length + 1L)
+	fun nameSegment(name: Long, length: Int): MemorySegment =
+		segment.asSlice(
+			name,
+			length + 1L,
+		)
 
 	@PublishedApi
 	internal fun nameLength(name: Long, end: Long): Int {

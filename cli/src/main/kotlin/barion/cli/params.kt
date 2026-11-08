@@ -48,7 +48,8 @@ class ParamType<T>(
 
 		val INT =
 			ParamType("N") { word ->
-				word.toIntOrNull()?.let { Parsed.Value(it) } ?: Parsed.Invalid("'$word' is not a whole number")
+				word.toIntOrNull()?.let { Parsed.Value(it) }
+					?: Parsed.Invalid("'$word' is not a whole number")
 			}
 
 		/** A whole number above zero. */
@@ -74,7 +75,9 @@ class ParamType<T>(
 		fun <E> choice(entries: List<E>, name: (E) -> String): ParamType<E> =
 			ParamType(entries.joinToString("|", transform = name)) { word ->
 				entries.firstOrNull { name(it) == word }?.let { Parsed.Value(it) }
-					?: Parsed.Invalid("'$word' is not one of ${entries.joinToString(", ", transform = name)}")
+					?: Parsed.Invalid(
+						"'$word' is not one of ${entries.joinToString(", ", transform = name)}",
+					)
 			}
 	}
 }
@@ -85,7 +88,9 @@ data class Size(
 	val height: Int,
 ) {
 	init {
-		require(width > 0 && height > 0) { "a size is above zero both ways, not ${width}x$height" }
+		require(width > 0 && height > 0) {
+			"a size is above zero both ways, not ${width}x$height"
+		}
 	}
 
 	companion object {

@@ -21,9 +21,21 @@ private const val EPOLLIN = 1
 private const val EPOLL_CTL_ADD = 1
 private const val EPOLL_CLOEXEC = 0x80000
 
-private val createHandle = Libc.capturing("epoll_create1", FunctionDescriptor.of(JAVA_INT, JAVA_INT))
-private val ctlHandle = Libc.capturing("epoll_ctl", FunctionDescriptor.of(JAVA_INT, JAVA_INT, JAVA_INT, JAVA_INT, ADDRESS))
-private val waitHandle = Libc.capturing("epoll_wait", FunctionDescriptor.of(JAVA_INT, JAVA_INT, ADDRESS, JAVA_INT, JAVA_INT))
+private val createHandle =
+	Libc.capturing(
+		"epoll_create1",
+		FunctionDescriptor.of(JAVA_INT, JAVA_INT),
+	)
+private val ctlHandle =
+	Libc.capturing(
+		"epoll_ctl",
+		FunctionDescriptor.of(JAVA_INT, JAVA_INT, JAVA_INT, JAVA_INT, ADDRESS),
+	)
+private val waitHandle =
+	Libc.capturing(
+		"epoll_wait",
+		FunctionDescriptor.of(JAVA_INT, JAVA_INT, ADDRESS, JAVA_INT, JAVA_INT),
+	)
 
 /** How long a wait waits: not at all, a bound, or until something is ready. */
 sealed interface Wait {
@@ -63,17 +75,39 @@ class Epoll private constructor(
 			event.set(JAVA_INT, 0, EPOLLIN)
 			event.set(unalignedLong, dataOffset, tag)
 
-			val result = ctlHandle.invokeExact(Libc.callState(), fd.number, EPOLL_CTL_ADD, watched.number, event) as Int
+			val result =
+				ctlHandle.invokeExact(
+					Libc.callState(),
+					fd.number,
+					EPOLL_CTL_ADD,
+					watched.number,
+					event,
+				) as Int
 
 			Libc.outcome("epoll_ctl", result.toLong()) { }
 		}
 
 	/** The tags of the descriptors with input, after waiting as [wait] says; none when it timed out or was interrupted. */
 	fun await(wait: Wait): Sys<List<Long>> {
-		val ready = waitHandle.invokeExact(Libc.callState(), fd.number, events, capacity, wait.millis) as Int
+		val ready =
+			waitHandle.invokeExact(
+				Libc.callState(),
+				fd.number,
+				events,
+				capacity,
+				wait.millis,
+			) as Int
 
 		return when {
-			ready >= 0 -> Sys.Ok((0 until ready).map { events.get(unalignedLong, it * eventSize + dataOffset) })
+			ready >= 0 ->
+				Sys.Ok(
+					(0 until ready).map {
+						events.get(
+							unalignedLong,
+							it * eventSize + dataOffset,
+						)
+					},
+				)
 			Libc.errno() == Errno.EINTR -> Sys.Ok(emptyList())
 			else -> Sys.Failed("epoll_wait", Libc.errno())
 		}

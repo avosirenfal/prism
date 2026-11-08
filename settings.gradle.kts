@@ -6,7 +6,9 @@ pluginManagement {
 		// fallback for anything the mirror has not caught up with. Keep in step with dependencyResolutionManagement
 		// below and build-logic/settings.gradle.kts: a settings script cannot share a repository list with its
 		// pluginManagement block.
-		maven("https://maven-central.storage-download.googleapis.com/maven2/") { name = "GoogleMavenCentralMirror" }
+		maven("https://maven-central.storage-download.googleapis.com/maven2/") {
+			name = "GoogleMavenCentralMirror"
+		}
 		gradlePluginPortal()
 		mavenCentral()
 		google()
@@ -23,7 +25,9 @@ dependencyResolutionManagement {
 	// Every module resolves from these and only these: a repositories block in a module script fails the build.
 	repositoriesMode = RepositoriesMode.FAIL_ON_PROJECT_REPOS
 	repositories {
-		maven("https://maven-central.storage-download.googleapis.com/maven2/") { name = "GoogleMavenCentralMirror" }
+		maven("https://maven-central.storage-download.googleapis.com/maven2/") {
+			name = "GoogleMavenCentralMirror"
+		}
 		mavenCentral()
 		google()
 	}

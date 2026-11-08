@@ -23,9 +23,28 @@ value class Protection(
 private const val MAP_SHARED = 1
 
 private val mmapHandle =
-	Libc.capturing("mmap", FunctionDescriptor.of(ADDRESS, ADDRESS, JAVA_LONG, JAVA_INT, JAVA_INT, JAVA_INT, JAVA_LONG))
-private val munmapHandle = Libc.capturing("munmap", FunctionDescriptor.of(JAVA_INT, ADDRESS, JAVA_LONG))
-private val sysconfHandle = Libc.plain("sysconf", FunctionDescriptor.of(JAVA_LONG, JAVA_INT))
+	Libc.capturing(
+		"mmap",
+		FunctionDescriptor.of(
+			ADDRESS,
+			ADDRESS,
+			JAVA_LONG,
+			JAVA_INT,
+			JAVA_INT,
+			JAVA_INT,
+			JAVA_LONG,
+		),
+	)
+private val munmapHandle =
+	Libc.capturing(
+		"munmap",
+		FunctionDescriptor.of(JAVA_INT, ADDRESS, JAVA_LONG),
+	)
+private val sysconfHandle =
+	Libc.plain(
+		"sysconf",
+		FunctionDescriptor.of(JAVA_LONG, JAVA_INT),
+	)
 
 /** `MAP_FAILED`. */
 private const val MAP_FAILED = -1L
@@ -45,7 +64,15 @@ class Mapping internal constructor(
 
 fun map(fd: Fd, length: Long, offset: Long, protection: Protection): Sys<Mapping> {
 	val address =
-		mmapHandle.invokeExact(Libc.callState(), MemorySegment.NULL, length, protection.bits, MAP_SHARED, fd.number, offset)
+		mmapHandle.invokeExact(
+			Libc.callState(),
+			MemorySegment.NULL,
+			length,
+			protection.bits,
+			MAP_SHARED,
+			fd.number,
+			offset,
+		)
 			as MemorySegment
 
 	return if (address.address() == MAP_FAILED)
@@ -55,7 +82,12 @@ fun map(fd: Fd, length: Long, offset: Long, protection: Protection): Sys<Mapping
 }
 
 fun unmap(mapping: Mapping): Sys<Unit> {
-	val result = munmapHandle.invokeExact(Libc.callState(), mapping.segment, mapping.length) as Int
+	val result =
+		munmapHandle.invokeExact(
+			Libc.callState(),
+			mapping.segment,
+			mapping.length,
+		) as Int
 
 	return Libc.outcome("munmap", result.toLong()) { }
 }

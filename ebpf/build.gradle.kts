@@ -5,3 +5,16 @@
 plugins {
 	id("barion.kotlin-jvm")
 }
+
+tasks.test {
+	// `-Pebpf.emit=DIR` keeps the C the tests emit, to read or to compile by hand.
+	providers.gradleProperty("ebpf.emit").orNull?.let {
+		systemProperty("ebpf.emit", it)
+	}
+	// The clang the emitted C is compiled with, where it is not `clang` on the PATH.
+	systemProperty(
+		"barion.clang",
+		providers.gradleProperty("barion.clang").orNull ?: System.getenv("BARION_CLANG")
+			?: "clang",
+	)
+}

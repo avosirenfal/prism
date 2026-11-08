@@ -118,25 +118,45 @@ internal object Libc {
 	private val lookup = linker.defaultLookup()
 	private val captureErrno = Linker.Option.captureCallState("errno")
 	private val stateLayout: StructLayout = Linker.Option.captureStateLayout()
-	private val errnoHandle: VarHandle = stateLayout.varHandle(MemoryLayout.PathElement.groupElement("errno"))
+	private val errnoHandle: VarHandle =
+		stateLayout.varHandle(
+			MemoryLayout.PathElement.groupElement("errno"),
+		)
 
 	/** Each thread's segment the calls it makes write their errno into; read straight after the call. */
-	private val state: ThreadLocal<MemorySegment> = ThreadLocal.withInitial { Arena.ofAuto().allocate(stateLayout) }
+	private val state: ThreadLocal<MemorySegment> =
+		ThreadLocal.withInitial {
+			Arena.ofAuto().allocate(stateLayout)
+		}
 
 	/**
 	 * A downcall to [name], of [descriptor] as C declares it; the linker puts the errno segment ([callState]) before
 	 * the arguments. [variadicFrom] is the index of the first argument of a `...`.
 	 */
-	fun capturing(name: String, descriptor: FunctionDescriptor, variadicFrom: Int? = null): MethodHandle =
+	fun capturing(
+		name: String,
+		descriptor: FunctionDescriptor,
+		variadicFrom: Int? = null,
+	): MethodHandle =
 		linker.downcallHandle(
 			lookup.find(name).orElseThrow { UnsatisfiedLinkError("libc has no $name") },
 			descriptor,
-			*listOfNotNull(captureErrno, variadicFrom?.let { Linker.Option.firstVariadicArg(it) }).toTypedArray(),
+			*listOfNotNull(
+				captureErrno,
+				variadicFrom?.let {
+					Linker.Option.firstVariadicArg(it)
+				},
+			).toTypedArray(),
 		)
 
 	/** A downcall to [name] that cannot fail. */
 	fun plain(name: String, descriptor: FunctionDescriptor): MethodHandle =
-		linker.downcallHandle(lookup.find(name).orElseThrow { UnsatisfiedLinkError("libc has no $name") }, descriptor)
+		linker.downcallHandle(
+			lookup.find(name).orElseThrow {
+				UnsatisfiedLinkError("libc has no $name")
+			},
+			descriptor,
+		)
 
 	/** The current thread's errno segment, for a [capturing] call. */
 	fun callState(): MemorySegment = state.get()
