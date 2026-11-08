@@ -116,8 +116,8 @@ private fun rowOf(entry: Path, zone: ZoneId): Row? {
 			if (folder)
 				null
 			else
-				sizeOf(target.size()),
-		modified = dateOf(target.lastModifiedTime().toInstant(), zone),
+				target.size().let { Shown(it, sizeOf(it)) },
+		modified = target.lastModifiedTime().toInstant().let { Shown(it, dateOf(it, zone)) },
 		hidden = name.startsWith("."),
 	)
 }
@@ -134,18 +134,13 @@ private fun followed(link: Path): BasicFileAttributes? =
  * people read them: case aside, and numbers by their value, so `file2` comes before `file10`.
  */
 fun sorted(rows: List<Row>, sort: Sort): List<Row> {
+	val byName = Comparator<Row> { a, b -> naturalOrder(a.name, b.name) }
 	val byColumn: Comparator<Row> =
 		when (sort.by) {
-			Sort.Column.Name -> Comparator { a, b -> naturalOrder(a.name, b.name) }
-			Sort.Column.Modified -> compareBy { it.modified }
-			Sort.Column.Type ->
-				compareBy<Row> { it.type.lowercase() }.thenComparator {
-					a,
-					b,
-					->
-					naturalOrder(a.name, b.name)
-				}
-			Sort.Column.Size -> compareBy { it.size?.let(::sizeKey) }
+			Sort.Column.Name -> byName
+			Sort.Column.Modified -> compareBy<Row> { it.modified }.then(byName)
+			Sort.Column.Type -> compareBy<Row> { it.type.lowercase() }.then(byName)
+			Sort.Column.Size -> compareBy<Row> { it.size }.then(byName)
 		}
 
 	val directed =
@@ -198,27 +193,6 @@ fun sizeOf(bytes: Long): String {
 		value < 10 -> "%.1f %s".format(Locale.ROOT, value, units[unit])
 		else -> "%.0f %s".format(Locale.ROOT, value, units[unit])
 	}
-}
-
-/** A size column's text back to bytes, for ordering by size. */
-private fun sizeKey(size: String): Double {
-	val (number, unit) =
-		size.split(' ').let {
-			it[0].toDouble() to
-				it.getOrElse(1) { "bytes" }
-		}
-
-	val power =
-		listOf("byte", "bytes", "KB", "MB", "GB", "TB").indexOf(unit).let {
-			if (it <=
-				1
-			)
-				0
-			else
-				it - 1
-		}
-
-	return number * Math.pow(1024.0, power.toDouble())
 }
 
 private val DATE = DateTimeFormatter.ofPattern("d MMM yyyy, HH:mm", Locale.ENGLISH)

@@ -53,9 +53,7 @@ private class Picking(
 	fun state(args: Args): PickerState {
 		val asked =
 			listOfNotNull(
-				args[save]?.let {
-					"--save"
-				},
+				"--save".takeIf { args[save] != null },
 				"--multiple".takeIf { args[many] },
 				"--folder".takeIf { args[folders] },
 			)

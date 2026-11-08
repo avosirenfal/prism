@@ -2,6 +2,7 @@ package barion.picker
 
 import androidx.compose.runtime.Immutable
 import java.nio.file.Path
+import java.time.Instant
 
 /*
  * What the picker shows, as immutable data. The view (view.kt) is a pure function of a [PickerState]: it draws what
@@ -35,6 +36,18 @@ enum class Category {
 	Other,
 }
 
+/**
+ * A value a column shows, with the text it shows it as, made together so they cannot disagree: the listing is
+ * ordered by the value and drawn as the text, so the date column orders by time and not by the words for it.
+ */
+@Immutable
+data class Shown<T : Comparable<T>>(
+	val value: T,
+	val text: String,
+) : Comparable<Shown<T>> {
+	override fun compareTo(other: Shown<T>): Int = value.compareTo(other.value)
+}
+
 /** One entry of the folder shown, with everything the view shows of it already worked out. */
 @Immutable
 data class Row(
@@ -43,10 +56,10 @@ data class Row(
 	val category: Category,
 	/** What the type column says: "Folder", "PNG image", "Kotlin source". */
 	val type: String,
-	/** The size as the size column says it ("4.2 KB"), or null for a folder. */
-	val size: String?,
-	/** When it was last modified, as the date column says it, or null where that could not be read. */
-	val modified: String?,
+	/** The size in bytes, said as the size column says it ("4.2 KB"); null for a folder. */
+	val size: Shown<Long>?,
+	/** When it was last modified, said as the date column says it; null where that could not be read. */
+	val modified: Shown<Instant>?,
 	val hidden: Boolean,
 ) {
 	val isFolder: Boolean get() = category == Category.Folder

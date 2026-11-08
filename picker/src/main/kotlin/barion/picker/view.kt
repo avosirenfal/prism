@@ -449,7 +449,7 @@ private fun EntryRow(row: Row, chosen: Boolean, onEvent: (PickerEvent) -> Unit) 
 			Text(row.name, style = type.body, maxLines = 1, overflow = TextOverflow.Ellipsis)
 		}
 		Text(
-			row.modified.orEmpty(),
+			row.modified?.text.orEmpty(),
 			style = type.muted,
 			maxLines = 1,
 			modifier = Modifier.weight(Dims.dateColumn),
@@ -462,7 +462,7 @@ private fun EntryRow(row: Row, chosen: Boolean, onEvent: (PickerEvent) -> Unit) 
 			modifier = Modifier.weight(Dims.typeColumn),
 		)
 		Text(
-			row.size.orEmpty(),
+			row.size?.text.orEmpty(),
 			style = type.muted,
 			maxLines = 1,
 			textAlign = TextAlign.End,

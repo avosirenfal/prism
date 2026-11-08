@@ -27,21 +27,23 @@ class PickerTest {
 
 	private val home = Path("/home/avery")
 
+	/** A row as the source would make it, from a size in bytes and a time, said in UTC. */
 	private fun row(
 		name: String,
-		size: String? = null,
-		modified: String = "8 Nov 2026, 09:41",
+		bytes: Long? = null,
+		at: String = "2026-11-08T09:41:00Z",
 	): Row {
-		val folder = size == null
+		val folder = bytes == null
 		val category = if (folder) Category.Folder else categoryOf(name)
+		val instant = Instant.parse(at)
 
 		return Row(
 			RowId(name),
 			name,
 			category,
 			typeOf(name, category),
-			size,
-			modified,
+			bytes?.let { Shown(it, sizeOf(it)) },
+			Shown(instant, dateOf(instant, ZoneOffset.UTC)),
 			name.startsWith("."),
 		)
 	}
@@ -59,17 +61,17 @@ class PickerTest {
 				row("Pictures"),
 				row("Projects"),
 				row("Videos"),
-				row("Budget 2026.xlsx", "48 KB", "2 Nov 2026, 17:05"),
-				row("Holiday in Lisbon.jpg", "4.2 MB", "21 Oct 2026, 12:30"),
-				row("Quarterly report.pdf", "1.1 MB", "7 Nov 2026, 16:12"),
-				row("backup.tar.gz", "312 MB", "30 Oct 2026, 03:00"),
-				row("main.kt", "2.4 KB", "8 Nov 2026, 11:20"),
-				row("notes.md", "6.1 KB", "8 Nov 2026, 10:02"),
-				row("screenshot 2.png", "880 KB", "5 Nov 2026, 14:44"),
-				row("screenshot 10.png", "912 KB", "6 Nov 2026, 09:13"),
-				row("song.flac", "38 MB", "12 Sep 2026, 21:40"),
-				row("trailer.mp4", "96 MB", "1 Nov 2026, 19:27"),
-				row("todo.txt", "214 bytes", "8 Nov 2026, 08:55"),
+				row("Budget 2026.xlsx", 48_000, "2026-11-02T17:05:00Z"),
+				row("Holiday in Lisbon.jpg", 4_400_000, "2026-10-21T12:30:00Z"),
+				row("Quarterly report.pdf", 1_150_000, "2026-11-07T16:12:00Z"),
+				row("backup.tar.gz", 327_000_000, "2026-10-30T03:00:00Z"),
+				row("main.kt", 2_460, "2026-11-08T11:20:00Z"),
+				row("notes.md", 6_250, "2026-11-08T10:02:00Z"),
+				row("screenshot 2.png", 901_000, "2026-11-05T14:44:00Z"),
+				row("screenshot 10.png", 934_000, "2026-11-06T09:13:00Z"),
+				row("song.flac", 39_800_000, "2026-09-12T21:40:00Z"),
+				row("trailer.mp4", 100_600_000, "2026-11-01T19:27:00Z"),
+				row("todo.txt", 214, "2026-11-08T08:55:00Z"),
 			)
 
 		val places =
@@ -192,6 +194,29 @@ class PickerTest {
 	}
 
 	@Test
+	fun aColumnOrdersByItsValueNotItsWords() {
+		val rows = (fixture().listing as Listing.Shown).rows
+		val byDate =
+			sorted(rows, Sort(Sort.Column.Modified, ascending = true))
+				.filterNot {
+					it.isFolder
+				}.map { it.name }
+
+		val bySize =
+			sorted(rows, Sort(Sort.Column.Size, ascending = false))
+				.filterNot {
+					it.isFolder
+				}.map { it.name }
+
+		// "12 Sep" is before "8 Nov" in time, though not in the words for it.
+		assertEquals("song.flac", byDate.first())
+		assertEquals("main.kt", byDate.last())
+		// 312 MB before 38 MB, though "3" comes before "3" and "1" before "8".
+		assertEquals(listOf("backup.tar.gz", "trailer.mp4", "song.flac"), bySize.take(3))
+		assertEquals("todo.txt", bySize.last())
+	}
+
+	@Test
 	fun sizesAreSaidAsPeopleReadThem() {
 		assertEquals("1 byte", sizeOf(1))
 		assertEquals("214 bytes", sizeOf(214))
@@ -239,7 +264,7 @@ class PickerTest {
 
 		assertEquals(listOf("Folder", "photo.png"), rows.map { it.name })
 		assertEquals("PNG image", rows[1].type)
-		assertEquals("10 bytes", rows[1].size)
+		assertEquals(Shown(10L, "10 bytes"), rows[1].size)
 		assertFalse(rows.any { it.hidden })
 		assertEquals(listOf("Home"), state.crumbs.map { it.label })
 	}
