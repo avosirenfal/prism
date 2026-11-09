@@ -1,5 +1,7 @@
 package barion.picker
 
+import barion.picker.Fixtures.home
+import barion.picker.Fixtures.picker
 import java.nio.file.Path
 import java.time.Instant
 import java.time.ZoneOffset
@@ -13,104 +15,24 @@ import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertInstanceOf
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
-import org.junit.jupiter.api.assertThrows
 import org.junit.jupiter.api.io.TempDir
 
 /**
- * The picker's model and its view. The model's rules are checked as values; the view is composed and drawn headless,
- * in both palettes, which is the test that it composes at all, and with `-Ppicker.screenshots=DIR` writes what it
- * drew there to look at.
+ * The picker's model, its source and its drawing. The model's rules are checked as values; the view is composed and
+ * drawn headless, in both palettes, which is the test that it composes at all, and with `-Ppicker.screenshots=DIR`
+ * writes what it drew there to look at.
  */
 class PickerTest {
 	@TempDir
 	lateinit var work: Path
 
-	private val home = Path("/home/avery")
+	private fun id(name: String) = RowId(name)
 
-	/** A row as the source would make it, from a size in bytes and a time, said in UTC. */
-	private fun row(
-		name: String,
-		bytes: Long? = null,
-		at: String = "2026-11-08T09:41:00Z",
-	): Row {
-		val folder = bytes == null
-		val category = if (folder) Category.Folder else categoryOf(name)
-		val instant = Instant.parse(at)
-
-		return Row(
-			RowId(name),
-			name,
-			category,
-			typeOf(name, category),
-			bytes?.let { Shown(it, sizeOf(it)) },
-			Shown(instant, dateOf(instant, ZoneOffset.UTC)),
-			name.startsWith("."),
-		)
-	}
-
-	/** A home folder as a person's might be, every kind of row in it. */
+	/** The picker over the fixture's home, a file chosen. */
 	private fun fixture(
-		choosing: Choosing = Choosing.OneFile(RowId("Quarterly report.pdf")),
-	): PickerState {
-		val rows =
-			listOf(
-				row("Desktop"),
-				row("Documents"),
-				row("Downloads"),
-				row("Music"),
-				row("Pictures"),
-				row("Projects"),
-				row("Videos"),
-				row("Budget 2026.xlsx", 48_000, "2026-11-02T17:05:00Z"),
-				row("Holiday in Lisbon.jpg", 4_400_000, "2026-10-21T12:30:00Z"),
-				row("Quarterly report.pdf", 1_150_000, "2026-11-07T16:12:00Z"),
-				row("backup.tar.gz", 327_000_000, "2026-10-30T03:00:00Z"),
-				row("main.kt", 2_460, "2026-11-08T11:20:00Z"),
-				row("notes.md", 6_250, "2026-11-08T10:02:00Z"),
-				row("screenshot 2.png", 901_000, "2026-11-05T14:44:00Z"),
-				row("screenshot 10.png", 934_000, "2026-11-06T09:13:00Z"),
-				row("song.flac", 39_800_000, "2026-09-12T21:40:00Z"),
-				row("trailer.mp4", 100_600_000, "2026-11-01T19:27:00Z"),
-				row("todo.txt", 214, "2026-11-08T08:55:00Z"),
-			)
-
-		val places =
-			listOf(
-				Place("Home", Place.Kind.Home, home),
-				Place("Desktop", Place.Kind.Desktop, home.resolve("Desktop")),
-				Place("Documents", Place.Kind.Documents, home.resolve("Documents")),
-				Place("Downloads", Place.Kind.Downloads, home.resolve("Downloads")),
-				Place("Pictures", Place.Kind.Pictures, home.resolve("Pictures")),
-				Place("Music", Place.Kind.Music, home.resolve("Music")),
-				Place("Videos", Place.Kind.Videos, home.resolve("Videos")),
-			)
-
-		val drives =
-			listOf(
-				Place("File system", Place.Kind.Drive, Path("/")),
-				Place("Data", Place.Kind.Drive, Path("/mnt/data")),
-			)
-
-		return PickerState(
-			title = titleOf(choosing),
-			choosing = choosing,
-			folder = home,
-			crumbs = crumbsOf(home, home),
-			sidebar =
-				Sidebar(
-					listOf(
-						Sidebar.Group("Quick access", places),
-						Sidebar.Group("This computer", drives),
-					),
-				),
-			listing = Listing.Shown(sorted(rows, Sort.BY_NAME), Sort.BY_NAME),
-			filters = listOf(TypeFilter.ALL_FILES, TypeFilter("Images", listOf("*.png", "*.jpg"))),
-			filter = TypeFilter.ALL_FILES,
-			query = "",
-			canGoBack = true,
-			canGoForward = false,
-		)
-	}
+		choosing: Choosing = Choosing.OneFile(),
+		vararg inputs: Input,
+	): PickerState = after(picker(choosing), *inputs)
 
 	private fun screenshot(name: String, png: ByteArray) {
 		System.getProperty("picker.screenshots")?.takeIf { it.isNotBlank() }?.let { dir ->
@@ -118,10 +40,20 @@ class PickerTest {
 		}
 	}
 
+	private val reportChosen = PickerEvent.Clicked(RowId("Quarterly report.pdf"), Click.Only)
+
 	@Test
 	fun thePickerDrawsInBothPalettes() {
+		val state =
+			fixture(
+				Choosing.OneFile(),
+				PickerEvent.Opened(Path("/")),
+				PickerEvent.Opened(home),
+				reportChosen,
+			)
+
 		for ((name, palette) in listOf("light" to Palette.Light, "dark" to Palette.Dark)) {
-			val png = renderedPng(fixture(), 1100, 680, palette, scale = 2f)
+			val png = renderedPng(state, 1100, 680, palette, scale = 2f)
 
 			// A PNG's signature, and more than a blank image would take.
 			assertEquals(0x89.toByte(), png[0])
@@ -134,55 +66,88 @@ class PickerTest {
 	fun everyKindOfPickerDraws() {
 		val kinds =
 			mapOf(
-				"files" to Choosing.Files(setOf(RowId("main.kt"), RowId("notes.md"))),
-				"save" to Choosing.SaveAs("Quarterly report (final).pdf"),
-				"folder" to Choosing.Folder(null),
+				"files" to
+					fixture(
+						Choosing.Files(),
+						PickerEvent.Clicked(id("main.kt"), Click.Only),
+						PickerEvent.Clicked(id("notes.md"), Click.Toggle),
+					),
+				"save" to fixture(Choosing.SaveAs("Quarterly report (final).pdf")),
+				"folder" to
+					fixture(Choosing.Folder(), PickerEvent.Clicked(id("Projects"), Click.Only)),
+				"replace" to fixture(Choosing.SaveAs("notes.md"), PickerEvent.Accepted),
+				"address" to fixture(Choosing.OneFile(), PickerEvent.EditedAddress),
+				"search" to fixture(Choosing.OneFile(), PickerEvent.Searched("shot")),
+				"unreadable" to fixture(Choosing.OneFile(), PickerEvent.Opened(Path("/root"))),
 			)
 
-		for ((name, choosing) in kinds)
-			screenshot(
-				"picker-$name",
-				renderedPng(fixture(choosing), 1100, 680, Palette.Light, scale = 2f),
-			)
+		for ((name, state) in kinds)
+			screenshot("picker-$name", renderedPng(state, 1100, 680, Palette.Light, scale = 2f))
+
+		assertInstanceOf(Notice.Replace::class.java, kinds.getValue("replace").notice)
+		assertInstanceOf(Listing.Unreadable::class.java, kinds.getValue("unreadable").listing)
 	}
 
 	@Test
 	fun oneNameIsWrittenAsItIsAndSeveralInQuotes() {
-		assertEquals("Quarterly report.pdf", fixture().nameField)
+		assertEquals(
+			"Quarterly report.pdf",
+			fixture(Choosing.OneFile(), reportChosen).nameField,
+		)
 		assertEquals(
 			"\"main.kt\" \"notes.md\"",
-			fixture(Choosing.Files(setOf(RowId("main.kt"), RowId("notes.md")))).nameField,
+			fixture(
+				Choosing.Files(),
+				PickerEvent.Clicked(id("main.kt"), Click.Only),
+				PickerEvent.Clicked(id("notes.md"), Click.Toggle),
+			).nameField,
+		)
+		// What is typed is what is shown, until a row is chosen again.
+		assertEquals(
+			"other",
+			fixture(Choosing.OneFile(), reportChosen, PickerEvent.Named("other")).nameField,
+		)
+		assertEquals(
+			"main.kt",
+			fixture(
+				Choosing.OneFile(),
+				PickerEvent.Named("other"),
+				PickerEvent.Clicked(id("main.kt"), Click.Only),
+			).nameField,
 		)
 	}
 
 	@Test
 	fun theButtonIsWhatHasBeenChosen() {
-		assertEquals(Accept("Open", false), Choosing.OneFile(null).accept)
-		assertEquals(Accept("Open", true), Choosing.OneFile(RowId("a")).accept)
-		assertEquals(Accept("Open", false), Choosing.Files(emptySet()).accept)
-		assertEquals(Accept("Save", false), Choosing.SaveAs("  ").accept)
-		assertEquals(Accept("Save", true), Choosing.SaveAs("a.txt").accept)
+		assertEquals(Accept("Open", false), fixture().accept)
+		assertEquals(Accept("Open", true), fixture(Choosing.OneFile(), reportChosen).accept)
+		assertEquals(Accept("Open", false), fixture(Choosing.Files()).accept)
+		assertEquals(
+			Accept("Open", true),
+			fixture(Choosing.OneFile(), PickerEvent.Named("x")).accept,
+		)
+		assertEquals(Accept("Save", false), fixture(Choosing.SaveAs("  ")).accept)
+		assertEquals(Accept("Save", true), fixture(Choosing.SaveAs("a.txt")).accept)
 		// A folder picker always has a folder: the one shown.
-		assertEquals(Accept("Select folder", true), Choosing.Folder(null).accept)
-	}
-
-	@Test
-	fun aStateCannotChooseARowItDoesNotShow() {
-		assertThrows<IllegalArgumentException> {
-			fixture(Choosing.OneFile(RowId("not there.txt")))
-		}
+		assertEquals(Accept("Select folder", true), fixture(Choosing.Folder()).accept)
 	}
 
 	@Test
 	fun theQueryNarrowsTheRows() {
-		val narrowed = fixture().copy(query = "SCREEN").visibleRows.map { it.name }
+		val narrowed =
+			fixture(
+				Choosing.OneFile(),
+				PickerEvent.Searched("SCREEN"),
+			).rows.list.map {
+				it.name
+			}
 
 		assertEquals(listOf("screenshot 2.png", "screenshot 10.png"), narrowed)
 	}
 
 	@Test
 	fun foldersComeFirstAndNumbersByTheirValue() {
-		val names = (fixture().listing as Listing.Shown).rows.map { it.name }
+		val names = fixture().rows.list.map { it.name }
 
 		assertTrue(names.indexOf("Videos") < names.indexOf("Budget 2026.xlsx"), "$names")
 		assertTrue(
@@ -190,12 +155,15 @@ class PickerTest {
 			"$names",
 		)
 		assertTrue(naturalOrder("file9", "file10") < 0)
+		assertTrue(naturalOrder("file010", "file9") > 0)
+		assertTrue(naturalOrder("a", "ab") < 0)
 		assertTrue(naturalOrder("File", "file") != 0)
+		assertEquals(0, naturalOrder("same", "same"))
 	}
 
 	@Test
 	fun aColumnOrdersByItsValueNotItsWords() {
-		val rows = (fixture().listing as Listing.Shown).rows
+		val rows = Fixtures.homeRows
 		val byDate =
 			sorted(rows, Sort(Sort.Column.Modified, ascending = true))
 				.filterNot {
@@ -209,7 +177,7 @@ class PickerTest {
 				}.map { it.name }
 
 		// "12 Sep" is before "8 Nov" in time, though not in the words for it.
-		assertEquals("song.flac", byDate.first())
+		assertEquals(".bashrc", byDate.first())
 		assertEquals("main.kt", byDate.last())
 		// 312 MB before 38 MB, though "3" comes before "3" and "1" before "8".
 		assertEquals(listOf("backup.tar.gz", "trailer.mp4", "song.flac"), bySize.take(3))
@@ -258,22 +226,44 @@ class PickerTest {
 		work.resolve("photo.png").writeText("not really")
 		work.resolve(".hidden").writeText("")
 
-		val state =
-			pickerOf(work, Choosing.OneFile(null), Reading(zone = ZoneOffset.UTC), home = work)
-		val rows = (state.listing as Listing.Shown).rows
+		val state = pickerOf(work, Choosing.OneFile(), JvmDisk(ZoneOffset.UTC), home = work)
+		val rows = state.rows.list
 
 		assertEquals(listOf("Folder", "photo.png"), rows.map { it.name })
 		assertEquals("PNG image", rows[1].type)
 		assertEquals(Shown(10L, "10 bytes"), rows[1].size)
 		assertFalse(rows.any { it.hidden })
+		// The hidden one was read, and is there to be shown.
+		assertEquals(3, (state.listing as Listing.Shown).entries.size)
 		assertEquals(listOf("Home"), state.crumbs.map { it.label })
+	}
+
+	@Test
+	fun aRealDiskSaysWhatIsAtAPath() {
+		work.resolve("Folder").createDirectory()
+		work.resolve("file.txt").writeText("")
+
+		val found =
+			JvmDisk().look(
+				listOf(
+					work.resolve("Folder"),
+					work.resolve("file.txt"),
+					work.resolve("new.txt"),
+					work.resolve("no/new.txt"),
+				),
+			)
+
+		assertEquals(Found.Folder, found[work.resolve("Folder")])
+		assertEquals(Found.File, found[work.resolve("file.txt")])
+		assertEquals(Found.Nothing(inFolder = true), found[work.resolve("new.txt")])
+		assertEquals(Found.Nothing(inFolder = false), found[work.resolve("no/new.txt")])
 	}
 
 	@Test
 	fun aFolderThatCannotBeReadIsSaidSo() {
 		assertInstanceOf(
 			Listing.Unreadable::class.java,
-			listingOf(work.resolve("nowhere"), Reading()),
+			listingOf(work.resolve("nowhere")),
 		)
 	}
 

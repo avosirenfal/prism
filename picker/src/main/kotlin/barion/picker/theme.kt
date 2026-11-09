@@ -34,6 +34,12 @@ data class Palette(
 	val accent: Color,
 	val onAccent: Color,
 	val hover: Color,
+	/** A control's fill while it is pressed. */
+	val pressed: Color,
+	/** The ring around what the keyboard is on. */
+	val focus: Color,
+	/** What is drawn over the picker behind a notice. */
+	val scrim: Color,
 	val chosen: Color,
 	val chosenEdge: Color,
 	val field: Color,
@@ -81,6 +87,9 @@ data class Palette(
 				accent = Color(0xFF005FB8),
 				onAccent = Color(0xFFFFFFFF),
 				hover = Color(0xFFEDEDED),
+				pressed = Color(0xFFE2E2E2),
+				focus = Color(0xFF1B1B1B),
+				scrim = Color(0x66000000),
 				chosen = Color(0xFFDDEBF7),
 				chosenEdge = Color(0xFF99C2E8),
 				field = Color(0xFFFFFFFF),
@@ -113,6 +122,9 @@ data class Palette(
 				accent = Color(0xFF60CDFF),
 				onAccent = Color(0xFF00203A),
 				hover = Color(0xFF2F2F2F),
+				pressed = Color(0xFF383838),
+				focus = Color(0xFFFFFFFF),
+				scrim = Color(0x99000000),
 				chosen = Color(0xFF16384F),
 				chosenEdge = Color(0xFF2E6A92),
 				field = Color(0xFF2D2D2D),
@@ -184,6 +196,10 @@ object Dims {
 	val gapSmall = 4.dp
 	val radius = 6.dp
 	val control = 32.dp
+	val button = 112.dp
+
+	/** How far outside a control the ring around what the keyboard is on is drawn. */
+	val ring = 2.dp
 	val nameColumn = 0.46f
 	val dateColumn = 0.22f
 	val typeColumn = 0.18f

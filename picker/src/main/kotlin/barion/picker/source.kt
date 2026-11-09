@@ -1,6 +1,7 @@
 package barion.picker
 
 import java.io.IOException
+import java.nio.file.DirectoryIteratorException
 import java.nio.file.Files
 import java.nio.file.LinkOption
 import java.nio.file.Path
@@ -16,67 +17,83 @@ import kotlin.io.path.name
 import kotlin.io.path.readLines
 
 /*
- * The one place a picker's state is made from a real directory: read through the JVM, every row's text worked out
- * here, the rows sorted here. The view never reads the file system and never formats anything. When the index is
- * behind the picker, this is what it replaces.
+ * The one place the picker meets a real file system: a [Disk] reads a folder into rows, with every row's text worked
+ * out here, and says what is at a typed path. The reducer never reads anything; whoever runs the picker asks a disk
+ * for what an effect wants. When the index is behind the picker, it is another [Disk].
  */
 
-/** What a folder of the picker is read with: which rows to show, and in what order. */
-data class Reading(
-	val sort: Sort = Sort.BY_NAME,
-	val showHidden: Boolean = false,
-	val zone: ZoneId = ZoneId.systemDefault(),
-)
+/** What the picker reads its folders and looks up typed paths through. */
+interface Disk {
+	/** [folder]'s entries, every one, hidden ones too; or why it cannot be read. */
+	fun read(folder: Path): Listing.Read
 
-/** [folder] read into a picker that is [choosing], with everything it shows worked out. */
+	/** What is at each of [paths]. */
+	fun look(paths: List<Path>): Map<Path, Found>
+}
+
+/** The answer to [asking], from this disk. */
+fun Disk.answer(asking: Effect.Asking): Answer =
+	when (asking) {
+		is Effect.Read -> Answer.Arrived(asking.folder, read(asking.folder))
+		is Effect.Look -> Answer.Looked(asking.lookup, look(asking.lookup.paths))
+	}
+
+/** The file system through the JVM, its times said in [zone]. */
+class JvmDisk(
+	private val zone: ZoneId = ZoneId.systemDefault(),
+) : Disk {
+	override fun read(folder: Path): Listing.Read = listingOf(folder, zone)
+
+	override fun look(paths: List<Path>): Map<Path, Found> = paths.associateWith(::foundAt)
+}
+
+/**
+ * The state [step] comes to once every folder it reads and every name it looks up has been answered by [disk], in
+ * turn, here: the picker as it is once it has settled, for drawing it headless and for tests.
+ */
+tailrec fun Step.settled(disk: Disk): PickerState {
+	val asking = effects.filterIsInstance<Effect.Asking>()
+	val first = asking.firstOrNull() ?: return state
+	val next = step(state, disk.answer(first))
+
+	return Step(next.state, asking.drop(1) + next.effects).settled(disk)
+}
+
+/** [folder] read into a picker that is [choosing], settled: what `barion snapshot` and the tests draw. */
 fun pickerOf(
 	folder: Path,
 	choosing: Choosing,
-	reading: Reading = Reading(),
+	disk: Disk = JvmDisk(),
 	home: Path = Path(System.getProperty("user.home")),
 	title: String = titleOf(choosing),
-): PickerState {
-	val shown = folder.toAbsolutePath().normalize()
+): PickerState = opened(choosing, folder, home, sidebarOf(home), title).settled(disk)
 
-	return PickerState(
-		title = title,
-		choosing = choosing,
-		folder = shown,
-		crumbs = crumbsOf(shown, home),
-		sidebar = sidebarOf(home),
-		listing = listingOf(shown, reading),
-		filters = listOf(TypeFilter.ALL_FILES),
-		filter = TypeFilter.ALL_FILES,
-		query = "",
-		canGoBack = false,
-		canGoForward = false,
-	)
-}
-
-fun titleOf(choosing: Choosing): String =
-	when (choosing) {
-		is Choosing.OneFile -> "Open"
-		is Choosing.Files -> "Open files"
-		is Choosing.SaveAs -> "Save as"
-		is Choosing.Folder -> "Select folder"
-	}
-
-/** What [folder] holds, as rows in [reading]'s order, or why it cannot be read. */
-fun listingOf(folder: Path, reading: Reading): Listing =
+/** What [folder] holds, as rows in no particular order, or why it cannot be read. */
+fun listingOf(folder: Path, zone: ZoneId = ZoneId.systemDefault()): Listing.Read =
 	try {
-		val rows =
+		Listing.Shown(
 			Files.newDirectoryStream(folder).use { entries ->
-				entries.mapNotNull { rowOf(it, reading.zone) }.filter {
-					reading.showHidden ||
-						!it.hidden
-				}
-			}
-
-		Listing.Shown(sorted(rows, reading.sort), reading.sort)
+				entries.mapNotNull { rowOf(it, zone) }
+			},
+		)
 	} catch (failed: IOException) {
 		Listing.Unreadable(failed.message ?: failed.toString())
+	} catch (failed: DirectoryIteratorException) {
+		Listing.Unreadable(failed.cause?.message ?: failed.toString())
 	} catch (denied: SecurityException) {
 		Listing.Unreadable(denied.message ?: "not allowed")
+	}
+
+/** What is at [path], following a link to what it leads to. */
+private fun foundAt(path: Path): Found =
+	try {
+		when {
+			Files.isDirectory(path) -> Found.Folder
+			Files.exists(path) -> Found.File
+			else -> Found.Nothing(inFolder = path.parent?.let(Files::isDirectory) ?: false)
+		}
+	} catch (denied: SecurityException) {
+		Found.Nothing(inFolder = false)
 	}
 
 /** One entry as a row, its symlink followed for what it is and left as it is otherwise; null if it vanished. */
@@ -152,25 +169,72 @@ fun sorted(rows: List<Row>, sort: Sort): List<Row> {
 	return rows.sortedWith(compareBy<Row> { !it.isFolder }.then(directed))
 }
 
-/** Two names in the order people read them: letters without case, and runs of digits by their value. */
+/**
+ * Two names in the order people read them: letters without case, and runs of digits by their value. It is the
+ * comparison every sort of a folder makes n log n times, so it walks both names in place rather than splitting them.
+ */
 fun naturalOrder(a: String, b: String): Int {
-	val chunks = Regex("\\d+|\\D+")
-	val left = chunks.findAll(a.lowercase()).map { it.value }.toList()
-	val right = chunks.findAll(b.lowercase()).map { it.value }.toList()
+	var i = 0
+	var j = 0
 
-	for ((x, y) in left.zip(right)) {
-		val numbers = x[0].isDigit() && y[0].isDigit()
-		val compared =
-			if (numbers)
-				compareValuesBy(x, y, { it.trimStart('0').length }, { it.trimStart('0') })
-			else
-				x.compareTo(y)
+	while (i < a.length && j < b.length) {
+		if (a[i].isAsciiDigit() && b[j].isAsciiDigit()) {
+			// Two runs of digits: by value, which for digits without their leading zeros is by length, then by digit.
+			val aStart = a.skipping('0', i)
+			val bStart = b.skipping('0', j)
+			val aEnd = a.digitsEnd(aStart)
+			val bEnd = b.digitsEnd(bStart)
+			val byLength = (aEnd - aStart).compareTo(bEnd - bStart)
 
-		if (compared != 0)
-			return compared
+			if (byLength != 0)
+				return byLength
+
+			for (k in 0 until aEnd - aStart) {
+				val byDigit = a[aStart + k].compareTo(b[bStart + k])
+
+				if (byDigit != 0)
+					return byDigit
+			}
+
+			i = a.digitsEnd(i)
+			j = b.digitsEnd(j)
+		} else {
+			val byLetter = a[i].lowercaseChar().compareTo(b[j].lowercaseChar())
+
+			if (byLetter != 0)
+				return byLetter
+
+			i++
+			j++
+		}
 	}
 
-	return compareValues(left.size, right.size).takeIf { it != 0 } ?: a.compareTo(b)
+	val byRest = (a.length - i).compareTo(b.length - j)
+
+	return if (byRest != 0)
+		byRest
+	else
+		a.compareTo(b)
+}
+
+private fun Char.isAsciiDigit(): Boolean = this in '0'..'9'
+
+private fun String.skipping(char: Char, from: Int): Int {
+	var at = from
+
+	while (at < length - 1 && this[at] == char && this[at + 1].isAsciiDigit())
+		at++
+
+	return at
+}
+
+private fun String.digitsEnd(from: Int): Int {
+	var at = from
+
+	while (at < length && this[at].isAsciiDigit())
+		at++
+
+	return at
 }
 
 /** "4.2 KB", by the binary units Windows and most file managers show. */

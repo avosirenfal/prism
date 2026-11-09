@@ -17,11 +17,11 @@ The project is set up and every part named in the first brief exists, builds, an
 | the loader | `ebpf-loader`: libbpf through FFM, each hook checked against BTF and left out if it moved, per-hook verifier logs, the ring buffer read in place with acquire/release ordering |
 | the watcher | `probe`: hooks on the exits of `vfs_mkdir`, `vfs_rmdir`, `vfs_unlink`, `vfs_create`, `vfs_symlink`, `vfs_link`, `vfs_mknod`, `vfs_rename` and `do_filp_open`; compiled by the build into `index`'s resources |
 | the scanner | `index`: one traversal, two backends (getdents64 through FFM, and the JVM's own), names as bytes, the ignore rules, pseudo file systems skipped from mountinfo |
-| the picker | `picker`: an immutable `PickerState`, a pure Compose view of it in light and dark, a source that reads a real folder through the JVM; drawn headless by the tests and by `barion snapshot` |
+| the picker | `picker`: an immutable `PickerState`, a pure reducer, a session that reads folders and looks up typed paths on a background thread, and a view made of its own controls with hover, press and focus looks; it browses (back, forward, up, places, a typed path), chooses (click, Ctrl, Shift, the arrows, type-ahead), searches, sorts, filters and saves (asking before replacing), by pointer and keyboard alike; `barion pick` prints what is chosen (docs/picker.md) |
 | D-Bus | `dbus`: the connection (handshake and `Hello` as it opens), messages as data, kotlinx.serialization for bodies with signatures worked out from the types and checked before decoding, calls with replies as values, signals as flows, `watch`, served methods (docs/dbus.md) |
 | the colour scheme | `portal`: the portal's Settings declared; `barion pick` opens in the desktop's palette and follows its changes; light where there is no bus or portal; `--theme` overrides |
 
-113 tests (98 of barion's own, 15 of the house formatting rules), all passing in the development container; none
+169 tests (154 of barion's own, 15 of the house formatting rules), all passing in the development container; none
 skipped there. The D-Bus ones run against a real dbus-daemon each test starts, and against gdbus, dbus-send and busctl.
 
 ## Measured
@@ -41,9 +41,11 @@ does both; the first run is the cold one.
   compiles under `-Wall -Werror`, and every hook's signature and every field it reads matches this kernel's BTF
   (`barion probe check`). The loading path itself is verified end to end with a BTF tracepoint program
   (`LoadTest`). What remains is to run `barion probe watch` on a real machine (docs/testing.md).
-- **The window has not been opened.** There is no display here. The view is composed and drawn headless in every
-  test run, in both palettes and every kind of picker, and `barion snapshot` draws it over a real folder; `barion
-  pick` opening a window under Wayland (XWayland, through AWT) is untried.
+- **The window has not been opened under Wayland.** It has been opened under X: `barion pick` ran on a virtual X
+  display (Xvfb, no window manager) and was driven by xdotool through opening a file from the keyboard, several with
+  Ctrl-click, saving under a typed name, choosing a folder, and cancelling, each printing what it should
+  (docs/testing.md says how). Under Wayland it runs through XWayland, as any AWT window does; that, and how it sits
+  with a real window manager (focus on opening, the title bar), is untried.
 
 ## Next
 
@@ -55,8 +57,8 @@ In the order they unblock each other:
    reconciliation: a watcher's change applied by statting that one name (plan.md, "Keeping it current").
 3. **The index's file format** (docs/format.md first): the arrays, memory-mapped, rewritten whole by rename, with a
    journal of the changes since.
-4. **The picker's reducer**: a pure function from a state and an event to the next state and the effect wanted, so
-   the picker navigates, chooses and searches; then the picker reading its folders from the index.
+4. **The picker reading its folders from the index**: an index-backed `Disk`, reconciling a folder the index holds
+   against what the picker reads of it; then search across the index from the search field.
 5. **The portal backend**: `org.freedesktop.impl.portal.FileChooser` served on the session bus with
    `Connection.serve`, each request a `PickerState`, the daemon opening a window per request.
 6. **The search language**, over the index's name trigrams.
@@ -64,6 +66,15 @@ In the order they unblock each other:
    before it is sent; and the privileged loader service that hands the ring to the user's daemon.
 
 ## Notes for whoever picks this up
+
+- A path is a list of its own names in Kotlin (`Path` is `Iterable<Path>`), so `paths + path` adds the path's names,
+  not the path. Use `paths.plusElement(path)`. The picker's history had this bug until a test caught it.
+- Compose's `application { }` ends the process when its last window closes unless given `exitProcessOnExit = false`;
+  anything after it (printing what was picked) needs that.
+- A `LazyListState` knows nothing of what is in sight until the list has been laid out once. An effect that scrolls
+  as a folder arrives must wait for that (`snapshotFlow { layoutInfo }.first { ... }`), or it scrolls blind.
+- Headless drawing (`renderedPng`) runs on AWT's event thread, with the scene's effects dispatched there too; drawn
+  from the test thread, an effect could run on the event thread while the test thread measured, which Compose refuses.
 
 - The house formatter (`./gradlew ktlintFormat`) breaks a comparison inside an `if` condition across lines when the
   `if` is the value of an assignment; name the condition first (`val allMatch = moved == 0`) and it leaves it alone.

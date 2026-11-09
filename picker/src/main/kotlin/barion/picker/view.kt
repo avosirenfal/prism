@@ -1,12 +1,17 @@
 package barion.picker
 
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.focusable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.scrollBy
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -21,37 +26,95 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEvent
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isAltPressed
+import androidx.compose.ui.input.key.isCtrlPressed
+import androidx.compose.ui.input.key.isMetaPressed
+import androidx.compose.ui.input.key.isShiftPressed
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.key.utf16CodePoint
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.PointerKeyboardModifiers
+import androidx.compose.ui.input.pointer.isCtrlPressed
+import androidx.compose.ui.input.pointer.isMetaPressed
+import androidx.compose.ui.input.pointer.isPrimaryPressed
+import androidx.compose.ui.input.pointer.isShiftPressed
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupProperties
 import java.nio.file.Path
+import kotlin.io.path.name
+import kotlinx.coroutines.flow.first
 
 /*
- * The picker, drawn: a pure function of a [PickerState]. It shows what the state says and reports what the user does
- * as a [PickerEvent]; it changes nothing itself. The only state it keeps is what a widget keeps for itself while
- * the pointer is over it or a menu is open, which is not the picker's.
+ * The picker, drawn: a pure function of a [PickerState], made of the controls in elements.kt. It shows what the state
+ * says and reports what the user does as a [PickerEvent]; it changes nothing itself.
  *
  * Laid out as a desktop's own file dialogs are: the way back and up and the path across the top, with a search
  * field; the places down the left; the folder's entries in columns; and the name, the type filter and the buttons
- * across the bottom.
+ * across the bottom. The keyboard goes through it in that order with Tab, stopping once at the places and once at
+ * the listing, inside which the arrows move; the toolbar's buttons have keys of their own instead.
+ *
+ * | keys | where | what |
+ * |---|---|---|
+ * | arrows, Page Up and Down, Home, End | listing | the cursor; with Shift, choosing a run; with Ctrl, not choosing |
+ * | Space | listing | the row at the cursor chosen, or no longer |
+ * | Enter | listing, name | accept (a chosen folder is opened) |
+ * | letters | listing | the next row whose name starts with them |
+ * | Backspace, Alt+Up | listing; anywhere | the folder above |
+ * | Alt+Left, Alt+Right | anywhere | back, forward |
+ * | Ctrl+L, Alt+D | anywhere | type a path |
+ * | Ctrl+F, F3 | anywhere | search |
+ * | Ctrl+H | anywhere | hidden files shown, or not |
+ * | F5, Ctrl+R | anywhere | the folder read again |
+ * | Ctrl+A | listing | every row chosen |
+ * | Escape | anywhere | cancel (in a field: leave what it is doing first) |
  */
+
+/** Where the keyboard can be sent: the controls that a key, or the picker's own changes, move it to. */
+@Stable
+private class Stops {
+	val listing = FocusRequester()
+	val name = FocusRequester()
+	val search = FocusRequester()
+	val address = FocusRequester()
+}
 
 /** The picker for [state]: what it shows, and [onEvent] for what the user does. */
 @Composable
@@ -61,19 +124,81 @@ fun FilePicker(
 	onEvent: (PickerEvent) -> Unit = {},
 ) {
 	val palette = LocalPalette.current
+	val stops = remember { Stops() }
+	val saving = state.choosing is Choosing.SaveAs
 
-	Column(modifier.fillMaxSize().background(palette.window)) {
-		Toolbar(state, onEvent)
-		Line(palette.border)
-		Row(Modifier.weight(1f).fillMaxWidth()) {
-			SidebarPane(state.sidebar, state.folder, onEvent)
-			Box(Modifier.width(1.dp).fillMaxHeight().background(palette.border))
-			ListingPane(state, Modifier.weight(1f), onEvent)
+	// The keyboard starts where a desktop's dialogs start it: at the name to save under, or at the listing.
+	LaunchedEffect(Unit) {
+		if (saving)
+			stops.name.requestFocus()
+		else
+			stops.listing.requestFocus()
+	}
+
+	Box(
+		modifier
+			.fillMaxSize()
+			.background(palette.window)
+			.onPreviewKeyEvent { shortcut(it, stops, onEvent) }
+			.onKeyEvent {
+				val escaped = it.type == KeyEventType.KeyDown && it.key == Key.Escape
+
+				if (escaped)
+					onEvent(PickerEvent.Cancelled)
+
+				escaped
+			},
+	) {
+		Column(Modifier.fillMaxSize()) {
+			Toolbar(state, stops, onEvent)
+			Line(palette.border)
+			Row(Modifier.weight(1f).fillMaxWidth()) {
+				SidebarPane(state.sidebar, state.folder, onEvent)
+				Box(Modifier.width(1.dp).fillMaxHeight().background(palette.border))
+				ListingPane(state, stops, Modifier.weight(1f), onEvent)
+			}
+			Line(palette.border)
+			Footer(state, stops, onEvent)
 		}
-		Line(palette.border)
-		Footer(state, onEvent)
+		state.notice?.let { NoticeLayer(it, onEvent) }
 	}
 }
+
+/** The keys that work wherever the keyboard is, seen before the control it is on sees them. */
+private fun shortcut(
+	key: KeyEvent,
+	stops: Stops,
+	onEvent: (PickerEvent) -> Unit,
+): Boolean {
+	if (key.type != KeyEventType.KeyDown)
+		return false
+
+	val alt = key.isAltPressed
+	val ctrl = key.isCtrlPressed
+
+	val event =
+		when {
+			alt && key.key == Key.DirectionLeft -> PickerEvent.Back
+			alt && key.key == Key.DirectionRight -> PickerEvent.Forward
+			alt && key.key == Key.DirectionUp -> PickerEvent.Up
+			(ctrl && key.key == Key.L) || (alt && key.key == Key.D) -> PickerEvent.EditedAddress
+			ctrl && key.key == Key.H -> PickerEvent.ToggledHidden
+			key.key == Key.F5 || (ctrl && key.key == Key.R) -> PickerEvent.Refreshed
+			else -> null
+		}
+
+	val searching = (ctrl && key.key == Key.F) || key.key == Key.F3
+
+	event?.let(onEvent)
+
+	if (searching)
+		stops.search.requestFocus()
+
+	return event != null || searching
+}
+
+/** Enter, on either side of the keyboard. */
+private val KeyEvent.isEnter: Boolean get() = key == Key.Enter || key == Key.NumPadEnter
 
 @Composable
 private fun Line(color: Color) =
@@ -82,159 +207,242 @@ private fun Line(color: Color) =
 // ---- the toolbar: the way back and up, the path, the search ----------------------------------------------------
 
 @Composable
-private fun Toolbar(state: PickerState, onEvent: (PickerEvent) -> Unit) {
-	val palette = LocalPalette.current
-
+private fun Toolbar(state: PickerState, stops: Stops, onEvent: (PickerEvent) -> Unit) {
 	Row(
 		Modifier
 			.fillMaxWidth()
-			.height(
-				Dims.toolbar,
-			).background(palette.window)
+			.height(Dims.toolbar)
 			.padding(horizontal = Dims.gap),
 		verticalAlignment = Alignment.CenterVertically,
 		horizontalArrangement = Arrangement.spacedBy(Dims.gapSmall),
 	) {
-		ToolButton(Glyph.Back, "Back", state.canGoBack) { onEvent(PickerEvent.Back) }
+		ToolButton(
+			Glyph.Back,
+			"Back",
+			state.history.back.isNotEmpty(),
+			Modifier.testTag("back"),
+		) {
+			onEvent(PickerEvent.Back)
+		}
 		ToolButton(
 			Glyph.Forward,
 			"Forward",
-			state.canGoForward,
-		) { onEvent(PickerEvent.Forward) }
-		ToolButton(Glyph.Up, "Up", state.crumbs.size > 1) { onEvent(PickerEvent.Up) }
-		Spacer(Modifier.width(Dims.gapSmall))
-		Breadcrumbs(state.crumbs, Modifier.weight(1f), onEvent)
-		Spacer(Modifier.width(Dims.gapSmall))
-		SearchField(
-			state.query,
-			"Search ${state.crumbs.last().label}",
-			Modifier.width(260.dp),
+			state.history.forward.isNotEmpty(),
+			Modifier.testTag("forward"),
 		) {
-			onEvent(PickerEvent.Searched(it))
+			onEvent(PickerEvent.Forward)
+		}
+		ToolButton(Glyph.Up, "Up", state.folder.parent != null, Modifier.testTag("up")) {
+			onEvent(PickerEvent.Up)
+		}
+		Spacer(Modifier.width(Dims.gapSmall))
+		AddressBar(state, stops, Modifier.weight(1f), onEvent)
+		Spacer(Modifier.width(Dims.gapSmall))
+		Field(
+			state.arrangement.query,
+			{ onEvent(PickerEvent.Searched(it)) },
+			Modifier.width(260.dp).testTag("search"),
+			hint = "Search ${state.crumbs.last().label}",
+			trailing = Glyph.Search,
+			focus = stops.search,
+			onKey = { searchKey(it, state.arrangement.query, stops, onEvent) },
+		)
+	}
+}
+
+/** Escape empties the search before it cancels anything; Enter and Down take the keyboard to what it found. */
+private fun searchKey(
+	key: KeyEvent,
+	query: String,
+	stops: Stops,
+	onEvent: (PickerEvent) -> Unit,
+): Boolean =
+	when {
+		key.type != KeyEventType.KeyDown -> false
+		key.key == Key.Escape && query.isNotEmpty() ->
+			true.also {
+				onEvent(PickerEvent.Searched(""))
+			}
+		key.isEnter || key.key == Key.DirectionDown ->
+			true.also { stops.listing.requestFocus() }
+		else -> false
+	}
+
+/** The path to the folder shown: steps to click, or, after Ctrl+L or a click beside them, a path to type. */
+@Composable
+private fun AddressBar(
+	state: PickerState,
+	stops: Stops,
+	modifier: Modifier,
+	onEvent: (PickerEvent) -> Unit,
+) {
+	// Set when Enter goes to the path typed, so that the keyboard follows to the listing when the folder arrives.
+	var going by remember { mutableStateOf(false) }
+
+	LaunchedEffect(state.folder) {
+		if (going) {
+			going = false
+			stops.listing.requestFocus()
+		}
+	}
+
+	when (val address = state.address) {
+		Address.Crumbs -> Crumbs(state.crumbs, modifier, onEvent)
+		is Address.Editing -> {
+			Field(
+				address.text,
+				{ onEvent(PickerEvent.AddressTyped(it)) },
+				modifier.testTag("address"),
+				focus = stops.address,
+				onLeave = { onEvent(PickerEvent.LeftAddress) },
+				onKey = {
+					when {
+						it.type != KeyEventType.KeyDown -> false
+						it.isEnter ->
+							true.also {
+								going = true
+								onEvent(PickerEvent.Went)
+							}
+						// Escape leaves the path as it was, and the keyboard goes back to the listing.
+						it.key == Key.Escape ->
+							true.also {
+								stops.listing.requestFocus()
+								onEvent(PickerEvent.LeftAddress)
+							}
+						else -> false
+					}
+				},
+			)
+			LaunchedEffect(Unit) { stops.address.requestFocus() }
 		}
 	}
 }
 
 @Composable
-private fun ToolButton(
-	glyph: Glyph,
-	label: String,
-	enabled: Boolean,
-	onClick: () -> Unit,
-) {
-	val palette = LocalPalette.current
-	val hover = remember { MutableInteractionSource() }
-	val hovered by hover.collectIsHoveredAsState()
-
-	// Dimmed first, so what is drawn after (the hover, the glyph) is dimmed with it.
-	Box(
-		Modifier
-			.alpha(if (enabled) 1f else 0.35f)
-			.width(Dims.control)
-			.height(Dims.control)
-			.background(
-				if (hovered &&
-					enabled
-				)
-					palette.hover
-				else
-					Color.Transparent,
-				RoundedCornerShape(Dims.radius),
-			).hoverable(hover)
-			.clickable(enabled = enabled, onClickLabel = label, onClick = onClick),
-		contentAlignment = Alignment.Center,
-	) {
-		GlyphIcon(glyph, palette.text, Dims.icon)
-	}
-}
-
-@Composable
-private fun Breadcrumbs(
+private fun Crumbs(
 	crumbs: List<Crumb>,
 	modifier: Modifier,
 	onEvent: (PickerEvent) -> Unit,
 ) {
 	val palette = LocalPalette.current
-	val type = LocalType.current
+	val source = remember { MutableInteractionSource() }
+	val felt = source.felt()
+	val shape = RoundedCornerShape(Dims.radius)
+	val scroll = rememberScrollState()
+
+	// A path too long for the bar shows its end, where the folder shown is.
+	LaunchedEffect(crumbs) {
+		snapshotFlow { scroll.maxValue }.collect { scroll.scrollTo(it) }
+	}
 
 	Row(
 		modifier
+			.ring(felt.focused, palette.focus)
 			.height(Dims.control)
-			.background(palette.field, RoundedCornerShape(Dims.radius))
-			.border(1.dp, palette.fieldEdge, RoundedCornerShape(Dims.radius))
+			.background(
+				if (felt.hovered)
+					palette.hover
+				else
+					palette.field,
+				shape,
+			).border(1.dp, palette.fieldEdge, shape)
+			.clickable(source, indication = null, onClickLabel = "Type a path") {
+				onEvent(PickerEvent.EditedAddress)
+			}.testTag("crumbs")
 			.padding(horizontal = Dims.gap),
 		verticalAlignment = Alignment.CenterVertically,
 	) {
 		GlyphIcon(Glyph.Folder, palette.text, 16.dp)
 		Spacer(Modifier.width(Dims.gap))
-		crumbs.forEachIndexed { index, crumb ->
-			val last = index == crumbs.lastIndex
+		Row(
+			Modifier.weight(1f, fill = false).horizontalScroll(scroll),
+			verticalAlignment = Alignment.CenterVertically,
+		) {
+			crumbs.forEachIndexed { index, crumb ->
+				val last = index == crumbs.lastIndex
 
-			Text(
-				crumb.label,
-				style =
-					if (last)
-						type.body.copy(fontWeight = FontWeight.SemiBold)
-					else
-						type.body,
-				maxLines = 1,
-				modifier =
-					Modifier
-						.clickable {
-							onEvent(PickerEvent.Opened(crumb.path))
-						}.padding(horizontal = 4.dp),
-			)
-			if (!last)
-				GlyphIcon(Glyph.Chevron, palette.textFaint, 12.dp)
+				CrumbStep(crumb, last) { onEvent(PickerEvent.Opened(crumb.path)) }
+				if (!last)
+					GlyphIcon(Glyph.Chevron, palette.textFaint, 12.dp)
+			}
 		}
 	}
 }
 
 @Composable
-private fun SearchField(
-	query: String,
-	hint: String,
-	modifier: Modifier,
-	onChange: (String) -> Unit,
-) {
+private fun CrumbStep(crumb: Crumb, last: Boolean, onClick: () -> Unit) {
 	val palette = LocalPalette.current
 	val type = LocalType.current
+	val source = remember { MutableInteractionSource() }
+	val felt = source.felt()
 
-	Row(
-		modifier
-			.height(Dims.control)
-			.background(palette.field, RoundedCornerShape(Dims.radius))
-			.border(1.dp, palette.fieldEdge, RoundedCornerShape(Dims.radius))
-			.padding(horizontal = Dims.gap),
-		verticalAlignment = Alignment.CenterVertically,
-	) {
-		Box(Modifier.weight(1f)) {
-			if (query.isEmpty())
-				Text(hint, style = type.muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
-			BasicTextField(
-				query,
-				onChange,
-				singleLine = true,
-				textStyle = type.body,
-				cursorBrush = SolidColor(palette.accent),
-			)
-		}
-		GlyphIcon(Glyph.Search, palette.textMuted, 16.dp)
-	}
+	Text(
+		crumb.label,
+		style =
+			if (last)
+				type.body.copy(fontWeight = FontWeight.SemiBold)
+			else
+				type.body,
+		maxLines = 1,
+		modifier =
+			Modifier
+				.background(
+					if (felt.hovered)
+						palette.pressed
+					else
+						Color.Transparent,
+					RoundedCornerShape(4.dp),
+				).focusProperties { canFocus = false }
+				.clickable(source, indication = null, onClick = onClick)
+				.testTag("crumb:${crumb.label}")
+				.padding(horizontal = 4.dp, vertical = 2.dp),
+	)
 }
 
 // ---- the sidebar: the places --------------------------------------------------------------------------------
 
+/**
+ * The places, as one stop of the keyboard: the arrows move through them, Enter opens one. Which place the arrows are
+ * on is the sidebar's own, as a list's highlighted entry is on any desktop: it starts at the place shown.
+ */
 @Composable
 private fun SidebarPane(sidebar: Sidebar, current: Path, onEvent: (PickerEvent) -> Unit) {
 	val palette = LocalPalette.current
 	val type = LocalType.current
+	val places = sidebar.places
+	val source = remember { MutableInteractionSource() }
+	val focused by source.collectIsFocusedAsState()
+	var at by remember(sidebar) {
+		mutableIntStateOf(places.indexOfFirst { it.path == current }.coerceAtLeast(0))
+	}
+
+	fun key(key: KeyEvent): Boolean {
+		if (key.type != KeyEventType.KeyDown || places.isEmpty())
+			return false
+
+		when (key.key) {
+			Key.DirectionUp -> at = (at - 1).coerceAtLeast(0)
+			Key.DirectionDown -> at = (at + 1).coerceAtMost(places.lastIndex)
+			Key.MoveHome -> at = 0
+			Key.MoveEnd -> at = places.lastIndex
+			Key.Enter, Key.NumPadEnter, Key.Spacebar ->
+				onEvent(
+					PickerEvent.Opened(places[at].path),
+				)
+			else -> return false
+		}
+
+		return true
+	}
 
 	Column(
 		Modifier
 			.width(Dims.sidebar)
 			.fillMaxHeight()
 			.background(palette.pane)
+			.onKeyEvent(::key)
+			.focusable(interactionSource = source)
+			.testTag("places")
 			.padding(Dims.gap),
 		verticalArrangement = Arrangement.spacedBy(2.dp),
 	) {
@@ -244,22 +452,34 @@ private fun SidebarPane(sidebar: Sidebar, current: Path, onEvent: (PickerEvent) 
 				style = type.heading,
 				modifier = Modifier.padding(start = Dims.gap, top = Dims.gap, bottom = Dims.gapSmall),
 			)
-			for (place in group.places)
-				PlaceRow(place, place.path == current, onEvent)
+			for (place in group.places) {
+				val index = places.indexOf(place)
+
+				PlaceRow(place, current = place.path == current, keyed = focused && index == at) {
+					at = index
+					onEvent(PickerEvent.Opened(place.path))
+				}
+			}
 		}
 	}
 }
 
 @Composable
-private fun PlaceRow(place: Place, current: Boolean, onEvent: (PickerEvent) -> Unit) {
+private fun PlaceRow(
+	place: Place,
+	current: Boolean,
+	keyed: Boolean,
+	onOpen: () -> Unit,
+) {
 	val palette = LocalPalette.current
 	val type = LocalType.current
-	val hover = remember { MutableInteractionSource() }
-	val hovered by hover.collectIsHoveredAsState()
+	val source = remember { MutableInteractionSource() }
+	val felt = source.felt()
 	val background =
 		when {
 			current -> palette.chosen
-			hovered -> palette.hover
+			felt.pressed -> palette.pressed
+			felt.hovered -> palette.hover
 			else -> Color.Transparent
 		}
 
@@ -267,9 +487,11 @@ private fun PlaceRow(place: Place, current: Boolean, onEvent: (PickerEvent) -> U
 		Modifier
 			.fillMaxWidth()
 			.height(Dims.row)
+			.ring(keyed, palette.focus, outset = 0.dp, width = 1.5.dp)
 			.background(background, RoundedCornerShape(Dims.radius))
-			.hoverable(hover)
-			.clickable { onEvent(PickerEvent.Opened(place.path)) }
+			.focusProperties { canFocus = false }
+			.clickable(source, indication = null, onClick = onOpen)
+			.testTag("place:${place.label}")
 			.padding(horizontal = Dims.gap),
 		verticalAlignment = Alignment.CenterVertically,
 	) {
@@ -311,47 +533,255 @@ private fun glyphOf(kind: Place.Kind): Glyph =
 
 // ---- the listing: the folder's entries in columns ------------------------------------------------------------
 
+/** Letters typed into the listing in quick succession, which together name the row to go to. */
+@Immutable
+private data class Typing(
+	val prefix: String,
+	val at: Long,
+) {
+	fun then(letter: Char, now: Long): Typing =
+		if (now - at < TYPING_PAUSE)
+			Typing(prefix + letter, now)
+		else
+			Typing(letter.toString(), now)
+}
+
+/** How long a pause in typing ends the letters that name a row, in milliseconds. */
+private const val TYPING_PAUSE = 1000L
+
+/**
+ * The listing, as one stop of the keyboard: what it shows is [PickerState.rows], with the cursor's row ringed while
+ * the keyboard is here, and kept in sight as it moves. Each folder starts at its top.
+ */
 @Composable
 private fun ListingPane(
 	state: PickerState,
+	stops: Stops,
 	modifier: Modifier,
 	onEvent: (PickerEvent) -> Unit,
 ) {
 	val palette = LocalPalette.current
+	val source = remember { MutableInteractionSource() }
+	val focused by source.collectIsFocusedAsState()
+	val list = remember(state.folder) { LazyListState() }
+	val rows = state.rows
+	val cursor = state.cursor?.at
+	val cursorAt = cursor?.let(rows::indexOf)
+	val query = state.arrangement.query
+	var typing by remember { mutableStateOf(Typing("", 0)) }
+	var pressed by remember { mutableStateOf<Pressed?>(null) }
 
-	Column(modifier.fillMaxHeight().background(palette.surface)) {
+	LaunchedEffect(cursorAt) { cursorAt?.let { list.reveal(it) } }
+
+	// A second plain press of the row pressed last, soon enough, is a double click; a third starts again.
+	fun press(row: RowId, press: Press) {
+		stops.listing.requestFocus()
+
+		if (pressed?.doubledBy(row, press) == true) {
+			pressed = null
+			onEvent(PickerEvent.Activated(row))
+		} else {
+			pressed = Pressed(row, press)
+			onEvent(PickerEvent.Clicked(row, press.click))
+		}
+	}
+
+	fun key(key: KeyEvent): Boolean {
+		if (key.type != KeyEventType.KeyDown)
+			return false
+
+		val ctrl = key.isCtrlPressed || key.isMetaPressed
+		val carry =
+			when {
+				key.isShiftPressed -> Carry.Extend
+				ctrl -> Carry.Stay
+				else -> Carry.Choose
+			}
+		val page = (list.layoutInfo.visibleItemsInfo.size - 1).coerceAtLeast(1)
+		val letter =
+			key.utf16CodePoint
+				.takeIf {
+					it > ' '.code && !ctrl && !key.isAltPressed
+				}?.toChar()
+
+		val event =
+			when {
+				key.key == Key.DirectionUp -> PickerEvent.Moved(Move.By(-1), carry)
+				key.key == Key.DirectionDown -> PickerEvent.Moved(Move.By(1), carry)
+				key.key == Key.PageUp -> PickerEvent.Moved(Move.By(-page), carry)
+				key.key == Key.PageDown -> PickerEvent.Moved(Move.By(page), carry)
+				key.key == Key.MoveHome -> PickerEvent.Moved(Move.First, carry)
+				key.key == Key.MoveEnd -> PickerEvent.Moved(Move.Last, carry)
+				key.key == Key.Spacebar -> PickerEvent.Toggled
+				key.isEnter -> PickerEvent.Accepted
+				key.key == Key.Backspace -> PickerEvent.Up
+				ctrl && key.key == Key.A -> PickerEvent.ChoseAll
+				letter != null -> {
+					typing = typing.then(letter, System.currentTimeMillis())
+					PickerEvent.Jumped(typing.prefix)
+				}
+				else -> null
+			}
+
+		event?.let(onEvent)
+
+		return event != null
+	}
+
+	Column(
+		modifier
+			.fillMaxHeight()
+			.background(palette.surface)
+			.focusRequester(stops.listing)
+			.onKeyEvent(::key)
+			.focusable(interactionSource = source)
+			.testTag("listing"),
+	) {
+		Header(state.arrangement.sort, onEvent)
+		Line(palette.divider)
+
 		when (val listing = state.listing) {
+			// A folder that reads quickly would only flash a message, so a folder being read shows nothing yet.
+			is Listing.Reading -> Box(Modifier.fillMaxSize())
 			is Listing.Unreadable -> Message("This folder can't be opened", listing.why)
-			is Listing.Shown -> {
-				Header(listing.sort, onEvent)
-				Line(palette.divider)
-
-				val rows = state.visibleRows
-				val chosen = state.choosing.rows
-
+			is Listing.Shown ->
 				if (rows.isEmpty())
 					Message(
-						if (state.query.isBlank())
-							"This folder is empty"
-						else
-							"Nothing here matches “${state.query}”",
+						when {
+							query.isNotBlank() -> "Nothing here matches “$query”"
+							listing.entries.isEmpty() -> "This folder is empty"
+							else -> "Nothing here is shown"
+						},
 						null,
 					)
 				else
 					LazyColumn(
-						Modifier.fillMaxSize().padding(
-							horizontal = Dims.gapSmall,
-							vertical = Dims.gapSmall,
-						),
+						Modifier
+							.fillMaxSize()
+							.pressedNowhere {
+								stops.listing.requestFocus()
+								onEvent(PickerEvent.ClickedNowhere)
+							}.padding(horizontal = Dims.gapSmall, vertical = Dims.gapSmall),
+						state = list,
 					) {
-						items(rows, key = { it.id.name }, contentType = { "row" }) { row ->
-							EntryRow(row, row.id in chosen, onEvent)
+						items(rows.list, key = { it.id.name }, contentType = { "row" }) { row ->
+							EntryRow(
+								row,
+								chosen = row.id in state.choosing.rows,
+								cursor = focused && row.id == cursor,
+								onPress = { press(row.id, it) },
+							)
 						}
 					}
+		}
+	}
+}
+
+/**
+ * The row at [index] scrolled into sight, by as little as it takes: a row partly cut off at an edge is moved in by
+ * what is cut off; one out of sight is scrolled to directly (never by scrolling through every row between, which
+ * in a folder of a hundred thousand would lay each of them out), arriving at the top when it was above and at the
+ * bottom when it was below, as a list moved by its arrows does. Every row is as tall as every other.
+ */
+private suspend fun LazyListState.reveal(index: Int) {
+	// A folder's rows and the cursor landing in them arrive together, before the list has laid anything out; what is
+	// in sight is known only once it has.
+	val info = snapshotFlow { layoutInfo }.first { it.visibleItemsInfo.isNotEmpty() }
+	val shown = info.visibleItemsInfo
+	val first = shown.first()
+	val last = shown.last()
+	val size = first.size
+	val height = info.viewportEndOffset - info.viewportStartOffset
+
+	when {
+		index < first.index -> scrollToItem(index)
+		index > last.index -> {
+			// The rows above it, once it is at the bottom: as many as fill the rest of the height, the top one cut.
+			val above = (height - size + size - 1) / size
+			val top = (index - above).coerceAtLeast(0)
+
+			scrollToItem(top, ((index - top + 1) * size - height).coerceAtLeast(0))
+		}
+		else -> {
+			val row = shown.first { it.index == index }
+			val cutAbove = info.viewportStartOffset - row.offset
+			val cutBelow = row.offset + row.size - info.viewportEndOffset
+
+			when {
+				cutAbove > 0 -> scrollBy(-cutAbove.toFloat())
+				cutBelow > 0 -> scrollBy(cutBelow.toFloat())
 			}
 		}
 	}
 }
+
+/** A press that no row inside took. */
+private fun Modifier.pressedNowhere(onPress: () -> Unit): Modifier =
+	pointerInput(Unit) {
+		awaitPointerEventScope {
+			while (true) {
+				val event = awaitPointerEvent(PointerEventPass.Main)
+				val pressed =
+					event.changes.any {
+						it.pressed && !it.previousPressed && !it.isConsumed
+					}
+
+				if (pressed && event.buttons.isPrimaryPressed)
+					onPress()
+			}
+		}
+	}
+
+/** A press of a row: which keys were held, and when, by the pointer's own clock. */
+@Immutable
+private data class Press(
+	val click: Click,
+	val at: Long,
+	/** How soon a second press must follow for the two to be a double click, as the platform sets it. */
+	val within: Long,
+)
+
+/**
+ * Presses of a row, each reported as it happens, so a row is chosen as it is pressed and not a double click's wait
+ * later. Whether two presses are a double click is the listing's to say, since only it sees presses of other rows.
+ */
+private fun Modifier.pressing(onPress: (Press) -> Unit): Modifier =
+	pointerInput(Unit) {
+		awaitEachGesture {
+			val down = awaitFirstDown()
+
+			if (currentEvent.buttons.isPrimaryPressed) {
+				down.consume()
+				onPress(
+					Press(
+						clickOf(currentEvent.keyboardModifiers),
+						down.uptimeMillis,
+						viewConfiguration.doubleTapTimeoutMillis,
+					),
+				)
+				waitForUpOrCancellation()?.consume()
+			}
+		}
+	}
+
+/** The last press of a row, for the next press to be seen as a double click of it or not. */
+@Immutable
+private data class Pressed(
+	val row: RowId,
+	val press: Press,
+) {
+	/** Whether [press] of [row] makes a double click with this one: the same row, no keys held, soon enough. */
+	fun doubledBy(row: RowId, press: Press): Boolean =
+		row == this.row && press.click == Click.Only && this.press.click == Click.Only &&
+			press.at - this.press.at <= press.within
+}
+
+private fun clickOf(keys: PointerKeyboardModifiers): Click =
+	when {
+		keys.isShiftPressed -> Click.Range
+		keys.isCtrlPressed || keys.isMetaPressed -> Click.Toggle
+		else -> Click.Only
+	}
 
 @Composable
 private fun Header(sort: Sort, onEvent: (PickerEvent) -> Unit) {
@@ -380,13 +810,22 @@ private fun RowScope.HeaderCell(
 ) {
 	val palette = LocalPalette.current
 	val type = LocalType.current
+	val source = remember { MutableInteractionSource() }
+	val felt = source.felt()
 
 	Row(
 		Modifier
-			.weight(
-				share,
-			).fillMaxHeight()
-			.clickable { onEvent(PickerEvent.Sorted(column)) },
+			.weight(share)
+			.fillMaxHeight()
+			.background(
+				if (felt.hovered)
+					palette.hover
+				else
+					Color.Transparent,
+			).focusProperties { canFocus = false }
+			.clickable(source, indication = null) { onEvent(PickerEvent.Sorted(column)) }
+			.testTag("column:$label")
+			.padding(horizontal = Dims.gapSmall),
 		verticalAlignment = Alignment.CenterVertically,
 		horizontalArrangement = if (end) Arrangement.End else Arrangement.Start,
 	) {
@@ -403,13 +842,18 @@ private fun RowScope.HeaderCell(
 	}
 }
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun EntryRow(row: Row, chosen: Boolean, onEvent: (PickerEvent) -> Unit) {
+private fun EntryRow(
+	row: Row,
+	chosen: Boolean,
+	cursor: Boolean,
+	onPress: (Press) -> Unit,
+) {
 	val palette = LocalPalette.current
 	val type = LocalType.current
 	val hover = remember { MutableInteractionSource() }
 	val hovered by hover.collectIsHoveredAsState()
+	val pressed by rememberUpdatedState(onPress)
 	val shape = RoundedCornerShape(Dims.radius)
 	val background =
 		when {
@@ -431,11 +875,12 @@ private fun EntryRow(row: Row, chosen: Boolean, onEvent: (PickerEvent) -> Unit) 
 				else
 					Color.Transparent,
 				shape,
-			).hoverable(hover)
-			.combinedClickable(
-				onClick = { onEvent(PickerEvent.Chose(row.id, adding = false)) },
-				onDoubleClick = { onEvent(PickerEvent.Activated(row.id)) },
-			).padding(horizontal = Dims.gap),
+			).ring(cursor, palette.focus, outset = 0.dp, width = 1.5.dp)
+			.hoverable(hover)
+			.pressing { pressed(it) }
+			.semantics { selected = chosen }
+			.testTag("row:${row.name}")
+			.padding(horizontal = Dims.gap),
 		verticalAlignment = Alignment.CenterVertically,
 	) {
 		Row(Modifier.weight(Dims.nameColumn), verticalAlignment = Alignment.CenterVertically) {
@@ -495,18 +940,15 @@ private fun Message(title: String, detail: String?) {
 // ---- the footer: the name, the filter, the buttons -----------------------------------------------------------
 
 @Composable
-private fun Footer(state: PickerState, onEvent: (PickerEvent) -> Unit) {
-	val palette = LocalPalette.current
+private fun Footer(state: PickerState, stops: Stops, onEvent: (PickerEvent) -> Unit) {
 	val type = LocalType.current
-	val count = state.visibleRows.size
-	val chosen = state.choosing.rows.size
+	val saving = state.choosing is Choosing.SaveAs
 
 	Column(
-		Modifier.fillMaxWidth().height(Dims.footer).background(palette.window).padding(
-			horizontal =
-				Dims.gap * 2,
-			vertical = Dims.gap + 2.dp,
-		),
+		Modifier
+			.fillMaxWidth()
+			.height(Dims.footer)
+			.padding(horizontal = Dims.gap * 2, vertical = Dims.gap + 2.dp),
 		verticalArrangement = Arrangement.spacedBy(Dims.gap + 2.dp),
 	) {
 		Row(verticalAlignment = Alignment.CenterVertically) {
@@ -518,156 +960,169 @@ private fun Footer(state: PickerState, onEvent: (PickerEvent) -> Unit) {
 				style = type.body,
 				modifier = Modifier.width(80.dp),
 			)
-			NameField(state, Modifier.weight(1f), onEvent)
-			Spacer(Modifier.width(Dims.gap))
-			FilterField(state, Modifier.width(220.dp), onEvent)
+			Field(
+				state.nameField,
+				{ onEvent(PickerEvent.Named(it)) },
+				Modifier.weight(1f).testTag("name"),
+				hint = state.nameHint,
+				focus = stops.name,
+				// Saving, the name is selected without its extension, so that typing replaces only the name.
+				selecting = {
+					if (saving)
+						TextRange(0, it.lastIndexOf('.').takeIf { dot -> dot > 0 } ?: it.length)
+					else
+						TextRange(0, it.length)
+				},
+				onKey = {
+					val accepting = it.type == KeyEventType.KeyDown && it.isEnter
+
+					if (accepting)
+						onEvent(PickerEvent.Accepted)
+
+					accepting
+				},
+			)
+			// A folder picker shows no files, so it has no filter of them.
+			if (state.choosing !is Choosing.Folder) {
+				Spacer(Modifier.width(Dims.gap))
+				Select(
+					state.filters,
+					state.arrangement.filter,
+					{ it.label },
+					Modifier.width(220.dp).testTag("filter"),
+				) { onEvent(PickerEvent.Filtered(it)) }
+			}
 		}
 		Row(verticalAlignment = Alignment.CenterVertically) {
-			val counted =
-				if (count == 1)
-					"1 item"
-				else
-					"$count items"
-
-			Text(
-				if (chosen >
-					0
-				)
-					"$counted  ·  $chosen selected"
-				else
-					counted,
-				style = type.muted,
-				modifier = Modifier.weight(1f),
-			)
-			ActionButton(state.accept.label, primary = true, enabled = state.accept.enabled) {
-				onEvent(PickerEvent.Accepted)
-			}
+			Text(statusOf(state), style = type.muted, modifier = Modifier.weight(1f))
+			PickerButton(
+				state.accept.label,
+				Emphasis.Primary,
+				state.accept.enabled,
+				Modifier.testTag("accept"),
+			) { onEvent(PickerEvent.Accepted) }
 			Spacer(Modifier.width(Dims.gap))
-			ActionButton(
+			PickerButton(
 				"Cancel",
-				primary = false,
+				Emphasis.Secondary,
 				enabled = true,
-			) { onEvent(PickerEvent.Cancelled) }
+				Modifier.testTag("cancel"),
+			) {
+				onEvent(PickerEvent.Cancelled)
+			}
 		}
 	}
 }
 
-@Composable
-private fun NameField(
-	state: PickerState,
-	modifier: Modifier,
-	onEvent: (PickerEvent) -> Unit,
-) {
-	val palette = LocalPalette.current
-	val type = LocalType.current
-	val editable = state.choosing is Choosing.SaveAs
-	val shown =
-		if (state.choosing is Choosing.Folder &&
-			state.nameField.isEmpty()
-		)
-			state.crumbs.last().label
+/** How many rows are shown and how many chosen, as the status line says it. */
+private fun statusOf(state: PickerState): String {
+	val shown = state.rows.size
+	val chosen = state.choosing.rows.size
+	val counted =
+		if (shown == 1)
+			"1 item"
 		else
-			state.nameField
+			"$shown items"
 
-	Box(
-		modifier
-			.height(Dims.control)
-			.background(palette.field, RoundedCornerShape(Dims.radius))
-			.border(
-				1.dp,
-				if (editable)
-					palette.accent
-				else
-					palette.fieldEdge,
-				RoundedCornerShape(Dims.radius),
-			).padding(horizontal = Dims.gap),
-		contentAlignment = Alignment.CenterStart,
-	) {
-		BasicTextField(
-			shown,
-			{ onEvent(PickerEvent.Named(it)) },
-			singleLine = true,
-			readOnly = !editable,
-			textStyle = type.body,
-			cursorBrush = SolidColor(palette.accent),
-		)
+	return when {
+		state.listing is Listing.Reading -> "Reading…"
+		chosen > 0 -> "$counted  ·  $chosen selected"
+		else -> counted
 	}
 }
 
-@Composable
-private fun FilterField(
-	state: PickerState,
-	modifier: Modifier,
-	onEvent: (PickerEvent) -> Unit,
-) {
-	val palette = LocalPalette.current
-	val type = LocalType.current
-	var open by remember { mutableStateOf(false) }
+// ---- notices -------------------------------------------------------------------------------------------------
 
-	Box(modifier) {
-		Row(
-			Modifier
-				.fillMaxWidth()
-				.height(Dims.control)
-				.background(palette.field, RoundedCornerShape(Dims.radius))
-				.border(1.dp, palette.fieldEdge, RoundedCornerShape(Dims.radius))
-				.clickable { open = true }
-				.padding(horizontal = Dims.gap),
-			verticalAlignment = Alignment.CenterVertically,
-		) {
-			Text(
-				state.filter.label,
-				style = type.body,
-				maxLines = 1,
-				overflow = TextOverflow.Ellipsis,
-				modifier = Modifier.weight(1f),
+/** What a notice says, and the words on its buttons: [no] for a notice that asks, null for one that only tells. */
+@Immutable
+private data class Words(
+	val title: String,
+	val detail: String,
+	val yes: String,
+	val no: String?,
+)
+
+private fun wordsOf(notice: Notice): Words =
+	when (notice) {
+		is Notice.NotFound ->
+			Words(
+				"Can't find “${notice.text}”",
+				"Check the name and try again.",
+				"OK",
+				null,
 			)
-			GlyphIcon(Glyph.ChevronDown, palette.textMuted, 14.dp)
-		}
-		DropdownMenu(open, onDismissRequest = { open = false }) {
-			for (filter in state.filters)
-				DropdownMenuItem(
-					text = { Text(filter.label, style = type.body) },
-					onClick = {
-						open = false
-						onEvent(PickerEvent.Filtered(filter))
-					},
-				)
-		}
+		is Notice.NotAFolder ->
+			Words(
+				"“${notice.text}” is a file",
+				"Choose a folder, or type the path of one.",
+				"OK",
+				null,
+			)
+		is Notice.Replace ->
+			Words(
+				"“${notice.path.name}” already exists",
+				"Saving will replace what is in it. Replace it?",
+				"Replace",
+				"Cancel",
+			)
 	}
-}
 
+/**
+ * A notice, over the picker and in front of the keyboard: it takes the keyboard to its first button, Escape puts it
+ * away, and nothing behind it can be reached until it is answered.
+ */
 @Composable
-private fun ActionButton(
-	label: String,
-	primary: Boolean,
-	enabled: Boolean,
-	onClick: () -> Unit,
-) {
+private fun NoticeLayer(notice: Notice, onEvent: (PickerEvent) -> Unit) {
 	val palette = LocalPalette.current
 	val type = LocalType.current
-	val shape = RoundedCornerShape(Dims.radius)
+	val words = wordsOf(notice)
+	val first = remember { FocusRequester() }
+	val shape = RoundedCornerShape(8.dp)
 
-	// Dimmed first, so a button that cannot be pressed is dimmed whole: its fill and edge as well as its label.
-	Box(
-		Modifier
-			.alpha(if (enabled) 1f else 0.45f)
-			.width(112.dp)
-			.height(Dims.control)
-			.background(if (primary) palette.accent else palette.field, shape)
-			.border(
-				1.dp,
-				if (primary)
-					palette.accent
-				else
-					palette.fieldEdge,
-				shape,
-			).clickable(enabled = enabled, onClick = onClick),
-		contentAlignment = Alignment.Center,
+	Popup(
+		alignment = Alignment.Center,
+		onDismissRequest = { onEvent(PickerEvent.Dismissed) },
+		properties = PopupProperties(focusable = true),
 	) {
-		Text(
-			label,
-			style = type.button.copy(color = if (primary) palette.onAccent else palette.text),
-		)
+		Box(
+			Modifier.fillMaxSize().background(palette.scrim).testTag("notice"),
+			contentAlignment = Alignment.Center,
+		) {
+			Column(
+				Modifier
+					.width(420.dp)
+					.background(palette.surface, shape)
+					.border(1.dp, palette.border, shape)
+					.padding(20.dp),
+			) {
+				Text(words.title, style = type.title)
+				Text(words.detail, style = type.body, modifier = Modifier.padding(top = Dims.gap))
+				Row(
+					Modifier.fillMaxWidth().padding(top = 20.dp),
+					horizontalArrangement = Arrangement.spacedBy(Dims.gap, Alignment.End),
+				) {
+					PickerButton(
+						words.yes,
+						Emphasis.Primary,
+						enabled = true,
+						Modifier.testTag("yes"),
+						first,
+					) {
+						onEvent(
+							if (notice is Notice.Replace)
+								PickerEvent.Confirmed
+							else
+								PickerEvent.Dismissed,
+						)
+					}
+					words.no?.let {
+						PickerButton(it, Emphasis.Secondary, enabled = true, Modifier.testTag("no")) {
+							onEvent(PickerEvent.Dismissed)
+						}
+					}
+				}
+			}
+		}
+		LaunchedEffect(Unit) { first.requestFocus() }
 	}
 }

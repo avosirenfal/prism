@@ -1,7 +1,10 @@
 package barion.app
 
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
@@ -13,21 +16,29 @@ import barion.cli.Outcome
 import barion.cli.ParamType
 import barion.cli.Size
 import barion.picker.Choosing
-import barion.picker.FilePicker
+import barion.picker.JvmDisk
 import barion.picker.PickerEvent
 import barion.picker.PickerState
 import barion.picker.PickerTheme
+import barion.picker.Session
+import barion.picker.SessionPicker
+import barion.picker.Step
+import barion.picker.opened
 import barion.picker.pickerOf
 import barion.picker.renderedPng
+import barion.picker.sidebarOf
 import java.nio.file.Path
 import kotlin.io.path.Path
 import kotlin.io.path.writeBytes
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import barion.picker.Outcome as Ended
 
 /*
  * The picker from the command line: in a window (`barion pick`), or drawn into a picture (`barion snapshot`), each
- * over a real folder read through the JVM. The picker is a view for now: what the user does is printed as the
- * events the view reports, and the window closes on Open or Cancel, so the shape of the conversation between the
- * view and whatever will hold its state can be seen before anything holds it.
+ * over a real folder read through the JVM. `barion pick` is the picker as an application will get it, with the
+ * answer on standard output as zenity gives it: each path chosen on a line of its own, or nothing and exit status 1
+ * for a picker cancelled.
  */
 
 /** The parameters both commands take: the folder, what the picker is choosing, and the theme. */
@@ -58,7 +69,7 @@ private class Picking(
 			shown = "auto",
 		)
 
-	fun state(args: Args): PickerState {
+	fun choosing(args: Args): Choosing {
 		val asked =
 			listOfNotNull(
 				"--save".takeIf { args[save] != null },
@@ -71,16 +82,18 @@ private class Picking(
 				"${asked.joinToString(" and ")} ask for different pickers; ask for one",
 			)
 
-		val choosing =
-			when {
-				args[save] != null -> Choosing.SaveAs(args[save]!!)
-				args[many] -> Choosing.Files(emptySet())
-				args[folders] -> Choosing.Folder(null)
-				else -> Choosing.OneFile(null)
-			}
-
-		return pickerOf(args[folder], choosing)
+		return when {
+			args[save] != null -> Choosing.SaveAs(args[save]!!)
+			args[many] -> Choosing.Files()
+			args[folders] -> Choosing.Folder()
+			else -> Choosing.OneFile()
+		}
 	}
+
+	fun folder(args: Args): Path = args[folder]
+
+	/** The picker over its folder, read: what a snapshot draws. */
+	fun state(args: Args): PickerState = pickerOf(folder(args), choosing(args))
 
 	fun theme(args: Args): Theme = args[theme]
 }
@@ -88,38 +101,72 @@ private class Picking(
 /** `barion pick`: the picker in a window. */
 object PickCommand : Command(
 	"pick",
-	"open the picker in a window over a folder, printing what the user does",
+	"open the picker in a window over a folder, and print what is chosen",
 ) {
 	private val picking = Picking(this)
 
 	override fun run(args: Args): Outcome {
-		val state = picking.state(args)
-		val theme = picking.theme(args)
+		val home = Path(System.getProperty("user.home"))
+		val first = opened(picking.choosing(args), picking.folder(args), home, sidebarOf(home))
 
-		// The desktop's scheme is asked for before the window opens, so it opens in the right palette, and followed
-		// while it is open, so it changes palette when the user changes their preference.
+		return when (val outcome = keepingStdout { picked(first, picking.theme(args)) }) {
+			is Ended.Chosen -> Outcome(outcome.paths.joinToString("\n"))
+			Ended.Cancelled -> Outcome("", status = 1)
+		}
+	}
+
+	/**
+	 * The picker [first] opens in a window, run until it ends. The desktop's colour scheme is asked for before the
+	 * window opens, so it opens in the right palette, and followed while it is open, so it changes palette when the
+	 * user changes their preference. The application returns when the picker ends, rather than ending the process,
+	 * so that what was chosen can be printed after it; a window closed is a picker cancelled.
+	 */
+	@OptIn(ExperimentalCoroutinesApi::class)
+	private fun picked(first: Step, theme: Theme): Ended {
+		val ended = CompletableDeferred<Ended>()
+
 		Appearance.follow(theme).use { appearance ->
-			application {
+			application(exitProcessOnExit = false) {
 				val scheme by appearance.changes.collectAsState(appearance.first)
+				val scope = rememberCoroutineScope()
+				val session = remember { Session(first, JvmDisk(), scope) }
+				val state by session.state.collectAsState()
+
+				LaunchedEffect(session) {
+					ended.complete(session.outcome.await())
+					exitApplication()
+				}
 
 				Window(
-					onCloseRequest = ::exitApplication,
+					onCloseRequest = { session.send(PickerEvent.Cancelled) },
 					title = state.title,
 					state = rememberWindowState(width = 1100.dp, height = 680.dp),
 				) {
-					PickerTheme(paletteOf(theme, scheme)) {
-						FilePicker(state) { event ->
-							println(event)
-
-							if (event == PickerEvent.Accepted || event == PickerEvent.Cancelled)
-								exitApplication()
-						}
-					}
+					PickerTheme(paletteOf(theme, scheme)) { SessionPicker(session) }
 				}
 			}
 		}
 
-		return Outcome("")
+		return if (ended.isCompleted)
+			ended.getCompleted()
+		else
+			Ended.Cancelled
+	}
+
+	/**
+	 * [run], with standard output kept for the paths chosen: what the toolkit prints meanwhile (skiko says so on
+	 * standard output when it falls back from OpenGL) goes to standard error instead.
+	 */
+	private fun <T> keepingStdout(run: () -> T): T {
+		val stdout = System.out
+
+		System.setOut(System.err)
+
+		return try {
+			run()
+		} finally {
+			System.setOut(stdout)
+		}
 	}
 }
 

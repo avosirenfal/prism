@@ -51,7 +51,7 @@ runs as a daemon in the user's session, which opens a picker window whenever the
 | `index` | probe, ebpf-loader, linux | the scanner and its backends, the ignore rules, and the watcher as the index runs it; the build compiles the probe into this module's resources |
 | `dbus` | kotlinx.serialization, coroutines | D-Bus of barion's own: a connection over the bus's Unix socket that makes the handshake and `Hello` as it opens, messages as data, bodies by kotlinx.serialization with their signatures worked out from the Kotlin types, signals as flows, served methods (docs/dbus.md) |
 | `portal` | dbus | the desktop portal as barion speaks to it: the colour scheme now, the file chooser it will serve |
-| `picker` | Compose | the picker: an immutable model and a pure view of it |
+| `picker` | Compose, coroutines | the picker: an immutable state, a pure reducer, a session that carries out what the reducer asks for against a disk, and a view made of controls of its own (docs/picker.md) |
 | `app` | everything | the command line and the window: `barion pick`, `snapshot`, `scan`, `probe` |
 
 The index module could ship without the picker: it knows nothing of windows or portals. The picker knows nothing of
@@ -133,18 +133,20 @@ capability, and will be looked at when distributions enable them.
 
 ## The picker
 
-The picker is a pure view of an immutable `PickerState` (docs/picker.md will describe it in full when it has more to
-it). What it is choosing is a sealed type, so a picker for one file cannot hold two and one that saves always has a
-name; the button that accepts is worked out from that, never stored beside it. Everything a row shows is formatted
-when the state is made, so drawing is reading strings, and the listing is a lazy list keyed by name.
+The picker (docs/picker.md) is a loop of three parts. The view draws an immutable `PickerState` and reports what the
+user does as `PickerEvent`s; a pure reducer makes the next state from the last and an event, with the effects it
+wants (a folder read, a typed path looked up, the picker finished); and a session carries those out against a `Disk`
+and sends the answers back in. What it is choosing is a sealed type, so a picker for one file cannot hold two and one
+that saves always has a name; the button that accepts is worked out from that, never stored beside it. Everything a
+row shows is formatted when the folder is read, so drawing is reading strings.
 
-The view reports what the user does as `PickerEvent`s and changes nothing itself. Next, a reducer: a pure function
-from a state and an event to the next state (and the effect wanted, such as reading a folder), which is what will
-make the picker navigate, choose and search, and is testable without a window.
+It browses, chooses and accepts as a desktop's own dialog does, by the pointer and by the keyboard throughout: back,
+forward and up, the places, a path typed, a search of the folder shown, sorting, hidden files, Ctrl- and Shift-click,
+type-ahead, saving over a file only when the user says so.
 
-Features to come, roughly in order: navigation and history; keyboard control throughout; type filters from the
-portal's request; search across the index from the search field; a details pane with a preview; thumbnails; the
-list's column widths and order kept per user; drag and drop out of the picker.
+Features to come, roughly in order: type filters from the portal's request (MIME types as well as patterns); the
+folders read from the index, and search across the index from the search field; a details pane with a preview;
+thumbnails; the list's column widths and order kept per user; drag and drop out of the picker.
 
 ## The search language
 
@@ -182,7 +184,8 @@ JetBrains Runtime's native Wayland toolkit is the way to look at first.
 Every module's tests run without privileges and without a display; what needs more self-skips where it is not there,
 as the engine's GPU tests do without a device:
 
-- the DSL, the scanner, the picker's model and its headless rendering run anywhere;
+- the DSL, the scanner, the picker's rules, its headless rendering, and the picker clicked and typed at headless
+  (Compose's own test input) run anywhere;
 - the emitted C is compiled by clang's BPF target where there is one;
 - the declarations are checked against the running kernel's BTF where it publishes one;
 - the loader loads a program into the kernel and reads its ring end to end where BPF may be loaded (a BTF tracepoint,

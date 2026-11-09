@@ -16,7 +16,6 @@ import java.io.ByteArrayInputStream
 import java.nio.file.Path
 import javax.imageio.ImageIO
 import kotlin.time.Duration.Companion.seconds
-import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -90,8 +89,8 @@ class ThemeTest {
 									cornerOf(paletteOf(Theme.Auto, appearance.first)),
 								)
 
-								// The user changes their preference; the window follows.
-								val next = appearance.changes.drop(1)
+								// The user changes their preference; the window follows. (The changes replay the latest, so
+								// the light scheme is waited for as such: it may arrive before the waiting starts.)
 
 								portal
 									.emit(
@@ -102,7 +101,7 @@ class ThemeTest {
 											Variant(ColorScheme.PreferLight),
 										),
 									).orThrow()
-								assertEquals(ColorScheme.PreferLight, next.first())
+								appearance.changes.first { it == ColorScheme.PreferLight }
 							}
 					}
 				}
