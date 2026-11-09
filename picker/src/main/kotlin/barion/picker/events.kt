@@ -21,8 +21,10 @@ sealed interface PickerEvent : Input {
 		val path: Path,
 	) : PickerEvent
 
+	/** Back: the toolbar's button, Alt+Left, or the mouse's back button. */
 	data object Back : PickerEvent
 
+	/** Forward: the toolbar's button, Alt+Right, or the mouse's forward button. */
 	data object Forward : PickerEvent
 
 	data object Up : PickerEvent
@@ -69,6 +71,19 @@ sealed interface PickerEvent : Input {
 
 	/** Hidden rows shown, or hidden again (Ctrl+H). */
 	data object ToggledHidden : PickerEvent
+
+	/** A kind of entry added to the kinds shown, or taken away. */
+	data class ToggledKind(
+		val kind: Kind,
+	) : PickerEvent
+
+	/** Every kind shown again: no kind chosen. */
+	data object ShowedEveryKind : PickerEvent
+
+	/** The listing drawn as rows or as tiles. */
+	data class Viewed(
+		val layout: Layout,
+	) : PickerEvent
 
 	// ---- the fields ----
 

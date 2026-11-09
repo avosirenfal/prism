@@ -17,11 +17,11 @@ The project is set up and every part named in the first brief exists, builds, an
 | the loader | `ebpf-loader`: libbpf through FFM, each hook checked against BTF and left out if it moved, per-hook verifier logs, the ring buffer read in place with acquire/release ordering |
 | the watcher | `probe`: hooks on the exits of `vfs_mkdir`, `vfs_rmdir`, `vfs_unlink`, `vfs_create`, `vfs_symlink`, `vfs_link`, `vfs_mknod`, `vfs_rename` and `do_filp_open`; compiled by the build into `index`'s resources |
 | the scanner | `index`: one traversal, two backends (getdents64 through FFM, and the JVM's own), names as bytes, the ignore rules, pseudo file systems skipped from mountinfo |
-| the picker | `picker`: an immutable `PickerState`, a pure reducer, a session that reads folders and looks up typed paths on a background thread, and a view made of its own controls with hover, press and focus looks; it browses (back, forward, up, places, a typed path), chooses (click, Ctrl, Shift, the arrows, type-ahead), searches, sorts, filters and saves (asking before replacing), by pointer and keyboard alike; `barion pick` prints what is chosen (docs/picker.md) |
+| the picker | `picker`: an immutable `PickerState`, a pure reducer, a session that reads folders and looks up typed paths on a background thread, and a view made of its own controls with hover, press and focus looks; it browses (back, forward, up, the mouse's side buttons, places, a typed path), chooses (click, Ctrl, Shift, the arrows, type-ahead), searches, sorts, filters by kind (several at once, with counts; hidden entries shown until unticked) and saves (asking before replacing), by pointer and keyboard alike, as a list or a gallery with thumbnails of images; `barion pick` prints what is chosen (docs/picker.md) |
 | D-Bus | `dbus`: the connection (handshake and `Hello` as it opens), messages as data, kotlinx.serialization for bodies with signatures worked out from the types and checked before decoding, calls with replies as values, signals as flows, `watch`, served methods (docs/dbus.md) |
 | the colour scheme | `portal`: the portal's Settings declared; `barion pick` opens in the desktop's palette and follows its changes; light where there is no bus or portal; `--theme` overrides |
 
-169 tests (154 of barion's own, 15 of the house formatting rules), all passing in the development container; none
+184 tests (169 of barion's own, 15 of the house formatting rules), all passing in the development container; none
 skipped there. The D-Bus ones run against a real dbus-daemon each test starts, and against gdbus, dbus-send and busctl.
 
 ## Measured
@@ -66,6 +66,12 @@ In the order they unblock each other:
    before it is sent; and the privileged loader service that hands the ring to the user's daemon.
 
 ## Notes for whoever picks this up
+
+- The mouse's side buttons cannot be had from Compose on Linux: X numbers them 8 and 9, the JDK passes them on as
+  AWT's 6 and 7, and Compose drops them, while reporting a sideways scroll (X's 6 and 7, AWT's 4 and 5) as back and
+  forward. They are read from AWT itself (`picker/sidebuttons.kt`); nothing should use Compose's `PointerButton.Back`.
+- Headless drawing (`renderedPng`) draws two frames and returns, so it never shows a thumbnail: those arrive from an
+  IO thread after. The gallery's pictures are checked by the interaction tests, and seen in a real window.
 
 - A path is a list of its own names in Kotlin (`Path` is `Iterable<Path>`), so `paths + path` adds the path's names,
   not the path. Use `paths.plusElement(path)`. The picker's history had this bug until a test caught it.

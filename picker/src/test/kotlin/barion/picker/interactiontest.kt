@@ -5,10 +5,13 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.test.ComposeUiTest
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.MouseButton
 import androidx.compose.ui.test.SemanticsNodeInteraction
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.assertIsNotSelected
+import androidx.compose.ui.test.assertIsOff
+import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.click
@@ -30,6 +33,7 @@ import kotlin.io.path.createDirectories
 import kotlin.io.path.writeText
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 
@@ -84,6 +88,20 @@ class InteractionTest {
 
 	private fun ComposeUiTest.row(name: String): SemanticsNodeInteraction =
 		onNodeWithTag("row:$name")
+
+	/** No row of any of [names] is shown. */
+	private fun ComposeUiTest.absent(vararg names: String) =
+		names.forEach {
+			assertEquals(0, onAllNodes(hasTestTag("row:$it")).fetchSemanticsNodes().size, it)
+		}
+
+	/** The small home, with a real picture, a video and a hidden file besides. */
+	private fun media(): Path =
+		home().also {
+			ThumbnailTest.picture(it, "photo.png", 400, 300)
+			it.resolve("clip.mp4").writeText("not really")
+			it.resolve(".secret").writeText("")
+		}
 
 	private fun ComposeUiTest.focused(): SemanticsNodeInteraction = onNode(isFocused())
 
@@ -213,14 +231,13 @@ class InteractionTest {
 			focusIsIn("listing")
 			press(Key.Tab)
 			focusIsIn("name")
-			press(Key.Tab)
-			focusIsIn("filter")
-			// Open cannot be pressed with nothing chosen, so it is passed over.
+			// Open cannot be pressed with nothing chosen, so it is passed over; with one filter of the application's
+			// own (all files), there is no choice of them to show.
 			press(Key.Tab)
 			focusIsIn("cancel")
 			focused().performKeyInput { withKeyDown(Key.ShiftLeft) { pressKey(Key.Tab) } }
-			focusIsIn("filter")
-			// Round from the end to the start: the path, then the search, then the places.
+			focusIsIn("name")
+			// Round from the end to the start: the path, the search, the places, the filters, then the listing.
 			press(Key.Tab)
 			press(Key.Tab)
 			focusIsIn("crumbs")
@@ -228,6 +245,10 @@ class InteractionTest {
 			focusIsIn("search")
 			press(Key.Tab)
 			focusIsIn("places")
+			press(Key.Tab)
+			focusIsIn("kinds")
+			press(Key.Tab)
+			focusIsIn("hidden")
 			press(Key.Tab)
 			focusIsIn("listing")
 		}
@@ -322,7 +343,10 @@ class InteractionTest {
 	@Test
 	fun thePlacesAreOneStopWhoseArrowsMoveAndEnterOpens() =
 		picking {
-			focused().performKeyInput { withKeyDown(Key.ShiftLeft) { pressKey(Key.Tab) } }
+			// Back from the listing: past Show hidden and the kinds to the places.
+			repeat(3) {
+				focused().performKeyInput { withKeyDown(Key.ShiftLeft) { pressKey(Key.Tab) } }
+			}
 			focusIsIn("places")
 			// The arrows start at the place shown (Home); the next one down is Documents.
 			press(Key.DirectionDown)
@@ -360,9 +384,111 @@ class InteractionTest {
 					?.at == RowId("dir 30")
 			}
 			waitForIdle()
-			// The window holds nineteen rows; the thirtieth is scrolled up to the bottom of them, not to the top.
+			// The window holds some sixteen rows; the thirtieth is scrolled up to the bottom of them, not to the top,
+			// so the tenth row above it is in sight too.
 			row("dir 30").assertIsDisplayed()
-			row("dir 12").assertIsDisplayed()
+			row("dir 20").assertIsDisplayed()
+		}
+
+	@Test
+	fun theButtonsComposeCallBackAndForwardAreASidewaysScrollOnLinuxAndDoNothing() =
+		picking {
+			row("Documents").performMouseInput { doubleClick() }
+			shows(work.resolve("Documents"), "letter.odt")
+
+			// What Compose calls back is X's button 6, a scroll to the left (sidebuttons.kt): nothing is gone back to.
+			onNodeWithTag("listing").performMouseInput {
+				press(COMPOSE_BACK)
+				release(COMPOSE_BACK)
+			}
+			waitForIdle()
+			shows(work.resolve("Documents"), "letter.odt")
+		}
+
+	@Test
+	fun theFiltersShowOnlyTheKindsChosenAndHiddenEntriesApart() =
+		picking(folder = media()) {
+			// Everything at first, hidden entries too.
+			row(".secret").assertExists()
+			row("Documents").assertExists()
+			onNodeWithTag("kind:All").assertIsSelected()
+			onNodeWithTag("hidden").assertIsOn()
+
+			onNodeWithTag("kind:Images").performClick()
+			row("photo.png").assertExists()
+			absent("notes.md", "Documents", "clip.mp4")
+			onNodeWithTag("kind:All").assertIsNotSelected()
+
+			// A second kind shows its entries as well.
+			onNodeWithTag("kind:Videos").performClick()
+			row("photo.png").assertExists()
+			row("clip.mp4").assertExists()
+			absent("notes.md", "Documents")
+			onNodeWithTag("status").assertTextEquals("2 of 8 items")
+
+			// Hidden entries are shown or not whatever kinds are on: none here are images or videos.
+			onNodeWithTag("kind:All").performClick()
+			row(".secret").assertExists()
+			onNodeWithTag("hidden").performClick()
+			onNodeWithTag("hidden").assertIsOff()
+			absent(".secret")
+			row("notes.md").assertExists()
+		}
+
+	@Test
+	fun theFiltersAreOneStopOfTheKeyboard() =
+		picking(folder = media()) {
+			// Back from the listing: Show hidden, then the kinds.
+			focused().performKeyInput { withKeyDown(Key.ShiftLeft) { pressKey(Key.Tab) } }
+			focusIsIn("hidden")
+			press(Key.Spacebar)
+			absent(".secret")
+			focused().performKeyInput { withKeyDown(Key.ShiftLeft) { pressKey(Key.Tab) } }
+			focusIsIn("kinds")
+			// All, Folders, Images: two to the right, and on.
+			press(Key.DirectionRight)
+			press(Key.DirectionRight)
+			press(Key.Spacebar)
+			onNodeWithTag("kind:Images").assertIsSelected()
+			absent("notes.md")
+		}
+
+	@Test
+	fun theGalleryShowsEachEntryAsATileWithAPicture() =
+		picking(folder = media()) { session ->
+			onNodeWithTag("layout:Gallery").performClick()
+			onNodeWithTag("layout:Gallery").assertIsSelected()
+			waitUntil(timeoutMillis = TIMEOUT) {
+				onAllNodes(hasTestTag("picture:photo.png")).fetchSemanticsNodes().isNotEmpty()
+			}
+			// Only an image has a picture; the rest have their icons.
+			assertEquals(0, onAllNodes(hasTestTag("picture:notes.md")).fetchSemanticsNodes().size)
+
+			// Left and Right move along a line of tiles; Down goes a whole line down, and Up back.
+			press(Key.MoveHome)
+			press(Key.DirectionRight)
+			row("Music").assertIsSelected()
+			press(Key.DirectionDown)
+			assertTrue(
+				(
+					session.state.value.cursor
+						?.at
+						?.let(session.state.value.rows::indexOf) ?: 0
+				) > 2,
+			)
+			press(Key.DirectionUp)
+			row("Music").assertIsSelected()
+
+			// A double click on a folder's tile opens it, in the gallery still.
+			row("Documents").performMouseInput { doubleClick() }
+			shows(work.resolve("Documents"), "letter.odt")
+			assertEquals(Layout.Gallery, session.state.value.layout)
+
+			// Ctrl+1 for the list, Ctrl+2 for the gallery.
+			focused().performKeyInput { withKeyDown(Key.CtrlLeft) { pressKey(Key.One) } }
+			waitUntil(timeoutMillis = TIMEOUT) { session.state.value.layout == Layout.List }
+			focused().performKeyInput { withKeyDown(Key.CtrlLeft) { pressKey(Key.Two) } }
+			waitUntil(timeoutMillis = TIMEOUT) { session.state.value.layout == Layout.Gallery }
 		}
 
 	@Test
@@ -396,15 +522,20 @@ class InteractionTest {
 			row("file 06.txt").performClick()
 			row("file 01.txt").assertIsDisplayed()
 
-			// Down past the last row in sight (the window holds nineteen) scrolls by a row, not a page.
+			// Down past the last row in sight (the window holds some sixteen) scrolls by a row, not a page: the rows
+			// just above the cursor are still in sight, where a page's jump would have left them above it.
 			press(Key.MoveHome)
 			repeat(19) { press(Key.DirectionDown) }
 			row("file 20.txt").assertIsSelected()
 			row("file 20.txt").assertIsDisplayed()
-			row("file 02.txt").assertIsDisplayed()
+			row("file 19.txt").assertIsDisplayed()
+			row("file 10.txt").assertIsDisplayed()
 		}
 
 	private companion object {
 		const val TIMEOUT = 5_000L
+
+		/** What Compose calls the back button: AWT's fourth, which on Linux is X's sideways scroll. */
+		val COMPOSE_BACK = MouseButton(3)
 	}
 }

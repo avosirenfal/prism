@@ -1,5 +1,6 @@
 package barion.picker
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -27,6 +28,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyGridState
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -38,6 +43,7 @@ import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
@@ -49,6 +55,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.input.key.KeyEventType
@@ -68,6 +75,7 @@ import androidx.compose.ui.input.pointer.isMetaPressed
 import androidx.compose.ui.input.pointer.isPrimaryPressed
 import androidx.compose.ui.input.pointer.isShiftPressed
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
@@ -184,6 +192,8 @@ private fun shortcut(
 			(ctrl && key.key == Key.L) || (alt && key.key == Key.D) -> PickerEvent.EditedAddress
 			ctrl && key.key == Key.H -> PickerEvent.ToggledHidden
 			key.key == Key.F5 || (ctrl && key.key == Key.R) -> PickerEvent.Refreshed
+			ctrl && key.key == Key.One -> PickerEvent.Viewed(Layout.List)
+			ctrl && key.key == Key.Two -> PickerEvent.Viewed(Layout.Gallery)
 			else -> null
 		}
 
@@ -247,6 +257,18 @@ private fun Toolbar(state: PickerState, stops: Stops, onEvent: (PickerEvent) -> 
 			focus = stops.search,
 			onKey = { searchKey(it, state.arrangement.query, stops, onEvent) },
 		)
+		Spacer(Modifier.width(Dims.gapSmall))
+		for ((layout, glyph) in listOf(
+			Layout.List to Glyph.ViewList,
+			Layout.Gallery to Glyph.ViewGrid,
+		))
+			ToolButton(
+				glyph,
+				layout.name,
+				enabled = true,
+				Modifier.testTag("layout:${layout.name}"),
+				selected = state.layout == layout,
+			) { onEvent(PickerEvent.Viewed(layout)) }
 	}
 }
 
@@ -549,12 +571,118 @@ private data class Typing(
 /** How long a pause in typing ends the letters that name a row, in milliseconds. */
 private const val TYPING_PAUSE = 1000L
 
-/**
- * The listing, as one stop of the keyboard: what it shows is [PickerState.rows], with the cursor's row ringed while
- * the keyboard is here, and kept in sight as it moves. Each folder starts at its top.
- */
+/** The filters above the listing, then the listing itself. */
 @Composable
 private fun ListingPane(
+	state: PickerState,
+	stops: Stops,
+	modifier: Modifier,
+	onEvent: (PickerEvent) -> Unit,
+) {
+	val palette = LocalPalette.current
+
+	Column(modifier.fillMaxHeight().background(palette.surface)) {
+		FilterBar(state, onEvent)
+		Line(palette.divider)
+		ListingBody(state, stops, Modifier.weight(1f), onEvent)
+	}
+}
+
+/**
+ * The filters: the kinds of entry to show, as chips that each add their kind to what is shown (none on is
+ * everything), and whether hidden entries are shown, which applies whatever kinds are on. A folder picker shows only
+ * folders, so it has only the second.
+ */
+@Composable
+private fun FilterBar(state: PickerState, onEvent: (PickerEvent) -> Unit) {
+	Row(
+		Modifier
+			.fillMaxWidth()
+			.height(Dims.filters)
+			.padding(horizontal = Dims.gap),
+		verticalAlignment = Alignment.CenterVertically,
+	) {
+		if (state.choosing is Choosing.Folder)
+			Spacer(Modifier.weight(1f))
+		else
+			KindChips(state.arrangement.kinds, state.counts, Modifier.weight(1f), onEvent)
+		Spacer(Modifier.width(Dims.gap))
+		Check("Show hidden", state.arrangement.showHidden, Modifier.testTag("hidden")) {
+			onEvent(PickerEvent.ToggledHidden)
+		}
+	}
+}
+
+/**
+ * The kinds' chips, as one stop of the keyboard: Left and Right move through them, Space or Enter turns one on or
+ * off. "All" turns every one off. Which chip the arrows are on is the row's own, as the sidebar's place is.
+ */
+@Composable
+private fun KindChips(
+	kinds: Set<Kind>,
+	counts: Counts,
+	modifier: Modifier,
+	onEvent: (PickerEvent) -> Unit,
+) {
+	// Every kind (null) first, then each kind.
+	val choices: List<Kind?> = listOf(null) + Kind.entries
+	val source = remember { MutableInteractionSource() }
+	val focused by source.collectIsFocusedAsState()
+	var at by remember { mutableIntStateOf(0) }
+
+	fun toggle(choice: Kind?) =
+		onEvent(choice?.let { PickerEvent.ToggledKind(it) } ?: PickerEvent.ShowedEveryKind)
+
+	fun key(key: KeyEvent): Boolean {
+		if (key.type != KeyEventType.KeyDown)
+			return false
+
+		when {
+			key.key == Key.DirectionLeft -> at = (at - 1).coerceAtLeast(0)
+			key.key == Key.DirectionRight -> at = (at + 1).coerceAtMost(choices.lastIndex)
+			key.key == Key.MoveHome -> at = 0
+			key.key == Key.MoveEnd -> at = choices.lastIndex
+			key.key == Key.Spacebar || key.isEnter -> toggle(choices[at])
+			else -> return false
+		}
+
+		return true
+	}
+
+	Row(
+		modifier
+			.onKeyEvent(::key)
+			.focusable(interactionSource = source)
+			.testTag("kinds")
+			.horizontalScroll(rememberScrollState())
+			.padding(vertical = Dims.ring),
+		verticalAlignment = Alignment.CenterVertically,
+		horizontalArrangement = Arrangement.spacedBy(Dims.gapSmall),
+	) {
+		choices.forEachIndexed { index, choice ->
+			val label = choice?.label ?: "All"
+
+			Chip(
+				label,
+				choice?.let { counts[it] } ?: counts.every,
+				on = choice?.let { it in kinds } ?: kinds.isEmpty(),
+				keyed = focused && index == at,
+				Modifier.testTag("kind:$label"),
+			) {
+				at = index
+				toggle(choice)
+			}
+		}
+	}
+}
+
+/**
+ * The listing, as one stop of the keyboard: what it shows is [PickerState.rows], as rows in columns or as tiles in a
+ * gallery, with the cursor's row ringed while the keyboard is here, and kept in sight as it moves. Each folder starts
+ * at its top. In a gallery, Left and Right move along a line of tiles, and Up and Down from one line to the next.
+ */
+@Composable
+private fun ListingBody(
 	state: PickerState,
 	stops: Stops,
 	modifier: Modifier,
@@ -564,14 +692,23 @@ private fun ListingPane(
 	val source = remember { MutableInteractionSource() }
 	val focused by source.collectIsFocusedAsState()
 	val list = remember(state.folder) { LazyListState() }
+	val grid = remember(state.folder) { LazyGridState() }
 	val rows = state.rows
 	val cursor = state.cursor?.at
 	val cursorAt = cursor?.let(rows::indexOf)
 	val query = state.arrangement.query
+	val gallery = state.layout == Layout.Gallery
 	var typing by remember { mutableStateOf(Typing("", 0)) }
 	var pressed by remember { mutableStateOf<Pressed?>(null) }
 
-	LaunchedEffect(cursorAt) { cursorAt?.let { list.reveal(it) } }
+	LaunchedEffect(cursorAt, state.layout) {
+		cursorAt?.let {
+			if (gallery)
+				grid.reveal(it)
+			else
+				list.reveal(it)
+		}
+	}
 
 	// A second plain press of the row pressed last, soon enough, is a double click; a third starts again.
 	fun press(row: RowId, press: Press) {
@@ -597,7 +734,23 @@ private fun ListingPane(
 				ctrl -> Carry.Stay
 				else -> Carry.Choose
 			}
-		val page = (list.layoutInfo.visibleItemsInfo.size - 1).coerceAtLeast(1)
+
+		// A line is a row in the list, and as many tiles as fit across in the gallery.
+		val line =
+			if (gallery)
+				grid.layoutInfo.maxSpan.coerceAtLeast(1)
+			else
+				1
+
+		val lines =
+			if (gallery)
+				grid.layoutInfo.visibleItemsInfo
+					.map { it.row }
+					.distinct()
+					.size
+			else
+				list.layoutInfo.visibleItemsInfo.size
+		val page = line * (lines - 1).coerceAtLeast(1)
 		val letter =
 			key.utf16CodePoint
 				.takeIf {
@@ -606,8 +759,10 @@ private fun ListingPane(
 
 		val event =
 			when {
-				key.key == Key.DirectionUp -> PickerEvent.Moved(Move.By(-1), carry)
-				key.key == Key.DirectionDown -> PickerEvent.Moved(Move.By(1), carry)
+				key.key == Key.DirectionUp -> PickerEvent.Moved(Move.By(-line), carry)
+				key.key == Key.DirectionDown -> PickerEvent.Moved(Move.By(line), carry)
+				gallery && key.key == Key.DirectionLeft -> PickerEvent.Moved(Move.By(-1), carry)
+				gallery && key.key == Key.DirectionRight -> PickerEvent.Moved(Move.By(1), carry)
 				key.key == Key.PageUp -> PickerEvent.Moved(Move.By(-page), carry)
 				key.key == Key.PageDown -> PickerEvent.Moved(Move.By(page), carry)
 				key.key == Key.MoveHome -> PickerEvent.Moved(Move.First, carry)
@@ -628,16 +783,21 @@ private fun ListingPane(
 		return event != null
 	}
 
+	val nowhere =
+		Modifier.pressedNowhere {
+			stops.listing.requestFocus()
+			onEvent(PickerEvent.ClickedNowhere)
+		}
+
 	Column(
 		modifier
-			.fillMaxHeight()
-			.background(palette.surface)
+			.fillMaxWidth()
 			.focusRequester(stops.listing)
 			.onKeyEvent(::key)
 			.focusable(interactionSource = source)
 			.testTag("listing"),
 	) {
-		Header(state.arrangement.sort, onEvent)
+		Header(state.arrangement.sort, state.layout, onEvent)
 		Line(palette.divider)
 
 		when (val listing = state.listing) {
@@ -645,34 +805,91 @@ private fun ListingPane(
 			is Listing.Reading -> Box(Modifier.fillMaxSize())
 			is Listing.Unreadable -> Message("This folder can't be opened", listing.why)
 			is Listing.Shown ->
-				if (rows.isEmpty())
-					Message(
-						when {
-							query.isNotBlank() -> "Nothing here matches “$query”"
-							listing.entries.isEmpty() -> "This folder is empty"
-							else -> "Nothing here is shown"
-						},
-						null,
-					)
-				else
-					LazyColumn(
-						Modifier
-							.fillMaxSize()
-							.pressedNowhere {
-								stops.listing.requestFocus()
-								onEvent(PickerEvent.ClickedNowhere)
-							}.padding(horizontal = Dims.gapSmall, vertical = Dims.gapSmall),
-						state = list,
-					) {
-						items(rows.list, key = { it.id.name }, contentType = { "row" }) { row ->
-							EntryRow(
-								row,
-								chosen = row.id in state.choosing.rows,
-								cursor = focused && row.id == cursor,
-								onPress = { press(row.id, it) },
-							)
+				when {
+					rows.isEmpty() ->
+						Message(
+							when {
+								query.isNotBlank() -> "Nothing here matches “$query”"
+								listing.entries.isEmpty() -> "This folder is empty"
+								else -> "Nothing here is shown"
+							},
+							if (listing.entries.isEmpty() || query.isNotBlank())
+								null
+							else
+								"The filters above leave out everything in this folder.",
+						)
+					gallery ->
+						LazyVerticalGrid(
+							GridCells.Adaptive(Dims.tile),
+							nowhere.fillMaxSize().padding(Dims.gapSmall),
+							state = grid,
+							horizontalArrangement = Arrangement.spacedBy(Dims.gapSmall),
+							verticalArrangement = Arrangement.spacedBy(Dims.gapSmall),
+						) {
+							items(rows.list, key = { it.id.name }, contentType = { "tile" }) { row ->
+								Tile(
+									row,
+									state.folder.resolve(row.name),
+									chosen = row.id in state.choosing.rows,
+									cursor = focused && row.id == cursor,
+									onPress = { press(row.id, it) },
+								)
+							}
 						}
-					}
+					else ->
+						LazyColumn(
+							nowhere
+								.fillMaxSize()
+								.padding(horizontal = Dims.gapSmall, vertical = Dims.gapSmall),
+							state = list,
+						) {
+							items(rows.list, key = { it.id.name }, contentType = { "row" }) { row ->
+								EntryRow(
+									row,
+									chosen = row.id in state.choosing.rows,
+									cursor = focused && row.id == cursor,
+									onPress = { press(row.id, it) },
+								)
+							}
+						}
+				}
+		}
+	}
+}
+
+/**
+ * The tile at [index] scrolled into sight, as [LazyListState.reveal] does for a row: its line moved in by what is cut
+ * off, or scrolled to directly, at the top from above and at the bottom from below. Every tile is as tall as every
+ * other.
+ */
+private suspend fun LazyGridState.reveal(index: Int) {
+	val info = snapshotFlow { layoutInfo }.first { it.visibleItemsInfo.isNotEmpty() }
+	val shown = info.visibleItemsInfo
+	val first = shown.first()
+	val last = shown.last()
+	val across = info.maxSpan.coerceAtLeast(1)
+	val line = first.size.height + info.mainAxisItemSpacing
+	val height = info.viewportEndOffset - info.viewportStartOffset
+
+	when {
+		index < first.index -> scrollToItem(index)
+		index > last.index -> {
+			val target = index / across
+			// The lines above it, once it is at the bottom: as many as fill the rest of the height, the top one cut.
+			val above = (height - line + line - 1) / line
+			val top = (target - above).coerceAtLeast(0)
+
+			scrollToItem(top * across, ((target - top + 1) * line - height).coerceAtLeast(0))
+		}
+		else -> {
+			val tile = shown.first { it.index == index }
+			val cutAbove = info.viewportStartOffset - tile.offset.y
+			val cutBelow = tile.offset.y + tile.size.height - info.viewportEndOffset
+
+			when {
+				cutAbove > 0 -> scrollBy(-cutAbove.toFloat())
+				cutBelow > 0 -> scrollBy(cutBelow.toFloat())
+			}
 		}
 	}
 }
@@ -783,30 +1000,65 @@ private fun clickOf(keys: PointerKeyboardModifiers): Click =
 		else -> Click.Only
 	}
 
+/** A column of the list: its heading, the order it sorts by, its share of the width, and which side it keeps to. */
+private data class Heading(
+	val label: String,
+	val column: Sort.Column,
+	val share: Float,
+	val end: Boolean = false,
+)
+
+private val HEADINGS =
+	listOf(
+		Heading("Name", Sort.Column.Name, Dims.nameColumn),
+		Heading("Date modified", Sort.Column.Modified, Dims.dateColumn),
+		Heading("Type", Sort.Column.Type, Dims.typeColumn),
+		Heading("Size", Sort.Column.Size, Dims.sizeColumn, end = true),
+	)
+
+/**
+ * The headings that sort the listing, each by its column, the other way round when clicked again: over the list's
+ * columns, or, over a gallery's tiles, which have no columns, as a row of the same choices after "Sort by".
+ */
 @Composable
-private fun Header(sort: Sort, onEvent: (PickerEvent) -> Unit) {
+private fun Header(sort: Sort, layout: Layout, onEvent: (PickerEvent) -> Unit) {
+	val type = LocalType.current
+
 	Row(
 		Modifier.fillMaxWidth().height(Dims.header).padding(
 			horizontal =
 				Dims.gap + Dims.gapSmall,
 		),
 		verticalAlignment = Alignment.CenterVertically,
+		horizontalArrangement =
+			when (layout) {
+				Layout.List -> Arrangement.Start
+				Layout.Gallery -> Arrangement.spacedBy(Dims.gap)
+			},
 	) {
-		HeaderCell("Name", Sort.Column.Name, sort, Dims.nameColumn, onEvent)
-		HeaderCell("Date modified", Sort.Column.Modified, sort, Dims.dateColumn, onEvent)
-		HeaderCell("Type", Sort.Column.Type, sort, Dims.typeColumn, onEvent)
-		HeaderCell("Size", Sort.Column.Size, sort, Dims.sizeColumn, onEvent, end = true)
+		if (layout == Layout.Gallery)
+			Text("Sort by", style = type.muted, maxLines = 1)
+		for (heading in HEADINGS)
+			HeaderCell(
+				heading,
+				sort,
+				when (layout) {
+					Layout.List -> Modifier.weight(heading.share)
+					Layout.Gallery -> Modifier
+				},
+				end = heading.end && layout == Layout.List,
+				onEvent,
+			)
 	}
 }
 
 @Composable
-private fun RowScope.HeaderCell(
-	label: String,
-	column: Sort.Column,
+private fun HeaderCell(
+	heading: Heading,
 	sort: Sort,
-	share: Float,
+	modifier: Modifier,
+	end: Boolean,
 	onEvent: (PickerEvent) -> Unit,
-	end: Boolean = false,
 ) {
 	val palette = LocalPalette.current
 	val type = LocalType.current
@@ -814,8 +1066,7 @@ private fun RowScope.HeaderCell(
 	val felt = source.felt()
 
 	Row(
-		Modifier
-			.weight(share)
+		modifier
 			.fillMaxHeight()
 			.background(
 				if (felt.hovered)
@@ -823,14 +1074,22 @@ private fun RowScope.HeaderCell(
 				else
 					Color.Transparent,
 			).focusProperties { canFocus = false }
-			.clickable(source, indication = null) { onEvent(PickerEvent.Sorted(column)) }
-			.testTag("column:$label")
+			.clickable(source, indication = null) { onEvent(PickerEvent.Sorted(heading.column)) }
+			.testTag("column:${heading.label}")
 			.padding(horizontal = Dims.gapSmall),
 		verticalAlignment = Alignment.CenterVertically,
 		horizontalArrangement = if (end) Arrangement.End else Arrangement.Start,
 	) {
-		Text(label, style = type.muted, maxLines = 1)
-		if (sort.by == column)
+		Text(
+			heading.label,
+			style =
+				if (sort.by == heading.column)
+					type.muted.copy(color = palette.text)
+				else
+					type.muted,
+			maxLines = 1,
+		)
+		if (sort.by == heading.column)
 			GlyphIcon(
 				if (sort.ascending)
 					Glyph.SortUp
@@ -916,6 +1175,94 @@ private fun EntryRow(
 	}
 }
 
+/** One entry as a tile of the gallery: its picture, or its icon drawn large, and its name under it. */
+@Composable
+private fun Tile(
+	row: Row,
+	path: Path,
+	chosen: Boolean,
+	cursor: Boolean,
+	onPress: (Press) -> Unit,
+) {
+	val palette = LocalPalette.current
+	val type = LocalType.current
+	val hover = remember { MutableInteractionSource() }
+	val hovered by hover.collectIsHoveredAsState()
+	val pressed by rememberUpdatedState(onPress)
+	val shape = RoundedCornerShape(Dims.radius)
+
+	Column(
+		Modifier
+			.alpha(if (row.hidden) 0.6f else 1f)
+			.height(Dims.tileHeight)
+			.background(
+				when {
+					chosen -> palette.chosen
+					hovered -> palette.hover
+					else -> Color.Transparent
+				},
+				shape,
+			).border(
+				1.dp,
+				if (chosen)
+					palette.chosenEdge
+				else
+					Color.Transparent,
+				shape,
+			).ring(cursor, palette.focus, outset = 0.dp, width = 1.5.dp)
+			.hoverable(hover)
+			.pressing { pressed(it) }
+			.semantics { selected = chosen }
+			.testTag("row:${row.name}")
+			.padding(Dims.gap),
+		horizontalAlignment = Alignment.CenterHorizontally,
+	) {
+		Box(Modifier.fillMaxWidth().height(Dims.picture), contentAlignment = Alignment.Center) {
+			Picture(row, path)
+		}
+		Spacer(Modifier.height(Dims.gapSmall))
+		Text(
+			row.name,
+			style = type.body,
+			maxLines = 2,
+			overflow = TextOverflow.Ellipsis,
+			textAlign = TextAlign.Center,
+		)
+	}
+}
+
+/**
+ * The picture of [row]: a small picture of an image (LocalThumbnails), made on an IO thread while its icon is shown,
+ * or the icon alone for anything else.
+ */
+@Composable
+private fun Picture(row: Row, path: Path) {
+	val palette = LocalPalette.current
+	val thumbnails = LocalThumbnails.current
+	val drawable = !row.isFolder && Thumbnails.drawable(row.name)
+	val picture by produceState<ImageBitmap?>(null, path, row.modified) {
+		if (drawable)
+			value = thumbnails.of(path, row.modified?.value)
+	}
+
+	when (val shown = picture) {
+		null ->
+			GlyphIcon(
+				if (row.isFolder) Glyph.Folder else Glyph.File,
+				palette.text,
+				64.dp,
+				category = row.category,
+			)
+		else ->
+			Image(
+				shown,
+				contentDescription = row.name,
+				modifier = Modifier.fillMaxSize().testTag("picture:${row.name}"),
+				contentScale = ContentScale.Inside,
+			)
+	}
+}
+
 @Composable
 private fun Message(title: String, detail: String?) {
 	val type = LocalType.current
@@ -982,8 +1329,8 @@ private fun Footer(state: PickerState, stops: Stops, onEvent: (PickerEvent) -> U
 					accepting
 				},
 			)
-			// A folder picker shows no files, so it has no filter of them.
-			if (state.choosing !is Choosing.Folder) {
+			// The asking application's filters, where it offers a choice of them; a folder picker shows no files.
+			if (state.choosing !is Choosing.Folder && state.filters.size > 1) {
 				Spacer(Modifier.width(Dims.gap))
 				Select(
 					state.filters,
@@ -994,7 +1341,11 @@ private fun Footer(state: PickerState, stops: Stops, onEvent: (PickerEvent) -> U
 			}
 		}
 		Row(verticalAlignment = Alignment.CenterVertically) {
-			Text(statusOf(state), style = type.muted, modifier = Modifier.weight(1f))
+			Text(
+				statusOf(state),
+				style = type.muted,
+				modifier = Modifier.weight(1f).testTag("status"),
+			)
 			PickerButton(
 				state.accept.label,
 				Emphasis.Primary,
@@ -1014,15 +1365,22 @@ private fun Footer(state: PickerState, stops: Stops, onEvent: (PickerEvent) -> U
 	}
 }
 
-/** How many rows are shown and how many chosen, as the status line says it. */
+/** How many rows are shown (of how many, where some are left out) and how many chosen, as the status line says it. */
 private fun statusOf(state: PickerState): String {
 	val shown = state.rows.size
 	val chosen = state.choosing.rows.size
-	val counted =
-		if (shown == 1)
+	val entries = (state.listing as? Listing.Shown)?.entries?.size ?: shown
+	val items =
+		if (entries == 1)
 			"1 item"
 		else
-			"$shown items"
+			"$entries items"
+
+	val counted =
+		if (shown == entries)
+			items
+		else
+			"$shown of $items"
 
 	return when {
 		state.listing is Listing.Reading -> "Reading…"

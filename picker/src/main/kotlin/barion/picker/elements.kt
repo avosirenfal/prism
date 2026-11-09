@@ -7,13 +7,17 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.DropdownMenu
@@ -49,6 +53,8 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
@@ -178,7 +184,8 @@ fun PickerButton(
 
 /**
  * A button with a glyph on it, for the toolbar: pressed by the pointer only, since each has a key of its own (Alt
- * and an arrow), so the keyboard's Tab passes over it.
+ * and an arrow, Ctrl and a number), so the keyboard's Tab passes over it. One of a set that shows which is in use
+ * (the list or the gallery) is [selected].
  */
 @Composable
 fun ToolButton(
@@ -186,6 +193,7 @@ fun ToolButton(
 	label: String,
 	enabled: Boolean,
 	modifier: Modifier = Modifier,
+	selected: Boolean = false,
 	onClick: () -> Unit,
 ) {
 	val palette = LocalPalette.current
@@ -195,6 +203,7 @@ fun ToolButton(
 		when {
 			!enabled -> Color.Transparent
 			felt.pressed -> palette.pressed
+			selected -> palette.chosen
 			felt.hovered -> palette.hover
 			else -> Color.Transparent
 		}
@@ -213,10 +222,121 @@ fun ToolButton(
 				onClickLabel = label,
 				role = Role.Button,
 				onClick = onClick,
-			),
+			).semantics { this.selected = selected },
 		contentAlignment = Alignment.Center,
 	) {
-		GlyphIcon(glyph, palette.text, Dims.icon)
+		GlyphIcon(
+			glyph,
+			if (selected)
+				palette.accent
+			else
+				palette.text,
+			Dims.icon,
+		)
+	}
+}
+
+/**
+ * A filter that is on or off: its words, how many it would show, and a check while it is on. It is pressed by the
+ * pointer; the keyboard reaches it through the row of filters it is in, which rings the one it is on ([keyed]). A
+ * filter that would show nothing is dimmed, but can still be turned on, so that a choice of filters stays the same
+ * from folder to folder.
+ */
+@Composable
+fun Chip(
+	label: String,
+	count: Int?,
+	on: Boolean,
+	keyed: Boolean,
+	modifier: Modifier = Modifier,
+	onToggle: () -> Unit,
+) {
+	val palette = LocalPalette.current
+	val type = LocalType.current
+	val source = remember { MutableInteractionSource() }
+	val felt = source.felt()
+	val shape = RoundedCornerShape(percent = 50)
+	val fill =
+		when {
+			felt.pressed -> palette.pressed
+			on -> palette.chosen
+			felt.hovered -> palette.hover
+			else -> palette.field
+		}
+
+	Row(
+		modifier
+			.ring(keyed, palette.focus, corner = Dims.chip / 2)
+			.alpha(if (on || count != 0) 1f else 0.5f)
+			.height(Dims.chip)
+			.background(fill, shape)
+			.border(
+				1.dp,
+				if (on)
+					palette.chosenEdge
+				else
+					palette.fieldEdge,
+				shape,
+			).focusProperties { canFocus = false }
+			.selectable(on, source, indication = null, role = Role.Checkbox, onClick = onToggle)
+			.padding(horizontal = 10.dp),
+		verticalAlignment = Alignment.CenterVertically,
+		horizontalArrangement = Arrangement.spacedBy(5.dp),
+	) {
+		if (on)
+			GlyphIcon(Glyph.Check, palette.accent, 14.dp)
+		Text(label, style = type.body, maxLines = 1)
+		count?.let { Text("$it", style = type.muted, maxLines = 1) }
+	}
+}
+
+/** A box to tick, with its words beside it: pressed by the pointer, or by Space when the keyboard is on it. */
+@Composable
+fun Check(
+	label: String,
+	checked: Boolean,
+	modifier: Modifier = Modifier,
+	onToggle: () -> Unit,
+) {
+	val palette = LocalPalette.current
+	val type = LocalType.current
+	val source = remember { MutableInteractionSource() }
+	val felt = source.felt()
+	val box = RoundedCornerShape(4.dp)
+
+	Row(
+		modifier
+			.ring(felt.focused, palette.focus)
+			.height(Dims.chip)
+			.toggleable(checked, source, indication = null, role = Role.Checkbox) { onToggle() }
+			.padding(horizontal = 6.dp),
+		verticalAlignment = Alignment.CenterVertically,
+		horizontalArrangement = Arrangement.spacedBy(Dims.gap),
+	) {
+		Box(
+			Modifier
+				.size(16.dp)
+				.background(
+					if (checked)
+						palette.accent
+					else
+						palette.field,
+					box,
+				).border(
+					1.dp,
+					when {
+						checked -> palette.accent
+						felt.hovered -> palette.textMuted
+						else -> palette.fieldEdge
+					},
+					box,
+				),
+			contentAlignment = Alignment.Center,
+		) {
+			if (checked)
+				GlyphIcon(Glyph.Check, palette.onAccent, 14.dp)
+		}
+		Text(label, style = type.body, maxLines = 1)
 	}
 }
 

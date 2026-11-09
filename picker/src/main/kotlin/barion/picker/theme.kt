@@ -198,6 +198,17 @@ object Dims {
 	val control = 32.dp
 	val button = 112.dp
 
+	/** A filter's chip, and the checkbox beside them. */
+	val chip = 28.dp
+
+	/** The row of filters above the listing. */
+	val filters = 44.dp
+
+	/** A gallery's tile, its picture, and the least width a tile takes. */
+	val tile = 136.dp
+	val tileHeight = 152.dp
+	val picture = 96.dp
+
 	/** How far outside a control the ring around what the keyboard is on is drawn. */
 	val ring = 2.dp
 	val nameColumn = 0.46f

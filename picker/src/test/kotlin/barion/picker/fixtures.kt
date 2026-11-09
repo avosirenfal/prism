@@ -119,13 +119,24 @@ object Fixtures {
 			}
 	}
 
-	/** A picker opened on [folder] over [Memory], choosing [choosing], settled. */
+	/**
+	 * A picker opened on [folder] over [Memory], choosing [choosing], settled. A picker shows hidden entries until the
+	 * user hides them; most of the tests count rows without the fixture's two dotfiles, so this hides them unless
+	 * [showHidden] says not to.
+	 */
 	fun picker(
 		choosing: Choosing = Choosing.OneFile(),
 		folder: Path = home,
 		filters: List<TypeFilter> = this.filters,
-	): PickerState =
-		opened(choosing, folder, home, sidebar, filters = filters).settled(Memory)
+		showHidden: Boolean = false,
+	): PickerState {
+		val opened = opened(choosing, folder, home, sidebar, filters = filters).settled(Memory)
+
+		return if (showHidden)
+			opened
+		else
+			step(opened, PickerEvent.ToggledHidden).state
+	}
 }
 
 /** [state] after each of [inputs] in turn, with every folder read and name looked up answered by [Fixtures.Memory]. */

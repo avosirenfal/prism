@@ -141,19 +141,81 @@ private fun globOf(pattern: String): Regex {
 	return Regex(parts.joinToString(""), RegexOption.IGNORE_CASE)
 }
 
+/**
+ * What the filters above the listing choose among: kinds of entry, each a few [Category]s together. A row whose
+ * category is of no kind (a link to nothing, a file of no known type) is shown only while no kind is chosen.
+ */
+enum class Kind(
+	val label: String,
+) {
+	Folders("Folders"),
+	Images("Images"),
+	Videos("Videos"),
+	Audio("Audio"),
+	Documents("Documents"),
+	Archives("Archives"),
+	Code("Code"),
+	;
+
+	companion object {
+		/** The kind [category] is of, if any. */
+		fun of(category: Category): Kind? =
+			when (category) {
+				Category.Folder -> Folders
+				Category.Image -> Images
+				Category.Video -> Videos
+				Category.Audio -> Audio
+				Category.Document, Category.Pdf, Category.Text -> Documents
+				Category.Archive -> Archives
+				Category.Code -> Code
+				Category.Link, Category.Other -> null
+			}
+	}
+}
+
 /** How the listing arranges what a folder holds: its order, and which rows it leaves out. */
 @Immutable
 data class Arrangement(
 	val sort: Sort = Sort.BY_NAME,
-	val showHidden: Boolean = false,
+	/** Whether hidden entries (a name starting with a dot) are shown: they are, unless the user says otherwise. */
+	val showHidden: Boolean = true,
+	/** The kinds shown: only these where any are chosen, every row where none is. */
+	val kinds: Set<Kind> = emptySet(),
+	/** The asking application's filter of files, by name. */
 	val filter: TypeFilter = TypeFilter.ALL_FILES,
 	/** Words a row's name must contain to be shown, without case; blank for every row. */
 	val query: String = "",
 ) {
 	fun admits(row: Row): Boolean =
+		admitsAnyKind(row) && (kinds.isEmpty() || Kind.of(row.category) in kinds)
+
+	/** Whether [row] is shown, its kind aside: what the filters' counts count. */
+	fun admitsAnyKind(row: Row): Boolean =
 		(showHidden || !row.hidden) &&
 			(row.isFolder || filter.admits(row.name)) &&
 			(query.isBlank() || row.name.contains(query.trim(), ignoreCase = true))
+
+	/** This arrangement as far as it narrows what the filters count: their kinds and the order are not. */
+	internal val counting: Arrangement get() = copy(sort = Sort.BY_NAME, kinds = emptySet())
+}
+
+/** How many entries there are to show, whichever kinds are chosen: in all ([every]), and of each kind. */
+@Immutable
+data class Counts(
+	val every: Int,
+	private val byKind: Map<Kind, Int>,
+) {
+	operator fun get(kind: Kind): Int = byKind[kind] ?: 0
+
+	companion object {
+		val NONE = Counts(0, emptyMap())
+	}
+}
+
+/** How the listing is drawn: rows in columns, or tiles with a picture of each. */
+enum class Layout {
+	List,
+	Gallery,
 }
 
 /**
@@ -237,8 +299,24 @@ sealed interface Listing {
 		private val sortedBy = Memo<Sort, List<Row>> { sorted(entries, it) }
 		private val arranged =
 			Memo<Arrangement, Rows> { Rows(sortedBy(it.sort).filter(it::admits)) }
+		private val counted =
+			Memo<Arrangement, Counts> { arrangement ->
+				val shown = entries.filter(arrangement::admitsAnyKind)
+
+				Counts(
+					shown.size,
+					shown
+						.mapNotNull {
+							Kind.of(it.category)
+						}.groupingBy { it }
+						.eachCount(),
+				)
+			}
 
 		fun rows(arrangement: Arrangement): Rows = arranged(arrangement)
+
+		/** How many entries of each kind [arrangement] shows, whichever kinds it chooses. */
+		fun counts(arrangement: Arrangement): Counts = counted(arrangement.counting)
 
 		override fun toString(): String = "Shown(${entries.size} entries)"
 	}
@@ -419,9 +497,15 @@ data class PickerState(
 	val notice: Notice?,
 	/** A name being looked up on disk, whose answer is waited for; an answer for anything else is too late. */
 	val waiting: Lookup?,
+	val layout: Layout = Layout.List,
 ) {
 	/** The rows the listing shows, its arrangement applied; none while it is read, or when it could not be. */
 	val rows: Rows get() = rowsOf(listing, arrangement)
+
+	/** How many entries of each kind are there to show, whichever kinds are chosen: what each filter says it holds. */
+	val counts: Counts get() =
+		(listing as? Listing.Shown)?.counts(arrangement)
+			?: Counts.NONE
 
 	init {
 		val rows = rows

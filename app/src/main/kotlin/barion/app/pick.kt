@@ -22,6 +22,7 @@ import barion.picker.PickerState
 import barion.picker.PickerTheme
 import barion.picker.Session
 import barion.picker.SessionPicker
+import barion.picker.SideButtons
 import barion.picker.Step
 import barion.picker.opened
 import barion.picker.pickerOf
@@ -142,6 +143,7 @@ object PickCommand : Command(
 					title = state.title,
 					state = rememberWindowState(width = 1100.dp, height = 680.dp),
 				) {
+					SideButtons(window, session::send)
 					PickerTheme(paletteOf(theme, scheme)) { SessionPicker(session) }
 				}
 			}

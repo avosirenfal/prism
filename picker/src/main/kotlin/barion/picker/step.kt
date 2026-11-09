@@ -18,6 +18,8 @@ import java.nio.file.Path
  *   file is opened, and a name that is not there is said to be not found (or, saving, saved under).
  * - Saving over a file asks first.
  * - Going up lands the cursor on the folder just left.
+ * - Hidden entries are shown until the user hides them. The kinds of entry chosen above the listing narrow it to
+ *   those kinds together (images and videos: both), and stay chosen from folder to folder; none chosen is everything.
  */
 
 /** The picker opened on [folder]: its first state, and the read of its folder that it waits for. */
@@ -90,6 +92,18 @@ private fun did(state: PickerState, event: PickerEvent): Step =
 		is PickerEvent.Jumped -> Step(state.jumped(event.prefix))
 		is PickerEvent.Sorted -> state.arranged { copy(sort = sort.toggled(event.by)) }
 		PickerEvent.ToggledHidden -> state.arranged { copy(showHidden = !showHidden) }
+		is PickerEvent.ToggledKind ->
+			state.arranged {
+				copy(
+					kinds =
+						if (event.kind in kinds)
+							kinds - event.kind
+						else
+							kinds + event.kind,
+				)
+			}
+		PickerEvent.ShowedEveryKind -> state.arranged { copy(kinds = emptySet()) }
+		is PickerEvent.Viewed -> Step(state.copy(layout = event.layout))
 		is PickerEvent.Searched -> state.arranged { copy(query = event.query) }
 		is PickerEvent.Filtered ->
 			if (event.filter in state.filters)

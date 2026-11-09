@@ -143,6 +143,82 @@ what is chosen where it is still there.
 When a folder is gone to, the state says where the cursor lands once its rows arrive (`Landing`). Going up lands it on
 the folder you came from, so that going down again is Enter.
 
+## What the listing shows: the filters
+
+![The filters, images and videos chosen](picker-filters.png)
+
+Above the listing is a row of filters, one for each **kind** of entry, each saying how many of its kind the folder
+holds. In the picture, the folder holds 20 entries: 8 folders, 3 images, 1 video, and so on. With no filter on
+("All"), everything is shown. Click "Images", and only the 3 images are shown. Click "Videos" as well, and the images
+and the video are shown together: each filter that is on adds its kind. Click "Images" again, and only the video is
+left; click "All", and everything is back. The status line says how much is left out ("4 of 20 items").
+
+A kind is a few of the categories the icons are drawn for, together:
+
+| kind | what it holds |
+|---|---|
+| Folders | folders, and links to folders |
+| Images | PNG, JPEG, GIF, WebP, SVG, AVIF, HEIF, ... |
+| Videos | MP4, Matroska, WebM, ... |
+| Audio | MP3, FLAC, Ogg, WAV, ... |
+| Documents | PDFs, text, Markdown, and office documents, spreadsheets and presentations |
+| Archives | zip, tar, gzip, 7z, ... |
+| Code | source files of the common languages |
+
+Folders are a kind like any other, so "Images" alone shows images and no folders, which is what a gallery of a
+folder's pictures wants. To keep going into folders with a filter on, turn "Folders" on with it. The kinds chosen stay
+chosen from folder to folder, so looking through several folders for a picture is one choice, made once. An entry of
+no kind (a file of a type the picker does not know, a link to nothing) is shown only while no filter is on.
+
+**Show hidden** is apart from the kinds. Hidden entries (a name starting with a dot) are shown until it is unticked,
+drawn dimmed so they stand out, and it applies whatever kinds are on: with "Folders" on and Show hidden ticked,
+`.config` is there; unticked, it is not. Ctrl+H ticks and unticks it too.
+
+Each filter's count is what it would show: the entries of its kind that pass everything else (Show hidden, the search
+words, the application's filter). So the counts change with the search, but not with which filters are on.
+
+The application that asks for a file can also send filters of its own, by name pattern ("PNG images", `*.png`), as
+the portal will. Those are the drop-down at the bottom, as in any file dialog, and it is shown only when the
+application offers more than one.
+
+## The gallery
+
+![The gallery, in a real window](picker-gallery.png)
+
+The two buttons at the right of the toolbar (or Ctrl+1 and Ctrl+2) show the listing as rows in columns or as a
+**gallery** of tiles: each entry's picture, or its icon drawn large, with its name under it. Everything else is the
+same: what is chosen, the filters, the double click, the keys. In a gallery, Left and Right move along a line of tiles
+and Up and Down move a whole line; the headings that sort become a row of the same choices after "Sort by". The
+gallery stays the gallery from folder to folder, until it is switched back.
+
+An image's picture is a **thumbnail** (`Thumbnails`): the file decoded by Skia, the library Compose draws with, scaled
+down to fit 256 pixels (never up), and kept, by the file's path and the time it last changed, so it is made once
+however often its tile is drawn, and again once the file changes. Decoding a photograph takes tens of milliseconds and
+the whole picture's memory while it lasts, so it happens on IO threads, at most four at a time, while the tile shows
+the icon; a tile scrolled away before its turn comes is never decoded at all, because asking for it is cancelled with
+the tile. The 1,024 used most recently are kept.
+
+The picture above is the real window, on a virtual display, over a folder of generated pictures.
+
+## The mouse's side buttons
+
+Most mice have two buttons at the side, back and forward. They go back and forward in the picker as in a browser,
+wherever the pointer is over it.
+
+Compose cannot be asked for them on Linux, because the numbers for mouse buttons differ along the way:
+
+| the button | X numbers it | the JDK passes it on as AWT's | Compose reports |
+|---|---|---|---|
+| left, middle, right | 1, 2, 3 | 1, 2, 3 | primary, tertiary, secondary |
+| scroll up and down | 4, 5 | the wheel | a scroll |
+| scroll left and right (a tilted wheel, a touchpad) | 6, 7 | 4, 5 | **back, forward** |
+| back, forward | 8, 9 | 6, 7 | nothing |
+
+Compose takes AWT's 4 and 5 for back and forward, which is right on Windows. On Linux it reports a sideways scroll as
+back and forward, and the side buttons as nothing at all. So the picker reads the side buttons from AWT itself, by
+Linux's numbering (`SideButtons`, which the app puts in its window), and does nothing with what Compose calls back and
+forward. Both halves were checked on a real window: X's buttons 8 and 9 go back and forward, and 6 and 7 do nothing.
+
 ## The listing's rows, and keeping them fast
 
 A folder is read once into its **entries**: every one, hidden files included, in no particular order. What the
@@ -187,14 +263,17 @@ palette, takes the keys a desktop's controls take, and reports only what it is f
 | control | what it is | keys |
 |---|---|---|
 | `PickerButton` | a button with words: Open, Cancel, Replace | Enter, Space |
-| `ToolButton` | a button with a glyph: Back, Forward, Up | none: they have shortcuts of their own, so Tab passes over them |
+| `ToolButton` | a button with a glyph: Back, Forward, Up, the list and the gallery (one of a set shown as selected) | none: they have shortcuts of their own, so Tab passes over them |
+| `Chip` | a filter that is on or off, with a count | through the row of filters it is in |
+| `Check` | a box to tick: Show hidden | Space |
 | `Field` | a line of text: the path, the search, the name | as any text field; it selects all its text when the keyboard arrives (saving, the name without its extension, so typing replaces only the name) |
 | `Select` | a choice from a list: the type filter | Enter, Space or Alt+Down open it; the arrows choose without opening it |
 | `ring` | the ring around what the keyboard is on | |
 
 A control keeps only what a control keeps on any desktop: whether the pointer is over it, whether its menu is open,
-where the caret is in its text. The view adds three things of the same kind: which place the sidebar's arrows are on,
-the letters typed in quick succession in the listing, and the last row pressed (for a double click).
+where the caret is in its text. The view adds four things of the same kind: which place the sidebar's arrows are on,
+which filter the filters' arrows are on, the letters typed in quick succession in the listing, and the last row
+pressed (for a double click).
 
 ### Double clicks
 
@@ -205,13 +284,14 @@ another, and Shift-clicking the first again chooses a run of rows; it does not o
 
 ### The keyboard
 
-Tab goes through the picker in this order: the path, the search, the places, the listing, the name, the filter, then
-the buttons. The places and the listing are one stop each, inside which the arrows move. When the picker opens, the
+Tab goes through the picker in this order: the path, the search, the places, the filters, Show hidden, the listing,
+the name, the application's filters (where it offers a choice), then the buttons. The places, the filters and the
+listing are one stop each, inside which the arrows move. When the picker opens, the
 keyboard is on the listing, or on the name for a picker that saves.
 
 | keys | where | what |
 |---|---|---|
-| arrows, Page Up and Down, Home, End | listing | the cursor; with Shift, choosing a run; with Ctrl, not choosing |
+| arrows, Page Up and Down, Home, End | listing | the cursor; with Shift, choosing a run; with Ctrl, not choosing (in a gallery, Left and Right along a line, Up and Down a line at a time) |
 | Space | listing | the row at the cursor chosen, or no longer |
 | Enter | listing, name | accept (a chosen folder is gone into) |
 | letters | listing | the next row whose name starts with them; the same letter again, the next such row |
@@ -220,7 +300,10 @@ keyboard is on the listing, or on the name for a picker that saves.
 | Alt+Left, Alt+Right, Alt+Up | anywhere | back, forward, up |
 | Ctrl+L, Alt+D | anywhere | type a path |
 | Ctrl+F, F3 | anywhere | search |
-| Ctrl+H | anywhere | hidden files shown, or not |
+| Ctrl+H | anywhere | hidden entries shown, or not |
+| Left, Right, Space | filters | the filter the arrows are on, turned on or off |
+| Ctrl+1, Ctrl+2 | anywhere | the list, the gallery |
+| the mouse's side buttons | anywhere | back, forward |
 | F5, Ctrl+R | anywhere | the folder read again |
 | Escape | anywhere | cancel; in the path or a search with words in it, first leave that |
 
@@ -230,22 +313,28 @@ list by one row, not a page, and a row far away is scrolled to directly (never b
 ## How it is tested
 
 - **The rules** (`StepTest`): states and events in, states and effects out, with folders read from a small file
-  system held in memory. Every rule above has a test there.
+  system held in memory. Every rule above has a test there, the filters' among them.
+- **The thumbnails** (`ThumbnailTest`): real image files scaled to fit and not up, kept, made again once changed, and
+  nothing made of what is not an image.
 - **The picker as a user meets it** (`InteractionTest`): composed headless around a running `Session` over a real
   temporary folder, then clicked, double-clicked, Ctrl- and Shift-clicked, typed at and tabbed through with
-  Compose's own test input, and what it shows and how it ends checked. These are what found that a Shift-click was
-  being read as a double click, and that the listing scrolled before it had been laid out.
+  Compose's own test input, and what it shows and how it ends checked: the filters by pointer and keyboard, the
+  gallery with a real picture, its keys and its double click. These are what found that a Shift-click was being read
+  as a double click, and that the listing scrolled before it had been laid out.
 - **The drawing** (`PickerTest`): every kind of picker drawn headless, in both palettes, with a notice up, a path
   being typed, a search and an unreadable folder; `-Ppicker.screenshots=DIR` keeps the pictures.
 
 `barion pick` itself has been run in a real window on a virtual X display (Xvfb), driven by xdotool: opening a file
 from the keyboard, several with Ctrl-click and the Open button, saving under a typed name, choosing a folder, and
-cancelling with Escape, each printing what it should. docs/testing.md says how to do the same.
+cancelling with Escape, each printing what it should; the gallery over real pictures; and the mouse's side buttons,
+which only a real window can test, since they come from AWT. docs/testing.md says how to do the same.
 
 ## Not yet
 
 - The portal: each request of an application becoming a picker (docs/plan.md, "The portal").
 - Reading folders from the index, and the search language searching all of it rather than the folder shown.
-- Filters by MIME type, as the portal can send them; today a filter is name patterns (`*.png`).
-- Thumbnails, a preview pane, column widths kept, drag and drop out of the picker, and a menu on a row (a new folder,
-  rename).
+- Filters by MIME type, as the portal can send them; today the application's filter is name patterns (`*.png`), and
+  the kinds go by extension.
+- Pictures of videos and documents (ffmpeg, poppler), and the pictures the desktop has already made
+  (`~/.cache/thumbnails`), before making its own.
+- A preview pane, column widths kept, drag and drop out of the picker, and a menu on a row (a new folder, rename).

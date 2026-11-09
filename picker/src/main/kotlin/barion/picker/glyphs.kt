@@ -41,6 +41,9 @@ enum class Glyph {
 	Drive,
 	SortUp,
 	SortDown,
+	Check,
+	ViewList,
+	ViewGrid,
 }
 
 /** [glyph] at [size], in [tint]; a file's icon is marked with [category]'s colour. */
@@ -76,6 +79,9 @@ fun GlyphIcon(
 			Glyph.Drive -> drive(unit, tint)
 			Glyph.SortUp -> stroked(unit, tint, listOf(7f to 14f, 12f to 9f, 17f to 14f))
 			Glyph.SortDown -> stroked(unit, tint, listOf(7f to 10f, 12f to 15f, 17f to 10f))
+			Glyph.Check -> stroked(unit, tint, listOf(5f to 12.5f, 10f to 17.5f, 19f to 7f))
+			Glyph.ViewList -> viewList(unit, tint)
+			Glyph.ViewGrid -> viewGrid(unit, tint)
 		}
 	}
 }
@@ -361,4 +367,25 @@ private fun DrawScope.drive(unit: Float, tint: Color) {
 	)
 	drawCircle(tint, 1.1f * unit, at(unit, 17f, 12.5f))
 	stroked(unit, tint, listOf(6.5f to 12.5f, 11.5f to 12.5f))
+}
+
+/** Rows: a short mark and a long line, three times. */
+private fun DrawScope.viewList(unit: Float, tint: Color) {
+	for (y in listOf(6.5f, 12f, 17.5f)) {
+		stroked(unit, tint, listOf(4f to y, 5.5f to y))
+		stroked(unit, tint, listOf(9f to y, 20f to y))
+	}
+}
+
+/** Tiles: four squares with rounded corners. */
+private fun DrawScope.viewGrid(unit: Float, tint: Color) {
+	for (x in listOf(4f, 13f))
+		for (y in listOf(4f, 13f))
+			drawRoundRect(
+				tint,
+				topLeft = at(unit, x, y),
+				size = Size(7f * unit, 7f * unit),
+				cornerRadius = CornerRadius(1.5f * unit),
+				style = line(unit),
+			)
 }

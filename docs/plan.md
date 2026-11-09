@@ -141,12 +141,16 @@ that saves always has a name; the button that accepts is worked out from that, n
 row shows is formatted when the folder is read, so drawing is reading strings.
 
 It browses, chooses and accepts as a desktop's own dialog does, by the pointer and by the keyboard throughout: back,
-forward and up, the places, a path typed, a search of the folder shown, sorting, hidden files, Ctrl- and Shift-click,
-type-ahead, saving over a file only when the user says so.
+forward and up (the mouse's side buttons too), the places, a path typed, a search of the folder shown, sorting,
+Ctrl- and Shift-click, type-ahead, saving over a file only when the user says so. Filters above the listing choose
+kinds of entry (images, videos, folders, ...), several at once, each with how many it would show; hidden entries are
+shown until unticked, apart from the kinds. The listing is rows in columns or a gallery of tiles, with thumbnails of
+images made on IO threads.
 
 Features to come, roughly in order: type filters from the portal's request (MIME types as well as patterns); the
 folders read from the index, and search across the index from the search field; a details pane with a preview;
-thumbnails; the list's column widths and order kept per user; drag and drop out of the picker.
+thumbnails of videos and documents, and the desktop's own thumbnail cache; the list's column widths and order kept per
+user; drag and drop out of the picker.
 
 ## The search language
 

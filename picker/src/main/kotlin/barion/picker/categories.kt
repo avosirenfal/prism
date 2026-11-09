@@ -5,15 +5,15 @@ package barion.picker
  * read both ways, so an extension cannot be one category's icon and another's words.
  */
 
-private class Kind(
+private class Typed(
 	val category: Category,
 	val type: String,
 )
 
-private val BY_EXTENSION: Map<String, Kind> =
+private val BY_EXTENSION: Map<String, Typed> =
 	buildMap {
 		fun add(category: Category, type: String, vararg extensions: String) =
-			extensions.forEach { put(it, Kind(category, type)) }
+			extensions.forEach { put(it, Typed(category, type)) }
 
 		add(Category.Image, "PNG image", "png")
 		add(Category.Image, "JPEG image", "jpg", "jpeg")

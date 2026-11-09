@@ -48,7 +48,7 @@ for and how it is meant to work; docs/inprogress.md says where it stands.
 | `index` | probe, ebpf-loader, linux | the scanner and its backends, the ignore rules, the watcher as the index runs it |
 | `dbus` | kotlinx.serialization, coroutines | D-Bus: the bus's socket, its handshake and `Hello` as a connection opens; messages as data; bodies by kotlinx.serialization, their signatures worked out from the Kotlin types; calls, signals as flows, served methods |
 | `portal` | dbus | the desktop portal as barion speaks to it: the appearance settings (the colour scheme, and its changes) |
-| `picker` | Compose, coroutines | the picker: an immutable state, a pure reducer from one state to the next, a session that reads folders for it, and a view made of controls of its own, worked by the pointer and the keyboard alike |
+| `picker` | Compose, coroutines | the picker: an immutable state, a pure reducer from one state to the next, a session that reads folders for it, and a view made of controls of its own, worked by the pointer and the keyboard alike; filters by kind, a gallery with thumbnails |
 | `app` | everything | the command line and the window |
 
 The modules share their Gradle setup through convention plugins in `build-logic`, as kotlin-engine-test's do
@@ -94,7 +94,7 @@ A clang other than the one on the PATH is named with `-Pbarion.clang=PATH` or `$
 | doc | what |
 |---|---|
 | docs/plan.md | what barion is for, how it is put together, and how what is not built yet is meant to work |
-| docs/picker.md | the picker: one example followed through, then its state, its rules, its session, its controls and its keys |
+| docs/picker.md | the picker: one example followed through, then its state, its rules, its filters, its gallery, its session, its controls and its keys |
 | docs/inprogress.md | where the work stands, what is not verified, what is next |
 | docs/ebpf.md | the eBPF DSL: what its types refuse, what it reports, what it checks against the kernel, the C it emits |
 | docs/scanning.md | how a directory is read, and the measurement that chose getdents64 over the JVM |

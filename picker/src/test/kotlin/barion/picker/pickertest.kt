@@ -44,12 +44,13 @@ class PickerTest {
 
 	@Test
 	fun thePickerDrawsInBothPalettes() {
+		// As a picker opens: hidden entries shown (dimmed), until the user hides them.
 		val state =
-			fixture(
-				Choosing.OneFile(),
+			after(
+				picker(showHidden = true),
 				PickerEvent.Opened(Path("/")),
 				PickerEvent.Opened(home),
-				reportChosen,
+				PickerEvent.Clicked(RowId("Holiday in Lisbon.jpg"), Click.Only),
 			)
 
 		for ((name, palette) in listOf("light" to Palette.Light, "dark" to Palette.Dark)) {
@@ -79,6 +80,14 @@ class PickerTest {
 				"address" to fixture(Choosing.OneFile(), PickerEvent.EditedAddress),
 				"search" to fixture(Choosing.OneFile(), PickerEvent.Searched("shot")),
 				"unreadable" to fixture(Choosing.OneFile(), PickerEvent.Opened(Path("/root"))),
+				"gallery" to
+					fixture(Choosing.OneFile(), PickerEvent.Viewed(Layout.Gallery), reportChosen),
+				"kinds" to
+					fixture(
+						Choosing.OneFile(),
+						PickerEvent.ToggledKind(Kind.Images),
+						PickerEvent.ToggledKind(Kind.Videos),
+					),
 			)
 
 		for ((name, state) in kinds)
@@ -229,12 +238,11 @@ class PickerTest {
 		val state = pickerOf(work, Choosing.OneFile(), JvmDisk(ZoneOffset.UTC), home = work)
 		val rows = state.rows.list
 
-		assertEquals(listOf("Folder", "photo.png"), rows.map { it.name })
-		assertEquals("PNG image", rows[1].type)
-		assertEquals(Shown(10L, "10 bytes"), rows[1].size)
-		assertFalse(rows.any { it.hidden })
-		// The hidden one was read, and is there to be shown.
-		assertEquals(3, (state.listing as Listing.Shown).entries.size)
+		// Hidden entries are shown until the user hides them.
+		assertEquals(listOf("Folder", ".hidden", "photo.png"), rows.map { it.name })
+		assertEquals("PNG image", rows[2].type)
+		assertEquals(Shown(10L, "10 bytes"), rows[2].size)
+		assertTrue(rows[1].hidden)
 		assertEquals(listOf("Home"), state.crumbs.map { it.label })
 	}
 

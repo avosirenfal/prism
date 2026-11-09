@@ -312,19 +312,146 @@ class StepTest {
 	}
 
 	@Test
-	fun hiddenRowsAreShownWhenAsked() {
-		assertFalse(picker().rows.list.any { it.hidden })
+	fun hiddenEntriesAreShownUntilTheUserHidesThem() {
+		val opened = picker(showHidden = true)
 
-		val shown = after(picker(), PickerEvent.ToggledHidden)
-
+		assertTrue(opened.arrangement.showHidden)
 		assertEquals(
-			listOf(".config"),
-			shown.rows.list
+			listOf(".config", ".bashrc"),
+			opened.rows.list
 				.filter {
-					it.hidden && it.isFolder
+					it.hidden
 				}.map { it.name },
 		)
-		assertTrue(shown.rows.list.any { it.name == ".bashrc" })
+		assertFalse(after(opened, PickerEvent.ToggledHidden).rows.list.any { it.hidden })
+	}
+
+	@Test
+	fun aKindChosenShowsOnlyThatKindAndSeveralShowThemTogether() {
+		fun shown(state: PickerState) = state.rows.list.map { it.name }
+
+		val images = after(picker(), PickerEvent.ToggledKind(Kind.Images))
+
+		assertEquals(
+			listOf("Holiday in Lisbon.jpg", "screenshot 2.png", "screenshot 10.png"),
+			shown(images),
+		)
+
+		val andVideos = after(images, PickerEvent.ToggledKind(Kind.Videos))
+
+		assertEquals(
+			listOf(
+				"Holiday in Lisbon.jpg",
+				"screenshot 2.png",
+				"screenshot 10.png",
+				"trailer.mp4",
+			),
+			shown(andVideos),
+		)
+		// Turned off again, a kind leaves the rest; every kind shown again is everything.
+		assertEquals(
+			listOf("trailer.mp4"),
+			shown(after(andVideos, PickerEvent.ToggledKind(Kind.Images))),
+		)
+		assertEquals(shown(picker()), shown(after(andVideos, PickerEvent.ShowedEveryKind)))
+	}
+
+	@Test
+	fun foldersAreAKindLikeAnyOther() {
+		val state =
+			after(
+				picker(),
+				PickerEvent.ToggledKind(Kind.Folders),
+				PickerEvent.ToggledKind(Kind.Audio),
+			)
+
+		assertEquals(
+			listOf(
+				"Desktop",
+				"Documents",
+				"Downloads",
+				"Music",
+				"Pictures",
+				"Projects",
+				"Videos",
+				"song.flac",
+			),
+			state.rows.list.map { it.name },
+		)
+	}
+
+	@Test
+	fun hiddenEntriesAreShownOrNotWhateverKindsAreChosen() {
+		val folders = after(picker(showHidden = true), PickerEvent.ToggledKind(Kind.Folders))
+
+		assertTrue(folders.rows.list.any { it.name == ".config" })
+		assertFalse(
+			after(folders, PickerEvent.ToggledHidden).rows.list.any {
+				it.name ==
+					".config"
+			},
+		)
+		assertEquals(
+			setOf(Kind.Folders),
+			after(folders, PickerEvent.ToggledHidden).arrangement.kinds,
+		)
+	}
+
+	@Test
+	fun theKindsChosenStayFromFolderToFolder() {
+		val pictures =
+			after(
+				picker(),
+				PickerEvent.ToggledKind(Kind.Images),
+				PickerEvent.Opened(home.resolve("Pictures")),
+			)
+
+		assertEquals(setOf(Kind.Images), pictures.arrangement.kinds)
+		assertEquals(listOf("cat.png"), pictures.rows.list.map { it.name })
+	}
+
+	@Test
+	fun eachFilterSaysHowManyItWouldShow() {
+		val counts = picker().counts
+
+		assertEquals(18, counts.every)
+		assertEquals(7, counts[Kind.Folders])
+		assertEquals(3, counts[Kind.Images])
+		assertEquals(1, counts[Kind.Videos])
+		assertEquals(4, counts[Kind.Documents])
+		assertEquals(18, Kind.entries.sumOf { counts[it] })
+
+		// Choosing a kind changes what is shown, not what each filter would show.
+		assertEquals(counts, after(picker(), PickerEvent.ToggledKind(Kind.Images)).counts)
+		// Hidden entries are counted while they are shown; the search narrows the counts as it narrows the rows.
+		assertEquals(8, picker(showHidden = true).counts[Kind.Folders])
+		assertEquals(2, after(picker(), PickerEvent.Searched("screen")).counts[Kind.Images])
+	}
+
+	@Test
+	fun aRowAFilterLeavesOutIsNoLongerChosen() {
+		val state =
+			after(
+				picker(),
+				PickerEvent.Clicked(id("main.kt"), Click.Only),
+				PickerEvent.ToggledKind(Kind.Images),
+			)
+
+		assertTrue(state.choosing.rows.isEmpty())
+		assertNull(state.cursor)
+	}
+
+	@Test
+	fun theLayoutIsKeptFromFolderToFolder() {
+		val gallery =
+			after(
+				picker(),
+				PickerEvent.Viewed(Layout.Gallery),
+				PickerEvent.Opened(home.resolve("Pictures")),
+			)
+
+		assertEquals(Layout.Gallery, gallery.layout)
+		assertEquals(Layout.List, after(gallery, PickerEvent.Viewed(Layout.List)).layout)
 	}
 
 	@Test
@@ -642,6 +769,17 @@ class StepTest {
 		assertEquals(home.resolve("x"), pathOf("~/x", Path("/etc"), home))
 		assertEquals(Path("/etc/hosts"), pathOf("../etc/hosts", Path("/home"), home))
 		assertNull(pathOf("bad\u0000name", home, home))
+	}
+
+	@Test
+	fun theSideButtonsAreXsEightAndNineWhichAwtNumbersSixAndSeven() {
+		assertEquals(PickerEvent.Back, sideButtonOf(6))
+		assertEquals(PickerEvent.Forward, sideButtonOf(7))
+		// AWT's 4 and 5 are X's sideways scroll on Linux, and the rest are clicks: none of them goes anywhere.
+		assertEquals(
+			listOf(null, null, null, null, null),
+			listOf(1, 2, 3, 4, 5).map(::sideButtonOf),
+		)
 	}
 
 	@Test

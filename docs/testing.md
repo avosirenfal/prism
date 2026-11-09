@@ -17,6 +17,7 @@ a device, so a test that ran and a test that could not run are never confused.
 | the picker's model, source and headless drawing (`PickerTest`) | the JDK | never |
 | the picker's rules (`StepTest`) | the JDK | never |
 | the picker clicked and typed at, headless, around a running session (`InteractionTest`) | the JDK | never |
+| the gallery's thumbnails (`ThumbnailTest`) | the JDK | never |
 | D-Bus's wire format and types (`WireTest`, `SerialTest`) | the JDK | never |
 | D-Bus, live (`ConnectionTest`, `AppearanceTest`, `ThemeTest`) | dbus-daemon, which each test starts on a socket of its own | without dbus-daemon |
 | D-Bus against other implementations (in `ConnectionTest`) | gdbus, dbus-send, busctl | each, without that tool |
@@ -113,6 +114,15 @@ DISPLAY=:99 import -window root screen.png
 
 `picked.txt` then holds the path chosen. The OpenGL warning skiko prints on a display without it goes to standard
 error, so standard output holds only the paths.
+
+The mouse's side buttons can only be checked this way, since the picker reads them from AWT rather than Compose
+(docs/picker.md, "The mouse's side buttons"). X numbers them 8 and 9; after going into a folder,
+
+```bash
+DISPLAY=:99 xdotool click 8
+```
+
+goes back, and `click 9` forward again, while `click 6` and `click 7` (a sideways scroll) do nothing.
 
 ## The C the DSL emits
 
