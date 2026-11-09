@@ -1,5 +1,6 @@
 package barion.picker
 
+import androidx.compose.runtime.Immutable
 import java.nio.file.Path
 
 /*
@@ -109,6 +110,17 @@ sealed interface PickerEvent : Input {
 	/** The listing drawn at its usual size again (Ctrl+0). */
 	data object Unzoomed : PickerEvent
 
+	/** The gallery's room measured, as the window is made or resized: [whole] is the size a tile fills it at. */
+	data class Measured(
+		val whole: Float,
+	) : PickerEvent
+
+	/** The latest of the picker's own changes to the disk undone (Ctrl+Z). */
+	data object Undone : PickerEvent
+
+	/** The latest change undone, done again (Ctrl+Shift+Z, Ctrl+Y). */
+	data object Redone : PickerEvent
+
 	/** The listing drawn as rows or as tiles. */
 	data class Viewed(
 		val layout: Layout,
@@ -131,13 +143,13 @@ sealed interface PickerEvent : Input {
 	/** The name left as it was (Escape). */
 	data object RenameCancelled : PickerEvent
 
-	/** Rows moved to the trash (Delete). */
+	/** Rows moved to the trash at once: from their menu, or Shift+Delete. */
 	data class Trashed(
 		val rows: List<RowId>,
 	) : PickerEvent
 
-	/** Rows deleted for good, once the user says so (Shift+Delete). */
-	data class Deleted(
+	/** Rows to move to the trash once the user says yes (Delete, a key easily pressed by mistake). */
+	data class AskedToTrash(
 		val rows: List<RowId>,
 	) : PickerEvent
 
@@ -241,7 +253,15 @@ sealed interface Answer : Input {
 	data class Changed(
 		val change: Change,
 		val result: ChangeResult,
+		val doing: Doing = Doing.New,
 	) : Answer
+}
+
+/** Why a change is made: asked for anew, or to undo or redo one; which says where what undoes it is kept. */
+enum class Doing {
+	New,
+	Undo,
+	Redo,
 }
 
 /** A change to what is on disk, asked of the disk; what came of it comes back as [Answer.Changed]. */
@@ -257,20 +277,38 @@ sealed interface Change {
 		val paths: List<Path>,
 	) : Change
 
-	/** [paths] deleted for good, folders with all they hold. */
-	data class Delete(
-		val paths: List<Path>,
-	) : Change
+	/** Entries put back from the trash where they were: what undoes moving them there. */
+	data class PutBack(
+		val entries: List<Trashed>,
+	) : Change {
+		/** Where they go back to. */
+		val originals: List<Path> get() = entries.map { it.original }
+	}
 
 	/** An empty folder made at [path]. */
 	data class MakeFolder(
 		val path: Path,
 	) : Change
+
+	/** The empty folder at [path] removed: what undoes making it. Refused if it is not empty. */
+	data class RemoveFolder(
+		val path: Path,
+	) : Change
 }
+
+/** An entry in the trash: where it was, and the name the trash keeps it under. */
+@Immutable
+data class Trashed(
+	val original: Path,
+	val name: String,
+)
 
 /** What came of a [Change]. */
 sealed interface ChangeResult {
-	data object Done : ChangeResult
+	/** Done, and [undo] is what undoes it: only the disk knows some of that, such as what the trash named an entry. */
+	data class Done(
+		val undo: Change,
+	) : ChangeResult
 
 	/** Not done, or not all of it: why, as the system said. */
 	data class Failed(
@@ -324,9 +362,10 @@ sealed interface Effect {
 		val lookup: Lookup,
 	) : Asking
 
-	/** [change] made on disk, and what came of it sent back as [Answer.Changed]. */
+	/** [change] made on disk, for [doing], and what came of it sent back as [Answer.Changed]. */
 	data class Make(
 		val change: Change,
+		val doing: Doing = Doing.New,
 	) : Asking
 
 	/** [text] put on the clipboard. */

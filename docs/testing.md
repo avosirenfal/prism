@@ -19,7 +19,7 @@ a device, so a test that ran and a test that could not run are never confused.
 | the picker clicked and typed at, headless, around a running session (`InteractionTest`) | the JDK | never |
 | the gallery's thumbnails (`ThumbnailTest`) | the JDK | never |
 | the picker's menus, as values (`MenuTest`) | the JDK | never |
-| renaming, making folders, deleting and the trash, on real files (`DiskTest`) | Linux | never |
+| renaming, making and removing folders, and the trash both ways, on real files (`DiskTest`) | Linux | never |
 | D-Bus's wire format and types (`WireTest`, `SerialTest`) | the JDK | never |
 | D-Bus, live (`ConnectionTest`, `AppearanceTest`, `ThemeTest`) | dbus-daemon, which each test starts on a socket of its own | without dbus-daemon |
 | D-Bus against other implementations (in `ConnectionTest`) | gdbus, dbus-send, busctl | each, without that tool |
@@ -125,6 +125,24 @@ DISPLAY=:99 xdotool click 8
 ```
 
 goes back, and `click 9` forward again, while `click 6` and `click 7` (a sideways scroll) do nothing.
+
+Real keys are worth it for a chord with Ctrl in a text field, since X sends the character the chord types as well,
+which Compose's test keyboard does not. With the search open (Ctrl+F) and something typed in it, Ctrl+2 should switch
+to the gallery and leave the search as it was:
+
+```bash
+DISPLAY=:99 xdotool key ctrl+f && DISPLAY=:99 xdotool type p && DISPLAY=:99 xdotool key ctrl+2
+```
+
+Ctrl and the wheel is `keydown ctrl`, `click 4` (up, larger) or `click 5`, then `keyup ctrl`. To see the gallery fit a
+smaller window, resize the picker's window (there is one: `xdotool search --name Open`):
+
+```bash
+DISPLAY=:99 xdotool windowsize --sync "$(DISPLAY=:99 xdotool search --name Open)" 640 420
+```
+
+To try the trash without touching the real one, start the picker with `XDG_DATA_HOME` pointing somewhere temporary;
+the trash is then `$XDG_DATA_HOME/Trash`.
 
 ## The C the DSL emits
 

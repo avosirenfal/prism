@@ -1,9 +1,17 @@
 package barion.picker
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.width
+import androidx.compose.runtime.State
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.InternalComposeUiApi
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEvent
+import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.test.ComposeUiTest
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.MouseButton
@@ -24,12 +32,17 @@ import androidx.compose.ui.test.isFocused
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performKeyInput
+import androidx.compose.ui.test.performKeyPress
 import androidx.compose.ui.test.performMouseInput
 import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.test.pressKey
 import androidx.compose.ui.test.rightClick
 import androidx.compose.ui.test.runComposeUiTest
 import androidx.compose.ui.test.withKeyDown
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
+import java.awt.Container
+import java.awt.event.InputEvent
 import java.nio.file.Path
 import kotlin.io.path.createDirectories
 import kotlin.io.path.exists
@@ -70,10 +83,14 @@ class InteractionTest {
 		return work
 	}
 
-	/** The picker running over [folder] and choosing [choosing], with [check] to do to it once its folder is shown. */
+	/**
+	 * The picker running over [folder] and choosing [choosing], with [check] to do to it once its folder is shown; as
+	 * wide as the window, or as [width] says, which the check can change, as a window is made wider or narrower.
+	 */
 	private fun picking(
 		choosing: Choosing = Choosing.OneFile(),
 		folder: Path = home(),
+		width: State<Dp>? = null,
 		check: ComposeUiTest.(Session) -> Unit,
 	) = runComposeUiTest {
 		val running = arrayOfNulls<Session>(1)
@@ -92,7 +109,9 @@ class InteractionTest {
 				}
 
 			running[0] = session
-			PickerTheme { SessionPicker(session) }
+			PickerTheme {
+				Box(width?.let { Modifier.width(it.value) } ?: Modifier) { SessionPicker(session) }
+			}
 		}
 		waitUntil(timeoutMillis = TIMEOUT) { running[0]?.state?.value?.listing is Listing.Read }
 		waitForIdle()
@@ -154,6 +173,65 @@ class InteractionTest {
 		onNode(hasSetTextAction() and hasAnyAncestor(hasTestTag(tag)))
 
 	private fun ComposeUiTest.press(key: Key) = focused().performKeyInput { pressKey(key) }
+
+	/**
+	 * [key] pressed as a real keyboard sends it: down, then the [character] it types, then up. Compose's test keyboard
+	 * sends only the first and last, so the character is sent as the window would have it, from an AWT event, through
+	 * a maker of key events Compose keeps for itself (which may change with Compose's version, as this test would).
+	 */
+	@OptIn(InternalComposeUiApi::class)
+	private fun ComposeUiTest.typing(key: Key, character: Char, ctrl: Boolean = false) {
+		val held = if (ctrl) listOf(Key.CtrlLeft) else emptyList()
+
+		focused().performKeyInput { (held + key).forEach { keyDown(it) } }
+		focused().performKeyPress(
+			KeyEvent(
+				key,
+				KeyEventType.Unknown,
+				character.code,
+				isCtrlPressed = ctrl,
+				nativeEvent =
+					java.awt.event.KeyEvent(
+						Container(),
+						java.awt.event.KeyEvent.KEY_TYPED,
+						0,
+						if (ctrl) InputEvent.CTRL_DOWN_MASK else 0,
+						java.awt.event.KeyEvent.VK_UNDEFINED,
+						character,
+					),
+			),
+		)
+		focused().performKeyInput { (held + key).reversed().forEach { keyUp(it) } }
+	}
+
+	/** [key] pressed with Ctrl and Shift held. */
+	private fun ComposeUiTest.ctrlShift(key: Key) =
+		focused().performKeyInput {
+			withKeyDown(Key.CtrlLeft) { withKeyDown(Key.ShiftLeft) { pressKey(key) } }
+		}
+
+	/** The wheel turned [notches] away from the user (larger) with Ctrl held, over the listing. */
+	private fun ComposeUiTest.zoomByWheel(notches: Int) {
+		focused().performKeyInput { keyDown(Key.CtrlLeft) }
+		onNodeWithTag("listing").performMouseInput {
+			moveTo(center)
+			scroll(-notches.toFloat())
+		}
+		focused().performKeyInput { keyUp(Key.CtrlLeft) }
+	}
+
+	/** Whether the picker is asking something, in a notice over it. */
+	private fun ComposeUiTest.asked(): Boolean =
+		onAllNodes(hasTestTag("notice")).fetchSemanticsNodes().isNotEmpty()
+
+	private fun ComposeUiTest.bounds(name: String) =
+		row(name).fetchSemanticsNode().boundsInRoot
+
+	private fun ComposeUiTest.left(name: String): Float = bounds(name).left
+
+	private fun ComposeUiTest.top(name: String): Float = bounds(name).top
+
+	private fun ComposeUiTest.width(name: String): Float = bounds(name).width
 
 	private fun ComposeUiTest.shows(folder: Path, row: String) {
 		waitUntil(timeoutMillis = TIMEOUT) {
@@ -538,32 +616,48 @@ class InteractionTest {
 		}
 
 	@Test
-	fun deleteMovesToTheTrash() =
-		picking {
+	fun deleteAsksBeforeTheTrashAndCtrlZPutsBack() =
+		picking { session ->
 			row("todo.txt").performClick()
 			press(Key.Delete)
+
+			waitUntil(timeoutMillis = TIMEOUT) { asked() }
+			assertTrue(work.resolve("todo.txt").exists())
+			onNodeWithTag("yes").performClick()
 
 			waitUntil(timeoutMillis = TIMEOUT) { !work.resolve("todo.txt").exists() }
 			assertEquals("everything", bin.resolve("files/todo.txt").readText())
 			waitUntil(timeoutMillis = TIMEOUT) {
 				onAllNodes(hasTestTag("row:todo.txt")).fetchSemanticsNodes().isEmpty()
 			}
+			// The keyboard is back in the listing, where Ctrl+Z puts the file back, chosen, and Ctrl+Shift+Z moves it
+			// to the trash again.
+			focusIsIn("listing")
+			ctrl(Key.Z)
+			waitUntil(timeoutMillis = TIMEOUT) { work.resolve("todo.txt").exists() }
+			assertFalse(bin.resolve("files/todo.txt").exists())
+			waitUntil(timeoutMillis = TIMEOUT) {
+				session.state.value.chosenRows
+					.map { it.name } ==
+					listOf("todo.txt")
+			}
+			ctrlShift(Key.Z)
+			waitUntil(timeoutMillis = TIMEOUT) { !work.resolve("todo.txt").exists() }
 		}
 
 	@Test
-	fun deletingForGoodAsksFirst() =
+	fun shiftDeleteAndTheMenuMoveToTheTrashWithoutAsking() =
 		picking {
+			row("todo.txt").performClick()
+			focused().performKeyInput { withKeyDown(Key.ShiftLeft) { pressKey(Key.Delete) } }
+			waitUntil(timeoutMillis = TIMEOUT) { !work.resolve("todo.txt").exists() }
+			assertFalse(asked())
+
 			row("main.kt").performMouseInput { rightClick() }
-			onNodeWithTag("menu:Delete permanently…").performClick()
-
-			waitUntil(timeoutMillis = TIMEOUT) {
-				onAllNodes(hasTestTag("notice")).fetchSemanticsNodes().isNotEmpty()
-			}
-			assertTrue(work.resolve("main.kt").exists())
-			onNodeWithTag("yes").performClick()
-
+			onNodeWithTag("menu:Move to trash").performClick()
 			waitUntil(timeoutMillis = TIMEOUT) { !work.resolve("main.kt").exists() }
-			assertFalse(bin.resolve("files/main.kt").exists())
+			assertFalse(asked())
+			assertEquals("fun main() {}", bin.resolve("files/main.kt").readText())
 		}
 
 	@Test
@@ -591,6 +685,21 @@ class InteractionTest {
 
 			waitUntil(timeoutMillis = TIMEOUT) { work.resolve("Archive").exists() }
 			assertFalse(work.resolve("New folder").exists())
+
+			// Undone the latest first: the rename, from the menu, which says what it undoes; then the folder itself.
+			rightClickNowhere()
+			onNodeWithTag("menu:Undo the rename").performClick()
+			waitUntil(timeoutMillis = TIMEOUT) { work.resolve("New folder").exists() }
+			assertFalse(work.resolve("Archive").exists())
+			ctrl(Key.Z)
+			waitUntil(timeoutMillis = TIMEOUT) { !work.resolve("New folder").exists() }
+
+			// And done again in the order it was done.
+			ctrlShift(Key.Z)
+			waitUntil(timeoutMillis = TIMEOUT) { work.resolve("New folder").exists() }
+			rightClickNowhere()
+			onNodeWithTag("menu:Redo the rename").performClick()
+			waitUntil(timeoutMillis = TIMEOUT) { work.resolve("Archive").exists() }
 		}
 
 	@Test
@@ -624,7 +733,7 @@ class InteractionTest {
 				scroll(-1f)
 			}
 			focused().performKeyInput { keyUp(Key.CtrlLeft) }
-			waitUntil(timeoutMillis = TIMEOUT) { session.state.value.zoom == Zoom.Large }
+			waitUntil(timeoutMillis = TIMEOUT) { session.state.value.zoom == Zoom.By(3) }
 
 			focused().performKeyInput { keyDown(Key.CtrlLeft) }
 			onNodeWithTag("listing").performMouseInput {
@@ -632,11 +741,93 @@ class InteractionTest {
 				scroll(2f)
 			}
 			focused().performKeyInput { keyUp(Key.CtrlLeft) }
-			waitUntil(timeoutMillis = TIMEOUT) { session.state.value.zoom == Zoom.Small }
+			waitUntil(timeoutMillis = TIMEOUT) { session.state.value.zoom == Zoom.By(1) }
 
 			ctrl(Key.Zero)
-			waitUntil(timeoutMillis = TIMEOUT) { session.state.value.zoom == Zoom.Normal }
+			waitUntil(timeoutMillis = TIMEOUT) { session.state.value.zoom == Zoom.NORMAL }
+
+			// Anywhere in the window, whatever has the keyboard: over the places, typing in the search.
+			ctrl(Key.F)
+			focusIsIn("search")
+			focused().performKeyInput { keyDown(Key.CtrlLeft) }
+			onNodeWithTag("places").performMouseInput {
+				moveTo(center)
+				scroll(-1f)
+			}
+			focused().performKeyInput { keyUp(Key.CtrlLeft) }
+			waitUntil(timeoutMillis = TIMEOUT) { session.state.value.zoom == Zoom.By(3) }
+			focusIsIn("search")
 		}
+
+	@Test
+	fun theKeysWithCtrlWorkInTheSearchAndTypeNothingIntoIt() =
+		picking { session ->
+			ctrl(Key.F)
+			focusIsIn("search")
+
+			// A letter typed is searched for: what a key types does reach the field.
+			typing(Key.N, 'n')
+			waitUntil(timeoutMillis = TIMEOUT) { session.state.value.arrangement.query == "n" }
+
+			// Ctrl+2 types its "2" as well, and that goes nowhere; Ctrl+= its "=".
+			typing(Key.Two, '2', ctrl = true)
+			waitUntil(timeoutMillis = TIMEOUT) { session.state.value.layout == Layout.Gallery }
+			typing(Key.Equals, '=', ctrl = true)
+			waitUntil(timeoutMillis = TIMEOUT) { session.state.value.zoom == Zoom.By(3) }
+			typing(Key.One, '1', ctrl = true)
+			waitUntil(timeoutMillis = TIMEOUT) { session.state.value.layout == Layout.List }
+
+			waitForIdle()
+			focusIsIn("search")
+			field("search").assertTextEquals("n")
+			assertEquals("n", session.state.value.arrangement.query)
+		}
+
+	@Test
+	fun theGalleryZoomsInToOneTileAtATimeAndAWindowMadeSmallerMakesItSmaller() {
+		val wide = mutableStateOf(1000.dp)
+
+		picking(folder = media(), width = wide) { session ->
+			ctrl(Key.Two)
+			waitUntil(timeoutMillis = TIMEOUT) { session.state.value.layout == Layout.Gallery }
+
+			// Twice the usual size: the gallery, some 770 wide, has room for two tiles a line.
+			zoomByWheel(3)
+			waitUntil(timeoutMillis = TIMEOUT) { session.state.value.zoom == Zoom.By(5) }
+			waitForIdle()
+			assertTrue(left("Music") > left("Documents"), "beside each other")
+
+			// The window made so narrow that not even one tile of that size fits: it is drawn smaller, to fit, one a
+			// line. The size chosen is kept, for when there is room again.
+			wide.value = 420.dp
+			waitForIdle()
+			assertEquals(left("Documents"), left("Music"), "one above the other")
+			assertTrue(
+				width(
+					"Documents",
+				) <= onNodeWithTag("listing").fetchSemanticsNode().boundsInRoot.width,
+			)
+			assertEquals(Zoom.By(5), session.state.value.zoom)
+			wide.value = 1000.dp
+			waitForIdle()
+			assertTrue(left("Music") > left("Documents"), "beside each other again")
+
+			// As far in as it goes, however far the wheel turns: one tile at a time, filling the gallery.
+			zoomByWheel(20)
+			waitUntil(timeoutMillis = TIMEOUT) { session.state.value.zoom == Zoom.Whole }
+			waitForIdle()
+
+			val gallery = onNodeWithTag("listing").fetchSemanticsNode().boundsInRoot
+
+			assertTrue(
+				bounds("Documents").height > gallery.height * 0.9f,
+				"as high as the gallery",
+			)
+			assertTrue(width("Documents") > gallery.width * 0.9f, "as wide as the gallery")
+			// The next is below it, out of sight.
+			absent("Music")
+		}
+	}
 
 	@Test
 	fun theGalleryShowsEachEntryAsATileWithAPicture() =

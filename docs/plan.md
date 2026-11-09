@@ -145,8 +145,9 @@ forward and up (the mouse's side buttons too), the places, a path typed, a searc
 Ctrl- and Shift-click, type-ahead, saving over a file only when the user says so. A filter menu chooses a kind of
 entry (images, videos, folders, ...), or several with Ctrl; hidden files are shown and hidden folders are not until
 the user says otherwise. The listing is rows in columns or a gallery of tiles, with thumbnails of images made on IO
-threads, drawn larger or smaller with Ctrl and the wheel. Context menus (menus as data, worked out from the state
-for what was pressed, and one component that draws any of them) rename, trash, delete for good and make folders.
+threads, drawn larger or smaller with Ctrl and the wheel, the gallery up to one picture at a time. Context menus (menus as data, worked out from the state
+for what was pressed, and one component that draws any of them) rename, trash and make folders, and Ctrl+Z undoes
+any of it. Nothing is deleted for good: the trash is as far as anything goes.
 
 Features to come, roughly in order: type filters from the portal's request (MIME types as well as patterns); the
 folders read from the index, and search across the index from the search field; a details pane with a preview;

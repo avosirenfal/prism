@@ -4,7 +4,6 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.time.LocalDateTime
 import kotlin.io.path.createDirectories
-import kotlin.io.path.createSymbolicLinkPointingTo
 import kotlin.io.path.exists
 import kotlin.io.path.readText
 import kotlin.io.path.writeText
@@ -25,13 +24,15 @@ class DiskTest {
 	private val disk get() = JvmDisk(trash = Trash(bin))
 
 	@Test
-	fun aRenameNeverGoesOverWhatIsThere() {
+	fun aRenameNeverGoesOverWhatIsThereAndIsUndoneByRenamingBack() {
 		work.resolve("a.txt").writeText("a")
 		work.resolve("b.txt").writeText("b")
 
+		val renamed = disk.make(Change.Rename(work.resolve("a.txt"), work.resolve("c.txt")))
+
 		assertEquals(
-			ChangeResult.Done,
-			disk.make(Change.Rename(work.resolve("a.txt"), work.resolve("c.txt"))),
+			ChangeResult.Done(Change.Rename(work.resolve("c.txt"), work.resolve("a.txt"))),
+			renamed,
 		)
 		assertEquals("a", work.resolve("c.txt").readText())
 		assertEquals(
@@ -42,36 +43,43 @@ class DiskTest {
 	}
 
 	@Test
-	fun aFolderIsMadeOnlyWhereThereIsNothing() {
+	fun aFolderIsMadeOnlyWhereThereIsNothingAndRemovedOnlyEmpty() {
+		val folder = work.resolve("New folder")
+
 		assertEquals(
-			ChangeResult.Done,
-			disk.make(Change.MakeFolder(work.resolve("New folder"))),
+			ChangeResult.Done(Change.RemoveFolder(folder)),
+			disk.make(Change.MakeFolder(folder)),
 		)
-		assertTrue(Files.isDirectory(work.resolve("New folder")))
+		assertTrue(Files.isDirectory(folder))
 		assertEquals(
 			ChangeResult.Failed("There is already something called “New folder” here."),
-			disk.make(Change.MakeFolder(work.resolve("New folder"))),
+			disk.make(Change.MakeFolder(folder)),
 		)
-	}
 
-	@Test
-	fun deletingAFolderDeletesWhatItHoldsButNotWhatALinkInItLeadsTo() {
-		val kept = work.resolve("elsewhere.txt").also { it.writeText("keep me") }
-		val folder = work.resolve("folder/deeper").createDirectories().parent
+		// Undone while something is in it, it is kept: an undo loses nothing.
+		folder.resolve("kept.txt").writeText("kept")
+		assertEquals(
+			ChangeResult.Failed("“New folder” isn't empty any more."),
+			disk.make(Change.RemoveFolder(folder)),
+		)
+		assertEquals("kept", folder.resolve("kept.txt").readText())
 
-		folder.resolve("deeper/x.txt").writeText("x")
-		folder.resolve("link").createSymbolicLinkPointingTo(kept)
-
-		assertEquals(ChangeResult.Done, disk.make(Change.Delete(listOf(folder))))
+		Files.delete(folder.resolve("kept.txt"))
+		assertEquals(
+			ChangeResult.Done(Change.MakeFolder(folder)),
+			disk.make(Change.RemoveFolder(folder)),
+		)
 		assertFalse(folder.exists())
-		assertEquals("keep me", kept.readText())
 	}
 
 	@Test
 	fun theTrashIsTheDesktopsOwn() {
 		val notes = work.resolve("notes.md").also { it.writeText("first") }
 
-		assertEquals(ChangeResult.Done, disk.make(Change.Trash(listOf(notes))))
+		assertEquals(
+			ChangeResult.Done(Change.PutBack(listOf(Trashed(notes, "notes.md")))),
+			disk.make(Change.Trash(listOf(notes))),
+		)
 		assertFalse(notes.exists())
 		assertEquals("first", bin.resolve("files/notes.md").readText())
 
@@ -86,9 +94,54 @@ class DiskTest {
 
 		// A second of the same name is kept beside the first.
 		work.resolve("notes.md").writeText("second")
-		disk.make(Change.Trash(listOf(work.resolve("notes.md"))))
+		assertEquals(
+			ChangeResult.Done(Change.PutBack(listOf(Trashed(notes, "notes.md.2")))),
+			disk.make(Change.Trash(listOf(work.resolve("notes.md")))),
+		)
 		assertEquals("second", bin.resolve("files/notes.md.2").readText())
 		assertTrue(bin.resolve("info/notes.md.2.trashinfo").exists())
+	}
+
+	@Test
+	fun whatIsTrashedIsPutBackWhereItWasButNeverOverWhatIsThereNow() {
+		val notes = work.resolve("notes.md").also { it.writeText("mine") }
+		val back = (disk.make(Change.Trash(listOf(notes))) as ChangeResult.Done).undo
+
+		// Something of the same name made meanwhile: putting back would replace it, so it is refused.
+		notes.writeText("newer")
+		assertEquals(
+			ChangeResult.Failed("There is already something called “notes.md” here."),
+			disk.make(back),
+		)
+		assertEquals("newer", notes.readText())
+
+		Files.delete(notes)
+		assertEquals(ChangeResult.Done(Change.Trash(listOf(notes))), disk.make(back))
+		assertEquals("mine", notes.readText())
+		assertFalse(bin.resolve("files/notes.md").exists())
+		assertFalse(bin.resolve("info/notes.md.trashinfo").exists())
+		// Gone from the trash meanwhile: said so.
+		assertEquals(
+			ChangeResult.Failed("“notes.md” isn't in the trash any more."),
+			disk.make(back),
+		)
+	}
+
+	@Test
+	fun aNameTheTrashHoldsWithoutItsRecordIsPassedOver() {
+		bin
+			.resolve("files")
+			.createDirectories()
+			.resolve("notes.md")
+			.writeText("left behind")
+
+		val notes = work.resolve("notes.md").also { it.writeText("mine") }
+
+		assertEquals(
+			ChangeResult.Done(Change.PutBack(listOf(Trashed(notes, "notes.md.2")))),
+			disk.make(Change.Trash(listOf(notes))),
+		)
+		assertEquals("left behind", bin.resolve("files/notes.md").readText())
 	}
 
 	@Test

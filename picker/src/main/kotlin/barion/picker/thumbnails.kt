@@ -23,9 +23,10 @@ import org.jetbrains.skia.Surface
 
 /**
  * Small pictures of image files, for the gallery. Each is decoded by Skia (the library Compose draws with), scaled to
- * fit a square of one of a few sizes (the first at least as large as the tile draws it, so a gallery made larger gets
- * sharper pictures), and kept, by the file's path, the time it was last changed and the size, so that a file is
- * decoded once however often its tile is drawn, and again only once it has changed.
+ * fit a square of one of a few sizes, from 128 to 2048 pixels, the first at least as large as the tile draws it (so a
+ * gallery made larger gets sharper pictures, up to one picture as large as the window). Each is kept by the file's
+ * path, the time it was last changed and the size, so that a file is decoded once however often its tile is drawn,
+ * and again only once it has changed.
  *
  * Decoding a photograph takes tens of milliseconds and the whole image's memory while it lasts, so at most
  * [parallel] are decoded at once, on IO threads; a tile scrolled away before its turn comes is never decoded at all,
@@ -118,7 +119,7 @@ class Thumbnails(
 
 	companion object {
 		/** The sizes a picture is made at, across: the first at least as large as it is drawn is the one made. */
-		private val SIDES = listOf(128, 256, 512)
+		private val SIDES = listOf(128, 256, 512, 1024, 2048)
 
 		/** The size a picture drawn [wanted] pixels across is made at. */
 		fun sideFor(wanted: Int): Int = SIDES.firstOrNull { it >= wanted } ?: SIDES.last()

@@ -5,12 +5,10 @@ import java.nio.file.AccessDeniedException
 import java.nio.file.DirectoryIteratorException
 import java.nio.file.DirectoryNotEmptyException
 import java.nio.file.FileAlreadyExistsException
-import java.nio.file.FileVisitResult
 import java.nio.file.Files
 import java.nio.file.LinkOption
 import java.nio.file.NoSuchFileException
 import java.nio.file.Path
-import java.nio.file.SimpleFileVisitor
 import java.nio.file.attribute.BasicFileAttributes
 import java.time.Instant
 import java.time.ZoneId
@@ -45,7 +43,7 @@ fun Disk.answer(asking: Effect.Asking): Answer =
 	when (asking) {
 		is Effect.Read -> Answer.Arrived(asking.folder, read(asking.folder))
 		is Effect.Look -> Answer.Looked(asking.lookup, look(asking.lookup.paths))
-		is Effect.Make -> Answer.Changed(asking.change, make(asking.change))
+		is Effect.Make -> Answer.Changed(asking.change, make(asking.change), asking.doing)
 	}
 
 /** The file system through the JVM, its times said in [zone]. */
@@ -57,23 +55,28 @@ class JvmDisk(
 
 	override fun look(paths: List<Path>): Map<Path, Found> = paths.associateWith(::foundAt)
 
+	/**
+	 * [change] made, answered with what undoes it. An entry trashed is put back from where the trash keeps it; trashing
+	 * several stops at the first that fails, and what was trashed before it is still put back by the undo.
+	 */
 	override fun make(change: Change): ChangeResult =
 		attempted {
 			when (change) {
 				// Never over what is there: the JVM refuses to move onto an existing entry without being told to.
-				is Change.Rename -> Files.move(change.from, change.to)
-				is Change.MakeFolder -> Files.createDirectory(change.path)
-				is Change.Trash -> change.paths.forEach(trash::put)
-				is Change.Delete -> change.paths.forEach(::deleteTree)
+				is Change.Rename -> Change.Rename(Files.move(change.from, change.to), change.from)
+				is Change.MakeFolder -> Change.RemoveFolder(Files.createDirectory(change.path))
+				// Only an empty folder: what is in it would be lost, and an undo should lose nothing.
+				is Change.RemoveFolder -> Change.MakeFolder(change.path.also(Files::delete))
+				is Change.Trash -> Change.PutBack(change.paths.map(trash::put))
+				is Change.PutBack -> Change.Trash(change.entries.map(trash::putBack))
 			}
 		}
 }
 
-/** [work] done, or why not, in the words a person reads. */
-private fun attempted(work: () -> Unit): ChangeResult =
+/** [work] done, answered with what undoes it, or why it was not done, in the words a person reads. */
+private fun attempted(work: () -> Change): ChangeResult =
 	try {
-		work()
-		ChangeResult.Done
+		ChangeResult.Done(work())
 	} catch (taken: FileAlreadyExistsException) {
 		ChangeResult.Failed(
 			"There is already something called “${Path(taken.file).fileName}” here.",
@@ -82,34 +85,13 @@ private fun attempted(work: () -> Unit): ChangeResult =
 		ChangeResult.Failed("“${Path(gone.file).fileName}” isn't there any more.")
 	} catch (denied: AccessDeniedException) {
 		ChangeResult.Failed("You aren't allowed to change “${Path(denied.file).fileName}”.")
-	} catch (notEmpty: DirectoryNotEmptyException) {
-		ChangeResult.Failed("“${Path(notEmpty.file).fileName}” isn't empty.")
+	} catch (full: DirectoryNotEmptyException) {
+		ChangeResult.Failed("“${Path(full.file).fileName}” isn't empty any more.")
 	} catch (failed: IOException) {
 		ChangeResult.Failed(failed.message ?: failed.toString())
 	} catch (denied: SecurityException) {
 		ChangeResult.Failed(denied.message ?: "Not allowed.")
 	}
-
-/** [path] deleted, and everything in it if it is a folder; a link is deleted, never what it leads to. */
-private fun deleteTree(path: Path) {
-	Files.walkFileTree(
-		path,
-		object : SimpleFileVisitor<Path>() {
-			override fun visitFile(file: Path, attributes: BasicFileAttributes): FileVisitResult {
-				Files.delete(file)
-
-				return FileVisitResult.CONTINUE
-			}
-
-			override fun postVisitDirectory(folder: Path, failed: IOException?): FileVisitResult {
-				failed?.let { throw it }
-				Files.delete(folder)
-
-				return FileVisitResult.CONTINUE
-			}
-		},
-	)
-}
 
 /**
  * The state [step] comes to once every folder it reads and every name it looks up has been answered by [disk], in

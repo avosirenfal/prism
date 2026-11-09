@@ -82,13 +82,14 @@ giving a state and an event and looking at what comes back, and that is what `St
 | `history` | the folders Back and Forward go to |
 | `listing` | the folder's entries: being read, read, or unreadable (with why) |
 | `arrangement` | the order, the kinds of entry shown, which hidden entries are shown, the application's filter, the search words |
-| `layout`, `zooms` | the listing as rows or as a gallery, and how large each is drawn |
+| `layout`, `zooms`, `whole` | the listing as rows or as a gallery; how large each is drawn; and how large a gallery tile can be before it is larger than the gallery, as last measured |
 | `landing` | where the cursor goes when the next read of the folder arrives: the folder just left, a file just renamed |
 | `renaming` | a row whose name is being typed over, and the name as typed so far |
 | `cursor` | the row the keyboard is on, and the row a Shift-range starts from |
 | `address` | the path across the top: steps to click, or a path being typed |
 | `notice` | a question or a message drawn over the picker ("already exists; replace it?") |
 | `waiting` | a typed path being looked up, whose answer is waited for |
+| `changes` | the picker's own changes to the disk, each kept as the change that undoes it, and the changes undone |
 
 Some things the view shows are not stored, because they can be worked out from what is: the button's words and
 whether it can be pressed (`accept`), what the name field says (`nameField`), the steps of the path (`crumbs`), and
@@ -203,7 +204,7 @@ and Up and Down move a whole line; the headings that sort become a row of the sa
 gallery stays the gallery from folder to folder, until it is switched back.
 
 An image's picture is a **thumbnail** (`Thumbnails`): the file decoded by Skia, the library Compose draws with, scaled
-down (never up) to fit 128, 256 or 512 pixels, the first at least as large as the tile draws it, and kept, by the
+down (never up) to fit 128, 256, 512, 1024 or 2048 pixels, the first at least as large as the tile draws it, and kept, by the
 file's path, the time it last changed and that size, so it is made once however often its tile is drawn, and again
 once the file changes or the gallery is drawn larger. Decoding a photograph takes tens of milliseconds and the whole
 picture's memory while it lasts, so it happens on IO threads, at most four at a time, while the tile shows the icon;
@@ -215,10 +216,23 @@ The picture above is the real window, on a virtual display, over a folder of gen
 ### Larger and smaller
 
 Ctrl and the mouse's wheel draw the listing larger or smaller (Ctrl+= and Ctrl+- too, and Ctrl+0 back to its usual
-size): in the list, its rows' type and icons, and in the gallery, its tiles and their pictures. There are six sizes,
-from three quarters to twice the usual, a notch of the wheel a size, and a touchpad's small scrolls are added up until
-they make a notch. The list and the gallery each keep their own size, so a gallery made large to look at pictures
-leaves the list as it was.
+size): in the list, its rows' type and icons, and in the gallery, its tiles and their pictures. The wheel does this
+wherever the pointer is over the picker, and whatever has the keyboard, a search being typed included. A notch of the
+wheel is a step, and a touchpad's small scrolls are added up until they make a notch. The list and the gallery each
+keep their own size, so a gallery made large to look at pictures leaves the list as it was.
+
+The list goes from three quarters of its usual size to twice it. The gallery goes much further, up to one tile at a
+time, as large as the gallery has room for. How far that is depends on the window, so the gallery measures itself as
+it is laid out. Take a gallery 770 points wide and 600 high, and a tile, at its usual size, 136 wide and 152 high. A
+tile would fill the gallery's width at about 5.7 times that size, and its height at about 3.9 times; it fills the
+gallery at the smaller of the two, 3.9 times, and that is as far as the wheel goes. The gallery's steps are those of a
+fixed scale (¾, ⅞, 1, 1¼, 1½, 2, 2½, 3, 4, 5, 6, 8 and 10 times) that are smaller than that, here up to 3 times,
+and then one last step, **one at a time**, which is exactly as large as the gallery, whatever its size.
+
+The window can change size after a size is chosen. A tile is drawn at the size chosen or at the size that fills the
+gallery, whichever is smaller. So making the window so small that a tile no longer fits makes the tiles smaller with
+it, one to a line; and making it larger again brings back the size chosen, since what was chosen is kept, and only how
+it is drawn changed. One at a time stays one at a time at any size.
 
 ## Menus
 
@@ -234,13 +248,17 @@ Right-click a file in the listing, and a menu opens at the pointer:
 | Copy path | Ctrl+Shift+C |
 | — | |
 | Move to trash | Delete |
-| Delete permanently… | Shift+Delete |
 
 Right-click a folder instead, and "Open" goes into it (and a folder picker adds "Select folder"). Right-click one of
-several chosen rows, and the menu is of all of them, with nothing that takes only one ("Copy paths", the trash, delete).
+several chosen rows, and the menu is of all of them, with nothing that takes only one ("Copy paths", the trash).
 Right-click a row that is not chosen, and it is chosen first, alone. Right-click where there is no row, and the menu is
 of the folder: "Sort by" and "View" (each opening a submenu beside it), the two hidden checks, "New folder", "Copy
-path", "Refresh". Shift+F10, or the keyboard's menu key, opens the same menu at the cursor's row.
+path", "Refresh". Once the picker has changed something on disk, the folder's menu starts with "Undo" and "Redo",
+each saying what it will undo or redo: "Undo the rename", "Redo the move to the trash". Shift+F10, or the keyboard's
+menu key, opens the same menu at the cursor's row.
+
+"Move to trash" chosen from the menu moves at once: choosing it from a menu is already deliberate. The Delete key asks
+first (below, under "Changing what is on disk").
 
 What makes this easy to grow is that **a menu is data**. Here is the file's menu above as the picker writes it
 (`menus.kt`):
@@ -253,12 +271,11 @@ menu {
     item("Copy path", PickerEvent.CopiedPaths(paths), keys = "Ctrl+Shift+C")
     separator()
     item("Move to trash", PickerEvent.Trashed(ids), keys = "Delete")
-    item("Delete permanently…", PickerEvent.Deleted(ids), keys = "Shift+Delete", destructive = true)
 }
 ```
 
 `menu { }` builds an immutable `Menu`: a list of entries, each an **item** (a label, the action it gives, whether it
-can be chosen, a tick or a dot, its keys, whether it cannot be undone), a **submenu** (a label and a menu), or a
+can be chosen, a tick or a dot, its keys), a **submenu** (a label and a menu), or a
 **separator**. The builder keeps separators only between groups, so a group left out for one target (no "Rename" for
 several rows) leaves no stray line, and a submenu with nothing in it is left out.
 
@@ -299,17 +316,47 @@ the desktop's own dialogs can:
   name but not its extension. Enter, or clicking away, gives the new name; Escape leaves it as it was. A name with a
   slash in it, or `.` or `..`, is refused before the disk is asked. The disk never renames onto something already
   there.
-- **Move to trash** (Delete): into the desktop's own trash, as the freedesktop.org trash specification lays it out
-  (`~/.local/share/Trash`: the entry in `files`, and an `info` file saying where it was and when), so the desktop's file
-  manager can put it back. An entry on another drive than the trash is refused, with why, since a trash only takes
-  what can be moved into it without copying.
-- **Delete permanently** (Shift+Delete): folders with everything in them (never what a link in them leads to), and
-  only once the user has said yes.
+- **Move to trash** (Delete, Shift+Delete, or the menu): into the desktop's own trash, as the freedesktop.org trash
+  specification lays it out (`~/.local/share/Trash`: the entry in `files`, and an `info` file saying where it was and
+  when), so the desktop's file manager can put it back. Delete alone asks first ("Move “notes.md” to the trash?"),
+  since a key is easier to press by mistake than a menu item is to choose; Shift+Delete and the menu do not ask. An
+  entry on another drive than the trash is refused, with why, since a trash only takes what can be moved into it
+  without copying.
 - **New folder** (Ctrl+Shift+N): "New folder", or "New folder 2" where that is taken, its name then typed over.
+
+Nothing is ever deleted for good: the picker has no way to. Whatever it removes goes to the trash, from which Ctrl+Z,
+or the desktop's file manager, can put it back.
 
 Each is an effect the disk carries out (`Change`), and whatever came of it, the folder is read again, since a change
 half done is a change; what failed is said, with why. The cursor lands on what the change made: the renamed entry,
 chosen, or the new folder, its name being typed.
+
+### Undo and redo
+
+Ctrl+Z undoes the picker's latest change to the disk, and Ctrl+Shift+Z (or Ctrl+Y) does it again; the folder's menu
+offers the same. Undoing goes back through every change made since the picker opened, the latest first, and a new
+change, once something has been undone, leaves nothing to redo, as in an editor. In a text field, Ctrl+Z undoes the
+field's own typing instead, as it does anywhere.
+
+What makes this simple is that the disk, as it makes a change, answers with the change that undoes it:
+
+| the change | the disk's answer: what undoes it |
+|---|---|
+| rename `notes.md` to `journal.md` | rename `journal.md` to `notes.md` |
+| make the folder `New folder` | remove the folder `New folder` |
+| move `notes.md` to the trash | put back `notes.md`, which the trash keeps as `notes.md.2` |
+
+The last row is why the answer comes from the disk rather than being worked out beforehand: the name the trash keeps
+an entry under (`notes.md.2`, since a `notes.md` was already there) is only known once the entry is in it.
+
+The picker keeps these answers in a list, `changes.undo`. Ctrl+Z takes the latest from that list and asks the disk to
+make it, as it would any change, and the disk answers in turn with what undoes *that*: undoing the rename above
+answers "rename `notes.md` to `journal.md`", which goes on a second list, `changes.redo`, for Ctrl+Shift+Z. So an undo
+and a redo are each just a change, made the same way as the first, and only the two lists know which is which.
+
+An undo never loses anything. A folder is removed only if it is still empty, and an entry is put back from the trash
+only if nothing of its name has appeared where it was meanwhile. Otherwise the undo fails, says why ("Couldn't undo
+the new folder: “New folder” isn't empty any more"), and leaves the disk as it is.
 
 ## The mouse's side buttons
 
@@ -373,7 +420,7 @@ palette, takes the keys a desktop's controls take, and reports only what it is f
 
 | control | what it is | keys |
 |---|---|---|
-| `PickerButton` | a button with words: Open, Cancel, Replace, Delete (drawn in red, since it cannot be undone) | Enter, Space |
+| `PickerButton` | a button with words: Open, Cancel, Replace, Move to trash | Enter, Space |
 | `ToolButton` | a button with a glyph: Back, Forward, Up, the list and the gallery (one of a set shown as selected) | none: they have shortcuts of their own, so Tab passes over them |
 | `MenuButton` | a tool button with a menu under it: the filters | |
 | `Field` | a line of text: the path, the search, the name, a name being renamed | as any text field; it selects all its text when the keyboard arrives (saving and renaming, the name without its extension, so typing replaces only the name) |
@@ -417,7 +464,8 @@ keyboard is on the listing, or on the name for a picker that saves.
 | Backspace | listing | the folder above |
 | Ctrl+A | listing | every row chosen |
 | F2 | listing | rename the row chosen |
-| Delete, Shift+Delete | listing | the rows chosen to the trash; deleted for good (asking first) |
+| Delete | listing | the rows chosen to the trash, asking first |
+| Shift+Delete | listing | the rows chosen to the trash, without asking |
 | Ctrl+Shift+C | listing | the paths of the rows chosen (or of the folder) copied |
 | Shift+F10, the menu key | listing | the menu of the rows chosen, or of the folder |
 | Alt+Left, Alt+Right, Alt+Up | anywhere | back, forward, up |
@@ -426,10 +474,17 @@ keyboard is on the listing, or on the name for a picker that saves.
 | Ctrl+H | anywhere | every hidden entry shown, or none |
 | Ctrl+Shift+N | anywhere | a new folder |
 | Ctrl+1, Ctrl+2 | anywhere | the list, the gallery |
-| Ctrl+=, Ctrl+-, Ctrl+0, Ctrl and the wheel | anywhere; the listing | larger, smaller, the usual size |
+| Ctrl+=, Ctrl+-, Ctrl+0, Ctrl and the wheel | anywhere | larger, smaller, the usual size |
+| Ctrl+Z; Ctrl+Shift+Z, Ctrl+Y | anywhere but a text field | the picker's latest change to the disk undone; done again |
 | the mouse's side buttons | anywhere | back, forward |
 | F5, Ctrl+R | anywhere | the folder read again |
 | Escape | anywhere | cancel; in the path or a search with words in it, first leave that |
+
+The keys with Ctrl work while a field is being typed in, as well. That takes one more step than it seems to, because a
+key pressed with Ctrl reaches the window twice: once as the key going down, and once as the character it types, so
+Ctrl+2 also types a "2". The picker acts on the first and drops the second, so the search does not fill with "2"s. It
+drops only a character typed with Ctrl alone, not with Ctrl and Alt, which is AltGr on many keyboards, the way "@" and
+"€" are typed.
 
 The listing keeps the cursor's row in sight, scrolling as little as it takes: a row just past the bottom scrolls the
 list by one row, not a page, and a row far away is scrolled to directly (never by laying out every row between).
@@ -442,15 +497,22 @@ list by one row, not a page, and a row far away is scrolled to directly (never b
   drawn larger, and nothing made of what is not an image.
 - **The menus** (`MenuTest`): what each target's menu offers, what each item does and shows as on, and the builder's
   separators.
-- **The disk** (`DiskTest`): renaming never onto something there, a folder made, a folder deleted with what it holds
-  but not what a link in it leads to, and the trash as the desktop's own (its `files` and `info`, a second of a name
-  kept beside the first, paths written as a URL's).
+- **The disk** (`DiskTest`): renaming never onto something there, and undone by renaming back; a folder made only
+  where there is nothing, and removed only while empty; the trash as the desktop's own (its `files` and `info`, a
+  second of a name kept beside the first, paths written as a URL's); what is trashed put back where it was, never over
+  something there now; and a name the trash holds without its record passed over.
 - **The picker as a user meets it** (`InteractionTest`): composed headless around a running `Session` over a real
   temporary folder, then clicked, double-clicked, Ctrl- and Shift-clicked, typed at and tabbed through with
   Compose's own test input, and what it shows and how it ends checked: the filter menu by pointer, by Ctrl-click and
-  by keyboard; a row's menu renaming it on disk; F2 and Escape; the trash and deleting for good; the folder's menu
-  sorting through a submenu and making a folder; Shift+F10; Ctrl and the wheel; the gallery with a real picture, its
-  keys and its double click. These are what found that a Shift-click was being read as a double click, and that the
+  by keyboard; a row's menu renaming it on disk; F2 and Escape; the trash, asked about by Delete and not by
+  Shift+Delete or the menu, and Ctrl+Z and Ctrl+Shift+Z putting back and trashing again; the folder's menu sorting
+  through a submenu and making a folder, then the rename and the folder undone and redone, by the menu and by keys;
+  Shift+F10; Ctrl and the wheel, over the listing and over the places while a search is typed; Ctrl+1, Ctrl+2 and
+  Ctrl+= in the search, typing nothing into it; the gallery with a real picture, its keys and its double click; and the
+  gallery zoomed to one tile at a time, and drawn smaller as the window is made narrower and larger again as it is
+  widened. Compose's test keyboard sends a key going down and up, but not the character a real keyboard types between
+  the two, so the search's test sends that character itself, as an AWT event; without it the test would pass even
+  with the search filling with "2"s. These are what found that a Shift-click was being read as a double click, and that the
   listing scrolled before it had been laid out.
 - **The drawing** (`PickerTest`): every kind of picker drawn headless, in both palettes, with a notice up, a path
   being typed, a search and an unreadable folder; `-Ppicker.screenshots=DIR` keeps the pictures.
@@ -461,7 +523,11 @@ cancelling with Escape, each printing what it should; the gallery over real pict
 which only a real window can test, since they come from AWT; and, in the dark palette, no ring left on a control once
 the pointer has moved on, the filter menu with Ctrl-click, the folder's menu with a submenu turned to fit, sorting from
 it, renaming from a row's menu, Ctrl and the real wheel in the list and the gallery, and a click outside a submenu
-closing the whole menu. docs/testing.md says how to do the same.
+closing the whole menu. And since: Ctrl+2 typed in the search with real X key events, the search keeping what was
+typed; Ctrl and the wheel over the sidebar; the gallery turned all the way in, one picture at a time, then the window
+made smaller (the picture shrinking to fit) and larger again (the size chosen coming back); and Delete's question,
+Enter, Ctrl+Z, Ctrl+Shift+Z and Shift+Delete on real files, with the trash in a temporary folder. docs/testing.md
+says how to do the same.
 
 ## Not yet
 

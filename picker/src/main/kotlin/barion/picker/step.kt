@@ -21,9 +21,9 @@ import java.nio.file.Path
  * - Hidden files are shown and hidden folders are not, until the user says otherwise. A kind chosen from the filter
  *   menu narrows the listing to that kind alone; chosen with Ctrl, it is added to the kinds shown (images and videos:
  *   both). The kinds stay chosen from folder to folder; none chosen is everything.
- * - Renaming, the trash, deleting for good and making a folder are asked of the disk, and the folder is read again
- *   after, whatever came of it; deleting for good asks first. A name with a slash in it, or `.` or `..`, is refused
- *   before the disk is asked.
+ * - Renaming, the trash and making a folder are asked of the disk, and the folder is read again after, whatever came
+ *   of it. The Delete key asks before it moves anything to the trash; Shift+Delete and the menu do not. A name with a
+ *   slash in it, or `.` or `..`, is refused before the disk is asked.
  */
 
 /** The picker opened on [folder]: its first state, and the read of its folder that it waits for. */
@@ -123,14 +123,32 @@ private fun did(state: PickerState, event: PickerEvent): Step =
 			}
 		PickerEvent.ShowedEveryKind -> state.arranged { copy(kinds = emptySet()) }
 		is PickerEvent.Viewed -> Step(state.copy(layout = event.layout))
-		is PickerEvent.Zoomed ->
-			Step(
-				state.copy(zooms = state.zooms.with(state.layout, state.zoom.by(event.steps))),
-			)
+		is PickerEvent.Zoomed -> Step(state.zoomed(event.steps))
 		PickerEvent.Unzoomed ->
 			Step(
-				state.copy(zooms = state.zooms.with(state.layout, Zoom.Normal)),
+				state.copy(
+					zooms =
+						when (state.layout) {
+							Layout.List -> state.zooms.copy(list = Zoom.NORMAL)
+							Layout.Gallery -> state.zooms.copy(gallery = Zoom.NORMAL)
+						},
+				),
 			)
+		is PickerEvent.Measured -> Step(state.copy(whole = event.whole))
+		PickerEvent.Undone ->
+			state.changes.undo.lastOrNull()?.let {
+				state
+					.copy(
+						changes = state.changes.copy(undo = state.changes.undo.dropLast(1)),
+					).making(it, Doing.Undo)
+			} ?: Step(state)
+		PickerEvent.Redone ->
+			state.changes.redo.lastOrNull()?.let {
+				state
+					.copy(
+						changes = state.changes.copy(redo = state.changes.redo.dropLast(1)),
+					).making(it, Doing.Redo)
+			} ?: Step(state)
 		is PickerEvent.StartedRenaming -> Step(state.renaming(event.row))
 		is PickerEvent.RenameTyped ->
 			Step(
@@ -145,12 +163,12 @@ private fun did(state: PickerState, event: PickerEvent): Step =
 					it.isNotEmpty()
 				}?.let { state.making(Change.Trash(it)) }
 				?: Step(state)
-		is PickerEvent.Deleted ->
+		is PickerEvent.AskedToTrash ->
 			state
 				.pathsOf(event.rows)
 				.takeIf {
 					it.isNotEmpty()
-				}?.let { state.notice(Notice.ConfirmDelete(it)) }
+				}?.let { state.notice(Notice.ConfirmTrash(it)) }
 				?: Step(state)
 		PickerEvent.MadeFolder ->
 			state.making(
@@ -199,11 +217,7 @@ private fun noticed(state: PickerState, notice: Notice, event: PickerEvent): Ste
 		PickerEvent.Confirmed ->
 			when (notice) {
 				is Notice.Replace -> state.finished(listOf(notice.path))
-				is Notice.ConfirmDelete ->
-					state
-						.copy(
-							notice = null,
-						).making(Change.Delete(notice.paths))
+				is Notice.ConfirmTrash -> state.copy(notice = null).making(Change.Trash(notice.paths))
 				is Notice.NotFound, is Notice.NotAFolder, is Notice.Failed ->
 					Step(
 						state.copy(notice = null),
@@ -518,7 +532,7 @@ private fun answered(state: PickerState, answer: Answer): Step =
 				else
 					state,
 			)
-		is Answer.Changed -> state.changed(answer.change, answer.result)
+		is Answer.Changed -> state.changed(answer.change, answer.result, answer.doing)
 		// So is a lookup the picker no longer waits for.
 		is Answer.Looked ->
 			if (answer.lookup == state.waiting)
@@ -628,6 +642,34 @@ private fun PickerState.accepting(
 	}
 }
 
+// ---- how large it is drawn ----------------------------------------------------------------------------------------
+
+/**
+ * [steps] larger, or smaller where negative, as far as there are sizes. The list's sizes are the scale's, up to twice
+ * the usual. The gallery's are the scale's that leave a tile smaller than the listing, then the whole listing, so a
+ * size the window has grown too small for counts as the whole, and a step smaller from it is a step smaller than what
+ * is shown.
+ */
+private fun PickerState.zoomed(steps: Int): PickerState =
+	when (layout) {
+		Layout.List ->
+			copy(
+				zooms =
+					zooms.copy(
+						list = Zoom.By((zooms.list.step + steps).coerceIn(0, Zoom.LIST_LARGEST.step)),
+					),
+			)
+		Layout.Gallery -> {
+			val sizes =
+				Zoom.SCALE.indices
+					.filter { Zoom.SCALE[it] < whole }
+					.map { Zoom.By(it) } + Zoom.Whole
+			val at = sizes.indexOf(zooms.gallery).takeIf { it >= 0 } ?: sizes.lastIndex
+
+			copy(zooms = zooms.copy(gallery = sizes[(at + steps).coerceIn(0, sizes.lastIndex)]))
+		}
+	}
+
 // ---- changing what is on disk -----------------------------------------------------------------------------------
 
 /** [id]'s name made into a field to type over, the row chosen alone. */
@@ -658,52 +700,102 @@ private fun PickerState.renamed(): Step {
 	}
 }
 
-/** [change] asked of the disk. */
-private fun PickerState.making(change: Change): Step =
-	Step(this, listOf(Effect.Make(change)))
+/** [change] asked of the disk, for [doing]. */
+private fun PickerState.making(change: Change, doing: Doing = Doing.New): Step =
+	Step(this, listOf(Effect.Make(change, doing)))
 
 /**
- * What came of a change: the folder is read again whatever it was, since a change half done is a change, and the
- * cursor lands on what the change made (a renamed entry, chosen; a new folder, its name to type over). What failed is
- * said, with why.
+ * What came of a change. Whatever it was, the folder is read again, since a change half done is a change. Done, what
+ * undoes it is kept: a change asked for anew, or redone, can then be undone (and a change anew leaves nothing to redo);
+ * a change undone can be redone. The cursor lands on what the change made: a renamed entry, chosen; a folder just
+ * made, its name to type over (or chosen, made again by a redo); entries put back from the trash, chosen. What failed
+ * is said, with why.
  */
-private fun PickerState.changed(change: Change, result: ChangeResult): Step {
+private fun PickerState.changed(
+	change: Change,
+	result: ChangeResult,
+	doing: Doing,
+): Step =
+	when (result) {
+		is ChangeResult.Done ->
+			copy(
+				changes = changes.after(result.undo, doing),
+			).reread(landingAfter(change, doing))
+		is ChangeResult.Failed ->
+			reread().let {
+				Step(
+					it.state.copy(notice = Notice.Failed(failingOf(change, doing), result.why)),
+					it.effects,
+				)
+			}
+	}
+
+/** The changes after one is done for [doing]: what undoes it kept to undo, or, for an undo, to redo. */
+private fun Changes.after(undoneBy: Change, doing: Doing): Changes =
+	when (doing) {
+		Doing.New -> Changes(undo = undo.plusElement(undoneBy), redo = emptyList())
+		Doing.Redo -> copy(undo = undo.plusElement(undoneBy))
+		Doing.Undo -> copy(redo = redo.plusElement(undoneBy))
+	}
+
+/** Where the cursor goes once [change] is done, if it made something in the folder shown. */
+private fun PickerState.landingAfter(change: Change, doing: Doing): Landing? {
 	fun here(path: Path) = path.parent == folder
 
-	val landing =
-		when {
-			result != ChangeResult.Done -> null
-			change is Change.Rename &&
-				here(
-					change.to,
-				)
-			-> Landing.On(RowId(change.to.fileName.toString()), choose = true)
-			change is Change.MakeFolder &&
-				here(
-					change.path,
-				)
-			-> Landing.Renaming(RowId(change.path.fileName.toString()))
-			else -> null
-		}
+	fun rowOf(path: Path) = RowId(path.fileName.toString())
 
-	val reread = reread(landing)
-
-	return when (result) {
-		ChangeResult.Done -> reread
-		is ChangeResult.Failed ->
-			Step(
-				reread.state.copy(notice = Notice.Failed(doingOf(change), result.why)),
-				reread.effects,
-			)
+	return when (change) {
+		is Change.Rename ->
+			change.to
+				.takeIf(
+					::here,
+				)?.let { Landing.On(rowOf(it), choose = true) }
+		is Change.MakeFolder ->
+			change.path.takeIf(::here)?.let {
+				if (doing == Doing.New)
+					Landing.Renaming(rowOf(it))
+				else
+					Landing.On(rowOf(it), choose = true)
+			}
+		is Change.PutBack ->
+			change.originals.firstOrNull(::here)?.let { Landing.On(rowOf(it), choose = true) }
+		is Change.Trash, is Change.RemoveFolder -> null
 	}
 }
 
-private fun doingOf(change: Change): String =
+/** What [change], made for [doing], did, as the notice of its failure says it. */
+private fun failingOf(change: Change, doing: Doing): String =
+	when (doing) {
+		Doing.New ->
+			when (change) {
+				is Change.Rename -> "Couldn't rename “${change.from.fileName}”"
+				is Change.Trash -> "Couldn't move ${countOf(change.paths)} to the trash"
+				is Change.MakeFolder -> "Couldn't make a folder"
+				is Change.PutBack -> "Couldn't put ${countOf(change.originals)} back"
+				is Change.RemoveFolder -> "Couldn't remove “${change.path.fileName}”"
+			}
+		Doing.Undo -> "Couldn't undo ${undoneBy(change)}"
+		Doing.Redo -> "Couldn't redo ${doneBy(change)}"
+	}
+
+/** What the user did that [change] undoes, in words: what the undo menu item and a failed undo name. */
+fun undoneBy(change: Change): String =
 	when (change) {
-		is Change.Rename -> "Couldn't rename “${change.from.fileName}”"
-		is Change.Trash -> "Couldn't move ${countOf(change.paths)} to the trash"
-		is Change.Delete -> "Couldn't delete ${countOf(change.paths)}"
-		is Change.MakeFolder -> "Couldn't make a folder"
+		is Change.Rename -> "the rename"
+		is Change.PutBack -> "the move to the trash"
+		is Change.RemoveFolder -> "the new folder"
+		is Change.Trash -> "putting back"
+		is Change.MakeFolder -> "removing the folder"
+	}
+
+/** What the user did that [change] does again, in words: what the redo menu item and a failed redo name. */
+fun doneBy(change: Change): String =
+	when (change) {
+		is Change.Rename -> "the rename"
+		is Change.Trash -> "the move to the trash"
+		is Change.MakeFolder -> "the new folder"
+		is Change.PutBack -> "putting back"
+		is Change.RemoveFolder -> "removing the folder"
 	}
 
 /** "“a.txt”" for one path, "3 items" for several: how a change's paths are named in what is said of it. */

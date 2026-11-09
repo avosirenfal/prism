@@ -118,8 +118,25 @@ object Fixtures {
 				}
 			}
 
-		/** Every change done, as far as a disk held in code can say: the tree itself never changes. */
-		override fun make(change: Change): ChangeResult = ChangeResult.Done
+		/**
+		 * Every change done, as far as a disk held in code can say (the tree itself never changes), and answered with
+		 * what would undo it, the trash keeping each entry under its own name.
+		 */
+		override fun make(change: Change): ChangeResult =
+			ChangeResult.Done(
+				when (change) {
+					is Change.Rename -> Change.Rename(change.to, change.from)
+					is Change.MakeFolder -> Change.RemoveFolder(change.path)
+					is Change.RemoveFolder -> Change.MakeFolder(change.path)
+					is Change.Trash ->
+						Change.PutBack(
+							change.paths.map {
+								Trashed(it, it.fileName.toString())
+							},
+						)
+					is Change.PutBack -> Change.Trash(change.entries.map { it.original })
+				},
+			)
 	}
 
 	/**

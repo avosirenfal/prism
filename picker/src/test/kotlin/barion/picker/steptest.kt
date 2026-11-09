@@ -817,7 +817,11 @@ class StepTest {
 		assertNull(done.state.renaming)
 
 		// The disk did it: the folder is read again, and the cursor lands on the new name, chosen.
-		val answered = step(done.state, Answer.Changed(change, ChangeResult.Done))
+		val answered =
+			step(
+				done.state,
+				Answer.Changed(change, ChangeResult.Done(Change.Rename(change.to, change.from))),
+			)
 
 		assertEquals(listOf(Effect.Read(home)), answered.effects)
 		assertEquals(Landing.On(id("journal.md"), choose = true), answered.state.landing)
@@ -909,15 +913,109 @@ class StepTest {
 	}
 
 	@Test
-	fun deletingForGoodAsksFirst() {
-		val asked = after(picker(), PickerEvent.Deleted(listOf(id("main.kt"))))
+	fun theDeleteKeyAsksBeforeTheTrash() {
+		val asked = after(picker(), PickerEvent.AskedToTrash(listOf(id("main.kt"))))
 
-		assertEquals(Notice.ConfirmDelete(listOf(home.resolve("main.kt"))), asked.notice)
+		assertEquals(Notice.ConfirmTrash(listOf(home.resolve("main.kt"))), asked.notice)
 		assertEquals(
-			listOf(Effect.Make(Change.Delete(listOf(home.resolve("main.kt"))))),
+			listOf(Effect.Make(Change.Trash(listOf(home.resolve("main.kt"))))),
 			effectsOf(asked, PickerEvent.Confirmed),
 		)
 		assertTrue(effectsOf(asked, PickerEvent.Dismissed).isEmpty())
+	}
+
+	@Test
+	fun aChangeDoneCanBeUndoneAndRedone() {
+		val rename = Change.Rename(home.resolve("notes.md"), home.resolve("journal.md"))
+		val back = Change.Rename(home.resolve("journal.md"), home.resolve("notes.md"))
+		val done = step(picker(), Answer.Changed(rename, ChangeResult.Done(back))).state
+
+		// Done, what undoes it is kept.
+		assertEquals(Changes(undo = listOf(back)), done.changes)
+
+		val undoing = step(done, PickerEvent.Undone)
+
+		assertEquals(listOf(Effect.Make(back, Doing.Undo)), undoing.effects)
+		assertEquals(Changes(), undoing.state.changes)
+
+		// Undone, what does it again is kept to redo.
+		val undone =
+			step(
+				undoing.state,
+				Answer.Changed(back, ChangeResult.Done(rename), Doing.Undo),
+			).state
+
+		assertEquals(Changes(redo = listOf(rename)), undone.changes)
+
+		val redoing = step(undone, PickerEvent.Redone)
+
+		assertEquals(listOf(Effect.Make(rename, Doing.Redo)), redoing.effects)
+		assertEquals(
+			Changes(undo = listOf(back)),
+			step(
+				redoing.state,
+				Answer.Changed(rename, ChangeResult.Done(back), Doing.Redo),
+			).state.changes,
+		)
+		// With nothing to undo or to redo, nothing is done.
+		assertTrue(effectsOf(picker(), PickerEvent.Undone).isEmpty())
+		assertTrue(effectsOf(picker(), PickerEvent.Redone).isEmpty())
+	}
+
+	@Test
+	fun aNewChangeLeavesNothingToRedo() {
+		val redoable =
+			picker().copy(
+				changes = Changes(redo = listOf(Change.MakeFolder(home.resolve("x")))),
+			)
+
+		val folder = home.resolve("y")
+
+		val made =
+			step(
+				redoable,
+				Answer.Changed(
+					Change.MakeFolder(folder),
+					ChangeResult.Done(Change.RemoveFolder(folder)),
+				),
+			).state
+
+		assertEquals(Changes(undo = listOf(Change.RemoveFolder(folder))), made.changes)
+	}
+
+	@Test
+	fun whatIsPutBackIsChosenAndAnUndoThatFailsIsSaidSo() {
+		val back = Change.PutBack(listOf(Trashed(home.resolve("main.kt"), "main.kt")))
+
+		val put =
+			step(
+				picker(),
+				Answer.Changed(
+					back,
+					ChangeResult.Done(Change.Trash(listOf(home.resolve("main.kt")))),
+					Doing.Undo,
+				),
+			)
+
+		assertEquals(Landing.On(id("main.kt"), choose = true), put.state.landing)
+
+		val failed =
+			step(
+				picker(),
+				Answer.Changed(
+					back,
+					ChangeResult.Failed("“main.kt” isn't in the trash any more."),
+					Doing.Undo,
+				),
+			)
+
+		assertEquals(
+			Notice.Failed(
+				"Couldn't undo the move to the trash",
+				"“main.kt” isn't in the trash any more.",
+			),
+			failed.state.notice,
+		)
 	}
 
 	@Test
@@ -927,7 +1025,11 @@ class StepTest {
 
 		assertEquals(listOf(Effect.Make(change)), made.effects)
 
-		val answered = step(made.state, Answer.Changed(change, ChangeResult.Done)).state
+		val answered =
+			step(
+				made.state,
+				Answer.Changed(change, ChangeResult.Done(Change.RemoveFolder(change.path))),
+			).state
 
 		assertEquals(Landing.Renaming(id("New folder")), answered.landing)
 
@@ -974,20 +1076,66 @@ class StepTest {
 	// ---- how it is drawn ----
 
 	@Test
-	fun zoomGoesInStepsAndIsKeptForEachLayout() {
+	fun theListZoomsInStepsUpToTwiceItsSize() {
 		val larger = after(picker(), PickerEvent.Zoomed(1))
 
-		assertEquals(Zoom.Large, larger.zoom)
-		// As far as there are sizes.
-		assertEquals(Zoom.Largest, after(larger, PickerEvent.Zoomed(10)).zoom)
-		assertEquals(Zoom.Smallest, after(larger, PickerEvent.Zoomed(-10)).zoom)
+		assertEquals(Zoom.By(3), larger.zoom)
+		assertEquals(1.25f, larger.scale)
+		// As far as there are sizes for a list.
+		assertEquals(Zoom.LIST_LARGEST, after(larger, PickerEvent.Zoomed(10)).zoom)
+		assertEquals(Zoom.By(0), after(larger, PickerEvent.Zoomed(-10)).zoom)
 
 		// The gallery has a size of its own, and the list keeps its own meanwhile.
 		val gallery = after(larger, PickerEvent.Viewed(Layout.Gallery))
 
-		assertEquals(Zoom.Normal, gallery.zoom)
-		assertEquals(Zoom.Large, after(gallery, PickerEvent.Viewed(Layout.List)).zoom)
-		assertEquals(Zoom.Normal, after(larger, PickerEvent.Unzoomed).zoom)
+		assertEquals(Zoom.NORMAL, gallery.zoom)
+		assertEquals(Zoom.By(3), after(gallery, PickerEvent.Viewed(Layout.List)).zoom)
+		assertEquals(Zoom.NORMAL, after(larger, PickerEvent.Unzoomed).zoom)
+	}
+
+	@Test
+	fun theGalleryZoomsUpToOneTileAtATimeAsTheWindowAllows() {
+		// Room for a tile 4.2 times its usual size.
+		val gallery =
+			after(picker(), PickerEvent.Viewed(Layout.Gallery), PickerEvent.Measured(4.2f))
+		val largest = after(gallery, PickerEvent.Zoomed(100))
+
+		assertEquals(Zoom.Whole, largest.zoom)
+		assertEquals(4.2f, largest.scale)
+		// A step down from the whole is the largest size smaller than it, four times; a step up from four is the whole,
+		// since five would not fit.
+		assertEquals(Zoom.By(8), after(largest, PickerEvent.Zoomed(-1)).zoom)
+		assertEquals(
+			Zoom.Whole,
+			after(gallery, PickerEvent.Zoomed(6), PickerEvent.Zoomed(1)).zoom,
+		)
+	}
+
+	@Test
+	fun aWindowMadeSmallerMakesTheTilesSmallerWithIt() {
+		val four =
+			after(
+				picker(),
+				PickerEvent.Viewed(Layout.Gallery),
+				PickerEvent.Measured(6f),
+				PickerEvent.Zoomed(6),
+			)
+
+		assertEquals(Zoom.By(8), four.zoom)
+		assertEquals(4f, four.scale)
+
+		// Room only for 2.2: drawn as large as fits, the size chosen kept for when there is room again.
+		val smaller = after(four, PickerEvent.Measured(2.2f))
+
+		assertEquals(2.2f, smaller.scale)
+		assertEquals(4f, after(smaller, PickerEvent.Measured(6f)).scale)
+		// A step smaller is smaller than what is shown, not than what was chosen: two times.
+		assertEquals(Zoom.By(5), after(smaller, PickerEvent.Zoomed(-1)).zoom)
+		// One at a time stays one at a time, whatever the room.
+		assertEquals(
+			2.2f,
+			after(four, PickerEvent.Zoomed(100), PickerEvent.Measured(2.2f)).scale,
+		)
 	}
 
 	@Test

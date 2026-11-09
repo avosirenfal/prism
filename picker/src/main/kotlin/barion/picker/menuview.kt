@@ -241,7 +241,6 @@ private fun <A> MenuPanel(
 						entry.mark,
 						menu.marked,
 						entry.enabled,
-						entry.destructive,
 						lit = lit == index,
 						submenu = false,
 						onHover = {
@@ -258,7 +257,6 @@ private fun <A> MenuPanel(
 							Mark.None,
 							menu.marked,
 							enabled = true,
-							destructive = false,
 							lit = lit == index,
 							submenu = true,
 							onHover = {
@@ -317,7 +315,6 @@ private fun MenuRow(
 	mark: Mark,
 	marked: Boolean,
 	enabled: Boolean,
-	destructive: Boolean,
 	lit: Boolean,
 	submenu: Boolean,
 	onHover: () -> Unit,
@@ -379,11 +376,7 @@ private fun MenuRow(
 			}
 		Text(
 			label,
-			style =
-				if (destructive)
-					type.body.copy(color = palette.danger)
-				else
-					type.body,
+			style = type.body,
 			maxLines = 1,
 			overflow = TextOverflow.Ellipsis,
 			modifier = Modifier.weight(1f),

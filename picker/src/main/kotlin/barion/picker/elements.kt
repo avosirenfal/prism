@@ -137,10 +137,9 @@ fun Modifier.ring(
 		}
 	}
 
-/** How a button stands out among others: the one that does what the picker is for, one that cannot be undone, or the rest. */
+/** How a button stands out among others: the one that does what the picker is for, or the rest. */
 enum class Emphasis {
 	Primary,
-	Danger,
 	Secondary,
 }
 
@@ -162,7 +161,6 @@ fun PickerButton(
 	val strong =
 		when (emphasis) {
 			Emphasis.Primary -> palette.accent
-			Emphasis.Danger -> palette.danger
 			Emphasis.Secondary -> null
 		}
 	val primary = strong != null

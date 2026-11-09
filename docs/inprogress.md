@@ -17,11 +17,11 @@ The project is set up and every part named in the first brief exists, builds, an
 | the loader | `ebpf-loader`: libbpf through FFM, each hook checked against BTF and left out if it moved, per-hook verifier logs, the ring buffer read in place with acquire/release ordering |
 | the watcher | `probe`: hooks on the exits of `vfs_mkdir`, `vfs_rmdir`, `vfs_unlink`, `vfs_create`, `vfs_symlink`, `vfs_link`, `vfs_mknod`, `vfs_rename` and `do_filp_open`; compiled by the build into `index`'s resources |
 | the scanner | `index`: one traversal, two backends (getdents64 through FFM, and the JVM's own), names as bytes, the ignore rules, pseudo file systems skipped from mountinfo |
-| the picker | `picker`: an immutable `PickerState`, a pure reducer, a session that reads folders, looks up typed paths and makes changes on a background thread, and a view made of its own controls; it browses (back, forward, up, the mouse's side buttons, places, a typed path), chooses (click, Ctrl, Shift, the arrows, type-ahead), searches, sorts, filters by kind from a menu (one, or several with Ctrl; hidden files shown and hidden folders not until the user says), zooms with Ctrl and the wheel, and saves (asking before replacing), as a list or a gallery with thumbnails of images; context menus (menus as data, one component for any menu) rename, trash (the desktop's own), delete for good and make folders; `barion pick` prints what is chosen (docs/picker.md) |
+| the picker | `picker`: an immutable `PickerState`, a pure reducer, a session that reads folders, looks up typed paths and makes changes on a background thread, and a view made of its own controls; it browses (back, forward, up, the mouse's side buttons, places, a typed path), chooses (click, Ctrl, Shift, the arrows, type-ahead), searches, sorts, filters by kind from a menu (one, or several with Ctrl; hidden files shown and hidden folders not until the user says), zooms with Ctrl and the wheel (the gallery up to one picture at a time, fitted to the window), and saves (asking before replacing), as a list or a gallery with thumbnails of images; context menus (menus as data, one component for any menu) rename, trash (the desktop's own; the Delete key asks first) and make folders, each undone and redone with Ctrl+Z and Ctrl+Shift+Z; `barion pick` prints what is chosen (docs/picker.md) |
 | D-Bus | `dbus`: the connection (handshake and `Hello` as it opens), messages as data, kotlinx.serialization for bodies with signatures worked out from the types and checked before decoding, calls with replies as values, signals as flows, `watch`, served methods (docs/dbus.md) |
 | the colour scheme | `portal`: the portal's Settings declared; `barion pick` opens in the desktop's palette and follows its changes; light where there is no bus or portal; `--theme` overrides |
 
-@@COUNT@@, all passing in the development container; none
+228 tests (213 of barion's own, 15 of the house formatting rules), all passing in the development container; none
 skipped there. The D-Bus ones run against a real dbus-daemon each test starts, and against gdbus, dbus-send and busctl.
 
 ## Measured
@@ -67,6 +67,16 @@ In the order they unblock each other:
 
 ## Notes for whoever picks this up
 
+- A key pressed with Ctrl reaches a Compose window twice: as the key (`KeyDown`) and as the character it types
+  (`KeyEventType.Unknown`, with `utf16CodePoint` set), so Ctrl+2 types a "2" into a focused text field unless
+  something above it drops that second event. Compose's test keyboard sends only the first; a test of typing has to
+  send the second itself (`InteractionTest.typing`).
+- A `companion object` of a sealed interface is set up with the interface; a value in it that makes an instance whose
+  `init` reads the companion (`val NORMAL = By(2)`, with `By` checking its step against `SCALE`) finds it not yet
+  there, and the class fails to load (`NoClassDefFoundError`, after an `ExceptionInInitializerError`). Make such a
+  value a getter (`val NORMAL: By get() = By(2)`).
+- On Linux, `Files.move(..., ATOMIC_MOVE)` replaces what is at the target without asking, whatever the options say;
+  check that nothing is there first (the trash does, both ways).
 - Compose's `awaitFirstDown` waits for the primary button only (on a mouse); anything that wants another button (a
   context menu) watches the raw pointer events instead (`Modifier.contextMenu`).
 - A menu's submenu is a popup of its own, so a press outside it would close only it; every level closes the whole menu

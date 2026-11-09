@@ -226,41 +226,57 @@ enum class Layout {
 
 /**
  * How large the listing is drawn, as Ctrl and the mouse's wheel make it: in the list, its rows' type and icons; in the
- * gallery, its tiles and their pictures. A step is one notch of the wheel.
+ * gallery, its tiles and their pictures. A notch of the wheel is a step of [SCALE]; the gallery goes on past its steps
+ * to [Whole], one tile as large as the listing, whatever the window.
  */
-enum class Zoom(
-	val factor: Float,
-) {
-	Smallest(0.75f),
-	Small(0.875f),
-	Normal(1f),
-	Large(1.25f),
-	Larger(1.5f),
-	Largest(2f),
-	;
+@Immutable
+sealed interface Zoom {
+	/** The [step]th size of [SCALE]: [factor] times the usual. */
+	data class By(
+		val step: Int,
+	) : Zoom {
+		init {
+			require(step in SCALE.indices) { "no step $step of the scale" }
+		}
 
-	/** [steps] larger, or smaller where negative, as far as there are sizes. */
-	fun by(steps: Int): Zoom = entries[(ordinal + steps).coerceIn(0, entries.lastIndex)]
+		val factor: Float get() = SCALE[step]
+	}
+
+	/** One tile at a time, as large as the listing has room for: the gallery's largest. */
+	data object Whole : Zoom
+
+	companion object {
+		/** The sizes, each a notch of the wheel from the next, as many times the usual size. */
+		val SCALE = listOf(0.75f, 0.875f, 1f, 1.25f, 1.5f, 2f, 2.5f, 3f, 4f, 5f, 6f, 8f, 10f)
+
+		// Made each time they are read, not kept: a size kept here would be made while this object is being set up,
+		// and a size checks its step against [SCALE], which is not there until this object is.
+		val NORMAL: By get() = By(2)
+
+		/** The list's largest: twice the usual, beyond which a row is larger than anyone reads. */
+		val LIST_LARGEST: By get() = By(5)
+	}
 }
 
 /** How large each layout is drawn, each kept apart, so a gallery made large leaves the list as it was. */
 @Immutable
 data class Zooms(
-	val list: Zoom = Zoom.Normal,
-	val gallery: Zoom = Zoom.Normal,
+	val list: Zoom.By = Zoom.NORMAL,
+	val gallery: Zoom = Zoom.NORMAL,
 ) {
 	operator fun get(layout: Layout): Zoom =
 		when (layout) {
 			Layout.List -> list
 			Layout.Gallery -> gallery
 		}
-
-	fun with(layout: Layout, zoom: Zoom): Zooms =
-		when (layout) {
-			Layout.List -> copy(list = zoom)
-			Layout.Gallery -> copy(gallery = zoom)
-		}
 }
+
+/** The picker's own changes to the disk, each kept as the change that undoes it, the latest last, and those undone. */
+@Immutable
+data class Changes(
+	val undo: List<Change> = emptyList(),
+	val redo: List<Change> = emptyList(),
+)
 
 /**
  * The rows the listing shows, in order, with where each is: what the view draws and what the keyboard moves
@@ -466,8 +482,8 @@ sealed interface Notice {
 		val path: Path,
 	) : Notice
 
-	/** Entries to delete for good, not to the trash: done only if the user says so. */
-	data class ConfirmDelete(
+	/** Entries to move to the trash, if the user says so: asked when the Delete key alone asks for it. */
+	data class ConfirmTrash(
 		val paths: List<Path>,
 	) : Notice
 
@@ -547,6 +563,13 @@ data class PickerState(
 	val waiting: Lookup?,
 	val layout: Layout = Layout.List,
 	val zooms: Zooms = Zooms(),
+	/**
+	 * The size at which one of the gallery's tiles fills the listing, as the view last measured it: the most the
+	 * gallery can be zoomed before a tile no longer fits. Nothing limits it until it is measured.
+	 */
+	val whole: Float = Float.POSITIVE_INFINITY,
+	/** What the picker changed on disk, to undo and to redo. */
+	val changes: Changes = Changes(),
 	/** Where the cursor goes when the next read of the folder arrives; nowhere in particular when null. */
 	val landing: Landing? = null,
 	val renaming: Renaming? = null,
@@ -580,6 +603,12 @@ data class PickerState(
 
 	/** How large the listing is drawn, in the layout it is drawn in. */
 	val zoom: Zoom get() = zooms[layout]
+
+	/**
+	 * How many times its usual size the listing is drawn: the zoom chosen, but in the gallery never larger than a
+	 * tile that fits, so that a window made smaller makes the tiles smaller with it.
+	 */
+	val scale: Float get() = scaleOf(zoom, whole)
 
 	/** Every entry the folder holds, shown or not: the "of 750" of the status line. */
 	val entryCount: Int get() = (listing as? Listing.Shown)?.entries?.size ?: 0
@@ -634,6 +663,13 @@ data class PickerState(
 				else -> ""
 			}
 }
+
+/** How many times its usual size [zoom] draws, where a tile fills the listing at [whole] (as [PickerState.scale]). */
+fun scaleOf(zoom: Zoom, whole: Float): Float =
+	when (zoom) {
+		is Zoom.By -> minOf(zoom.factor, whole)
+		Zoom.Whole -> whole.takeIf { it.isFinite() } ?: Zoom.SCALE.last()
+	}
 
 /** The rows [listing] shows when arranged by [arrangement]. */
 fun rowsOf(listing: Listing, arrangement: Arrangement): Rows =

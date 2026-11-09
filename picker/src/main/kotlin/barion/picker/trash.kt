@@ -4,6 +4,7 @@ import java.io.IOException
 import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.FileAlreadyExistsException
 import java.nio.file.Files
+import java.nio.file.LinkOption
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
 import java.nio.file.StandardOpenOption
@@ -18,25 +19,28 @@ import kotlin.io.path.Path
  *
  * An entry is moved into the trash, never copied, so the trash must be on the entry's own file system. The
  * specification gives each file system a trash of its own for the rest; this is only the home trash, and an entry on
- * another drive is refused with why, to be deleted for good instead if the user wants.
+ * another drive is refused, with why.
  */
 class Trash(
 	private val root: Path,
 ) {
-	/** [path] moved into the trash, under its own name or, where that is taken, the first of `name.2`, `name.3`, .... */
-	fun put(path: Path) {
+	/**
+	 * [path] moved into the trash, under its own name or, where that is taken, the first of `name.2`, `name.3`, ...;
+	 * answered with where it is kept, for it to be put back.
+	 */
+	fun put(path: Path): Trashed {
 		val files = Files.createDirectories(root.resolve("files"))
 		val info = Files.createDirectories(root.resolve("info"))
 		val name = path.fileName.toString()
 
-		// A name is claimed by making its info file, which fails if it is taken, so two trashings cannot take one.
+		// A name is claimed by making its info file, which fails if it is taken, so two trashings cannot take one; a name
+		// whose file is there without its record (a trash left untidy) is passed over, since moving onto it would
+		// replace it.
 		val (claimed, record) =
 			(sequenceOf(name) + generateSequence(2) { it + 1 }.map { "$name.$it" })
+				.filterNot { Files.exists(files.resolve(it), LinkOption.NOFOLLOW_LINKS) }
 				.firstNotNullOf { candidate ->
-					claimed(info.resolve("$candidate.trashinfo"), path)?.let {
-						candidate to
-							it
-					}
+					claimed(info.resolve("$candidate.trashinfo"), path)?.let { candidate to it }
 				}
 
 		try {
@@ -44,12 +48,34 @@ class Trash(
 		} catch (elsewhere: AtomicMoveNotSupportedException) {
 			Files.deleteIfExists(record)
 			throw IOException(
-				"“$name” is on another drive than the trash; it can be deleted for good instead.",
+				"“$name” is on another drive than the trash, which can only take what can be moved into it.",
 			)
 		} catch (failed: IOException) {
 			Files.deleteIfExists(record)
 			throw failed
 		}
+
+		return Trashed(path.toAbsolutePath(), claimed)
+	}
+
+	/**
+	 * [entry] put back where it was, never over something there now, and its record of being trashed removed;
+	 * answered with where it is back.
+	 */
+	fun putBack(entry: Trashed): Path {
+		val kept = root.resolve("files").resolve(entry.name)
+
+		if (!Files.exists(kept, LinkOption.NOFOLLOW_LINKS))
+			throw IOException("“${entry.original.fileName}” isn't in the trash any more.")
+
+		// An atomic move on Linux replaces what is there without a word, so what is there is looked for first.
+		if (Files.exists(entry.original, LinkOption.NOFOLLOW_LINKS))
+			throw FileAlreadyExistsException(entry.original.toString())
+
+		Files.move(kept, entry.original, StandardCopyOption.ATOMIC_MOVE)
+		Files.deleteIfExists(root.resolve("info").resolve("${entry.name}.trashinfo"))
+
+		return entry.original
 	}
 
 	/** [record] made, saying [path] was trashed now; null if a record of that name is there already. */

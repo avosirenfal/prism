@@ -64,7 +64,6 @@ class MenuTest {
 				"Copy path",
 				"—",
 				"Move to trash",
-				"Delete permanently…",
 			),
 			menu.labels(),
 		)
@@ -75,7 +74,11 @@ class MenuTest {
 			menu.item("Copy path").action,
 		)
 		assertEquals("F2", menu.item("Rename").keys)
-		assertEquals(true, menu.item("Delete permanently…").destructive)
+		// From a menu, the trash at once: only the Delete key alone asks first.
+		assertEquals(
+			PickerEvent.Trashed(listOf(RowId("notes.md"))),
+			menu.item("Move to trash").action,
+		)
 	}
 
 	@Test
@@ -110,7 +113,7 @@ class MenuTest {
 		val menu = contextMenuOf(state, rowsOf(state, "main.kt", "todo.txt"))
 
 		assertEquals(
-			listOf("Copy paths", "—", "Move to trash", "Delete permanently…"),
+			listOf("Copy paths", "—", "Move to trash"),
 			menu.labels(),
 		)
 		assertEquals(
@@ -161,6 +164,43 @@ class MenuTest {
 
 		assertFalse(view.item("Smaller").enabled)
 		assertEquals(true, view.item("Usual size").enabled)
+	}
+
+	@Test
+	fun theFoldersMenuUndoesAndRedoesWhatThePickerChanged() {
+		val back = Change.Rename(home.resolve("journal.md"), home.resolve("notes.md"))
+		val again = Change.Trash(listOf(home.resolve("main.kt")))
+
+		val menu =
+			contextMenuOf(
+				picker().copy(changes = Changes(undo = listOf(back), redo = listOf(again))),
+				Target.Folder,
+			)
+
+		assertEquals(
+			listOf("Undo the rename", "Redo the move to the trash", "—"),
+			menu.labels().take(3),
+		)
+		assertEquals(PickerEvent.Undone, menu.item("Undo the rename").action)
+		assertEquals("Ctrl+Z", menu.item("Undo the rename").keys)
+		// With nothing done, neither is there.
+		assertEquals("Sort by ▸", contextMenuOf(picker(), Target.Folder).labels().first())
+	}
+
+	@Test
+	fun theGallerysLargestIsOneTileAtATime() {
+		val whole =
+			after(
+				picker(),
+				PickerEvent.Viewed(Layout.Gallery),
+				PickerEvent.Measured(4.2f),
+				PickerEvent.Zoomed(100),
+			)
+
+		val view = contextMenuOf(whole, Target.Folder).submenu("View")
+
+		assertFalse(view.item("Larger").enabled)
+		assertEquals(true, view.item("Smaller").enabled)
 	}
 
 	@Test

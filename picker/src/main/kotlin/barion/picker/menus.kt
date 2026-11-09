@@ -55,13 +55,8 @@ private fun rowsMenuOf(state: PickerState, rows: List<Row>): Menu<PickerEvent> {
 			keys = "Ctrl+Shift+C",
 		)
 		separator()
+		// Chosen from a menu, it is meant: the trash at once, as Shift+Delete does; Delete alone asks first.
 		item("Move to trash", PickerEvent.Trashed(ids), keys = "Delete")
-		item(
-			"Delete permanently…",
-			PickerEvent.Deleted(ids),
-			keys = "Shift+Delete",
-			destructive = true,
-		)
 	}
 }
 
@@ -70,6 +65,13 @@ private fun folderMenuOf(state: PickerState): Menu<PickerEvent> {
 	val folders = state.choosing is Choosing.Folder
 
 	return menu {
+		state.changes.undo.lastOrNull()?.let {
+			item("Undo ${undoneBy(it)}", PickerEvent.Undone, keys = "Ctrl+Z")
+		}
+		state.changes.redo.lastOrNull()?.let {
+			item("Redo ${doneBy(it)}", PickerEvent.Redone, keys = "Ctrl+Shift+Z")
+		}
+		separator()
 		submenu("Sort by") {
 			for (heading in Sort.Column.entries)
 				radio(
@@ -99,26 +101,24 @@ private fun folderMenuOf(state: PickerState): Menu<PickerEvent> {
 				keys = "Ctrl+2",
 			)
 			separator()
+			// Each can be chosen where it would change something: what it would do is asked of the reducer itself.
 			item(
 				"Larger",
 				PickerEvent.Zoomed(1),
 				keys = "Ctrl+=",
-				enabled =
-					state.zoom != Zoom.entries.last(),
+				enabled = state.changedBy(PickerEvent.Zoomed(1)),
 			)
 			item(
 				"Smaller",
 				PickerEvent.Zoomed(-1),
 				keys = "Ctrl+-",
-				enabled =
-					state.zoom != Zoom.entries.first(),
+				enabled = state.changedBy(PickerEvent.Zoomed(-1)),
 			)
 			item(
 				"Usual size",
 				PickerEvent.Unzoomed,
 				keys = "Ctrl+0",
-				enabled =
-					state.zoom != Zoom.Normal,
+				enabled = state.changedBy(PickerEvent.Unzoomed),
 			)
 		}
 		separator()
@@ -188,3 +188,7 @@ fun headingOf(column: Sort.Column): String =
 		Sort.Column.Type -> "Type"
 		Sort.Column.Size -> "Size"
 	}
+
+/** Whether [event] would change how the listing is drawn: whether a menu item that does it has anything to do. */
+private fun PickerState.changedBy(event: PickerEvent): Boolean =
+	step(this, event).state.zooms != zooms

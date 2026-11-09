@@ -78,6 +78,7 @@ class Session(
 					Answer.Changed(
 						asking.change,
 						ChangeResult.Failed(failed.message ?: failed.toString()),
+						asking.doing,
 					)
 			}
 		}

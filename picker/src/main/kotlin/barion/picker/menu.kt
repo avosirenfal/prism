@@ -50,8 +50,6 @@ sealed interface MenuEntry<out A> {
 		val mark: Mark = Mark.None,
 		/** The keys that do the same without the menu, shown beside the label: "F2", "Ctrl+Shift+N". */
 		val keys: String? = null,
-		/** Whether what it does cannot be undone, which it is drawn as. */
-		val destructive: Boolean = false,
 	) : MenuEntry<A>
 
 	/** Entries a level down, opened beside this one. */
@@ -97,10 +95,9 @@ class MenuBuilder<A> internal constructor() {
 		keys: String? = null,
 		enabled: Boolean = true,
 		alternate: A? = null,
-		destructive: Boolean = false,
 	) {
 		entries +=
-			MenuEntry.Item(label, action, alternate, enabled, Mark.None, keys, destructive)
+			MenuEntry.Item(label, action, alternate, enabled, Mark.None, keys)
 	}
 
 	/** An item that is on or off, ticked when on. */

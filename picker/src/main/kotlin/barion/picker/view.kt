@@ -16,6 +16,7 @@ import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
@@ -144,6 +145,7 @@ fun FilePicker(
 	val stops = remember { Stops() }
 	val saving = state.choosing is Choosing.SaveAs
 	val keyboard = remember { KeyboardUse() }
+	val latest by rememberUpdatedState(onEvent)
 
 	// The keyboard starts where a desktop's dialogs start it: at the name to save under, or at the listing.
 	LaunchedEffect(Unit) {
@@ -159,15 +161,9 @@ fun FilePicker(
 				.fillMaxSize()
 				.background(palette.window)
 				.usedBy(keyboard)
+				.zoomedByWheel { latest(PickerEvent.Zoomed(it)) }
 				.onPreviewKeyEvent { shortcut(it, stops, onEvent) }
-				.onKeyEvent {
-					val escaped = it.type == KeyEventType.KeyDown && it.key == Key.Escape
-
-					if (escaped)
-						onEvent(PickerEvent.Cancelled)
-
-					escaped
-				},
+				.onKeyEvent { afterwards(it, onEvent) },
 		) {
 			Column(Modifier.fillMaxSize()) {
 				Toolbar(state, stops, onEvent)
@@ -210,6 +206,11 @@ private fun shortcut(
 	stops: Stops,
 	onEvent: (PickerEvent) -> Unit,
 ): Boolean {
+	// A chord with Ctrl types its character as well, after it (Ctrl+2 types a "2"), which a text field would take as
+	// typing: it is the chord's, and goes nowhere. Ctrl with Alt is AltGr on many keyboards, which types for real.
+	if (key.type == KeyEventType.Unknown)
+		return key.isCtrlPressed && !key.isAltPressed && key.utf16CodePoint >= ' '.code
+
 	if (key.type != KeyEventType.KeyDown)
 		return false
 
@@ -247,6 +248,30 @@ private fun shortcut(
 private val LARGER = setOf(Key.Equals, Key.Plus, Key.NumPadAdd)
 private val SMALLER = setOf(Key.Minus, Key.NumPadSubtract)
 private val USUAL = setOf(Key.Zero, Key.NumPad0)
+
+/**
+ * The keys left to the picker by whatever has the keyboard, which sees them first: Escape (a field leaves what it is
+ * doing first), and Ctrl+Z and Ctrl+Shift+Z (or Ctrl+Y), which undo and redo the picker's changes to the disk, except
+ * in a text field, whose own typing they undo.
+ */
+private fun afterwards(key: KeyEvent, onEvent: (PickerEvent) -> Unit): Boolean {
+	if (key.type != KeyEventType.KeyDown)
+		return false
+
+	val ctrl = key.isCtrlPressed || key.isMetaPressed
+	val event =
+		when {
+			key.key == Key.Escape -> PickerEvent.Cancelled
+			ctrl && key.isShiftPressed && key.key == Key.Z -> PickerEvent.Redone
+			ctrl && key.key == Key.Y -> PickerEvent.Redone
+			ctrl && key.key == Key.Z -> PickerEvent.Undone
+			else -> null
+		}
+
+	event?.let(onEvent)
+
+	return event != null
+}
 
 /** Enter, on either side of the keyboard. */
 private val KeyEvent.isEnter: Boolean get() = key == Key.Enter || key == Key.NumPadEnter
@@ -656,10 +681,9 @@ private fun ListingPane(
 	val cursorAt = cursor?.let(rows::indexOf)
 	val query = state.arrangement.query
 	val gallery = state.layout == Layout.Gallery
-	val zoom = state.zoom.factor
+	val zoom = state.scale
 	val chosen = state.choosing.rows
 	val renaming = state.renaming
-	val zooming by rememberUpdatedState { steps: Int -> onEvent(PickerEvent.Zoomed(steps)) }
 	var typing by remember { mutableStateOf(Typing("", 0)) }
 	var pressed by remember { mutableStateOf<Pressed?>(null) }
 
@@ -807,11 +831,12 @@ private fun ListingPane(
 				key.isEnter -> PickerEvent.Accepted
 				key.key == Key.Backspace -> PickerEvent.Up
 				key.key == Key.F2 -> ids.singleOrNull()?.let { PickerEvent.StartedRenaming(it) }
+				// The trash: Delete asks first, since it is easily pressed by mistake; Shift+Delete does not.
 				key.key == Key.Delete && ids.isNotEmpty() ->
 					if (shift)
-						PickerEvent.Deleted(ids)
-					else
 						PickerEvent.Trashed(ids)
+					else
+						PickerEvent.AskedToTrash(ids)
 				ctrl && shift && key.key == Key.C ->
 					PickerEvent.CopiedPaths(
 						targets()
@@ -845,7 +870,6 @@ private fun ListingPane(
 			.focusRequester(stops.listing)
 			.onKeyEvent(::key)
 			.focusable(interactionSource = source)
-			.zoomedByWheel { zooming(it) }
 			.testTag("listing"),
 	) {
 		Header(state.arrangement.sort, state.layout, onEvent)
@@ -877,27 +901,19 @@ private fun ListingPane(
 									"The filters leave out everything in this folder.",
 							)
 						gallery ->
-							LazyVerticalGrid(
-								GridCells.Adaptive(Dims.tile * zoom),
-								nowhere.fillMaxSize().padding(Dims.gapSmall),
-								state = grid,
-								horizontalArrangement = Arrangement.spacedBy(Dims.gapSmall),
-								verticalArrangement = Arrangement.spacedBy(Dims.gapSmall),
-							) {
-								items(rows.list, key = { it.id.name }, contentType = { "tile" }) { row ->
-									Tile(
-										row,
-										state.folder.resolve(row.name),
-										chosen = row.id in chosen,
-										cursor = felt.ringed && row.id == cursor,
-										zoom = zoom,
-										renamed = renaming?.takeIf { it.row == row.id }?.text,
-										stops = stops,
-										onPress = { press(row.id, it) },
-										onEvent = onEvent,
-										modifier = Modifier.contextMenu(menus) { menuOf(row) },
-									)
-								}
+							Gallery(state, grid, nowhere, onEvent) { row, scale ->
+								Tile(
+									row,
+									state.folder.resolve(row.name),
+									chosen = row.id in chosen,
+									cursor = felt.ringed && row.id == cursor,
+									zoom = scale,
+									renamed = renaming?.takeIf { it.row == row.id }?.text,
+									stops = stops,
+									onPress = { press(row.id, it) },
+									onEvent = onEvent,
+									modifier = Modifier.contextMenu(menus) { menuOf(row) },
+								)
 							}
 						else ->
 							LazyColumn(
@@ -924,6 +940,46 @@ private fun ListingPane(
 			}
 		}
 		ContextMenuHost(menus, onEvent)
+	}
+}
+
+/**
+ * The gallery: its room measured as it is laid out, and the size at which a tile would fill it reported, for the zoom to
+ * go no further ([PickerEvent.Measured]); its tiles drawn at the zoom chosen, but never larger than fits, so a window
+ * made smaller makes them smaller at once. At its largest, one tile at a time, as wide as the gallery.
+ */
+@Composable
+private fun Gallery(
+	state: PickerState,
+	grid: LazyGridState,
+	nowhere: Modifier,
+	onEvent: (PickerEvent) -> Unit,
+	tile: @Composable (Row, Float) -> Unit,
+) {
+	BoxWithConstraints(Modifier.fillMaxSize()) {
+		val wide = (maxWidth - Dims.gapSmall * 2) / Dims.tile
+		val high = (maxHeight - Dims.gapSmall * 2) / Dims.tileHeight
+		val whole = minOf(wide, high).coerceAtLeast(0.1f)
+		val scale = scaleOf(state.zoom, whole)
+
+		LaunchedEffect(whole) { onEvent(PickerEvent.Measured(whole)) }
+
+		LazyVerticalGrid(
+			if (state.zoom == Zoom.Whole || scale >= whole)
+				GridCells.Fixed(1)
+			else
+				GridCells.Adaptive(Dims.tile * scale),
+			nowhere.fillMaxSize().padding(Dims.gapSmall),
+			state = grid,
+			horizontalArrangement = Arrangement.spacedBy(Dims.gapSmall),
+			verticalArrangement = Arrangement.spacedBy(Dims.gapSmall),
+		) {
+			items(
+				state.rows.list,
+				key = { it.id.name },
+				contentType = { "tile" },
+			) { tile(it, scale) }
+		}
 	}
 }
 
@@ -1398,20 +1454,22 @@ private fun Tile(
 			.padding(Dims.gap),
 		horizontalAlignment = Alignment.CenterHorizontally,
 	) {
-		Box(
-			Modifier.fillMaxWidth().height(Dims.picture * zoom),
-			contentAlignment = Alignment.Center,
-		) {
+		// The name is drawn larger with the tile only so far, a size people read; the picture has the rest.
+		val name = type.body.times(minOf(zoom, 1.5f))
+
+		Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
 			Picture(row, path, zoom)
 		}
 		Spacer(Modifier.height(Dims.gapSmall))
 		NameOf(
 			row,
 			renamed,
-			type.body.times(zoom),
+			name,
 			stops,
 			onEvent,
-			Modifier.fillMaxWidth(),
+			Modifier.fillMaxWidth().height(
+				with(LocalDensity.current) { name.lineHeight.toDp() * 2 },
+			),
 			maxLines = 2,
 			textAlign = TextAlign.Center,
 		)
@@ -1426,34 +1484,38 @@ private fun Tile(
 private fun Picture(row: Row, path: Path, zoom: Float) {
 	val palette = LocalPalette.current
 	val thumbnails = LocalThumbnails.current
-	val side = with(LocalDensity.current) { (Dims.picture * zoom).roundToPx() }
 	val drawable = !row.isFolder && Thumbnails.drawable(row.name)
 
-	val picture by produceState<ImageBitmap?>(
-		null,
-		path,
-		row.modified,
-		Thumbnails.sideFor(side),
-	) {
-		if (drawable)
-			value = thumbnails.of(path, row.modified?.value, side)
-	}
+	BoxWithConstraints(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+		// Made for the longer side of its room, so that it is as sharp as it is drawn.
+		val side = maxOf(constraints.maxWidth, constraints.maxHeight)
 
-	when (val shown = picture) {
-		null ->
-			GlyphIcon(
-				if (row.isFolder) Glyph.Folder else Glyph.File,
-				palette.text,
-				64.dp * zoom,
-				category = row.category,
-			)
-		else ->
-			Image(
-				shown,
-				contentDescription = row.name,
-				modifier = Modifier.fillMaxSize().testTag("picture:${row.name}"),
-				contentScale = ContentScale.Inside,
-			)
+		val picture by produceState<ImageBitmap?>(
+			null,
+			path,
+			row.modified,
+			Thumbnails.sideFor(side),
+		) {
+			if (drawable)
+				value = thumbnails.of(path, row.modified?.value, side)
+		}
+
+		when (val shown = picture) {
+			null ->
+				GlyphIcon(
+					if (row.isFolder) Glyph.Folder else Glyph.File,
+					palette.text,
+					minOf(64.dp * zoom, minOf(maxWidth, maxHeight) * 0.8f),
+					category = row.category,
+				)
+			else ->
+				Image(
+					shown,
+					contentDescription = row.name,
+					modifier = Modifier.fillMaxSize().testTag("picture:${row.name}"),
+					contentScale = ContentScale.Inside,
+				)
+		}
 	}
 }
 
@@ -1617,11 +1679,11 @@ private fun wordsOf(notice: Notice): Words =
 				"Replace",
 				"Cancel",
 			)
-		is Notice.ConfirmDelete ->
+		is Notice.ConfirmTrash ->
 			Words(
-				"Delete ${countOf(notice.paths)} for good?",
-				"It won't go to the trash, and it can't be put back.",
-				"Delete",
+				"Move ${countOf(notice.paths)} to the trash?",
+				"It can be put back from the trash.",
+				"Move to trash",
 				"Cancel",
 			)
 		is Notice.Failed -> Words(notice.doing, notice.why, "OK", null)
@@ -1661,14 +1723,11 @@ private fun NoticeLayer(notice: Notice, onEvent: (PickerEvent) -> Unit) {
 					Modifier.fillMaxWidth().padding(top = 20.dp),
 					horizontalArrangement = Arrangement.spacedBy(Dims.gap, Alignment.End),
 				) {
-					val asks = notice is Notice.Replace || notice is Notice.ConfirmDelete
+					val asks = notice is Notice.Replace || notice is Notice.ConfirmTrash
 
 					PickerButton(
 						words.yes,
-						if (notice is Notice.ConfirmDelete)
-							Emphasis.Danger
-						else
-							Emphasis.Primary,
+						Emphasis.Primary,
 						enabled = true,
 						Modifier.testTag("yes"),
 						first,
