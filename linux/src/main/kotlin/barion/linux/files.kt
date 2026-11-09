@@ -58,6 +58,12 @@ value class AtFlags(
 		/** The path is empty and the call is about the directory descriptor itself. */
 		val EMPTY_PATH = AtFlags(0x1000)
 
+		/**
+		 * `AT_NO_AUTOMOUNT`: a path ending at an automount point is not mounted to answer, so following a link into a
+		 * network share that is not mounted yet does not mount it (and wait on the network).
+		 */
+		val NO_AUTOMOUNT = AtFlags(0x800)
+
 		/** `AT_STATX_DONT_SYNC`: what the client has cached, for a network file system, without asking the server. */
 		val STATX_DONT_SYNC = AtFlags(0x4000)
 	}

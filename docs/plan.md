@@ -75,28 +75,43 @@ back to getdents64 elsewhere.
 
 ### What is left out
 
-`IgnoreRules` names directories left out wherever they are (`.git`, `.hg`, `.svn`, `node_modules`, `.cache`,
-`.zfs`, `.snapshots`, `__pycache__`, `.gradle`, `.venv`, ...) and file systems left out wherever they are mounted
-(`proc`, `sysfs`, `cgroup2`, `debugfs`, ...). A directory left out is held in the tree by name, marked skipped, so the
-picker can still show it, and is never read. The rules will come from a configuration file
+`IgnoreRules` names directories left out with everything in them, in two ways. A rule without a leading `/` applies
+anywhere: a name (`.git`, `node_modules`, `.cache`, `.gradle`, `.direnv`, `.dotnet`, `__pycache__`, ...) or the end
+of a path (`.local/share/containers`, `go/pkg/mod`, `drive_c/windows`). A rule with one is that one directory
+(`/nix/store`, `/boot`, `/tmp`, `/var/cache`, `/var/lib/docker`, ...). The defaults are trees that can hold more
+entries than everything a person made and that nobody picks a file from: version control, package managers'
+downloads, build output and caches, browsers' caches, snapshots, the system's own stores and temporary files.
+Generic names people give their own folders (`build`, `target`, `dist`, `vendor`) are not among them.
+
+File systems are left out by type wherever they are mounted (`proc`, `sysfs`, `tmpfs`, `ramfs`, `cgroup2`,
+`debugfs`, ...): `/proc/self/mountinfo` is read once as indexing begins, and the mount points of those types are kept
+in a set that each directory is looked up in as it is met. The index holds only folders, files and links: devices,
+pipes and sockets are left out. A scan keeps a left-out directory in its tree by name, marked skipped, for the
+benchmark's counts; the index holds nothing of it. The rules will come from a configuration file
 (`$XDG_CONFIG_HOME/barion/barion.toml`), with the defaults for anything it does not say.
 
 ### In memory, and on disk
 
-A scan builds a tree of objects today, which is right for comparing backends. The index proper holds the tree as
-arrays, which is both what makes it small and fast in memory and what its file is:
+The index holds its entries as columns (`barion.index.Block`), in preorder, so everything under a folder is the
+slice of every column that follows it:
 
-- one byte array of every name, back to back;
-- per entry: its parent's index, where its name starts and how long it is, its kind, its inode, its device's index;
-- per directory: where its children start and how many there are, the children sorted by name;
-- for search: an index of the names' trigrams (or a suffix array over the name bytes), so that a substring is found
-  without reading every name.
+- per entry: its parent, its name (one byte array of every name, back to back, and where each starts), its kind
+  (folder, file, or a link to a folder, to a file, to something else, or to nowhere), and its device (an index into
+  the block's devices, each a device number and the file system type mountinfo gives it);
+- worked out as it is loaded, never stored: where what is under each entry ends, every name folded to lower case at
+  the same offsets, and every name's stem length.
 
-The file is that, written as one memory-mappable file with a header (a magic number, a version, the sizes of each
-array, a checksum) so that barion starts by mapping it rather than reading it. It is replaced whole by writing a new
-file beside it and renaming it over the old one, so it is never seen half written. Between those rewrites, the
-changes applied since are appended to a journal, which is read on start and folded into the next rewrite. A
-dedicated document (docs/format.md) will specify the format byte for byte before it is written.
+An index is a value: a change makes a new one, sharing what did not change. Blocks are never changed, so taking
+entries out hides them (each block keeps the ranges it no longer holds), and putting a tree in places a block of its
+own beside the others. Compacting makes one block of each root again. A search reads the blocks as they are, so it
+finds the same before and after.
+
+The file is a compressed snapshot followed by frames of changes appended as they are flushed, and is compacted, written
+anew as one snapshot, once the changes are a quarter of it (docs/format.md says it byte by byte). An earlier plan was
+a file mapped into memory as it is; the file is compressed instead, which makes it a fraction of the size, and reading
+it back is fast enough not to need mapping (a third of a second for three million entries). Every change says what is
+so now (this entry and everything under it is as this tree says, or it is absent), so making one twice is making it
+once, and a frame read twice does no harm.
 
 ### Keeping it current
 
@@ -156,21 +171,14 @@ user; drag and drop out of the picker.
 
 ## The search language
 
-A query is short and says what is wanted. A sketch, to be settled when it is built:
+A query is short and says what is wanted: terms, every one of which a result must pass. A bare word is found in the
+stem (`report`), or in the whole name where it has a dot after its first character (`report.pdf`); a word with glob
+characters is a glob (`*.{jpg,png}`); a term with a `/` is a path (`funny/*.jpg`, `~/Downloads/`, `work/2024/`); a
+regex is `r/.../flags`; modifiers say the rest (`dir:`, `ext:`, `type:`, `is:`, `recent:`, `mount:`); `-` negates.
+Aliases (`~reports`) are named folders, declared in the configuration file and offered in the sidebar.
 
-| query | means |
-|---|---|
-| `report` | names containing "report", anywhere |
-| `report pdf` | names containing "report" and ending in `.pdf` (a word that is a known extension is the extension) |
-| `@work report` | the same, under the place named `work` |
-| `@work/2026 report` | under a folder of that place |
-| `"q3 report"` | the phrase, spaces and all |
-| `report -draft` | without "draft" |
-| `report >1m <1w` | bigger than a megabyte, changed in the last week |
-
-Aliases (`work` above) are named places, declared in the configuration file and offered in the sidebar. The language
-is parsed into an immutable query (a sealed tree of terms), and run against the index's name trigrams, then checked
-against the names themselves.
+docs/search.md says it all, with every example and how a search runs. A query is an immutable tree
+(`barion.index.query`), built today with a Kotlin DSL; a parser combinator will make the same trees from text.
 
 ## The portal
 

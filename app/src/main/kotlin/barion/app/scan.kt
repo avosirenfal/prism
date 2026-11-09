@@ -6,7 +6,7 @@ import barion.cli.Outcome
 import barion.cli.ParamType
 import barion.index.Backend
 import barion.index.IgnoreRules
-import barion.index.Name
+import barion.index.Ignored
 import barion.index.Scanned
 import barion.index.Scanner
 import java.nio.file.Path
@@ -64,18 +64,18 @@ object ScanCommand : Command(
 	private val ignoring =
 		repeated(
 			"--ignore",
-			type = ParamType.TEXT.named("NAME"),
-			help = "leave out directories of this name too",
+			type = ParamType.TEXT.named("RULE"),
+			help = "leave these out too: a name anywhere (.git), or one path (/nix/store)",
 		)
 
 	override fun run(args: Args): Outcome {
 		val rules =
 			(
 				if (args[everything])
-					IgnoreRules.DEFAULT.copy(names = emptySet())
+					IgnoreRules.DEFAULT.copy(directories = emptySet())
 				else
 					IgnoreRules.DEFAULT
-			).alsoIgnoring(args[ignoring].map(Name::of))
+			).alsoIgnoring(args[ignoring].map(Ignored::of))
 		val chosen = args[backends].ifEmpty { Backend.ALL }
 		val scans =
 			chosen.associateWith { backend ->

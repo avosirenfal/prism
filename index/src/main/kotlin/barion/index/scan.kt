@@ -48,21 +48,30 @@ sealed interface Listing {
 	) : Listing
 }
 
-/** One entry as a directory lists it: its name, what it is (null where nothing would say), and its inode. */
+/**
+ * One entry as a directory lists it: its name, what it is (null where nothing would say), and its inode; and, for a
+ * symbolic link, what it leads to (null for a link that leads nowhere, or round in a loop).
+ */
 data class Listed(
 	val name: Name,
 	val kind: FileKind?,
 	val ino: Long,
+	val target: FileKind? = null,
 )
 
 /**
- * Where a scan is: the bytes the kernel names a directory by, which are what a system call is given. The JVM's own
- * [path] is made from them where the JVM can spell them, and is null where it cannot (a name that is not in the JVM's
- * file name encoding), so a directory the JVM cannot name is still one the scan can read.
+ * A path as the kernel names it: its bytes, which are what a system call is given. The JVM's own [path] is made from
+ * them where the JVM can spell them, and is null where it cannot (a name that is not in the JVM's file name encoding),
+ * so a directory the JVM cannot name is still one a scan can read and the index can hold. Absolute and normal: it
+ * starts with `/`, and has no `.`, `..`, empty or trailing level.
  */
 class Where internal constructor(
 	internal val bytes: ByteArray,
 ) {
+	init {
+		require(bytes.isNotEmpty() && bytes[0] == SLASH) { "a place is an absolute path" }
+	}
+
 	/** The path as the JVM names it, or null where it cannot. */
 	val path: Path? by lazy {
 		try {
@@ -74,26 +83,74 @@ class Where internal constructor(
 
 	/**
 	 * The bytes as a string that holds each byte as one character (ISO-8859-1, which maps every byte to a character
-	 * and back), so two places compare and hash as their bytes do, whatever those bytes are.
+	 * and back), so two places compare and hash as their bytes do, whatever those bytes are, and order as their bytes
+	 * do, unsigned.
 	 */
 	internal val key: String get() = String(bytes, Charsets.ISO_8859_1)
 
-	/** [name], an entry of this directory. */
-	fun child(name: Name): Where {
-		val nameBytes = name.bytes()
-		val joined =
-			if (bytes.lastOrNull() == '/'.code.toByte())
-				bytes + nameBytes
-			else
-				bytes + '/'.code.toByte() + nameBytes
+	val isRoot: Boolean get() = bytes.size == 1
 
-		return Where(joined)
-	}
+	/** The last level's name: empty for the root. */
+	internal val name: ByteArray get() =
+		bytes.copyOfRange(
+			bytes.lastIndexOf(SLASH) + 1,
+			bytes.size,
+		)
+
+	/** The folder this is in; null for the root. */
+	val parent: Where?
+		get() =
+			when {
+				isRoot -> null
+				bytes.lastIndexOf(SLASH) == 0 -> ROOT
+				else -> Where(bytes.copyOf(bytes.lastIndexOf(SLASH)))
+			}
+
+	/** Each level's name, from the top: none for the root. */
+	internal val levels: List<ByteArray>
+		get() =
+			(bytes.indices.filter { bytes[it] == SLASH } + bytes.size)
+				.zipWithNext { from, to -> bytes.copyOfRange(from + 1, to) }
+				.filter { it.isNotEmpty() }
+
+	/** Whether this is [other] or under it. */
+	fun within(other: Where): Boolean =
+		other.isRoot ||
+			(
+				key.startsWith(other.key) &&
+					(bytes.size == other.bytes.size || bytes[other.bytes.size] == SLASH)
+			)
+
+	/** [name], an entry of this directory. */
+	fun child(name: Name): Where = child(name.bytes())
+
+	internal fun child(name: ByteArray): Where =
+		if (isRoot)
+			Where(bytes + name)
+		else
+			Where(bytes + SLASH + name)
+
+	override fun equals(other: Any?): Boolean =
+		other is Where && bytes.contentEquals(other.bytes)
+
+	override fun hashCode(): Int = bytes.contentHashCode()
 
 	override fun toString(): String = bytes.decodeToString()
 
 	companion object {
-		fun of(path: Path): Where = Where(path.toString().encodeToByteArray())
+		private const val SLASH = '/'.code.toByte()
+
+		val ROOT = Where(byteArrayOf(SLASH))
+
+		/** [path], made absolute and normal. */
+		fun of(path: Path): Where =
+			Where(
+				path
+					.toAbsolutePath()
+					.normalize()
+					.toString()
+					.encodeToByteArray(),
+			)
 
 		/** The key [path] has as a [Where], for comparing one with places a scan reaches. */
 		internal fun keyOf(path: Path): String = of(path).key
@@ -129,10 +186,16 @@ sealed interface Backend {
 									LinkOption.NOFOLLOW_LINKS,
 								)
 
+							val kind = FileKind.ofMode(attributes["mode"] as Int)
+
 							Listed(
 								Name.of(entry.fileName.toString()),
-								FileKind.ofMode(attributes["mode"] as Int),
+								kind,
 								attributes["ino"] as Long,
+								if (kind == FileKind.Symlink)
+									targetOf(entry)
+								else
+									null,
 							)
 						}
 					}
@@ -142,6 +205,14 @@ sealed interface Backend {
 				Listing.Unreadable(failed.toString())
 			}
 		}
+
+		/** What the link at [link] leads to: a stat that follows it; null where it leads nowhere. */
+		private fun targetOf(link: Path): FileKind? =
+			try {
+				FileKind.ofMode(Files.readAttributes(link, "unix:mode")["mode"] as Int)
+			} catch (nowhere: IOException) {
+				null
+			}
 
 		/** The JVM's `unix:dev`, which is glibc's encoding of a device number: its `gnu_dev_major` and `gnu_dev_minor`. */
 		private fun devOf(dev: Long): Dev {
@@ -155,7 +226,8 @@ sealed interface Backend {
 	/**
 	 * getdents64 through FFM: a directory opened relative to nothing, read a buffer at a time, each entry's kind and
 	 * inode taken from what the kernel wrote beside its name. Only an entry whose file system does not say what it is
-	 * (`DT_UNKNOWN`) is stat'ed. Names are the kernel's bytes, so a name that is not UTF-8 is read as it is.
+	 * (`DT_UNKNOWN`) is stat'ed, and a symbolic link, to learn what it leads to. Names are the kernel's bytes, so a name
+	 * that is not UTF-8 is read as it is.
 	 */
 	data object Getdents : Backend {
 		override val name: String get() = "getdents"
@@ -223,8 +295,13 @@ sealed interface Backend {
 
 				buffer.forEach(length) { ino, kind, name, nameLength ->
 					val known = kind ?: kindOf(fd, buffer.nameSegment(name, nameLength), scratch)
+					val target =
+						if (known == FileKind.Symlink)
+							targetOf(fd, buffer.nameSegment(name, nameLength), scratch)
+						else
+							null
 
-					read += Listed(Name.trusted(buffer.nameBytes(name, nameLength)), known, ino)
+					read += Listed(Name.trusted(buffer.nameBytes(name, nameLength)), known, ino, target)
 				}
 			}
 		}
@@ -244,6 +321,16 @@ sealed interface Backend {
 				is Sys.Failed -> null
 			}
 
+		/**
+		 * What the link [name] in [dir] leads to: one statx that follows it, without mounting an automount point it
+		 * leads to. Null where it leads nowhere.
+		 */
+		private fun targetOf(dir: Fd, name: MemorySegment, scratch: Scratch): FileKind? =
+			when (val stat = statx(dir, name, AtFlags.NO_AUTOMOUNT, scratch.stat)) {
+				is Sys.Ok -> stat.value.kind
+				is Sys.Failed -> null
+			}
+
 		private const val PATH_MAX = 4096
 	}
 
@@ -257,11 +344,12 @@ sealed interface Node {
 	val name: Name
 	val ino: Long
 
-	/** Anything that is not a directory. */
+	/** Anything that is not a directory; for a symbolic link, with what it leads to (null: nowhere). */
 	data class Leaf(
 		override val name: Name,
 		override val ino: Long,
 		val kind: FileKind?,
+		val target: FileKind? = null,
 	) : Node
 
 	data class Folder(
@@ -281,7 +369,10 @@ sealed interface Node {
 
 /** Why a directory was not read. */
 enum class Skip {
-	IgnoredName,
+	/** One the rules leave out by its name or its path. */
+	IgnoredDirectory,
+
+	/** The mount point of a file system the rules leave out. */
 	IgnoredFileSystem,
 }
 
@@ -343,6 +434,41 @@ data class Counts(
 	}
 }
 
+/**
+ * What a scan makes of each directory it reads: a value of the caller's, made from the leaves up, so that what a scan
+ * keeps of a tree is whatever its caller keeps and no more. The index keeps a directory's entries packed into arrays;
+ * [Scanner.scan] keeps a tree of [Node]s.
+ */
+interface Gathering<T> {
+	/** What [where] gathers, read as [listing]: each of its entries is [found], a folder read with what it gathered. */
+	fun read(where: Where, listing: Listing.Read, found: List<Found<T>>): T
+
+	/** What [where] gathers where it could not be read: one the user may not read, or one gone since it was listed. */
+	fun unreadable(where: Where, why: String): T
+}
+
+/** One entry of a directory read, as a [Gathering] is given it. */
+sealed interface Found<out T> {
+	val listed: Listed
+
+	/** Anything that is not a directory. */
+	data class Leaf(
+		override val listed: Listed,
+	) : Found<Nothing>
+
+	/** A directory, read, and what it gathered. */
+	data class Folder<out T>(
+		override val listed: Listed,
+		val gathered: T,
+	) : Found<T>
+
+	/** A directory the rules leave out, never read. */
+	data class Skipped(
+		override val listed: Listed,
+		val why: Skip,
+	) : Found<Nothing>
+}
+
 /** What reading one directory gave: its own device and inode with what it holds, or why it could not be read. */
 private sealed interface Done {
 	val contents: Contents
@@ -356,6 +482,38 @@ private sealed interface Done {
 	data class Unread(
 		override val contents: Contents,
 	) : Done
+}
+
+/** A tree of [Node]s, as [Scanner.scan] keeps it. */
+private object NodeTree : Gathering<Done> {
+	override fun read(where: Where, listing: Listing.Read, found: List<Found<Done>>): Done =
+		Done.Listed(
+			listing.dev,
+			listing.ino,
+			Contents.Read(
+				found.map {
+					nodeOf(it, listing.dev)
+				},
+			),
+		)
+
+	override fun unreadable(where: Where, why: String): Done =
+		Done.Unread(Contents.Unreadable(why))
+
+	private fun nodeOf(found: Found<Done>, dev: Dev): Node {
+		val (name, kind, ino, target) = found.listed
+
+		return when (found) {
+			is Found.Leaf -> Node.Leaf(name, ino, kind, target)
+			is Found.Skipped -> Node.Skipped(name, ino, found.why)
+			is Found.Folder ->
+				when (val done = found.gathered) {
+					is Done.Listed -> Node.Folder(name, ino, done.dev, done.contents)
+					// Gone, or not readable: still an entry, held as a folder that could not be read.
+					is Done.Unread -> Node.Folder(name, ino, dev, done.contents)
+				}
+		}
+	}
 }
 
 /** A directory tree as a scan read it, and how long the scan took. */
@@ -387,76 +545,68 @@ class Scanner(
 		require(threads > 0) { "a scan runs on at least one thread" }
 	}
 
+	/** The tree at [root], as a tree of [Node]s. */
 	fun scan(root: Path): Scanned {
+		val (done, elapsed) = measureTimedValue { gather(root, NodeTree) }
+
+		return when (done) {
+			is Done.Listed -> Scanned(root, done.dev, done.ino, done.contents, backend, elapsed)
+			is Done.Unread -> Scanned(root, null, null, done.contents, backend, elapsed)
+		}
+	}
+
+	/** What [gathering] makes of the tree at [root], a directory. */
+	fun <T> gather(root: Path, gathering: Gathering<T>): T =
+		gather(Where.of(root), gathering)
+
+	/** What [gathering] makes of the tree at [root], a directory. */
+	fun <T> gather(root: Where, gathering: Gathering<T>): T {
 		val pool = ForkJoinPool(threads)
 
 		try {
-			val (listing, elapsed) =
-				measureTimedValue {
-					pool.invoke(Read(Where.of(root.toAbsolutePath().normalize())))
-				}
-
-			return when (listing) {
-				is Done.Listed ->
-					Scanned(
-						root,
-						listing.dev,
-						listing.ino,
-						listing.contents,
-						backend,
-						elapsed,
-					)
-				is Done.Unread -> Scanned(root, null, null, listing.contents, backend, elapsed)
-			}
+			return pool.invoke(Read(root, gathering))
 		} finally {
 			pool.shutdown()
 		}
 	}
 
+	/** Why the directory at [where] is not read, if it is not. */
+	private fun skipOf(where: Where): Skip? =
+		when {
+			rules.ignores(where) -> Skip.IgnoredDirectory
+			where.key in ignoredMounts -> Skip.IgnoredFileSystem
+			else -> null
+		}
+
 	/** One directory read, and its subdirectories read as tasks of their own. */
-	private inner class Read(
+	private inner class Read<T>(
 		private val where: Where,
-	) : RecursiveTask<Done>() {
-		override fun compute(): Done =
+		private val gathering: Gathering<T>,
+	) : RecursiveTask<T>() {
+		override fun compute(): T =
 			when (val listing = backend.list(where)) {
-				is Listing.Unreadable -> Done.Unread(Contents.Unreadable(listing.why))
-				is Listing.Read ->
-					Done.Listed(
-						listing.dev,
-						listing.ino,
-						Contents.Read(nodes(listing)),
-					)
+				is Listing.Unreadable -> gathering.unreadable(where, listing.why)
+				is Listing.Read -> gathering.read(where, listing, found(listing))
 			}
 
-		private fun nodes(listing: Listing.Read): List<Node> {
-			val folders =
-				listing.entries
-					.filter { it.kind == FileKind.Directory && skip(it) == null }
-					.associateWith { Read(where.child(it.name)).fork() }
+		private fun found(listing: Listing.Read): List<Found<T>> {
+			val folders = listing.entries.filter { it.kind == FileKind.Directory }
+			val places = folders.associateWith { where.child(it.name) }
+			val skips = places.mapValues { (_, place) -> skipOf(place) }
+			val reads =
+				places
+					.filterKeys { skips[it] == null }
+					.mapValues { (_, place) -> Read(place, gathering).fork() }
 
 			return listing.entries.map { entry ->
-				val skip = skip(entry)
-				val task = folders[entry]
+				val skip = skips[entry]
 
 				when {
-					entry.kind != FileKind.Directory -> Node.Leaf(entry.name, entry.ino, entry.kind)
-					skip != null -> Node.Skipped(entry.name, entry.ino, skip)
-					else ->
-						when (val done = task!!.join()) {
-							is Done.Listed -> Node.Folder(entry.name, entry.ino, done.dev, done.contents)
-							// Gone, or not readable: still an entry, held as a folder that could not be read.
-							is Done.Unread -> Node.Folder(entry.name, entry.ino, listing.dev, done.contents)
-						}
+					entry.kind != FileKind.Directory -> Found.Leaf(entry)
+					skip != null -> Found.Skipped(entry, skip)
+					else -> Found.Folder(entry, reads.getValue(entry).join())
 				}
 			}
 		}
-
-		private fun skip(entry: Listed): Skip? =
-			when {
-				entry.kind != FileKind.Directory -> null
-				rules.ignores(entry.name) -> Skip.IgnoredName
-				where.child(entry.name).key in ignoredMounts -> Skip.IgnoredFileSystem
-				else -> null
-			}
 	}
 }

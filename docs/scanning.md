@@ -59,20 +59,22 @@ makes a directory named `n\xFFm` and finds it. The JVM backend reports such a di
    kind and name are where the kernel wrote them, so reading a directory allocates nothing per entry until the
    entry is kept.
 4. Only an entry whose file system does not report its kind (`DT_UNKNOWN`, which some network and FUSE file systems
-   give) is `statx`'d, relative to its directory.
+   give) is `statx`'d, relative to its directory; and a symbolic link, once, following it (and never mounting an
+   automount point it leads to), to learn whether it leads to a file, a folder, or nowhere.
 
-Symlinks are never followed. Directories the ignore rules name (`.git`, `node_modules`, `.cache`, ...; see
-`IgnoreRules.DEFAULT`) are held in the tree by name, marked skipped, and never read. File systems that are the
-kernel's views of itself (`proc`, `sysfs`, `cgroup2`, ...) are found from `/proc/self/mountinfo` and skipped where
-they are mounted.
+Symlinks are never followed into. Directories the ignore rules leave out (`.git`, `node_modules`, `.cache`,
+`/nix/store`, ...; see `IgnoreRules.DEFAULT`) are held in the tree by name, marked skipped, and never read. File
+systems that are the kernel's views of itself or memory (`proc`, `sysfs`, `tmpfs`, `cgroup2`, ...) are found from
+`/proc/self/mountinfo`, read once, and skipped where they are mounted.
+
+What a scan makes of each directory is its caller's (`Gathering`): `barion scan` keeps a tree of objects, for its
+counts, and the indexer packs each directory into arrays as it is read and lays the whole tree out as columns
+(docs/plan.md, "In memory, and on disk"), so indexing a disk never holds an object per entry.
 
 ## What is not done yet
 
 - **Per-file-system backends.** Reading every directory is the general case. Some file systems can give their
   whole namespace faster (btrfs's tree search ioctl, an NTFS volume's MFT); docs/plan.md lists these as later
   backends behind the same `Backend` interface.
-- **The tree's shape in memory.** A scan now builds a tree of objects, which is right for comparing backends and
-  for the tests. The index proper wants the tree as arrays (names in one byte array, parents and kinds in others),
-  which is also the shape of the file format; see docs/plan.md.
 - **Sizes and times.** The scan reads names, kinds and inodes, which is what the index needs to find things. What a
   listing shows (size, modified time) is read with `statx` when a directory is shown, not when it is indexed.

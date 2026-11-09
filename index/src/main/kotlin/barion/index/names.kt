@@ -14,6 +14,9 @@ class Name private constructor(
 	/** The name's bytes, copied, so a Name is never changed through what it gave out. */
 	fun bytes(): ByteArray = bytes.copyOf()
 
+	/** The name's bytes themselves, for this module, which never changes them: what packing a directory copies from. */
+	internal val raw: ByteArray get() = bytes
+
 	val isHidden: Boolean get() = bytes.isNotEmpty() && bytes[0] == '.'.code.toByte()
 
 	override fun equals(other: Any?): Boolean =

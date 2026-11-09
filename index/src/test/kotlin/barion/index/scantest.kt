@@ -40,7 +40,7 @@ class ScanTest {
 					val path = "$at/${node.name}"
 
 					when (node) {
-						is Node.Leaf -> listOf("$path ${node.kind} ${node.ino}")
+						is Node.Leaf -> listOf("$path ${node.kind} ${node.ino} ${node.target}")
 						is Node.Skipped -> listOf("$path skipped ${node.why}")
 						is Node.Folder ->
 							listOf("$path dir ${node.ino} ${node.dev}") +
@@ -79,8 +79,8 @@ class ScanTest {
 				it.name.toString()
 			}
 
-		assertEquals(Skip.IgnoredName, (held[".git"] as Node.Skipped).why)
-		assertEquals(Skip.IgnoredName, (held["node_modules"] as Node.Skipped).why)
+		assertEquals(Skip.IgnoredDirectory, (held[".git"] as Node.Skipped).why)
+		assertEquals(Skip.IgnoredDirectory, (held["node_modules"] as Node.Skipped).why)
 		assertInstanceOf(Node.Folder::class.java, held["src"])
 	}
 

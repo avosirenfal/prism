@@ -60,3 +60,10 @@ val compileProbes =
 sourceSets.main {
 	resources.srcDir(compileProbes)
 }
+
+tasks.test {
+	// `-Pindex.benchmark=N` runs the search benchmark over a made-up index of N entries, which is otherwise skipped.
+	providers.gradleProperty("index.benchmark").orNull?.let {
+		systemProperty("index.benchmark", it)
+	}
+}
