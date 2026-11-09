@@ -100,14 +100,14 @@ class Block internal constructor(
 	internal fun deviceOf(entry: Int): Device = devices[device[entry].toInt() and 0xFFFF]
 
 	/**
-	 * The block's folders by device and inode: how a change the watcher saw, which names the folder it happened in by
-	 * those two numbers, finds the folder. Made the first time it is asked for. Usually one folder each; a folder bind
-	 * mounted elsewhere too is two.
+	 * The block's folders by device (the kernel's, [Device.kernel]) and inode: how a change the watcher saw, which names
+	 * the folder it happened in by those two numbers, finds the folder. Made the first time it is asked for. Usually
+	 * one folder each; a folder bind mounted elsewhere too is two.
 	 */
 	internal val folders: Map<FileId, IntArray> by lazy {
 		(0 until size)
 			.filter { kindOf(it) == Kind.Directory }
-			.groupBy { FileId(deviceOf(it).dev, inodes[it]) }
+			.groupBy { FileId(deviceOf(it).kernel, inodes[it]) }
 			.mapValues { (_, entries) -> entries.toIntArray() }
 	}
 

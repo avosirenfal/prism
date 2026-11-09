@@ -37,7 +37,7 @@ byte, the low bits first, the top bit set on every byte but the last), and signe
 | offset | size | what |
 |---|---|---|
 | 0 | 8 | `BARIONIX` in ASCII |
-| 8 | 2 | the version: 2 (version 1 was compressed with DEFLATE and had no inodes; a file of another version is not read, and the index is made again) |
+| 8 | 2 | the version: 3 (version 2 had each device's number as a stat gives it alone; version 1 was compressed with DEFLATE and had no inodes; a file of another version is not read, and the index is made again) |
 | 10 | 6 | zeros |
 
 ### A frame: 16 bytes, then the stored payload
@@ -71,7 +71,7 @@ values compresses far better than entries one after another:
 | what | how |
 |---|---|
 | the root's path | bytes |
-| the devices | a count, then each: its major and minor numbers, and its file system type as bytes (none where unknown) |
+| the devices | a count, then each: its major and minor numbers as a stat gives them, its major and minor numbers as the kernel has them (as mountinfo lists them, and as the watcher names them; on btrfs, not a subvolume's own), and its file system type as bytes (none where unknown) |
 | the number of entries | a count |
 | the depths | for each entry after the first, its depth less the depth of the entry before it, signed |
 | the names' lengths | for each entry, a count |

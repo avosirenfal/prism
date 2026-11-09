@@ -106,6 +106,51 @@ fun Index.search(query: Query, context: SearchContext = SearchContext()): Search
 			)
 	}
 
+/**
+ * The folders this query looks only under: where each of its path terms (and each `dir:` at a path) that starts at
+ * the root, the home folder or an alias leads, up to its first glob or `**`: `/nix/store/`, and then a glob, looks
+ * under `/nix/store`, and `~/.cache/thumbnails/` under the home folder's `.cache/thumbnails`. A negated term says where not to
+ * look, so it is not counted. What a live index reads for a query alone where these are places the rules leave out.
+ */
+fun Query.places(context: SearchContext = SearchContext()): List<Where> =
+	terms
+		.filterNot { it.negated }
+		.flatMap { term ->
+			when (val test = term.test) {
+				is Test.InPath -> placesOf(test.pattern.base, test.pattern.segments, context)
+				is Test.Dir ->
+					(test.target as? DirTarget.Located)
+						?.let {
+							placesOf(it.base, it.segments, context)
+						}.orEmpty()
+				else -> emptyList()
+			}
+		}.distinct()
+
+private fun placesOf(
+	base: PathBase,
+	segments: List<Segment>,
+	context: SearchContext,
+): List<Where> {
+	val starts =
+		when (base) {
+			PathBase.Relative -> return emptyList()
+			PathBase.Root -> listOf(Where.ROOT)
+			PathBase.Home -> listOf(Where.of(context.home))
+			is PathBase.Alias -> context.aliases[base.name].orEmpty().map(Where::of)
+		}
+
+	val named =
+		segments
+			.asSequence()
+			.map { (it as? Segment.Named)?.pattern as? TextPattern.Literal }
+			.takeWhile { it != null && it.text != "." && it.text != ".." }
+			.map { it!!.text.encodeToByteArray() }
+			.toList()
+
+	return starts.map { start -> named.fold(start, Where::child) }
+}
+
 /** What planning a query gave. */
 private sealed interface Planning {
 	data class Ready(

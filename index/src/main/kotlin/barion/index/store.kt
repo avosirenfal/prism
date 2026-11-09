@@ -3,18 +3,20 @@ package barion.index
 import java.nio.file.Path
 
 /**
- * An index and its file, kept in step: what a daemon holds. Changes are made to the index in memory at once, and kept
- * until [flush] appends them to the file as one frame; once the changes appended since the last snapshot are a good
- * part of it, or the index in memory has drifted far from compact, the index is compacted and the file written anew.
+ * An index and its file, kept in step. Changes are made to the index in memory at once, and kept until [flush] appends
+ * them to the file as one frame; once the changes appended since the last snapshot are a good part of it, or the
+ * index in memory has drifted far from compact, the index is compacted and the file written anew. A store without a
+ * file ([inMemory]) keeps its index in memory only, and its flushes write nothing.
  *
- * Opening a store reads its file, or, where there is none (or one that cannot be read), indexes [roots] and writes
- * one. The one thing in the index that changes is which [Index] a store holds, and what it has not yet written; the
+ * Opening a store reads its file, or, where there is none (or one that cannot be read), starts from an empty index;
+ * the first flush writes the file. What it holds is what was made in it: reading the disk is the caller's
+ * ([Indexer]). The one thing here that changes is which [Index] a store holds, and what it has not yet written; the
  * index itself never changes, so a search runs on the index it was given while changes go on.
  */
 class IndexStore private constructor(
-	val file: Path,
+	val file: Path?,
 	index: Index,
-	/** How much of the file is good: what the next frame is written after. */
+	/** How much of the file is good: what the next frame is written after; 0 for a file not written yet. */
 	private var length: Long,
 	/** How much of the file is changes after its snapshot. */
 	private var changes: Long,
@@ -28,13 +30,16 @@ class IndexStore private constructor(
 			val torn: Boolean,
 		) : Origin
 
-		/** By indexing, there being no file. */
-		data object Built : Origin
+		/** Empty, there being no file yet. */
+		data object Missing : Origin
 
-		/** By indexing, the file being one this cannot read. */
-		data class Rebuilt(
+		/** Empty, the file being one this cannot read, which the first flush writes over. */
+		data class Unreadable(
 			val why: String,
 		) : Origin
+
+		/** Without a file. */
+		data object Memory : Origin
 	}
 
 	/** The index as it is now, every change made. */
@@ -52,9 +57,17 @@ class IndexStore private constructor(
 		pending = pending + changes
 	}
 
-	/** What was made since the last flush, written to the file; and the file compacted, where it is time. */
+	/**
+	 * What was made since the last flush, written to the file: appended, or, where there is no file yet, the whole
+	 * index written as one; and the file compacted, where it is time.
+	 */
 	@Synchronized
 	fun flush() {
+		val file = file ?: return run { pending = emptyList() }
+
+		if (length == 0L)
+			return compact()
+
 		if (pending.isNotEmpty()) {
 			val appended = IndexFile.append(file, length, pending)
 
@@ -70,7 +83,7 @@ class IndexStore private constructor(
 	@Synchronized
 	fun compact() {
 		index = index.compacted()
-		length = IndexFile.write(file, index)
+		file?.let { length = IndexFile.write(it, index) }
 		changes = 0
 		pending = emptyList()
 	}
@@ -83,25 +96,18 @@ class IndexStore private constructor(
 		changes * 4 > length - changes || index.loose * 8L > index.size
 
 	companion object {
-		/**
-		 * The store whose file is [file]: read, or where there is none, [roots] indexed by [indexer] (each in turn,
-		 * however long that takes) and written.
-		 */
-		fun open(file: Path, roots: List<Path>, indexer: Indexer = Indexer()): IndexStore {
-			fun built(origin: Origin): IndexStore {
-				val index =
-					roots
-						.fold(
-							Index.EMPTY,
-						) { index, root -> index.with(indexer.index(root)) }
-						.compacted()
-
-				return IndexStore(file, index, IndexFile.write(file, index), 0, origin)
-			}
-
-			return when (val read = IndexFile.read(file)) {
-				IndexRead.Missing -> built(Origin.Built)
-				is IndexRead.Unreadable -> built(Origin.Rebuilt(read.why))
+		/** The store whose file is [file]: what the file holds, or an empty index where there is no file it can read. */
+		fun open(file: Path): IndexStore =
+			when (val read = IndexFile.read(file)) {
+				IndexRead.Missing -> IndexStore(file, Index.EMPTY, 0, 0, Origin.Missing)
+				is IndexRead.Unreadable ->
+					IndexStore(
+						file,
+						Index.EMPTY,
+						0,
+						0,
+						Origin.Unreadable(read.why),
+					)
 				is IndexRead.Read ->
 					IndexStore(
 						file,
@@ -111,6 +117,9 @@ class IndexStore private constructor(
 						Origin.Read(read.torn),
 					)
 			}
-		}
+
+		/** A store of [index] in memory alone, never written. */
+		fun inMemory(index: Index = Index.EMPTY): IndexStore =
+			IndexStore(null, index, 0, 0, Origin.Memory)
 	}
 }

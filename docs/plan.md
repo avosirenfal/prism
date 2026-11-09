@@ -116,23 +116,30 @@ once, and a frame read twice does no harm.
 
 ### Keeping it current
 
-The watcher (`probe/fswatch.kt`) is an eBPF program with a hook on the exit of each VFS function that adds an entry
-to a directory or takes one away: `vfs_mkdir`, `vfs_rmdir`, `vfs_unlink`, `vfs_create`, `vfs_symlink`, `vfs_link`,
-`vfs_mknod`, `vfs_rename`, and `do_filp_open` for files made by `open(O_CREAT)`. Hooking the VFS rather than the
-system calls means every way of making a change is seen (io_uring's, nfsd's, overlayfs's), and hooking the exit means
-only a change the kernel made is sent. Each change goes to the host through a ring buffer as the device, the inode of
-the directory it is in, the entry's name and inode, and what happened.
+The watcher (`probe/fswatch.kt`, run by the `watcher` module) is an eBPF program with a hook on the exit of each VFS
+function that adds an entry to a directory or takes one away: `vfs_mkdir`, `vfs_rmdir`, `vfs_unlink`, `vfs_create`,
+`vfs_symlink`, `vfs_link`, `vfs_mknod`, `vfs_rename`, and `do_filp_open` for files made by `open(O_CREAT)`. Hooking the
+VFS rather than the system calls means every way of making a change is seen (io_uring's, nfsd's, overlayfs's), and
+hooking the exit means only a change the kernel made is sent. Each change goes to the host through a ring buffer as
+the device, the inode of the directory it is in, the entry's name and inode, and what happened.
 
-The host keeps its directories by device and inode, so it finds the directory a change is in by those two numbers.
-It then applies the change by **reconciling** rather than trusting it: it stats that one name in that one directory
-and sets the index's entry to what is there now (made, changed, or absent). That is idempotent by construction, and
-makes the order of changes and their duplicates harmless:
+The host finds the folder a change is in by those two numbers (the index keeps every entry's inode, and every
+device's number as the kernel has it), and applies the change by **reading the disk** rather than trusting it: the
+entry named is read again, and a folder a move left, which the change does not name the entry of, is reconciled one
+level deep. That is idempotent by construction, and makes the order of changes and their duplicates harmless:
 
-- a change in a directory the index does not hold (one it ignores, or one it has not reached) is dropped;
-- a move is the entry absent from one directory and present in another, found by its inode;
-- a swap (`RENAME_EXCHANGE`) is both directories read again;
-- when the ring was full and changes were lost (the watcher counts them), the index cannot know which, and reads
-  again the directories that changed most recently, then everything, in the background.
+- a change in a directory the index does not hold (one it ignores, or one it has not reached) is dropped, but kept
+  beside any scan in flight and made again once it lands;
+- a move is the entry absent from one directory and present in another;
+- a swap (`RENAME_EXCHANGE`) is both directories reconciled;
+- when the ring was full and changes were lost (the watcher counts them), the index cannot know which, and reads its
+  roots again in the background.
+
+The daemon (the `daemon` module) runs the two together: the watcher starts first, before the index is read or built,
+so from the moment the index begins to be read every change is seen, and a change seen while a scan was reading is
+made again once the scan's result is made. docs/daemon.md says it all, with an example. The index itself needs no
+watcher, and can be told to read places again (`LiveIndex.rescan`); a search that names, by an absolute path, a place
+the rules leave out has it read for it alone, in memory, never written.
 
 The watcher's ignore rules are applied by the host today: a change under `.git` reaches the host and is dropped there.
 The DSL will gain a bounded loop so that the watcher can walk a few parents up from a change and drop it in the kernel,

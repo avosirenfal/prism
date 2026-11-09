@@ -24,6 +24,9 @@ a device, so a test that ran and a test that could not run are never confused.
 | the search language's text read: every example to the DSL's query, every prefix of one with nothing invalid, recovery, marks, and random text (`ParserTest`) | the JDK | never |
 | the index as changes are made to it, and its rules (`IndexTest`) | Linux | never |
 | the index's file and the store that keeps it (`FileTest`) | Linux | never |
+| a folder reconciled, devices by mount, the rules matching a place, a query's places (`ReconcileTest`) | Linux | never |
+| the live index: opening, reading again, changes, changes during a scan made again, places read for searches alone (`LiveIndexTest`) | Linux | never |
+| the daemon, with a feed of the test's own, and once with the kernel's watcher, which runs or says why not (`DaemonTest`) | Linux | never (the kernel's watcher is refused in the development container, and the test sees that said) |
 | search over an index the size of a desktop (`SearchBenchmark`) | `-Pindex.benchmark=N` | unless asked for |
 | D-Bus's wire format and types (`WireTest`, `SerialTest`) | the JDK | never |
 | D-Bus, live (`ConnectionTest`, `AppearanceTest`, `ThemeTest`) | dbus-daemon, which each test starts on a socket of its own | without dbus-daemon |

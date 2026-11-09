@@ -81,6 +81,22 @@ data class IgnoreRules(
 		return endings.any(key::endsWith)
 	}
 
+	/**
+	 * The rules that leave out the directory at [where] itself, or a directory above it: what would have to be set
+	 * aside for it to be read.
+	 */
+	fun matching(where: Where): Set<Ignored> =
+		generateSequence(where) { it.parent }
+			.filterNot { it.isRoot }
+			.flatMap { place ->
+				directories.filter { rule ->
+					when (rule) {
+						is Ignored.At -> Where.keyOf(rule.path) == place.key
+						is Ignored.Anywhere -> place.key.endsWith(rule.ending.joinToString("") { "/" + keyOf(it) })
+					}
+				}
+			}.toSet()
+
 	/** These rules with [more] directories left out as well. */
 	fun alsoIgnoring(more: Collection<Ignored>): IgnoreRules = copy(directories = directories + more)
 

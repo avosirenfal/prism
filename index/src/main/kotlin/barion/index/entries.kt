@@ -55,9 +55,15 @@ data class FileId(
 	val ino: Long,
 )
 
-/** A file system entries are on: its device, and its type as `/proc/self/mountinfo` says (null where it did not say). */
+/**
+ * A file system entries are on: the device a stat of them gives ([dev]), the device of the file system's superblock
+ * ([kernel]: what mountinfo lists, and what the watcher names a change by), and the file system's type as mountinfo
+ * says (null where it did not say). The two devices are one, but on btrfs, where each subvolume is a device of its own
+ * to a stat and the whole file system's one device to the kernel.
+ */
 data class Device(
 	val dev: Dev,
+	val kernel: Dev,
 	val type: String?,
 )
 

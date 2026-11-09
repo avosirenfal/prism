@@ -191,36 +191,70 @@ class FileTest {
 	}
 
 	@Test
-	fun aStoreBuildsWhereThereIsNoFileAndReadsWhereThereIsOne() {
+	fun aStoreStartsEmptyWhereThereIsNoFileAndReadsWhereThereIsOne() {
 		made("docs/a.txt", "docs/b.txt")
 
-		val built = IndexStore.open(file, listOf(root), indexer)
+		val store = IndexStore.open(file)
 
-		assertEquals(IndexStore.Origin.Built, built.origin)
+		assertEquals(IndexStore.Origin.Missing, store.origin)
+		assertEquals(0, store.index.size)
+		assertFalse(file.exists())
+
+		// What is made is written by the first flush, the whole index at once.
+		store.make(listOf(indexer.index(root)))
+		store.flush()
 		assertTrue(file.exists())
 
 		made("docs/c.txt")
-		built.make(listOfNotNull(indexer.reread(where("docs/c.txt"))))
-		built.flush()
+		store.make(listOfNotNull(indexer.reread(where("docs/c.txt"))))
+		store.flush()
 
-		val reopened = IndexStore.open(file, listOf(root), indexer)
+		val reopened = IndexStore.open(file)
 
 		assertEquals(IndexStore.Origin.Read(torn = false), reopened.origin)
-		assertEquals(built.index.shape(), reopened.index.shape())
+		assertEquals(store.index.shape(), reopened.index.shape())
 
-		// A file of something else is replaced by an index made anew.
+		// A file of something else is said to be, and written over by the next flush.
 		file.writeText("something else")
-		assertInstanceOf(
-			IndexStore.Origin.Rebuilt::class.java,
-			IndexStore.open(file, listOf(root), indexer).origin,
+
+		val over = IndexStore.open(file)
+
+		assertInstanceOf(IndexStore.Origin.Unreadable::class.java, over.origin)
+		over.make(listOf(indexer.index(root)))
+		over.flush()
+		assertEquals(store.index.shape(), IndexStore.open(file).index.shape())
+	}
+
+	@Test
+	fun aStoreInMemoryWritesNothing() {
+		made("a.txt")
+
+		val store = IndexStore.inMemory()
+
+		store.make(listOf(indexer.index(root)))
+		store.flush()
+		store.compact()
+		assertEquals(IndexStore.Origin.Memory, store.origin)
+		assertEquals(
+			listOf(Where.of(root.resolve("a.txt"))),
+			store.index
+				.entries()
+				.map {
+					it.where
+				}.drop(1),
 		)
+		assertEquals(emptyList<Path>(), Files.list(state).use { it.toList() })
 	}
 
 	@Test
 	fun aStoreCompactsOnceChangesPileUp() {
 		made(*(1..50).map { "docs/file$it.txt" }.toTypedArray())
 
-		val store = IndexStore.open(file, listOf(root), indexer)
+		val store =
+			IndexStore.open(file).also {
+				it.make(listOf(indexer.index(root)))
+				it.flush()
+			}
 		val compact = file.fileSize()
 
 		// Each change is small next to the snapshot; enough of them, and the file is written anew, as one snapshot.
@@ -238,12 +272,9 @@ class FileTest {
 		assertEquals(0, store.index.loose)
 		assertTrue(file.fileSize() < compact * 3)
 		assertEquals(Index.EMPTY.with(indexer.index(root)).shape(), read.index.shape())
-		assertFalse(Files.exists(state.resolve("index.barion.new")))
 		// Nothing was left half written beside it, and the store reads as it holds.
-		assertEquals(
-			store.index.shape(),
-			IndexStore.open(file, listOf(root), indexer).index.shape(),
-		)
+		assertFalse(Files.exists(state.resolve("index.barion.new")))
+		assertEquals(store.index.shape(), IndexStore.open(file).index.shape())
 	}
 
 	@Test

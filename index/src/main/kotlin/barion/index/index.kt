@@ -176,9 +176,9 @@ class Index private constructor(
 		}
 
 	/**
-	 * Where the folders held as [id] are: the folder a change the watcher saw happened in, which it names by device and
-	 * inode. Usually one; none where the index does not hold it (one the rules leave out); two for a folder bind
-	 * mounted in two places.
+	 * Where the folders held as [id] are: the folder a change the watcher saw happened in, which it names by the
+	 * kernel's device ([Device.kernel]) and inode. Usually one; none where the index does not hold it (one the rules
+	 * leave out, or one not read yet); two for a folder bind mounted in two places.
 	 */
 	fun foldersAt(id: FileId): List<Where> =
 		placed.flatMap { placed ->
@@ -186,6 +186,26 @@ class Index private constructor(
 				.filter { it !in placed.hidden }
 				.map(placed.block::whereOf)
 		}
+
+	/**
+	 * What the folder at [where] holds, as the index has it: its children, in a block or grafted beside it; null where
+	 * the index does not hold a folder there.
+	 */
+	fun childrenOf(where: Where): List<Entry>? {
+		val (at, entry) = locate(where) ?: return null
+		val (block, hidden) = placed[at].let { it.block to it.hidden }
+
+		if (block.kindOf(entry) != Kind.Directory)
+			return null
+
+		val grafted =
+			placed
+				.filter {
+					it.block.root.parent == where && 0 !in it.hidden
+				}.map { it.block.entryOf(0) }
+
+		return block.childrenOf(entry, hidden).map(block::entryOf) + grafted
+	}
 
 	/** When the picker last gave [where], if it did. */
 	fun pickedAt(where: Where): Instant? = picked[where]

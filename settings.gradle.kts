@@ -44,6 +44,8 @@ include(
 	":portal",
 	":probe",
 	":index",
+	":watcher",
+	":daemon",
 	":picker",
 	":app",
 	":ktlint-rules",

@@ -53,8 +53,11 @@ object IndexFile {
 	/** "BARIONIX": the first eight bytes of every index file. */
 	private val MAGIC = "BARIONIX".encodeToByteArray()
 
-	/** 2: frames compressed with zstd, and every entry's inode. (1 had DEFLATE, and no inodes.) */
-	private const val VERSION: Short = 2
+	/**
+	 * 3: every device with the kernel's number for it as well as a stat's. (2 had a stat's alone; 1 was compressed with
+	 * DEFLATE, and had no inodes.)
+	 */
+	private const val VERSION: Short = 3
 
 	/** How hard a snapshot is compressed: written now and then, read at every start, so worth more time than a change. */
 	private const val SNAPSHOT_LEVEL = 9
@@ -319,6 +322,8 @@ object IndexFile {
 		for (device in block.devices) {
 			out.count(device.dev.major)
 			out.count(device.dev.minor)
+			out.count(device.kernel.major)
+			out.count(device.kernel.minor)
 			out.bytes(device.type?.encodeToByteArray())
 		}
 		out.count(block.size)
@@ -348,10 +353,16 @@ object IndexFile {
 
 	private fun blockOf(read: In): Block {
 		val root = whereOf(read.bytes())
+
 		val devices =
 			List(read.count()) {
-				Device(Dev(read.count(), read.count()), read.bytes()?.decodeToString())
+				Device(
+					Dev(read.count(), read.count()),
+					Dev(read.count(), read.count()),
+					read.bytes()?.decodeToString(),
+				)
 			}
+
 		val size = read.count()
 		val parent = IntArray(size)
 		val open = IntBuilder()

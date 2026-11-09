@@ -15,6 +15,7 @@ dependencies {
 	implementation(project(":cli"))
 	implementation(project(":picker"))
 	implementation(project(":index"))
+	implementation(project(":daemon"))
 	implementation(project(":portal"))
 
 	testImplementation(testFixtures(project(":dbus")))

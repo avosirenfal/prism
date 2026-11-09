@@ -29,6 +29,7 @@ for and how it is meant to work; docs/inprogress.md says where it stands.
 |---|---|
 | `pick [FOLDER]` | the picker in a window over a folder (your home folder by default), in the desktop's light or dark palette as it changes; prints each path chosen on a line of its own, or nothing and exit status 1 when cancelled; `--save NAME`, `--multiple`, `--folder`, `--theme auto\|light\|dark` |
 | `snapshot [FOLDER] --out FILE` | the picker drawn headless into a PNG |
+| `daemon [PATH...]` | the index kept current: the watcher started first (or why it could not be), then the index read or built, every change made as it is seen; `--find QUERY` searches once the roots are read, reading places the rules leave out for the search alone; `--in-memory`, `--for N` |
 | `index [PATH...]` | folders indexed into the index's file (`/` by default), or the file read where there is one, with what it holds and how long that took; `--find QUERY` searches it, in the search language, with what is wrong with the query underlined and how long each search took; `--fresh` indexes anew |
 | `scan [PATH]` | a tree read by each scanner backend, several times, with what each found and how fast |
 | `probe c` | the watcher's C, as emitted from its Kotlin declaration |
@@ -46,7 +47,9 @@ for and how it is meant to work; docs/inprogress.md says where it stands.
 | `ebpf` | nothing | the eBPF DSL: programs in typed Kotlin, emitted as C for clang's BPF target, checked against the kernel's BTF |
 | `ebpf-loader` | ebpf, linux | a compiled program loaded and attached through libbpf, its ring buffer read in place |
 | `probe` | ebpf | the watcher: hooks on the exits of the VFS functions that change a directory |
-| `index` | probe, ebpf-loader, linux | the scanner and its backends, the ignore rules, the index as columns and its compressed file, queries (read from text by parser combinators that recover from anything, or built with a Kotlin DSL) and the search that runs them, the watcher as the index runs it |
+| `index` | linux, zstd | the scanner and its backends, the ignore rules, the index as columns and its compressed file, queries (read from text by parser combinators that recover from anything, or built with a Kotlin DSL) and the search that runs them; nothing of eBPF |
+| `watcher` | probe, ebpf-loader, linux | the watcher: the probe's program compiled into the module, loaded, attached, and its ring read on a thread of its own |
+| `daemon` | index, watcher | the index kept current: a live index that reads places again when told, makes the changes it is told of (again, once a scan they happened during lands), and reads places the rules leave out for searches alone, in memory; and the daemon, which starts the watcher before the index is read |
 | `dbus` | kotlinx.serialization, coroutines | D-Bus: the bus's socket, its handshake and `Hello` as a connection opens; messages as data; bodies by kotlinx.serialization, their signatures worked out from the Kotlin types; calls, signals as flows, served methods |
 | `portal` | dbus | the desktop portal as barion speaks to it: the appearance settings (the colour scheme, and its changes) |
 | `picker` | Compose, coroutines | the picker: an immutable state, a pure reducer from one state to the next, a session that reads folders for it, and a view made of controls of its own, worked by the pointer and the keyboard alike; a filter menu of kinds, a gallery with thumbnails, zoom, and context menus (menus as data, one component to draw them) that rename, trash and make folders, with undo |
@@ -100,6 +103,7 @@ A clang other than the one on the PATH is named with `-Pbarion.clang=PATH` or `$
 | docs/ebpf.md | the eBPF DSL: what its types refuse, what it reports, what it checks against the kernel, the C it emits |
 | docs/scanning.md | how a directory is read, and the measurement that chose getdents64 over the JVM |
 | docs/search.md | the search language, by example; how its text is read, however unfinished, into a tree, problems and a query; queries in Kotlin; how a search runs over the index's columns, and how fast |
+| docs/daemon.md | keeping the index current: the watcher, what a change becomes, the live index and its scans, places read for searches alone, and why the watcher starting first means nothing is missed |
 | docs/format.md | the index's file, byte by byte: a compressed snapshot, then changes appended, compacted by rename |
 | docs/dbus.md | D-Bus from the ground up, and how the library maps it onto Kotlin types, calls, flows and served methods |
 | docs/testing.md | what the tests need, where they skip, and how to run the watcher on a real machine |

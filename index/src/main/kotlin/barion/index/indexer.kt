@@ -32,33 +32,98 @@ class Indexer(
 	private val ignoredKeys: Set<String> = ignoredMounts.map(Where::keyOf).toSet()
 	private val scanner = Scanner(backend, rules, threads, ignoredMounts)
 
-	/** Each device's file system type; where two are mounted from one device, the later, as mountinfo lists them. */
-	private val types: Map<Dev, String> =
-		mounts.associate {
-			Dev(it.major, it.minor) to
-				it.type
-		}
+	/** The mounts, by the bytes of where they are; where two are mounted at one place, the later, which is the one seen. */
+	private val mountsAt: Map<String, Mount> = mounts.associateBy { Where.keyOf(it.at) }
 
 	/** [path] indexed: a root of the index, held as it is now. [Change.Absent] where nothing is there. */
-	fun index(path: Path): Change {
-		val where = Where.of(path)
+	fun index(path: Path): Change = index(Where.of(path))
 
-		return treeAt(where)?.let(Change::Indexed) ?: Change.Absent(where)
-	}
+	/** The place at [where] indexed: a root of the index, held as it is now. [Change.Absent] where nothing is there. */
+	fun index(where: Where): Change =
+		treeAt(where)?.let(Change::Indexed) ?: Change.Absent(where)
+
+	/** Whether the rules leave out the place at [where], or a folder above it. */
+	fun leavesOut(where: Where): Boolean =
+		generateSequence(where) { it.parent }.any(::leftOut)
 
 	/**
 	 * What is at [where] now, with everything under it: what the index makes of a change the watcher saw, or of a
 	 * folder the picker shows. [Change.Absent] where nothing is there. Null where the rules leave it out: the index
 	 * holds nothing there to change, and saying it is absent would take away a root indexed under it on purpose.
 	 */
-	fun reread(where: Where): Change? {
-		val leftOut = !where.isRoot && (rules.ignores(where) || where.key in ignoredKeys)
-
-		return if (leftOut)
+	fun reread(where: Where): Change? =
+		if (leftOut(where))
 			null
 		else
-			treeAt(where)?.let(Change::Present)
-				?: Change.Absent(where)
+			treeAt(where)?.let(Change::Present) ?: Change.Absent(where)
+
+	/** Whether the rules leave out the directory at [where]: by its name or path, or as the mount point of one. */
+	private fun leftOut(where: Where): Boolean =
+		!where.isRoot && (rules.ignores(where) || where.key in ignoredKeys)
+
+	/**
+	 * What makes the folder at [where] agree with the disk, one level deep: its entries listed once and compared with
+	 * what [index] holds of it, by name, kind and inode. An entry gone is [Change.Absent]; one new, or changed (another
+	 * kind, or another inode, as a rename over it or a swap leaves it), is read again with everything under it; an
+	 * entry as it was is left as it is.
+	 *
+	 * What a change the watcher saw becomes where it does not say which entry changed (a move says only where the
+	 * entry went, not what it was called before). A folder the index does not hold is read whole; one gone is absent;
+	 * one the rules leave out is not read.
+	 *
+	 * One level is all it reads, so what it cannot see is an entry taken away and made again under the same name, of
+	 * the same kind, which a file system gave the same inode (ext4 reuses one freed a moment before): that looks
+	 * unchanged. The watcher sends such changes by name (the removal, and the making), and a change by name reads the
+	 * entry whole; what a lost change might have hidden is read again whole too, never reconciled.
+	 */
+	fun reconcile(where: Where, index: Index): List<Change> {
+		if (leftOut(where))
+			return emptyList()
+
+		val held = index.childrenOf(where) ?: return listOfNotNull(reread(where))
+		val folder = index.find(where) ?: return listOfNotNull(reread(where))
+
+		val listing =
+			when (val listed = backend.list(where)) {
+				is Listing.Read -> listed
+				is Listing.Unreadable -> return if (statOf(where, follow = false) ==
+					null
+				)
+					listOf(Change.Absent(where))
+				else
+					emptyList()
+			}
+
+		val onDisk =
+			listing.entries
+				.filter { Kind.of(it.kind, it.target) != null }
+				.filterNot { it.kind == FileKind.Directory && leftOut(where.child(it.name)) }
+				.associateBy { String(it.name.raw, Charsets.ISO_8859_1) }
+		val heldByName = held.associateBy { String(it.where.name, Charsets.ISO_8859_1) }
+
+		val gone =
+			heldByName.filterKeys { it !in onDisk }.values.map {
+				Change.Absent(
+					it.where,
+				)
+			}
+
+		val changed =
+			onDisk.mapNotNull { (name, listed) ->
+				val before = heldByName[name]
+				val kind = Kind.of(listed.kind, listed.target)
+				// A mount point's inode is the mounted root's, which the listing of the folder above it does not give.
+				val mounted = kind == Kind.Directory && before?.device?.dev != folder.device.dev
+				val same =
+					before != null && before.kind == kind && (before.inode == listed.ino || mounted)
+
+				if (same)
+					null
+				else
+					reread(where.child(listed.name))
+			}
+
+		return gone + changed
 	}
 
 	private fun treeAt(where: Where): Block? {
@@ -73,29 +138,48 @@ class Indexer(
 		val builder = BlockBuilder(where)
 
 		if (kind != Kind.Directory) {
-			builder.add(-1, where.name, kind, deviceOf(own.dev, null), own.ino)
+			builder.add(-1, where.name, kind, deviceOf(own.dev, where, null), own.ino)
 
 			return builder.built()
 		}
 
 		val packed = scanner.gather(where, Packing)
-		val device = deviceOf(packed.dev ?: own.dev, null)
+		val device = deviceOf(packed.dev ?: own.dev, where, null)
+		val root = builder.add(-1, where.name, kind, device, packed.ino ?: own.ino)
 
-		lay(
-			builder,
-			builder.add(-1, where.name, kind, device, packed.ino ?: own.ino),
-			packed,
-			device,
-		)
+		lay(builder, root, where, packed, device)
 
 		return builder.built()
 	}
 
-	/** [packed]'s entries added under [folder], on [device] (or their own, for folders on one of their own), in preorder. */
-	private fun lay(builder: BlockBuilder, folder: Int, packed: Packed, device: Device) {
+	/**
+	 * [packed]'s entries added under [folder], which is at [where], on [device] (or their own, for folders on one of
+	 * their own), in preorder.
+	 */
+	private fun lay(
+		builder: BlockBuilder,
+		folder: Int,
+		where: Where,
+		packed: Packed,
+		device: Device,
+	) {
 		for (entry in 0 until packed.size) {
 			val inside = packed.inside[entry]
-			val on = inside?.dev?.let { deviceOf(it, device) } ?: device
+
+			val place =
+				inside?.let {
+					where.child(
+						packed.names.copyOfRange(
+							packed.nameAt[entry],
+							packed.nameAt[
+								entry +
+									1,
+							],
+						),
+					)
+				}
+
+			val on = inside?.dev?.let { deviceOf(it, place!!, device) } ?: device
 
 			val id =
 				builder.add(
@@ -109,19 +193,31 @@ class Indexer(
 				)
 
 			if (inside != null)
-				lay(builder, id, inside, on)
+				lay(builder, id, place!!, inside, on)
 		}
 	}
 
 	/**
-	 * [dev] as a [Device]: its type as mountinfo says, or where it does not (a btrfs subvolume not mounted on its own
-	 * has a device number of its own), the type of the folder above it.
+	 * The device of a folder at [where] whose stat says [dev], under a folder on [above] (null for the top of a tree).
+	 * Where it is the device above, it is that one; where it is not, the folder is a mount point, and mountinfo says
+	 * its file system's type and the kernel's device for it, or it is a btrfs subvolume within the mount above, whose
+	 * type and kernel device are that mount's. The top of a tree is under the deepest mount point above it.
 	 */
-	private fun deviceOf(dev: Dev, above: Device?): Device =
-		Device(
-			dev,
-			types[dev] ?: above?.type,
-		)
+	internal fun deviceOf(dev: Dev, where: Where, above: Device?): Device {
+		if (above != null && above.dev == dev)
+			return above
+
+		val mountAbove = {
+			generateSequence(where.parent) { it.parent }.firstNotNullOfOrNull { mountsAt[it.key] }
+		}
+		val mount = mountsAt[where.key] ?: if (above == null) mountAbove() else null
+
+		return when {
+			mount != null -> Device(dev, Dev(mount.major, mount.minor), mount.type)
+			above != null -> Device(dev, above.kernel, above.type)
+			else -> Device(dev, dev, null)
+		}
+	}
 
 	/** [where]'s statx, following a link or not, and never mounting an automount point; null where it is not there. */
 	private fun statOf(where: Where, follow: Boolean): Stat? =

@@ -18,12 +18,13 @@ The project is set up and every part named in the first brief exists, builds, an
 | the watcher | `probe`: hooks on the exits of `vfs_mkdir`, `vfs_rmdir`, `vfs_unlink`, `vfs_create`, `vfs_symlink`, `vfs_link`, `vfs_mknod`, `vfs_rename` and `do_filp_open`; compiled by the build into `index`'s resources |
 | the scanner | `index`: one traversal, two backends (getdents64 through FFM, and the JVM's own), names as bytes, what each directory is gathered into the caller's to say; the ignore rules (names and path endings anywhere, absolute paths), pseudo file systems skipped from mountinfo, read once |
 | the index | `index`: entries as columns in preorder (`Block`), inodes among them, a folder found by device and inode as the watcher names it; an immutable `Index` that changes by hiding and grafting and compacts back to a block a root, changes that say what is so and so can be made twice; its file a zstd-compressed snapshot and appended frames of changes, a torn frame dropped, compacted by rename (docs/format.md); `IndexStore` keeps an index and its file in step; `barion index` builds or reads one and searches it |
+| the daemon | `watcher`: the eBPF watcher, its program compiled into the module, read on a thread of its own; `daemon`: a `LiveIndex` that opens at once and reads its roots behind, reads places again when told (`rescan`), makes changes it is told of and makes them again once a scan they happened during lands, and reads places the rules leave out for searches alone, in memory, never written; and a `Daemon` that starts the watcher before the index is read, queues what it sees onto a thread of its own, writes every few seconds, and reads the roots again where changes were lost or there is no watcher (docs/daemon.md); `barion daemon` runs one |
 | search | `index`: queries as an immutable tree, for every term of the language (names, globs, quoted and raw terms, paths, regexes, `dir:`, `ext:`, `type:`, `is:`, `recent:`, `mount:`, negation), built with a Kotlin DSL or read from text by parser combinators that read any text at all into a tree with spans, problems (unfinished, and searched for as far as it goes; or invalid, and left out) and marks to colour it by; run over the columns as bytes, with ancestors' states kept per level, on every core (docs/search.md) |
 | the picker | `picker`: an immutable `PickerState`, a pure reducer, a session that reads folders, looks up typed paths and makes changes on a background thread, and a view made of its own controls; it browses (back, forward, up, the mouse's side buttons, places, a typed path), chooses (click, Ctrl, Shift, the arrows, type-ahead), searches, sorts, filters by kind from a menu (one, or several with Ctrl; hidden files shown and hidden folders not until the user says), zooms with Ctrl and the wheel (the gallery up to one picture at a time, fitted to the window), and saves (asking before replacing), as a list or a gallery with thumbnails of images; context menus (menus as data, one component for any menu) rename, trash (the desktop's own; the Delete key asks first) and make folders, each undone and redone with Ctrl+Z and Ctrl+Shift+Z; `barion pick` prints what is chosen (docs/picker.md) |
 | D-Bus | `dbus`: the connection (handshake and `Hello` as it opens), messages as data, kotlinx.serialization for bodies with signatures worked out from the types and checked before decoding, calls with replies as values, signals as flows, `watch`, served methods (docs/dbus.md) |
 | the colour scheme | `portal`: the portal's Settings declared; `barion pick` opens in the desktop's palette and follows its changes; light where there is no bus or portal; `--theme` overrides |
 
-269 tests (254 of barion's own, 15 of the house formatting rules), all passing in the development container; one
+288 tests (273 of barion's own, 15 of the house formatting rules), all passing in the development container; one
 skipped there, the search benchmark, which runs only when asked for (`-Pindex.benchmark=N`). The D-Bus ones run against a real dbus-daemon each test starts, and against gdbus, dbus-send and busctl.
 
 ## Measured
@@ -62,19 +63,26 @@ In the order they unblock each other:
 
 1. **Run the watcher on a real machine**, with the privileges it needs, and read what it sends for a `mkdir`, a
    `touch`, a `mv`, an `rm -r`, a `git checkout` and an `npm install`. Fix what the verifier says about any hook.
-2. **The watcher's changes into the index.** The index finds the folder a change is in by the device and inode the
-   watcher names it by (`Index.foldersAt`); each change then becomes `Indexer.reread` of that one name, and the
-   store's `make` (plan.md, "Keeping it current").
-3. **The daemon**: an `IndexStore` opened at start (building the index the first time), the watcher's changes made
-   as they come, `flush` every few seconds while there are changes.
-4. **The picker searching the index** from its search field, and reading its folders from the index (an index-backed
-   `Disk`), with the picker's kinds and `type:` from one table of extensions.
-5. **The portal backend**: `org.freedesktop.impl.portal.FileChooser` served on the session bus with
-   `Connection.serve`, each request a `PickerState`, the daemon opening a window per request.
-6. **Filtering in the kernel**: a bounded loop in the DSL, so the watcher drops a change under an ignored directory
+   Then `barion daemon` there, and the same changes seen made in its index.
+2. **The picker searching the daemon's index** from its search field (the marks colouring the field, the problems
+   drawn over it), and reading its folders from the index (an index-backed `Disk`), with the picker's kinds and
+   `type:` from one table of extensions.
+3. **The portal backend**: `org.freedesktop.impl.portal.FileChooser` served on the session bus with
+   `Connection.serve`, each request a `PickerState`, the daemon opening a window per request; and a D-Bus method of
+   the daemon's to read places again from outside it.
+4. **Filtering in the kernel**: a bounded loop in the DSL, so the watcher drops a change under an ignored directory
    before it is sent; and the privileged loader service that hands the ring to the user's daemon.
 
 ## Notes for whoever picks this up
+
+- Changes being idempotent does not make their order harmless: a change read from the disk before another, made
+  after it, puts back what the other took away. So a live index reads the disk for each change as it makes it, under
+  one lock, and only a scan reads without it, with the changes made meanwhile kept to be made again when it lands.
+- ext4 gives a folder made a moment after another was removed the removed one's inode, so comparing a folder's
+  entries by name, kind and inode cannot see one removed and made again (`ReconcileTest` found this). Changes by name
+  read the entry whole; only a move's source is reconciled.
+- On btrfs, a stat of a subvolume gives a device number of its own, while the kernel, mountinfo and the watcher give
+  the file system's; the index keeps both for every device, the kernel's found by the mount a folder is under.
 
 - Kotlin nests comments: `/*` inside a comment opens another, so an example like `funny/*.jpg` in a KDoc leaves the
   rest of the file a comment ("Unclosed comment"). Write such examples so a `/` is never followed by a `*`.

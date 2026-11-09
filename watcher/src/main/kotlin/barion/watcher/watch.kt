@@ -1,4 +1,4 @@
-package barion.index
+package barion.watcher
 
 import barion.ebpf.Hook
 import barion.ebpfloader.Attachment
@@ -19,14 +19,15 @@ import barion.probe.FsWatch
 import barion.probe.Lost
 
 /*
- * The watcher as the index uses it: the probe's object loaded from this module's resources (where the build put it),
- * attached, and its ring read into [Observed] changes, which hold nothing of the ring's memory. What the index does
- * with a change is its own; what is here is only what the kernel said.
+ * The watcher: the probe's object loaded from this module's resources (where the build put it), attached, and its ring
+ * read into [Observed] changes, which hold nothing of the ring's memory. What is here is only what the kernel said;
+ * what an index makes of it is the daemon's.
  */
 
 /** One change the kernel made to a directory's entries, as the watcher saw it. */
-data class Observed(
+class Observed(
 	val change: Change,
+	/** The device, as the kernel names the file system: its superblock's. */
 	val dev: Dev,
 	/** The directory the entry is in, or was in before a move. */
 	val parent: Long,
@@ -34,12 +35,36 @@ data class Observed(
 	val movedTo: Long?,
 	/** The entry's inode; null for an entry that is gone. */
 	val ino: Long?,
-	val name: Name,
+	/** The entry's name as the directory holds it: bytes, which need not be UTF-8. After a move, its new name. */
+	name: ByteArray,
 	/** What the entry is, where it is still there to say. */
 	val kind: FileKind?,
 	val tgid: Int,
 	val atNs: Long,
-)
+) {
+	private val name = name.copyOf()
+
+	/** The entry's name, copied. */
+	fun name(): ByteArray = name.copyOf()
+
+	override fun equals(other: Any?): Boolean =
+		other is Observed &&
+			change == other.change &&
+			dev == other.dev &&
+			parent == other.parent &&
+			movedTo == other.movedTo &&
+			ino == other.ino &&
+			name.contentEquals(other.name) &&
+			kind == other.kind &&
+			tgid == other.tgid &&
+			atNs == other.atNs
+
+	override fun hashCode(): Int =
+		(dev.hashCode() * 31 + parent.hashCode()) * 31 + name.contentHashCode()
+
+	override fun toString(): String =
+		"$change $dev $parent${movedTo?.let { " -> $it" }.orEmpty()}/${name.decodeToString()}"
+}
 
 /** What starting the watcher gave: a watch, or why there is none. */
 sealed interface Watching {
@@ -101,7 +126,7 @@ class Watch internal constructor(
 			parent = record.number(FsChange.parentIno),
 			movedTo = record.number(FsChange.toParentIno).takeIf { it != 0L },
 			ino = ino.takeIf { it != 0L },
-			name = Name.trusted(name),
+			name = name,
 			kind = if (mode == 0) null else FileKind.ofMode(mode),
 			tgid = record.number(FsChange.tgid).toInt(),
 			atNs = record.number(FsChange.atNs),

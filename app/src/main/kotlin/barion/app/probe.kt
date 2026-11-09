@@ -10,12 +10,12 @@ import barion.ebpf.Btf
 import barion.ebpf.emittedOrThrow
 import barion.ebpf.kernelMismatches
 import barion.ebpfloader.Attachment
-import barion.index.Observed
-import barion.index.Watching
-import barion.index.startWatching
 import barion.linux.Sys
 import barion.linux.Wait
 import barion.probe.FsWatch
+import barion.watcher.Observed
+import barion.watcher.Watching
+import barion.watcher.startWatching
 
 /** `barion probe`: the watcher, as C, against this kernel, and running. */
 val ProbeGroup =
@@ -132,7 +132,7 @@ object ProbeWatch : Command(
 				seen.dev,
 				seen.parent,
 				moved,
-				seen.name,
+				seen.name().decodeToString(),
 				seen.tgid,
 			),
 		)

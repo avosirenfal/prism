@@ -75,10 +75,19 @@ object IndexCommand : Command(
 
 		val lines = ArrayList<String>()
 		val roots = args[roots].ifEmpty { listOf(Path("/")) }
+		val indexer = Indexer(threads = args[threads])
+
 		val (store, opening) =
 			measureTimedValue {
-				IndexStore.open(file, roots, Indexer(threads = args[threads]))
+				IndexStore.open(file).also { store ->
+					// No file it can read: the roots indexed, and the file written.
+					if (store.origin !is IndexStore.Origin.Read) {
+						store.make(roots.map(indexer::index))
+						store.flush()
+					}
+				}
 			}
+
 		val index = store.index
 		val entries = "%,d".format(index.size)
 
@@ -131,8 +140,8 @@ object IndexCommand : Command(
 
 	private fun how(origin: IndexStore.Origin): String =
 		when (origin) {
-			IndexStore.Origin.Built -> "indexed"
-			is IndexStore.Origin.Rebuilt -> "indexed anew (${origin.why})"
+			IndexStore.Origin.Missing, IndexStore.Origin.Memory -> "indexed"
+			is IndexStore.Origin.Unreadable -> "indexed anew (${origin.why})"
 			is IndexStore.Origin.Read ->
 				if (origin.torn)
 					"read, its last frame dropped,"
