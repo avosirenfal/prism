@@ -26,10 +26,12 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -70,12 +72,29 @@ import androidx.compose.ui.unit.dp
  * its menu is open, where the caret is in its text. What it shows and what it does are its caller's.
  */
 
-/** What the pointer and the keyboard are doing to a control at the moment, read from its interactions. */
+/**
+ * Whether the keyboard, rather than the pointer, was used last in the picker. The ring that shows where the keyboard
+ * is, is drawn only then, as a browser draws its focus ring only for the keyboard (`:focus-visible`): a control
+ * clicked keeps the keyboard, but shows no ring for it once the pointer has gone on to something else. The picker
+ * says which was used last ([FilePicker]); a control only reads it.
+ */
+@Stable
+class KeyboardUse {
+	var lately by mutableStateOf(true)
+}
+
+val LocalKeyboardUse = staticCompositionLocalOf { KeyboardUse() }
+
+/**
+ * What the pointer and the keyboard are doing to a control at the moment, read from its interactions: [ringed] is
+ * whether it has the keyboard and the keyboard was used last, which is when its ring is drawn.
+ */
 @Immutable
 data class Felt(
 	val hovered: Boolean,
 	val pressed: Boolean,
 	val focused: Boolean,
+	val ringed: Boolean,
 )
 
 @Composable
@@ -83,8 +102,9 @@ fun MutableInteractionSource.felt(): Felt {
 	val hovered by collectIsHoveredAsState()
 	val pressed by collectIsPressedAsState()
 	val focused by collectIsFocusedAsState()
+	val keyboard = LocalKeyboardUse.current
 
-	return Felt(hovered, pressed, focused)
+	return Felt(hovered, pressed, focused, focused && keyboard.lately)
 }
 
 /**
@@ -117,9 +137,10 @@ fun Modifier.ring(
 		}
 	}
 
-/** How a button stands out among others: the one that does what the picker is for, or the rest. */
+/** How a button stands out among others: the one that does what the picker is for, one that cannot be undone, or the rest. */
 enum class Emphasis {
 	Primary,
+	Danger,
 	Secondary,
 }
 
@@ -138,13 +159,19 @@ fun PickerButton(
 	val source = remember { MutableInteractionSource() }
 	val felt = source.felt()
 	val shape = RoundedCornerShape(Dims.radius)
-	val primary = emphasis == Emphasis.Primary
+	val strong =
+		when (emphasis) {
+			Emphasis.Primary -> palette.accent
+			Emphasis.Danger -> palette.danger
+			Emphasis.Secondary -> null
+		}
+	val primary = strong != null
 
 	val fill =
 		when {
-			primary && felt.pressed -> palette.accent.copy(alpha = 0.8f)
-			primary && felt.hovered -> palette.accent.copy(alpha = 0.9f)
-			primary -> palette.accent
+			strong != null && felt.pressed -> strong.copy(alpha = 0.8f)
+			strong != null && felt.hovered -> strong.copy(alpha = 0.9f)
+			strong != null -> strong
 			felt.pressed -> palette.pressed
 			felt.hovered -> palette.hover
 			else -> palette.field
@@ -153,17 +180,14 @@ fun PickerButton(
 	// The ring first, so it is not dimmed; dimmed next, so a button that cannot be pressed is dimmed whole.
 	Box(
 		modifier
-			.ring(felt.focused, palette.focus)
+			.ring(felt.ringed, palette.focus)
 			.alpha(if (enabled) 1f else 0.45f)
 			.width(Dims.button)
 			.height(Dims.control)
 			.background(fill, shape)
 			.border(
 				1.dp,
-				if (primary)
-					palette.accent
-				else
-					palette.fieldEdge,
+				strong ?: palette.fieldEdge,
 				shape,
 			).focusRequester(focus)
 			.clickable(
@@ -237,110 +261,6 @@ fun ToolButton(
 }
 
 /**
- * A filter that is on or off: its words, how many it would show, and a check while it is on. It is pressed by the
- * pointer; the keyboard reaches it through the row of filters it is in, which rings the one it is on ([keyed]). A
- * filter that would show nothing is dimmed, but can still be turned on, so that a choice of filters stays the same
- * from folder to folder.
- */
-@Composable
-fun Chip(
-	label: String,
-	count: Int?,
-	on: Boolean,
-	keyed: Boolean,
-	modifier: Modifier = Modifier,
-	onToggle: () -> Unit,
-) {
-	val palette = LocalPalette.current
-	val type = LocalType.current
-	val source = remember { MutableInteractionSource() }
-	val felt = source.felt()
-	val shape = RoundedCornerShape(percent = 50)
-	val fill =
-		when {
-			felt.pressed -> palette.pressed
-			on -> palette.chosen
-			felt.hovered -> palette.hover
-			else -> palette.field
-		}
-
-	Row(
-		modifier
-			.ring(keyed, palette.focus, corner = Dims.chip / 2)
-			.alpha(if (on || count != 0) 1f else 0.5f)
-			.height(Dims.chip)
-			.background(fill, shape)
-			.border(
-				1.dp,
-				if (on)
-					palette.chosenEdge
-				else
-					palette.fieldEdge,
-				shape,
-			).focusProperties { canFocus = false }
-			.selectable(on, source, indication = null, role = Role.Checkbox, onClick = onToggle)
-			.padding(horizontal = 10.dp),
-		verticalAlignment = Alignment.CenterVertically,
-		horizontalArrangement = Arrangement.spacedBy(5.dp),
-	) {
-		if (on)
-			GlyphIcon(Glyph.Check, palette.accent, 14.dp)
-		Text(label, style = type.body, maxLines = 1)
-		count?.let { Text("$it", style = type.muted, maxLines = 1) }
-	}
-}
-
-/** A box to tick, with its words beside it: pressed by the pointer, or by Space when the keyboard is on it. */
-@Composable
-fun Check(
-	label: String,
-	checked: Boolean,
-	modifier: Modifier = Modifier,
-	onToggle: () -> Unit,
-) {
-	val palette = LocalPalette.current
-	val type = LocalType.current
-	val source = remember { MutableInteractionSource() }
-	val felt = source.felt()
-	val box = RoundedCornerShape(4.dp)
-
-	Row(
-		modifier
-			.ring(felt.focused, palette.focus)
-			.height(Dims.chip)
-			.toggleable(checked, source, indication = null, role = Role.Checkbox) { onToggle() }
-			.padding(horizontal = 6.dp),
-		verticalAlignment = Alignment.CenterVertically,
-		horizontalArrangement = Arrangement.spacedBy(Dims.gap),
-	) {
-		Box(
-			Modifier
-				.size(16.dp)
-				.background(
-					if (checked)
-						palette.accent
-					else
-						palette.field,
-					box,
-				).border(
-					1.dp,
-					when {
-						checked -> palette.accent
-						felt.hovered -> palette.textMuted
-						else -> palette.fieldEdge
-					},
-					box,
-				),
-			contentAlignment = Alignment.Center,
-		) {
-			if (checked)
-				GlyphIcon(Glyph.Check, palette.onAccent, 14.dp)
-		}
-		Text(label, style = type.body, maxLines = 1)
-	}
-}
-
-/**
  * A line of text to type into. [text] is what it shows, and every change typed is reported to [onText], so the text
  * is its caller's; the caret and the selection are the field's own. When the keyboard comes to it, [selecting]
  * says what of its text is selected (all of it, by default, as a desktop's fields do), and [onKey] sees each key
@@ -355,6 +275,7 @@ fun Field(
 	hint: String = "",
 	trailing: Glyph? = null,
 	readOnly: Boolean = false,
+	height: Dp = Dims.control,
 	focus: FocusRequester = remember { FocusRequester() },
 	selecting: (String) -> TextRange = { TextRange(0, it.length) },
 	onLeave: () -> Unit = {},
@@ -383,7 +304,7 @@ fun Field(
 	Row(
 		modifier
 			.ring(felt.focused, palette.accent, outset = 0.dp, width = 1.5.dp)
-			.height(Dims.control)
+			.height(height)
 			.background(palette.field, shape)
 			.border(1.dp, palette.fieldEdge, shape)
 			.padding(horizontal = Dims.gap),
@@ -453,7 +374,7 @@ fun <T> Select(
 		Row(
 			Modifier
 				.fillMaxWidth()
-				.ring(felt.focused, palette.focus)
+				.ring(felt.ringed, palette.focus)
 				.height(Dims.control)
 				.background(
 					when {

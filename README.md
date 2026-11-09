@@ -48,7 +48,7 @@ for and how it is meant to work; docs/inprogress.md says where it stands.
 | `index` | probe, ebpf-loader, linux | the scanner and its backends, the ignore rules, the watcher as the index runs it |
 | `dbus` | kotlinx.serialization, coroutines | D-Bus: the bus's socket, its handshake and `Hello` as a connection opens; messages as data; bodies by kotlinx.serialization, their signatures worked out from the Kotlin types; calls, signals as flows, served methods |
 | `portal` | dbus | the desktop portal as barion speaks to it: the appearance settings (the colour scheme, and its changes) |
-| `picker` | Compose, coroutines | the picker: an immutable state, a pure reducer from one state to the next, a session that reads folders for it, and a view made of controls of its own, worked by the pointer and the keyboard alike; filters by kind, a gallery with thumbnails |
+| `picker` | Compose, coroutines | the picker: an immutable state, a pure reducer from one state to the next, a session that reads folders for it, and a view made of controls of its own, worked by the pointer and the keyboard alike; a filter menu of kinds, a gallery with thumbnails, zoom, and context menus (menus as data, one component to draw them) that rename, trash, delete and make folders |
 | `app` | everything | the command line and the window |
 
 The modules share their Gradle setup through convention plugins in `build-logic`, as kotlin-engine-test's do

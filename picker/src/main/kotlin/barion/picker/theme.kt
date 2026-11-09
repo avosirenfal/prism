@@ -40,6 +40,8 @@ data class Palette(
 	val focus: Color,
 	/** What is drawn over the picker behind a notice. */
 	val scrim: Color,
+	/** What cannot be undone: deleting for good. */
+	val danger: Color,
 	val chosen: Color,
 	val chosenEdge: Color,
 	val field: Color,
@@ -90,6 +92,7 @@ data class Palette(
 				pressed = Color(0xFFE2E2E2),
 				focus = Color(0xFF1B1B1B),
 				scrim = Color(0x66000000),
+				danger = Color(0xFFC42B1C),
 				chosen = Color(0xFFDDEBF7),
 				chosenEdge = Color(0xFF99C2E8),
 				field = Color(0xFFFFFFFF),
@@ -125,6 +128,7 @@ data class Palette(
 				pressed = Color(0xFF383838),
 				focus = Color(0xFFFFFFFF),
 				scrim = Color(0x99000000),
+				danger = Color(0xFFFF99A4),
 				chosen = Color(0xFF16384F),
 				chosenEdge = Color(0xFF2E6A92),
 				field = Color(0xFF2D2D2D),

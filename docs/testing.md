@@ -18,6 +18,8 @@ a device, so a test that ran and a test that could not run are never confused.
 | the picker's rules (`StepTest`) | the JDK | never |
 | the picker clicked and typed at, headless, around a running session (`InteractionTest`) | the JDK | never |
 | the gallery's thumbnails (`ThumbnailTest`) | the JDK | never |
+| the picker's menus, as values (`MenuTest`) | the JDK | never |
+| renaming, making folders, deleting and the trash, on real files (`DiskTest`) | Linux | never |
 | D-Bus's wire format and types (`WireTest`, `SerialTest`) | the JDK | never |
 | D-Bus, live (`ConnectionTest`, `AppearanceTest`, `ThemeTest`) | dbus-daemon, which each test starts on a socket of its own | without dbus-daemon |
 | D-Bus against other implementations (in `ConnectionTest`) | gdbus, dbus-send, busctl | each, without that tool |

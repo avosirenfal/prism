@@ -37,6 +37,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
@@ -54,6 +55,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.input.key.Key
@@ -69,6 +71,7 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.key.utf16CodePoint
 import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.PointerKeyboardModifiers
 import androidx.compose.ui.input.pointer.isCtrlPressed
 import androidx.compose.ui.input.pointer.isMetaPressed
@@ -76,18 +79,23 @@ import androidx.compose.ui.input.pointer.isPrimaryPressed
 import androidx.compose.ui.input.pointer.isShiftPressed
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
 import java.nio.file.Path
 import kotlin.io.path.name
+import kotlin.math.roundToInt
 import kotlinx.coroutines.flow.first
 
 /*
@@ -119,6 +127,7 @@ import kotlinx.coroutines.flow.first
 @Stable
 private class Stops {
 	val listing = FocusRequester()
+	val places = FocusRequester()
 	val name = FocusRequester()
 	val search = FocusRequester()
 	val address = FocusRequester()
@@ -134,6 +143,7 @@ fun FilePicker(
 	val palette = LocalPalette.current
 	val stops = remember { Stops() }
 	val saving = state.choosing is Choosing.SaveAs
+	val keyboard = remember { KeyboardUse() }
 
 	// The keyboard starts where a desktop's dialogs start it: at the name to save under, or at the listing.
 	LaunchedEffect(Unit) {
@@ -143,34 +153,56 @@ fun FilePicker(
 			stops.listing.requestFocus()
 	}
 
-	Box(
-		modifier
-			.fillMaxSize()
-			.background(palette.window)
-			.onPreviewKeyEvent { shortcut(it, stops, onEvent) }
-			.onKeyEvent {
-				val escaped = it.type == KeyEventType.KeyDown && it.key == Key.Escape
+	CompositionLocalProvider(LocalKeyboardUse provides keyboard) {
+		Box(
+			modifier
+				.fillMaxSize()
+				.background(palette.window)
+				.usedBy(keyboard)
+				.onPreviewKeyEvent { shortcut(it, stops, onEvent) }
+				.onKeyEvent {
+					val escaped = it.type == KeyEventType.KeyDown && it.key == Key.Escape
 
-				if (escaped)
-					onEvent(PickerEvent.Cancelled)
+					if (escaped)
+						onEvent(PickerEvent.Cancelled)
 
-				escaped
-			},
-	) {
-		Column(Modifier.fillMaxSize()) {
-			Toolbar(state, stops, onEvent)
-			Line(palette.border)
-			Row(Modifier.weight(1f).fillMaxWidth()) {
-				SidebarPane(state.sidebar, state.folder, onEvent)
-				Box(Modifier.width(1.dp).fillMaxHeight().background(palette.border))
-				ListingPane(state, stops, Modifier.weight(1f), onEvent)
+					escaped
+				},
+		) {
+			Column(Modifier.fillMaxSize()) {
+				Toolbar(state, stops, onEvent)
+				Line(palette.border)
+				Row(Modifier.weight(1f).fillMaxWidth()) {
+					SidebarPane(state.sidebar, state.folder, stops, onEvent)
+					Box(Modifier.width(1.dp).fillMaxHeight().background(palette.border))
+					ListingPane(state, stops, Modifier.weight(1f), onEvent)
+				}
+				Line(palette.border)
+				Footer(state, stops, onEvent)
 			}
-			Line(palette.border)
-			Footer(state, stops, onEvent)
+			state.notice?.let { NoticeLayer(it, onEvent) }
 		}
-		state.notice?.let { NoticeLayer(it, onEvent) }
 	}
 }
+
+/**
+ * [keyboard] told which was used last: the keyboard, as a key goes down anywhere in the picker, or the pointer, as a
+ * button goes down. Seen before anything inside sees either, and left for it.
+ */
+private fun Modifier.usedBy(keyboard: KeyboardUse): Modifier =
+	onPreviewKeyEvent {
+		if (it.type == KeyEventType.KeyDown)
+			keyboard.lately = true
+
+		false
+	}.pointerInput(keyboard) {
+		awaitPointerEventScope {
+			while (true) {
+				if (awaitPointerEvent(PointerEventPass.Initial).type == PointerEventType.Press)
+					keyboard.lately = false
+			}
+		}
+	}
 
 /** The keys that work wherever the keyboard is, seen before the control it is on sees them. */
 private fun shortcut(
@@ -190,7 +222,11 @@ private fun shortcut(
 			alt && key.key == Key.DirectionRight -> PickerEvent.Forward
 			alt && key.key == Key.DirectionUp -> PickerEvent.Up
 			(ctrl && key.key == Key.L) || (alt && key.key == Key.D) -> PickerEvent.EditedAddress
-			ctrl && key.key == Key.H -> PickerEvent.ToggledHidden
+			ctrl && key.key == Key.H -> PickerEvent.ToggledEveryHidden
+			ctrl && key.isShiftPressed && key.key == Key.N -> PickerEvent.MadeFolder
+			ctrl && key.key in LARGER -> PickerEvent.Zoomed(1)
+			ctrl && key.key in SMALLER -> PickerEvent.Zoomed(-1)
+			ctrl && key.key in USUAL -> PickerEvent.Unzoomed
 			key.key == Key.F5 || (ctrl && key.key == Key.R) -> PickerEvent.Refreshed
 			ctrl && key.key == Key.One -> PickerEvent.Viewed(Layout.List)
 			ctrl && key.key == Key.Two -> PickerEvent.Viewed(Layout.Gallery)
@@ -206,6 +242,11 @@ private fun shortcut(
 
 	return event != null || searching
 }
+
+/** The keys that, with Ctrl, draw the listing larger, smaller, and at its usual size: on either side of the keyboard. */
+private val LARGER = setOf(Key.Equals, Key.Plus, Key.NumPadAdd)
+private val SMALLER = setOf(Key.Minus, Key.NumPadSubtract)
+private val USUAL = setOf(Key.Zero, Key.NumPad0)
 
 /** Enter, on either side of the keyboard. */
 private val KeyEvent.isEnter: Boolean get() = key == Key.Enter || key == Key.NumPadEnter
@@ -245,6 +286,14 @@ private fun Toolbar(state: PickerState, stops: Stops, onEvent: (PickerEvent) -> 
 		ToolButton(Glyph.Up, "Up", state.folder.parent != null, Modifier.testTag("up")) {
 			onEvent(PickerEvent.Up)
 		}
+		MenuButton(
+			Glyph.Filter,
+			"Filters",
+			{ filterMenuOf(state) },
+			onEvent,
+			Modifier.testTag("filters"),
+			selected = state.arrangement.kinds.isNotEmpty(),
+		)
 		Spacer(Modifier.width(Dims.gapSmall))
 		AddressBar(state, stops, Modifier.weight(1f), onEvent)
 		Spacer(Modifier.width(Dims.gapSmall))
@@ -359,7 +408,7 @@ private fun Crumbs(
 
 	Row(
 		modifier
-			.ring(felt.focused, palette.focus)
+			.ring(felt.ringed, palette.focus)
 			.height(Dims.control)
 			.background(
 				if (felt.hovered)
@@ -428,12 +477,17 @@ private fun CrumbStep(crumb: Crumb, last: Boolean, onClick: () -> Unit) {
  * on is the sidebar's own, as a list's highlighted entry is on any desktop: it starts at the place shown.
  */
 @Composable
-private fun SidebarPane(sidebar: Sidebar, current: Path, onEvent: (PickerEvent) -> Unit) {
+private fun SidebarPane(
+	sidebar: Sidebar,
+	current: Path,
+	stops: Stops,
+	onEvent: (PickerEvent) -> Unit,
+) {
 	val palette = LocalPalette.current
 	val type = LocalType.current
 	val places = sidebar.places
 	val source = remember { MutableInteractionSource() }
-	val focused by source.collectIsFocusedAsState()
+	val felt = source.felt()
 	var at by remember(sidebar) {
 		mutableIntStateOf(places.indexOfFirst { it.path == current }.coerceAtLeast(0))
 	}
@@ -462,6 +516,7 @@ private fun SidebarPane(sidebar: Sidebar, current: Path, onEvent: (PickerEvent) 
 			.width(Dims.sidebar)
 			.fillMaxHeight()
 			.background(palette.pane)
+			.focusRequester(stops.places)
 			.onKeyEvent(::key)
 			.focusable(interactionSource = source)
 			.testTag("places")
@@ -477,8 +532,10 @@ private fun SidebarPane(sidebar: Sidebar, current: Path, onEvent: (PickerEvent) 
 			for (place in group.places) {
 				val index = places.indexOf(place)
 
-				PlaceRow(place, current = place.path == current, keyed = focused && index == at) {
+				PlaceRow(place, current = place.path == current, keyed = felt.ringed && index == at) {
+					// A place clicked takes the keyboard to the places, as a list clicked does on any desktop.
 					at = index
+					stops.places.requestFocus()
 					onEvent(PickerEvent.Opened(place.path))
 				}
 			}
@@ -571,7 +628,15 @@ private data class Typing(
 /** How long a pause in typing ends the letters that name a row, in milliseconds. */
 private const val TYPING_PAUSE = 1000L
 
-/** The filters above the listing, then the listing itself. */
+/**
+ * The listing, as one stop of the keyboard: what it shows is [PickerState.rows], as rows in columns or as tiles in a
+ * gallery, with the cursor's row ringed while the keyboard is here, and kept in sight as it moves. Each folder starts
+ * at its top. In a gallery, Left and Right move along a line of tiles, and Up and Down from one line to the next.
+ *
+ * Ctrl and the mouse's wheel draw it larger or smaller. The right button opens a menu: of a row, over a row (of every
+ * row chosen, if it is one of them; otherwise it is chosen first, alone), and of the folder over the rest; Shift+F10
+ * or the menu key opens the same from the keyboard, at the cursor's row.
+ */
 @Composable
 private fun ListingPane(
 	state: PickerState,
@@ -580,124 +645,21 @@ private fun ListingPane(
 	onEvent: (PickerEvent) -> Unit,
 ) {
 	val palette = LocalPalette.current
-
-	Column(modifier.fillMaxHeight().background(palette.surface)) {
-		FilterBar(state, onEvent)
-		Line(palette.divider)
-		ListingBody(state, stops, Modifier.weight(1f), onEvent)
-	}
-}
-
-/**
- * The filters: the kinds of entry to show, as chips that each add their kind to what is shown (none on is
- * everything), and whether hidden entries are shown, which applies whatever kinds are on. A folder picker shows only
- * folders, so it has only the second.
- */
-@Composable
-private fun FilterBar(state: PickerState, onEvent: (PickerEvent) -> Unit) {
-	Row(
-		Modifier
-			.fillMaxWidth()
-			.height(Dims.filters)
-			.padding(horizontal = Dims.gap),
-		verticalAlignment = Alignment.CenterVertically,
-	) {
-		if (state.choosing is Choosing.Folder)
-			Spacer(Modifier.weight(1f))
-		else
-			KindChips(state.arrangement.kinds, state.counts, Modifier.weight(1f), onEvent)
-		Spacer(Modifier.width(Dims.gap))
-		Check("Show hidden", state.arrangement.showHidden, Modifier.testTag("hidden")) {
-			onEvent(PickerEvent.ToggledHidden)
-		}
-	}
-}
-
-/**
- * The kinds' chips, as one stop of the keyboard: Left and Right move through them, Space or Enter turns one on or
- * off. "All" turns every one off. Which chip the arrows are on is the row's own, as the sidebar's place is.
- */
-@Composable
-private fun KindChips(
-	kinds: Set<Kind>,
-	counts: Counts,
-	modifier: Modifier,
-	onEvent: (PickerEvent) -> Unit,
-) {
-	// Every kind (null) first, then each kind.
-	val choices: List<Kind?> = listOf(null) + Kind.entries
 	val source = remember { MutableInteractionSource() }
-	val focused by source.collectIsFocusedAsState()
-	var at by remember { mutableIntStateOf(0) }
-
-	fun toggle(choice: Kind?) =
-		onEvent(choice?.let { PickerEvent.ToggledKind(it) } ?: PickerEvent.ShowedEveryKind)
-
-	fun key(key: KeyEvent): Boolean {
-		if (key.type != KeyEventType.KeyDown)
-			return false
-
-		when {
-			key.key == Key.DirectionLeft -> at = (at - 1).coerceAtLeast(0)
-			key.key == Key.DirectionRight -> at = (at + 1).coerceAtMost(choices.lastIndex)
-			key.key == Key.MoveHome -> at = 0
-			key.key == Key.MoveEnd -> at = choices.lastIndex
-			key.key == Key.Spacebar || key.isEnter -> toggle(choices[at])
-			else -> return false
-		}
-
-		return true
-	}
-
-	Row(
-		modifier
-			.onKeyEvent(::key)
-			.focusable(interactionSource = source)
-			.testTag("kinds")
-			.horizontalScroll(rememberScrollState())
-			.padding(vertical = Dims.ring),
-		verticalAlignment = Alignment.CenterVertically,
-		horizontalArrangement = Arrangement.spacedBy(Dims.gapSmall),
-	) {
-		choices.forEachIndexed { index, choice ->
-			val label = choice?.label ?: "All"
-
-			Chip(
-				label,
-				choice?.let { counts[it] } ?: counts.every,
-				on = choice?.let { it in kinds } ?: kinds.isEmpty(),
-				keyed = focused && index == at,
-				Modifier.testTag("kind:$label"),
-			) {
-				at = index
-				toggle(choice)
-			}
-		}
-	}
-}
-
-/**
- * The listing, as one stop of the keyboard: what it shows is [PickerState.rows], as rows in columns or as tiles in a
- * gallery, with the cursor's row ringed while the keyboard is here, and kept in sight as it moves. Each folder starts
- * at its top. In a gallery, Left and Right move along a line of tiles, and Up and Down from one line to the next.
- */
-@Composable
-private fun ListingBody(
-	state: PickerState,
-	stops: Stops,
-	modifier: Modifier,
-	onEvent: (PickerEvent) -> Unit,
-) {
-	val palette = LocalPalette.current
-	val source = remember { MutableInteractionSource() }
-	val focused by source.collectIsFocusedAsState()
+	val felt = source.felt()
 	val list = remember(state.folder) { LazyListState() }
 	val grid = remember(state.folder) { LazyGridState() }
+	val menus = rememberContextMenus<PickerEvent>()
+	val area = remember { Placed() }
 	val rows = state.rows
 	val cursor = state.cursor?.at
 	val cursorAt = cursor?.let(rows::indexOf)
 	val query = state.arrangement.query
 	val gallery = state.layout == Layout.Gallery
+	val zoom = state.zoom.factor
+	val chosen = state.choosing.rows
+	val renaming = state.renaming
+	val zooming by rememberUpdatedState { steps: Int -> onEvent(PickerEvent.Zoomed(steps)) }
 	var typing by remember { mutableStateOf(Typing("", 0)) }
 	var pressed by remember { mutableStateOf<Pressed?>(null) }
 
@@ -723,14 +685,87 @@ private fun ListingBody(
 		}
 	}
 
+	/** The rows a key acts on: those chosen, or the cursor's where none is. */
+	fun targets(): List<Row> =
+		state.chosenRows.ifEmpty {
+			listOfNotNull(cursor?.let(rows::get))
+		}
+
+	/** The menu of [row], pressed with the right button: of the rows chosen if it is one, of it alone otherwise. */
+	fun menuOf(row: Row): Menu<PickerEvent> {
+		stops.listing.requestFocus()
+
+		val among = row.id in chosen
+
+		if (!among)
+			onEvent(PickerEvent.Clicked(row.id, Click.Only))
+
+		return contextMenuOf(
+			state,
+			Target.Rows(
+				if (among)
+					state.chosenRows
+				else
+					listOf(row),
+			),
+		)
+	}
+
+	fun folderMenu(): Menu<PickerEvent> {
+		stops.listing.requestFocus()
+
+		return contextMenuOf(state, Target.Folder)
+	}
+
+	/** The menu of what is chosen (or of the folder, where nothing is), opened from the keyboard at the cursor's row. */
+	fun openMenuByKey() {
+		val shown = state.chosenRows
+		val menu =
+			if (shown.isEmpty())
+				contextMenuOf(state, Target.Folder)
+			else
+				contextMenuOf(state, Target.Rows(shown))
+
+		val inside =
+			cursorAt
+				?.let { at ->
+					if (gallery)
+						grid.layoutInfo.visibleItemsInfo
+							.firstOrNull { it.index == at }
+							?.let {
+								Offset(
+									it.offset.x + it.size.width / 2f,
+									it.offset.y + it.size.height / 2f,
+								)
+							}
+					else
+						list.layoutInfo.visibleItemsInfo
+							.firstOrNull { it.index == at }
+							?.let { Offset(48f, it.offset + it.size / 2f) }
+				} ?: Offset(48f, 24f)
+
+		area.coordinates?.localToWindow(inside)?.let {
+			menus.open(menu, IntOffset(it.x.roundToInt(), it.y.roundToInt()))
+		}
+	}
+
 	fun key(key: KeyEvent): Boolean {
-		if (key.type != KeyEventType.KeyDown)
+		// A name being typed over has the keys; what it leaves is not the listing's.
+		if (key.type != KeyEventType.KeyDown || renaming != null)
 			return false
 
 		val ctrl = key.isCtrlPressed || key.isMetaPressed
+		val shift = key.isShiftPressed
+
+		if ((shift && key.key == Key.F10) || key.key == Key.Menu) {
+			openMenuByKey()
+
+			return true
+		}
+
 		val carry =
 			when {
-				key.isShiftPressed -> Carry.Extend
+				shift -> Carry.Extend
 				ctrl -> Carry.Stay
 				else -> Carry.Choose
 			}
@@ -756,6 +791,7 @@ private fun ListingBody(
 				.takeIf {
 					it > ' '.code && !ctrl && !key.isAltPressed
 				}?.toChar()
+		val ids = targets().map { it.id }
 
 		val event =
 			when {
@@ -770,6 +806,19 @@ private fun ListingBody(
 				key.key == Key.Spacebar -> PickerEvent.Toggled
 				key.isEnter -> PickerEvent.Accepted
 				key.key == Key.Backspace -> PickerEvent.Up
+				key.key == Key.F2 -> ids.singleOrNull()?.let { PickerEvent.StartedRenaming(it) }
+				key.key == Key.Delete && ids.isNotEmpty() ->
+					if (shift)
+						PickerEvent.Deleted(ids)
+					else
+						PickerEvent.Trashed(ids)
+				ctrl && shift && key.key == Key.C ->
+					PickerEvent.CopiedPaths(
+						targets()
+							.map {
+								state.folder.resolve(it.name)
+							}.ifEmpty { listOf(state.folder) },
+					)
 				ctrl && key.key == Key.A -> PickerEvent.ChoseAll
 				letter != null -> {
 					typing = typing.then(letter, System.currentTimeMillis())
@@ -791,70 +840,190 @@ private fun ListingBody(
 
 	Column(
 		modifier
-			.fillMaxWidth()
+			.fillMaxHeight()
+			.background(palette.surface)
 			.focusRequester(stops.listing)
 			.onKeyEvent(::key)
 			.focusable(interactionSource = source)
+			.zoomedByWheel { zooming(it) }
 			.testTag("listing"),
 	) {
 		Header(state.arrangement.sort, state.layout, onEvent)
 		Line(palette.divider)
 
-		when (val listing = state.listing) {
-			// A folder that reads quickly would only flash a message, so a folder being read shows nothing yet.
-			is Listing.Reading -> Box(Modifier.fillMaxSize())
-			is Listing.Unreadable -> Message("This folder can't be opened", listing.why)
-			is Listing.Shown ->
-				when {
-					rows.isEmpty() ->
-						Message(
-							when {
-								query.isNotBlank() -> "Nothing here matches “$query”"
-								listing.entries.isEmpty() -> "This folder is empty"
-								else -> "Nothing here is shown"
-							},
-							if (listing.entries.isEmpty() || query.isNotBlank())
-								null
-							else
-								"The filters above leave out everything in this folder.",
-						)
-					gallery ->
-						LazyVerticalGrid(
-							GridCells.Adaptive(Dims.tile),
-							nowhere.fillMaxSize().padding(Dims.gapSmall),
-							state = grid,
-							horizontalArrangement = Arrangement.spacedBy(Dims.gapSmall),
-							verticalArrangement = Arrangement.spacedBy(Dims.gapSmall),
-						) {
-							items(rows.list, key = { it.id.name }, contentType = { "tile" }) { row ->
-								Tile(
-									row,
-									state.folder.resolve(row.name),
-									chosen = row.id in state.choosing.rows,
-									cursor = focused && row.id == cursor,
-									onPress = { press(row.id, it) },
-								)
+		Box(
+			Modifier
+				.weight(1f)
+				.fillMaxWidth()
+				.onGloballyPositioned { area.coordinates = it }
+				.contextMenu(menus) { folderMenu() },
+		) {
+			when (val listing = state.listing) {
+				// A folder that reads quickly would only flash a message, so a folder being read shows nothing yet.
+				Listing.Reading -> Box(Modifier.fillMaxSize())
+				is Listing.Unreadable -> Message("This folder can't be opened", listing.why)
+				is Listing.Shown ->
+					when {
+						rows.isEmpty() ->
+							Message(
+								when {
+									query.isNotBlank() -> "Nothing here matches “$query”"
+									listing.entries.isEmpty() -> "This folder is empty"
+									else -> "Nothing here is shown"
+								},
+								if (listing.entries.isEmpty() || query.isNotBlank())
+									null
+								else
+									"The filters leave out everything in this folder.",
+							)
+						gallery ->
+							LazyVerticalGrid(
+								GridCells.Adaptive(Dims.tile * zoom),
+								nowhere.fillMaxSize().padding(Dims.gapSmall),
+								state = grid,
+								horizontalArrangement = Arrangement.spacedBy(Dims.gapSmall),
+								verticalArrangement = Arrangement.spacedBy(Dims.gapSmall),
+							) {
+								items(rows.list, key = { it.id.name }, contentType = { "tile" }) { row ->
+									Tile(
+										row,
+										state.folder.resolve(row.name),
+										chosen = row.id in chosen,
+										cursor = felt.ringed && row.id == cursor,
+										zoom = zoom,
+										renamed = renaming?.takeIf { it.row == row.id }?.text,
+										stops = stops,
+										onPress = { press(row.id, it) },
+										onEvent = onEvent,
+										modifier = Modifier.contextMenu(menus) { menuOf(row) },
+									)
+								}
 							}
-						}
-					else ->
-						LazyColumn(
-							nowhere
-								.fillMaxSize()
-								.padding(horizontal = Dims.gapSmall, vertical = Dims.gapSmall),
-							state = list,
-						) {
-							items(rows.list, key = { it.id.name }, contentType = { "row" }) { row ->
-								EntryRow(
-									row,
-									chosen = row.id in state.choosing.rows,
-									cursor = focused && row.id == cursor,
-									onPress = { press(row.id, it) },
-								)
+						else ->
+							LazyColumn(
+								nowhere
+									.fillMaxSize()
+									.padding(horizontal = Dims.gapSmall, vertical = Dims.gapSmall),
+								state = list,
+							) {
+								items(rows.list, key = { it.id.name }, contentType = { "row" }) { row ->
+									EntryRow(
+										row,
+										chosen = row.id in chosen,
+										cursor = felt.ringed && row.id == cursor,
+										zoom = zoom,
+										renamed = renaming?.takeIf { it.row == row.id }?.text,
+										stops = stops,
+										onPress = { press(row.id, it) },
+										onEvent = onEvent,
+										modifier = Modifier.contextMenu(menus) { menuOf(row) },
+									)
+								}
 							}
-						}
+					}
+			}
+		}
+		ContextMenuHost(menus, onEvent)
+	}
+}
+
+/**
+ * Ctrl and the mouse's wheel reported as steps of zoom: up larger, down smaller, a step a notch. A touchpad's small
+ * scrolls are added up until they make a notch. Seen before the list inside sees it, which then does not scroll.
+ */
+private fun Modifier.zoomedByWheel(onZoom: (Int) -> Unit): Modifier =
+	pointerInput(Unit) {
+		awaitPointerEventScope {
+			var turned = 0f
+
+			while (true) {
+				val event = awaitPointerEvent(PointerEventPass.Initial)
+
+				if (event.type == PointerEventType.Scroll && event.keyboardModifiers.isCtrlPressed) {
+					turned += event.changes.fold(0f) { sum, change -> sum + change.scrollDelta.y }
+					event.changes.forEach { it.consume() }
+
+					val notches = turned.toInt()
+
+					if (notches != 0) {
+						turned -= notches
+						onZoom(-notches)
+					}
 				}
+			}
 		}
 	}
+
+/** [this] style drawn [factor] times as large. */
+private fun TextStyle.times(factor: Float): TextStyle =
+	copy(
+		fontSize = fontSize * factor,
+		lineHeight =
+			lineHeight * factor,
+	)
+
+/**
+ * A row's name, or, while it is being renamed, a field with the new name as typed: its name's stem selected, Enter
+ * giving the name and Escape leaving it as it was, the keyboard then going back to the listing. Leaving the field
+ * gives the name too, as clicking away does in a file manager.
+ */
+@Composable
+private fun NameOf(
+	row: Row,
+	renamed: String?,
+	style: TextStyle,
+	stops: Stops,
+	onEvent: (PickerEvent) -> Unit,
+	modifier: Modifier = Modifier,
+	maxLines: Int = 1,
+	textAlign: TextAlign? = null,
+) {
+	if (renamed == null) {
+		Text(
+			row.name,
+			modifier,
+			style = style,
+			maxLines = maxLines,
+			overflow = TextOverflow.Ellipsis,
+			textAlign = textAlign,
+		)
+
+		return
+	}
+
+	val focus = remember { FocusRequester() }
+
+	Field(
+		renamed,
+		{ onEvent(PickerEvent.RenameTyped(it)) },
+		modifier.testTag("rename"),
+		height = with(LocalDensity.current) { (style.lineHeight * 1.5f).toDp() },
+		focus = focus,
+		selecting = {
+			val dot = it.lastIndexOf('.').takeIf { dot -> dot > 0 && !row.isFolder }
+
+			TextRange(0, dot ?: it.length)
+		},
+		onLeave = { onEvent(PickerEvent.Renamed) },
+		onKey = {
+			when {
+				it.type != KeyEventType.KeyDown -> false
+				// What the field says first, then the keyboard back: leaving the field then gives nothing new.
+				it.isEnter ->
+					true.also {
+						onEvent(PickerEvent.Renamed)
+						stops.listing.requestFocus()
+					}
+				it.key == Key.Escape ->
+					true.also {
+						onEvent(PickerEvent.RenameCancelled)
+						stops.listing.requestFocus()
+					}
+				else -> false
+			}
+		},
+	)
+	LaunchedEffect(Unit) { focus.requestFocus() }
 }
 
 /**
@@ -1106,7 +1275,12 @@ private fun EntryRow(
 	row: Row,
 	chosen: Boolean,
 	cursor: Boolean,
+	zoom: Float,
+	renamed: String?,
+	stops: Stops,
 	onPress: (Press) -> Unit,
+	onEvent: (PickerEvent) -> Unit,
+	modifier: Modifier = Modifier,
 ) {
 	val palette = LocalPalette.current
 	val type = LocalType.current
@@ -1114,6 +1288,8 @@ private fun EntryRow(
 	val hovered by hover.collectIsHoveredAsState()
 	val pressed by rememberUpdatedState(onPress)
 	val shape = RoundedCornerShape(Dims.radius)
+	val body = type.body.times(zoom)
+	val muted = type.muted.times(zoom)
 	val background =
 		when {
 			chosen -> palette.chosen
@@ -1122,10 +1298,10 @@ private fun EntryRow(
 		}
 
 	Row(
-		Modifier
+		modifier
 			.alpha(if (row.hidden) 0.6f else 1f)
 			.fillMaxWidth()
-			.height(Dims.row)
+			.height(Dims.row * zoom)
 			.background(background, shape)
 			.border(
 				1.dp,
@@ -1146,28 +1322,28 @@ private fun EntryRow(
 			GlyphIcon(
 				if (row.isFolder) Glyph.Folder else Glyph.File,
 				palette.text,
-				Dims.icon,
+				Dims.icon * zoom,
 				category = row.category,
 			)
 			Spacer(Modifier.width(Dims.gap + 2.dp))
-			Text(row.name, style = type.body, maxLines = 1, overflow = TextOverflow.Ellipsis)
+			NameOf(row, renamed, body, stops, onEvent, Modifier.weight(1f, fill = renamed != null))
 		}
 		Text(
 			row.modified?.text.orEmpty(),
-			style = type.muted,
+			style = muted,
 			maxLines = 1,
 			modifier = Modifier.weight(Dims.dateColumn),
 		)
 		Text(
 			row.type,
-			style = type.muted,
+			style = muted,
 			maxLines = 1,
 			overflow = TextOverflow.Ellipsis,
 			modifier = Modifier.weight(Dims.typeColumn),
 		)
 		Text(
 			row.size?.text.orEmpty(),
-			style = type.muted,
+			style = muted,
 			maxLines = 1,
 			textAlign = TextAlign.End,
 			modifier = Modifier.weight(Dims.sizeColumn),
@@ -1182,7 +1358,12 @@ private fun Tile(
 	path: Path,
 	chosen: Boolean,
 	cursor: Boolean,
+	zoom: Float,
+	renamed: String?,
+	stops: Stops,
 	onPress: (Press) -> Unit,
+	onEvent: (PickerEvent) -> Unit,
+	modifier: Modifier = Modifier,
 ) {
 	val palette = LocalPalette.current
 	val type = LocalType.current
@@ -1192,9 +1373,9 @@ private fun Tile(
 	val shape = RoundedCornerShape(Dims.radius)
 
 	Column(
-		Modifier
+		modifier
 			.alpha(if (row.hidden) 0.6f else 1f)
-			.height(Dims.tileHeight)
+			.height(Dims.tileHeight * zoom)
 			.background(
 				when {
 					chosen -> palette.chosen
@@ -1217,15 +1398,21 @@ private fun Tile(
 			.padding(Dims.gap),
 		horizontalAlignment = Alignment.CenterHorizontally,
 	) {
-		Box(Modifier.fillMaxWidth().height(Dims.picture), contentAlignment = Alignment.Center) {
-			Picture(row, path)
+		Box(
+			Modifier.fillMaxWidth().height(Dims.picture * zoom),
+			contentAlignment = Alignment.Center,
+		) {
+			Picture(row, path, zoom)
 		}
 		Spacer(Modifier.height(Dims.gapSmall))
-		Text(
-			row.name,
-			style = type.body,
+		NameOf(
+			row,
+			renamed,
+			type.body.times(zoom),
+			stops,
+			onEvent,
+			Modifier.fillMaxWidth(),
 			maxLines = 2,
-			overflow = TextOverflow.Ellipsis,
 			textAlign = TextAlign.Center,
 		)
 	}
@@ -1233,16 +1420,23 @@ private fun Tile(
 
 /**
  * The picture of [row]: a small picture of an image (LocalThumbnails), made on an IO thread while its icon is shown,
- * or the icon alone for anything else.
+ * at a size for how large it is drawn, or the icon alone for anything else.
  */
 @Composable
-private fun Picture(row: Row, path: Path) {
+private fun Picture(row: Row, path: Path, zoom: Float) {
 	val palette = LocalPalette.current
 	val thumbnails = LocalThumbnails.current
+	val side = with(LocalDensity.current) { (Dims.picture * zoom).roundToPx() }
 	val drawable = !row.isFolder && Thumbnails.drawable(row.name)
-	val picture by produceState<ImageBitmap?>(null, path, row.modified) {
+
+	val picture by produceState<ImageBitmap?>(
+		null,
+		path,
+		row.modified,
+		Thumbnails.sideFor(side),
+	) {
 		if (drawable)
-			value = thumbnails.of(path, row.modified?.value)
+			value = thumbnails.of(path, row.modified?.value, side)
 	}
 
 	when (val shown = picture) {
@@ -1250,7 +1444,7 @@ private fun Picture(row: Row, path: Path) {
 			GlyphIcon(
 				if (row.isFolder) Glyph.Folder else Glyph.File,
 				palette.text,
-				64.dp,
+				64.dp * zoom,
 				category = row.category,
 			)
 		else ->
@@ -1369,7 +1563,7 @@ private fun Footer(state: PickerState, stops: Stops, onEvent: (PickerEvent) -> U
 private fun statusOf(state: PickerState): String {
 	val shown = state.rows.size
 	val chosen = state.choosing.rows.size
-	val entries = (state.listing as? Listing.Shown)?.entries?.size ?: shown
+	val entries = state.entryCount
 	val items =
 		if (entries == 1)
 			"1 item"
@@ -1423,6 +1617,14 @@ private fun wordsOf(notice: Notice): Words =
 				"Replace",
 				"Cancel",
 			)
+		is Notice.ConfirmDelete ->
+			Words(
+				"Delete ${countOf(notice.paths)} for good?",
+				"It won't go to the trash, and it can't be put back.",
+				"Delete",
+				"Cancel",
+			)
+		is Notice.Failed -> Words(notice.doing, notice.why, "OK", null)
 	}
 
 /**
@@ -1459,15 +1661,20 @@ private fun NoticeLayer(notice: Notice, onEvent: (PickerEvent) -> Unit) {
 					Modifier.fillMaxWidth().padding(top = 20.dp),
 					horizontalArrangement = Arrangement.spacedBy(Dims.gap, Alignment.End),
 				) {
+					val asks = notice is Notice.Replace || notice is Notice.ConfirmDelete
+
 					PickerButton(
 						words.yes,
-						Emphasis.Primary,
+						if (notice is Notice.ConfirmDelete)
+							Emphasis.Danger
+						else
+							Emphasis.Primary,
 						enabled = true,
 						Modifier.testTag("yes"),
 						first,
 					) {
 						onEvent(
-							if (notice is Notice.Replace)
+							if (asks)
 								PickerEvent.Confirmed
 							else
 								PickerEvent.Dismissed,

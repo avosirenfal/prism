@@ -1,10 +1,16 @@
 package barion.picker
 
 import java.io.IOException
+import java.nio.file.AccessDeniedException
 import java.nio.file.DirectoryIteratorException
+import java.nio.file.DirectoryNotEmptyException
+import java.nio.file.FileAlreadyExistsException
+import java.nio.file.FileVisitResult
 import java.nio.file.Files
 import java.nio.file.LinkOption
+import java.nio.file.NoSuchFileException
 import java.nio.file.Path
+import java.nio.file.SimpleFileVisitor
 import java.nio.file.attribute.BasicFileAttributes
 import java.time.Instant
 import java.time.ZoneId
@@ -29,6 +35,9 @@ interface Disk {
 
 	/** What is at each of [paths]. */
 	fun look(paths: List<Path>): Map<Path, Found>
+
+	/** [change] made, and what came of it. */
+	fun make(change: Change): ChangeResult
 }
 
 /** The answer to [asking], from this disk. */
@@ -36,15 +45,70 @@ fun Disk.answer(asking: Effect.Asking): Answer =
 	when (asking) {
 		is Effect.Read -> Answer.Arrived(asking.folder, read(asking.folder))
 		is Effect.Look -> Answer.Looked(asking.lookup, look(asking.lookup.paths))
+		is Effect.Make -> Answer.Changed(asking.change, make(asking.change))
 	}
 
 /** The file system through the JVM, its times said in [zone]. */
 class JvmDisk(
 	private val zone: ZoneId = ZoneId.systemDefault(),
+	private val trash: Trash = Trash.ofUser(),
 ) : Disk {
 	override fun read(folder: Path): Listing.Read = listingOf(folder, zone)
 
 	override fun look(paths: List<Path>): Map<Path, Found> = paths.associateWith(::foundAt)
+
+	override fun make(change: Change): ChangeResult =
+		attempted {
+			when (change) {
+				// Never over what is there: the JVM refuses to move onto an existing entry without being told to.
+				is Change.Rename -> Files.move(change.from, change.to)
+				is Change.MakeFolder -> Files.createDirectory(change.path)
+				is Change.Trash -> change.paths.forEach(trash::put)
+				is Change.Delete -> change.paths.forEach(::deleteTree)
+			}
+		}
+}
+
+/** [work] done, or why not, in the words a person reads. */
+private fun attempted(work: () -> Unit): ChangeResult =
+	try {
+		work()
+		ChangeResult.Done
+	} catch (taken: FileAlreadyExistsException) {
+		ChangeResult.Failed(
+			"There is already something called “${Path(taken.file).fileName}” here.",
+		)
+	} catch (gone: NoSuchFileException) {
+		ChangeResult.Failed("“${Path(gone.file).fileName}” isn't there any more.")
+	} catch (denied: AccessDeniedException) {
+		ChangeResult.Failed("You aren't allowed to change “${Path(denied.file).fileName}”.")
+	} catch (notEmpty: DirectoryNotEmptyException) {
+		ChangeResult.Failed("“${Path(notEmpty.file).fileName}” isn't empty.")
+	} catch (failed: IOException) {
+		ChangeResult.Failed(failed.message ?: failed.toString())
+	} catch (denied: SecurityException) {
+		ChangeResult.Failed(denied.message ?: "Not allowed.")
+	}
+
+/** [path] deleted, and everything in it if it is a folder; a link is deleted, never what it leads to. */
+private fun deleteTree(path: Path) {
+	Files.walkFileTree(
+		path,
+		object : SimpleFileVisitor<Path>() {
+			override fun visitFile(file: Path, attributes: BasicFileAttributes): FileVisitResult {
+				Files.delete(file)
+
+				return FileVisitResult.CONTINUE
+			}
+
+			override fun postVisitDirectory(folder: Path, failed: IOException?): FileVisitResult {
+				failed?.let { throw it }
+				Files.delete(folder)
+
+				return FileVisitResult.CONTINUE
+			}
+		},
+	)
 }
 
 /**

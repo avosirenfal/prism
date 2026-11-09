@@ -2,6 +2,7 @@ package barion.picker
 
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.test.ComposeUiTest
 import androidx.compose.ui.test.ExperimentalTestApi
@@ -26,13 +27,17 @@ import androidx.compose.ui.test.performKeyInput
 import androidx.compose.ui.test.performMouseInput
 import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.test.pressKey
+import androidx.compose.ui.test.rightClick
 import androidx.compose.ui.test.runComposeUiTest
 import androidx.compose.ui.test.withKeyDown
 import java.nio.file.Path
 import kotlin.io.path.createDirectories
+import kotlin.io.path.exists
+import kotlin.io.path.readText
 import kotlin.io.path.writeText
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
@@ -45,6 +50,13 @@ import org.junit.jupiter.api.io.TempDir
 class InteractionTest {
 	@TempDir
 	lateinit var work: Path
+
+	/** The trash the tests' disk uses, so that nothing goes to the real one. */
+	@TempDir
+	lateinit var bin: Path
+
+	/** What the picker put on the clipboard, in order. */
+	private val copied = mutableListOf<String>()
 
 	/** A small home: two folders, one with a folder of its own, and a few files. */
 	private fun home(): Path {
@@ -73,8 +85,9 @@ class InteractionTest {
 				remember {
 					Session(
 						opened(choosing, folder, work, sidebarOf(work)),
-						JvmDisk(),
+						JvmDisk(trash = Trash(bin)),
 						scope,
+						clipboard = { copied += it },
 					)
 				}
 
@@ -95,15 +108,40 @@ class InteractionTest {
 			assertEquals(0, onAllNodes(hasTestTag("row:$it")).fetchSemanticsNodes().size, it)
 		}
 
-	/** The small home, with a real picture, a video and a hidden file besides. */
+	/** The small home, with a real picture, a video, a hidden file and a hidden folder besides. */
 	private fun media(): Path =
 		home().also {
 			ThumbnailTest.picture(it, "photo.png", 400, 300)
 			it.resolve("clip.mp4").writeText("not really")
 			it.resolve(".secret").writeText("")
+			it.resolve(".stash").createDirectories()
 		}
 
-	private fun ComposeUiTest.focused(): SemanticsNodeInteraction = onNode(isFocused())
+	/** No menu is open. */
+	private fun ComposeUiTest.noMenu() =
+		assertEquals(0, onAllNodes(hasTestTag("menu")).fetchSemanticsNodes().size)
+
+	/** [key] pressed with Ctrl held, on whatever has the keyboard. */
+	private fun ComposeUiTest.ctrl(key: Key) =
+		focused().performKeyInput { withKeyDown(Key.CtrlLeft) { pressKey(key) } }
+
+	/** The listing pressed with the right button where there is no row: its lower right corner. */
+	private fun ComposeUiTest.rightClickNowhere() =
+		onNodeWithTag("listing").performMouseInput {
+			rightClick(Offset(width - 20f, height - 20f))
+		}
+
+	/**
+	 * What has the keyboard. A menu or a notice open has a focus of its own, beside the window's, and it is what keys
+	 * go to while it is open.
+	 */
+	private fun ComposeUiTest.focused(): SemanticsNodeInteraction =
+		listOf(
+			isFocused() and hasTestTag("menu"),
+			isFocused() and hasAnyAncestor(hasTestTag("notice")),
+		).firstOrNull { onAllNodes(it).fetchSemanticsNodes().isNotEmpty() }
+			?.let { onNode(it) }
+			?: onNode(isFocused())
 
 	/** The keyboard is on the control tagged [tag], or on the part of it that takes the keyboard. */
 	private fun ComposeUiTest.focusIsIn(tag: String) =
@@ -237,7 +275,7 @@ class InteractionTest {
 			focusIsIn("cancel")
 			focused().performKeyInput { withKeyDown(Key.ShiftLeft) { pressKey(Key.Tab) } }
 			focusIsIn("name")
-			// Round from the end to the start: the path, the search, the places, the filters, then the listing.
+			// Round from the end to the start: the path, the search, the places, then the listing.
 			press(Key.Tab)
 			press(Key.Tab)
 			focusIsIn("crumbs")
@@ -245,10 +283,6 @@ class InteractionTest {
 			focusIsIn("search")
 			press(Key.Tab)
 			focusIsIn("places")
-			press(Key.Tab)
-			focusIsIn("kinds")
-			press(Key.Tab)
-			focusIsIn("hidden")
 			press(Key.Tab)
 			focusIsIn("listing")
 		}
@@ -343,10 +377,8 @@ class InteractionTest {
 	@Test
 	fun thePlacesAreOneStopWhoseArrowsMoveAndEnterOpens() =
 		picking {
-			// Back from the listing: past Show hidden and the kinds to the places.
-			repeat(3) {
-				focused().performKeyInput { withKeyDown(Key.ShiftLeft) { pressKey(Key.Tab) } }
-			}
+			// Back from the listing: the places.
+			focused().performKeyInput { withKeyDown(Key.ShiftLeft) { pressKey(Key.Tab) } }
 			focusIsIn("places")
 			// The arrows start at the place shown (Home); the next one down is Documents.
 			press(Key.DirectionDown)
@@ -406,51 +438,204 @@ class InteractionTest {
 		}
 
 	@Test
-	fun theFiltersShowOnlyTheKindsChosenAndHiddenEntriesApart() =
+	fun theFilterMenuShowsOnlyTheKindChosenAndWithCtrlMore() =
 		picking(folder = media()) {
-			// Everything at first, hidden entries too.
+			// Hidden files are shown at first, hidden folders not.
 			row(".secret").assertExists()
-			row("Documents").assertExists()
-			onNodeWithTag("kind:All").assertIsSelected()
-			onNodeWithTag("hidden").assertIsOn()
+			absent(".stash")
 
-			onNodeWithTag("kind:Images").performClick()
+			onNodeWithTag("filters").performClick()
+			onNodeWithTag("menu:All kinds").assertIsSelected()
+			onNodeWithTag("menu:Images").performClick()
+
+			// Only the images, and the menu closed.
 			row("photo.png").assertExists()
-			absent("notes.md", "Documents", "clip.mp4")
-			onNodeWithTag("kind:All").assertIsNotSelected()
+			absent("notes.md", "Documents", "clip.mp4", ".secret")
+			noMenu()
+			onNodeWithTag("filters").assertIsSelected()
 
-			// A second kind shows its entries as well.
-			onNodeWithTag("kind:Videos").performClick()
+			// With Ctrl, the videos as well, and the menu stays open to choose more.
+			onNodeWithTag("filters").performClick()
+			focused().performKeyInput { keyDown(Key.CtrlLeft) }
+			onNodeWithTag("menu:Videos").performMouseInput { click() }
+			focused().performKeyInput { keyUp(Key.CtrlLeft) }
+			onNodeWithTag("menu:Videos").assertIsSelected()
+			onNodeWithTag("menu:Images").assertIsSelected()
 			row("photo.png").assertExists()
 			row("clip.mp4").assertExists()
-			absent("notes.md", "Documents")
-			onNodeWithTag("status").assertTextEquals("2 of 8 items")
+			absent("notes.md")
+			onNodeWithTag("status").assertTextEquals("2 of 9 items")
 
-			// Hidden entries are shown or not whatever kinds are on: none here are images or videos.
-			onNodeWithTag("kind:All").performClick()
-			row(".secret").assertExists()
-			onNodeWithTag("hidden").performClick()
-			onNodeWithTag("hidden").assertIsOff()
-			absent(".secret")
+			// Every kind again, then the hidden folders, apart from the kinds.
+			onNodeWithTag("menu:All kinds").performClick()
+			noMenu()
 			row("notes.md").assertExists()
+			onNodeWithTag("filters").performClick()
+			onNodeWithTag("menu:Show hidden folders").performClick()
+			row(".stash").assertExists()
+			onNodeWithTag("filters").performClick()
+			onNodeWithTag("menu:Show hidden files").performClick()
+			absent(".secret")
+			row(".stash").assertExists()
 		}
 
 	@Test
-	fun theFiltersAreOneStopOfTheKeyboard() =
+	fun aMenuIsWorkedByTheKeyboard() =
 		picking(folder = media()) {
-			// Back from the listing: Show hidden, then the kinds.
-			focused().performKeyInput { withKeyDown(Key.ShiftLeft) { pressKey(Key.Tab) } }
-			focusIsIn("hidden")
-			press(Key.Spacebar)
-			absent(".secret")
-			focused().performKeyInput { withKeyDown(Key.ShiftLeft) { pressKey(Key.Tab) } }
-			focusIsIn("kinds")
-			// All, Folders, Images: two to the right, and on.
-			press(Key.DirectionRight)
-			press(Key.DirectionRight)
-			press(Key.Spacebar)
-			onNodeWithTag("kind:Images").assertIsSelected()
+			onNodeWithTag("filters").performClick()
+			// Down lights All kinds, then Folders; Enter chooses it.
+			press(Key.DirectionDown)
+			press(Key.DirectionDown)
+			press(Key.Enter)
+			noMenu()
+			row("Documents").assertExists()
 			absent("notes.md")
+
+			// Escape closes a menu without closing the picker.
+			onNodeWithTag("filters").performClick()
+			press(Key.Escape)
+			noMenu()
+			row("Documents").assertExists()
+		}
+
+	@Test
+	fun aRowsMenuRenamesIt() =
+		picking { session ->
+			// The right button chooses the row it is pressed on, and opens its menu.
+			row("notes.md").performMouseInput { rightClick() }
+			row("notes.md").assertIsSelected()
+			onNodeWithTag("menu:Rename").performClick()
+
+			field("rename").assertIsFocused()
+			field("rename").assertTextEquals("notes.md")
+			field("rename").performTextReplacement("journal.md")
+			press(Key.Enter)
+
+			waitUntil(timeoutMillis = TIMEOUT) { work.resolve("journal.md").exists() }
+			assertFalse(work.resolve("notes.md").exists())
+			waitUntil(timeoutMillis = TIMEOUT) {
+				session.state.value.chosenRows
+					.map { it.name } ==
+					listOf("journal.md")
+			}
+			// The keyboard is back in the listing.
+			focusIsIn("listing")
+		}
+
+	@Test
+	fun f2RenamesAndEscapeLeavesTheNameAsItWas() =
+		picking { session ->
+			row("todo.txt").performClick()
+			press(Key.F2)
+			field("rename").performTextReplacement("done.txt")
+			press(Key.Escape)
+
+			waitUntil(timeoutMillis = TIMEOUT) { session.state.value.renaming == null }
+			assertTrue(work.resolve("todo.txt").exists())
+			assertFalse(work.resolve("done.txt").exists())
+			// Escape left the name; it did not cancel the picker.
+			assertFalse(session.outcome.isCompleted)
+		}
+
+	@Test
+	fun deleteMovesToTheTrash() =
+		picking {
+			row("todo.txt").performClick()
+			press(Key.Delete)
+
+			waitUntil(timeoutMillis = TIMEOUT) { !work.resolve("todo.txt").exists() }
+			assertEquals("everything", bin.resolve("files/todo.txt").readText())
+			waitUntil(timeoutMillis = TIMEOUT) {
+				onAllNodes(hasTestTag("row:todo.txt")).fetchSemanticsNodes().isEmpty()
+			}
+		}
+
+	@Test
+	fun deletingForGoodAsksFirst() =
+		picking {
+			row("main.kt").performMouseInput { rightClick() }
+			onNodeWithTag("menu:Delete permanently…").performClick()
+
+			waitUntil(timeoutMillis = TIMEOUT) {
+				onAllNodes(hasTestTag("notice")).fetchSemanticsNodes().isNotEmpty()
+			}
+			assertTrue(work.resolve("main.kt").exists())
+			onNodeWithTag("yes").performClick()
+
+			waitUntil(timeoutMillis = TIMEOUT) { !work.resolve("main.kt").exists() }
+			assertFalse(bin.resolve("files/main.kt").exists())
+		}
+
+	@Test
+	fun theFoldersMenuSortsAndMakesAFolder() =
+		picking { session ->
+			rightClickNowhere()
+			// Hovering a submenu's entry opens it.
+			onNodeWithTag("menu:Sort by").performMouseInput { moveTo(center) }
+			onNodeWithTag("menu:Size").performClick()
+			waitUntil(timeoutMillis = TIMEOUT) {
+				session.state.value.arrangement.sort.by ==
+					Sort.Column.Size
+			}
+			noMenu()
+
+			rightClickNowhere()
+			onNodeWithTag("menu:New folder").performClick()
+			waitUntil(timeoutMillis = TIMEOUT) {
+				onAllNodes(hasTestTag("rename")).fetchSemanticsNodes().isNotEmpty()
+			}
+			assertTrue(work.resolve("New folder").exists())
+			field("rename").assertTextEquals("New folder")
+			field("rename").performTextReplacement("Archive")
+			press(Key.Enter)
+
+			waitUntil(timeoutMillis = TIMEOUT) { work.resolve("Archive").exists() }
+			assertFalse(work.resolve("New folder").exists())
+		}
+
+	@Test
+	fun copyPathPutsItOnTheClipboard() =
+		picking {
+			row("notes.md").performMouseInput { rightClick() }
+			onNodeWithTag("menu:Copy path").performClick()
+			waitUntil(timeoutMillis = TIMEOUT) { copied.isNotEmpty() }
+			assertEquals(listOf(work.resolve("notes.md").toString()), copied)
+		}
+
+	@Test
+	fun shiftF10OpensTheMenuFromTheKeyboard() =
+		picking { session ->
+			press(Key.DirectionDown)
+			focused().performKeyInput { withKeyDown(Key.ShiftLeft) { pressKey(Key.F10) } }
+			// The menu of the row chosen, which is a folder.
+			onNodeWithTag("menu:Open").assertExists()
+			press(Key.Escape)
+			noMenu()
+			assertFalse(session.outcome.isCompleted)
+		}
+
+	@Test
+	fun ctrlAndTheWheelMakeTheListingLargerAndSmaller() =
+		picking { session ->
+			focused().performKeyInput { keyDown(Key.CtrlLeft) }
+			// A test's mouse starts at the window's corner, and a wheel turns where the mouse is: over the listing, then.
+			onNodeWithTag("listing").performMouseInput {
+				moveTo(center)
+				scroll(-1f)
+			}
+			focused().performKeyInput { keyUp(Key.CtrlLeft) }
+			waitUntil(timeoutMillis = TIMEOUT) { session.state.value.zoom == Zoom.Large }
+
+			focused().performKeyInput { keyDown(Key.CtrlLeft) }
+			onNodeWithTag("listing").performMouseInput {
+				moveTo(center)
+				scroll(2f)
+			}
+			focused().performKeyInput { keyUp(Key.CtrlLeft) }
+			waitUntil(timeoutMillis = TIMEOUT) { session.state.value.zoom == Zoom.Small }
+
+			ctrl(Key.Zero)
+			waitUntil(timeoutMillis = TIMEOUT) { session.state.value.zoom == Zoom.Normal }
 		}
 
 	@Test

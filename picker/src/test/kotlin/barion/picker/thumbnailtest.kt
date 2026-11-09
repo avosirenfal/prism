@@ -38,24 +38,26 @@ class ThumbnailTest {
 	@Test
 	fun anImageIsScaledToFitAndKept() =
 		runBlocking {
-			val thumbnails = Thumbnails(side = 256)
+			val thumbnails = Thumbnails()
 			val photo = picture(work, "photo.png", 400, 300)
 			val modified = Files.getLastModifiedTime(photo).toInstant()
-			val small = thumbnails.of(photo, modified)!!
+			val small = thumbnails.of(photo, modified, 200)!!
 
+			// Drawn 200 pixels across, made at the first size at least that large.
 			assertEquals(256, small.width)
 			assertEquals(192, small.height)
 			// Asked again: the same picture, not decoded again.
-			assertSame(small, thumbnails.of(photo, modified))
-			// Changed since: decoded anew.
-			assertNotSame(small, thumbnails.of(photo, modified.plusSeconds(1)))
+			assertSame(small, thumbnails.of(photo, modified, 256))
+			// Changed since: decoded anew. Drawn larger: made larger.
+			assertNotSame(small, thumbnails.of(photo, modified.plusSeconds(1), 256))
+			assertEquals(128, thumbnails.of(photo, modified, 100)!!.width)
 		}
 
 	@Test
 	fun aSmallImageIsNotScaledUp() =
 		runBlocking {
 			val icon = picture(work, "icon.jpg", 32, 24)
-			val small = Thumbnails(side = 256).of(icon, Instant.EPOCH)!!
+			val small = Thumbnails().of(icon, Instant.EPOCH, 256)!!
 
 			assertEquals(32, small.width)
 			assertEquals(24, small.height)

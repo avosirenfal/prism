@@ -23,53 +23,63 @@ import org.jetbrains.skia.Surface
 
 /**
  * Small pictures of image files, for the gallery. Each is decoded by Skia (the library Compose draws with), scaled to
- * fit a square of [side] pixels, and kept, by the file's path and the time it was last changed, so that a file is
+ * fit a square of one of a few sizes (the first at least as large as the tile draws it, so a gallery made larger gets
+ * sharper pictures), and kept, by the file's path, the time it was last changed and the size, so that a file is
  * decoded once however often its tile is drawn, and again only once it has changed.
  *
  * Decoding a photograph takes tens of milliseconds and the whole image's memory while it lasts, so at most
  * [parallel] are decoded at once, on IO threads; a tile scrolled away before its turn comes is never decoded at all,
- * since asking is cancelled with it. The [kept] pictures are the [capacity] used most recently.
+ * since asking is cancelled with it. What is kept is the pictures used most recently, up to [budget] pixels in all
+ * (four bytes each).
  *
  * What is kept is the one thing here that changes, and it is a cache: asking twice gives the same picture whether or
  * not it was kept in between.
  */
 class Thumbnails(
-	private val side: Int = 256,
-	private val capacity: Int = 1024,
+	private val budget: Long = 16L * 1024 * 1024,
 	parallel: Int = 4,
 ) {
 	private data class Key(
 		val path: Path,
 		val modified: Instant?,
+		val side: Int,
 	)
 
-	private val kept =
-		object : LinkedHashMap<Key, ImageBitmap>(capacity, 0.75f, true) {
-			override fun removeEldestEntry(
-				eldest: MutableMap.MutableEntry<Key, ImageBitmap>?,
-			): Boolean = size > capacity
-		}
+	/** The pictures kept, the least recently used first, and how many pixels they hold in all. */
+	private val kept = LinkedHashMap<Key, ImageBitmap>(64, 0.75f, true)
+	private var pixels = 0L
 
 	private val decoding: CoroutineDispatcher = Dispatchers.IO.limitedParallelism(parallel)
 
-	/** [path]'s picture, last changed at [modified]; null for a file that is not an image Skia can decode. */
-	suspend fun of(path: Path, modified: Instant?): ImageBitmap? {
+	/**
+	 * [path]'s picture, last changed at [modified], to be drawn [side] pixels across at most; null for a file that is
+	 * not an image Skia can decode.
+	 */
+	suspend fun of(path: Path, modified: Instant?, side: Int = SIDES[1]): ImageBitmap? {
 		if (!drawable(path.name))
 			return null
 
-		val key = Key(path, modified)
+		val key = Key(path, modified, sideFor(side))
 
 		return synchronized(kept) { kept[key] }
-			?: withContext(decoding) { pictureOf(path) }?.also { picture ->
-				synchronized(kept) {
-					kept[key] =
-						picture
-				}
-			}
+			?: withContext(decoding) { pictureOf(path, key.side) }?.also { keep(key, it) }
 	}
 
-	/** [path] decoded and scaled down to fit the square; null where it cannot be read or decoded. */
-	private fun pictureOf(path: Path): ImageBitmap? {
+	private fun keep(key: Key, picture: ImageBitmap) =
+		synchronized(kept) {
+			kept.put(key, picture)?.let { pixels -= it.area }
+			pixels += picture.area
+
+			val oldest = kept.entries.iterator()
+
+			while (pixels > budget && oldest.hasNext()) {
+				pixels -= oldest.next().value.area
+				oldest.remove()
+			}
+		}
+
+	/** [path] decoded and scaled down to fit a square of [side]; null where it cannot be read or decoded. */
+	private fun pictureOf(path: Path, side: Int): ImageBitmap? {
 		val bytes =
 			try {
 				if (Files.size(path) > LARGEST)
@@ -107,6 +117,14 @@ class Thumbnails(
 	}
 
 	companion object {
+		/** The sizes a picture is made at, across: the first at least as large as it is drawn is the one made. */
+		private val SIDES = listOf(128, 256, 512)
+
+		/** The size a picture drawn [wanted] pixels across is made at. */
+		fun sideFor(wanted: Int): Int = SIDES.firstOrNull { it >= wanted } ?: SIDES.last()
+
+		private val ImageBitmap.area: Long get() = width.toLong() * height
+
 		/** The largest file decoded, in bytes: anything bigger is drawn as its icon. */
 		private const val LARGEST = 64L * 1024 * 1024
 

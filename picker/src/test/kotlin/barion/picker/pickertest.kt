@@ -44,10 +44,10 @@ class PickerTest {
 
 	@Test
 	fun thePickerDrawsInBothPalettes() {
-		// As a picker opens: hidden entries shown (dimmed), until the user hides them.
+		// As a picker opens: hidden files shown (dimmed), hidden folders not.
 		val state =
 			after(
-				picker(showHidden = true),
+				picker(hidden = Hidden()),
 				PickerEvent.Opened(Path("/")),
 				PickerEvent.Opened(home),
 				PickerEvent.Clicked(RowId("Holiday in Lisbon.jpg"), Click.Only),

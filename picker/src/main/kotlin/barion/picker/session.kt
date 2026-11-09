@@ -4,6 +4,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import java.awt.HeadlessException
+import java.awt.Toolkit
+import java.awt.datatransfer.StringSelection
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
@@ -30,6 +33,7 @@ class Session(
 	private val disk: Disk,
 	private val scope: CoroutineScope,
 	private val io: CoroutineDispatcher = Dispatchers.IO,
+	private val clipboard: (String) -> Unit = ::toClipboard,
 ) {
 	private val inputs = Channel<Input>(Channel.UNLIMITED)
 	private val ending = CompletableDeferred<Outcome>()
@@ -53,6 +57,7 @@ class Session(
 	private fun perform(effect: Effect) {
 		when (effect) {
 			is Effect.Asking -> scope.launch(io) { inputs.send(answerOf(effect)) }
+			is Effect.Copy -> clipboard(effect.text)
 			is Effect.Finish -> ending.complete(effect.outcome)
 		}
 	}
@@ -69,8 +74,24 @@ class Session(
 						Listing.Unreadable(failed.message ?: failed.toString()),
 					)
 				is Effect.Look -> Answer.Looked(asking.lookup, emptyMap())
+				is Effect.Make ->
+					Answer.Changed(
+						asking.change,
+						ChangeResult.Failed(failed.message ?: failed.toString()),
+					)
 			}
 		}
+}
+
+/** [text] on the system's clipboard, where there is one: a picker with no display has none, and copies nothing. */
+fun toClipboard(text: String) {
+	try {
+		Toolkit.getDefaultToolkit().systemClipboard.setContents(StringSelection(text), null)
+	} catch (headless: HeadlessException) {
+		Unit
+	} catch (busy: IllegalStateException) {
+		Unit
+	}
 }
 
 /** The picker [session] runs, drawn: its state as it changes, and what the user does sent to it. */

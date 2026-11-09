@@ -18,8 +18,12 @@ import java.nio.file.Path
  *   file is opened, and a name that is not there is said to be not found (or, saving, saved under).
  * - Saving over a file asks first.
  * - Going up lands the cursor on the folder just left.
- * - Hidden entries are shown until the user hides them. The kinds of entry chosen above the listing narrow it to
- *   those kinds together (images and videos: both), and stay chosen from folder to folder; none chosen is everything.
+ * - Hidden files are shown and hidden folders are not, until the user says otherwise. A kind chosen from the filter
+ *   menu narrows the listing to that kind alone; chosen with Ctrl, it is added to the kinds shown (images and videos:
+ *   both). The kinds stay chosen from folder to folder; none chosen is everything.
+ * - Renaming, the trash, deleting for good and making a folder are asked of the disk, and the folder is read again
+ *   after, whatever came of it; deleting for good asks first. A name with a slash in it, or `.` or `..`, is refused
+ *   before the disk is asked.
  */
 
 /** The picker opened on [folder]: its first state, and the read of its folder that it waits for. */
@@ -43,7 +47,7 @@ fun opened(
 			home = home.toAbsolutePath().normalize(),
 			history = History(),
 			sidebar = sidebar,
-			listing = Listing.Reading(Landing.Top),
+			listing = Listing.Reading,
 			arrangement = Arrangement(filter = filters.first()),
 			filters = filters,
 			cursor = null,
@@ -86,12 +90,27 @@ private fun did(state: PickerState, event: PickerEvent): Step =
 		is PickerEvent.Clicked -> Step(state.clicked(event.row, event.click))
 		PickerEvent.ClickedNowhere -> Step(state.copy(choosing = state.choosing.unchosen()))
 		is PickerEvent.Activated -> state.activated(event.row)
+		is PickerEvent.Picked ->
+			if (event.row in state.rows)
+				state.copy(choosing = state.choosing.chose(setOf(event.row), state.rows)).accepted()
+			else
+				Step(state)
 		is PickerEvent.Moved -> Step(state.moved(event.move, event.carry))
 		PickerEvent.Toggled -> Step(state.toggled())
 		PickerEvent.ChoseAll -> Step(state.choseAll())
 		is PickerEvent.Jumped -> Step(state.jumped(event.prefix))
 		is PickerEvent.Sorted -> state.arranged { copy(sort = sort.toggled(event.by)) }
-		PickerEvent.ToggledHidden -> state.arranged { copy(showHidden = !showHidden) }
+		is PickerEvent.SortedBy -> state.arranged { copy(sort = event.sort) }
+		PickerEvent.ToggledHiddenFiles ->
+			state.arranged {
+				copy(hidden = hidden.copy(files = !hidden.files))
+			}
+		PickerEvent.ToggledHiddenFolders ->
+			state.arranged {
+				copy(hidden = hidden.copy(folders = !hidden.folders))
+			}
+		PickerEvent.ToggledEveryHidden -> state.arranged { copy(hidden = hidden.toggled()) }
+		is PickerEvent.ShowedOnlyKind -> state.arranged { copy(kinds = setOf(event.kind)) }
 		is PickerEvent.ToggledKind ->
 			state.arranged {
 				copy(
@@ -104,6 +123,47 @@ private fun did(state: PickerState, event: PickerEvent): Step =
 			}
 		PickerEvent.ShowedEveryKind -> state.arranged { copy(kinds = emptySet()) }
 		is PickerEvent.Viewed -> Step(state.copy(layout = event.layout))
+		is PickerEvent.Zoomed ->
+			Step(
+				state.copy(zooms = state.zooms.with(state.layout, state.zoom.by(event.steps))),
+			)
+		PickerEvent.Unzoomed ->
+			Step(
+				state.copy(zooms = state.zooms.with(state.layout, Zoom.Normal)),
+			)
+		is PickerEvent.StartedRenaming -> Step(state.renaming(event.row))
+		is PickerEvent.RenameTyped ->
+			Step(
+				state.copy(renaming = state.renaming?.copy(text = event.text)),
+			)
+		PickerEvent.Renamed -> state.renamed()
+		PickerEvent.RenameCancelled -> Step(state.copy(renaming = null))
+		is PickerEvent.Trashed ->
+			state
+				.pathsOf(event.rows)
+				.takeIf {
+					it.isNotEmpty()
+				}?.let { state.making(Change.Trash(it)) }
+				?: Step(state)
+		is PickerEvent.Deleted ->
+			state
+				.pathsOf(event.rows)
+				.takeIf {
+					it.isNotEmpty()
+				}?.let { state.notice(Notice.ConfirmDelete(it)) }
+				?: Step(state)
+		PickerEvent.MadeFolder ->
+			state.making(
+				Change.MakeFolder(state.folder.resolve(state.freeName("New folder"))),
+			)
+		is PickerEvent.CopiedPaths ->
+			Step(
+				state,
+				if (event.paths.isEmpty())
+					emptyList()
+				else
+					listOf(Effect.Copy(event.paths.joinToString("\n"))),
+			)
 		is PickerEvent.Searched -> state.arranged { copy(query = event.query) }
 		is PickerEvent.Filtered ->
 			if (event.filter in state.filters)
@@ -139,7 +199,15 @@ private fun noticed(state: PickerState, notice: Notice, event: PickerEvent): Ste
 		PickerEvent.Confirmed ->
 			when (notice) {
 				is Notice.Replace -> state.finished(listOf(notice.path))
-				is Notice.NotFound, is Notice.NotAFolder -> Step(state.copy(notice = null))
+				is Notice.ConfirmDelete ->
+					state
+						.copy(
+							notice = null,
+						).making(Change.Delete(notice.paths))
+				is Notice.NotFound, is Notice.NotAFolder, is Notice.Failed ->
+					Step(
+						state.copy(notice = null),
+					)
 			}
 		PickerEvent.Dismissed -> Step(state.copy(notice = null))
 		PickerEvent.Cancelled -> Step(state, listOf(Effect.Finish(Outcome.Cancelled)))
@@ -151,16 +219,20 @@ private fun noticed(state: PickerState, notice: Notice, event: PickerEvent): Ste
 /**
  * [to] gone to: the folder left goes behind it in the history, and nothing is ahead. (A path is a list of its own
  * names, so a list of paths takes one with `plusElement`: `+` would add its names.) Going to the folder shown reads
- * it again, and lands at once where [landing] says.
+ * it again, and lands where [landing] says when that read arrives.
  */
-private fun PickerState.went(to: Path, landing: Landing = landingFrom(to)): Step {
+private fun PickerState.went(to: Path, landing: Landing? = landingFrom(to)): Step {
 	val target = to.toAbsolutePath().normalize()
 
 	return if (target == folder)
-		Step(copy(address = Address.Crumbs).landed(landing), listOf(Effect.Read(folder)))
+		reread(landing).let { Step(it.state.copy(address = Address.Crumbs), it.effects) }
 	else
 		shown(target, History(history.back.plusElement(folder), emptyList()), landing)
 }
+
+/** The folder shown read again, the cursor to land where [landing] says (if anywhere) when the read arrives. */
+private fun PickerState.reread(landing: Landing? = null): Step =
+	Step(copy(landing = landing ?: this.landing), listOf(Effect.Read(folder)))
 
 private fun PickerState.back(): Step =
 	history.back.lastOrNull()?.let {
@@ -181,19 +253,20 @@ private fun PickerState.forward(): Step =
 	} ?: Step(this)
 
 /** Going from the folder shown to its parent lands on the folder left, as every file manager does. */
-private fun PickerState.landingFrom(to: Path): Landing =
+private fun PickerState.landingFrom(to: Path): Landing? =
 	folder.fileName
 		?.takeIf { folder.parent == to }
 		?.let { Landing.On(RowId(it.toString()), choose = false) }
-		?: Landing.Top
 
 /** [to] shown in place of the folder shown, waiting for its read: nothing chosen, nothing searched for. */
-private fun PickerState.shown(to: Path, history: History, landing: Landing): Step =
+private fun PickerState.shown(to: Path, history: History, landing: Landing?): Step =
 	Step(
 		copy(
 			folder = to,
 			history = history,
-			listing = Listing.Reading(landing),
+			listing = Listing.Reading,
+			landing = landing,
+			renaming = null,
 			arrangement = arrangement.copy(query = ""),
 			choosing = choosing.unchosen(),
 			cursor = null,
@@ -205,10 +278,11 @@ private fun PickerState.shown(to: Path, history: History, landing: Landing): Ste
 
 /** The cursor where [landing] says, if that row is shown. */
 private fun PickerState.landed(landing: Landing): PickerState =
-	when (landing) {
-		Landing.Top -> this
-		is Landing.On ->
-			if (landing.row in rows)
+	if (landing.row !in rows)
+		this
+	else
+		when (landing) {
+			is Landing.On ->
 				copy(
 					cursor = Cursor(landing.row, landing.row),
 					choosing =
@@ -217,9 +291,8 @@ private fun PickerState.landed(landing: Landing): PickerState =
 						else
 							choosing,
 				)
-			else
-				this
-	}
+			is Landing.Renaming -> renaming(landing.row)
+		}
 
 // ---- the listing ------------------------------------------------------------------------------------------------
 
@@ -233,6 +306,7 @@ private fun PickerState.arranged(change: Arrangement.() -> Arrangement): Step {
 			arrangement = arrangement,
 			choosing = choosing.within(rows),
 			cursor = cursor.within(rows),
+			renaming = renaming?.takeIf { it.row in rows },
 		),
 	)
 }
@@ -444,6 +518,7 @@ private fun answered(state: PickerState, answer: Answer): Step =
 				else
 					state,
 			)
+		is Answer.Changed -> state.changed(answer.change, answer.result)
 		// So is a lookup the picker no longer waits for.
 		is Answer.Looked ->
 			if (answer.lookup == state.waiting)
@@ -456,8 +531,8 @@ private fun answered(state: PickerState, answer: Answer): Step =
 	}
 
 /**
- * [read] shown: landed on as the folder was gone to, or, read again, with what was chosen kept where it is still
- * there. A folder picker's listing holds only folders.
+ * [read] shown: what was chosen kept where it is still there (nothing was, in a folder just gone to), and the cursor
+ * landed where the state says it should. A folder picker's listing holds only folders.
  */
 private fun PickerState.arrived(read: Listing.Read): PickerState {
 	val listing =
@@ -474,15 +549,16 @@ private fun PickerState.arrived(read: Listing.Read): PickerState {
 
 	val rows = rowsOf(listing, arrangement)
 
-	return when (val before = this.listing) {
-		is Listing.Reading -> copy(listing = listing).landed(before.landing)
-		is Listing.Read ->
-			copy(
-				listing = listing,
-				choosing = choosing.within(rows),
-				cursor = cursor.within(rows),
-			)
-	}
+	val shown =
+		copy(
+			listing = listing,
+			choosing = choosing.within(rows),
+			cursor = cursor.within(rows),
+			renaming = renaming?.takeIf { it.row in rows },
+			landing = null,
+		)
+
+	return landing?.let(shown::landed) ?: shown
 }
 
 private fun PickerState.looked(lookup: Lookup, at: (Path) -> Found): Step =
@@ -549,6 +625,116 @@ private fun PickerState.accepting(
 				Found.File -> notice(Notice.NotAFolder(lookup.text.trim()))
 				else -> notFound
 			}
+	}
+}
+
+// ---- changing what is on disk -----------------------------------------------------------------------------------
+
+/** [id]'s name made into a field to type over, the row chosen alone. */
+private fun PickerState.renaming(id: RowId): PickerState {
+	val row = rows[id] ?: return this
+
+	return copy(
+		renaming = Renaming(id, row.name),
+		choosing = choosing.chose(setOf(id), rows),
+		cursor = Cursor(id, id),
+	)
+}
+
+/** The name typed given: refused here if it cannot be a name, left alone if it is the same, asked of the disk. */
+private fun PickerState.renamed(): Step {
+	val renaming = renaming ?: return Step(this)
+	val name = renaming.text.trim()
+	val old = renaming.row.name
+	val refusal = refusalOf(name)
+
+	return when {
+		name == old || name.isEmpty() -> Step(copy(renaming = null))
+		refusal != null -> notice(Notice.Failed("Couldn't rename “$old”", refusal))
+		else ->
+			copy(
+				renaming = null,
+			).making(Change.Rename(folder.resolve(old), folder.resolve(name)))
+	}
+}
+
+/** [change] asked of the disk. */
+private fun PickerState.making(change: Change): Step =
+	Step(this, listOf(Effect.Make(change)))
+
+/**
+ * What came of a change: the folder is read again whatever it was, since a change half done is a change, and the
+ * cursor lands on what the change made (a renamed entry, chosen; a new folder, its name to type over). What failed is
+ * said, with why.
+ */
+private fun PickerState.changed(change: Change, result: ChangeResult): Step {
+	fun here(path: Path) = path.parent == folder
+
+	val landing =
+		when {
+			result != ChangeResult.Done -> null
+			change is Change.Rename &&
+				here(
+					change.to,
+				)
+			-> Landing.On(RowId(change.to.fileName.toString()), choose = true)
+			change is Change.MakeFolder &&
+				here(
+					change.path,
+				)
+			-> Landing.Renaming(RowId(change.path.fileName.toString()))
+			else -> null
+		}
+
+	val reread = reread(landing)
+
+	return when (result) {
+		ChangeResult.Done -> reread
+		is ChangeResult.Failed ->
+			Step(
+				reread.state.copy(notice = Notice.Failed(doingOf(change), result.why)),
+				reread.effects,
+			)
+	}
+}
+
+private fun doingOf(change: Change): String =
+	when (change) {
+		is Change.Rename -> "Couldn't rename “${change.from.fileName}”"
+		is Change.Trash -> "Couldn't move ${countOf(change.paths)} to the trash"
+		is Change.Delete -> "Couldn't delete ${countOf(change.paths)}"
+		is Change.MakeFolder -> "Couldn't make a folder"
+	}
+
+/** "“a.txt”" for one path, "3 items" for several: how a change's paths are named in what is said of it. */
+fun countOf(paths: List<Path>): String =
+	paths.singleOrNull()?.let { "“${it.fileName}”" } ?: "${paths.size} items"
+
+/** Why [name] cannot be a name of an entry, if it cannot. */
+fun refusalOf(name: String): String? =
+	when {
+		'/' in name -> "A name can't have “/” in it."
+		'\u0000' in name -> "A name can't have a NUL character in it."
+		name == "." || name == ".." -> "“$name” is the name of a folder itself, not of an entry in it."
+		name.toByteArray().size > 255 -> "That name is too long."
+		else -> null
+	}
+
+/** The paths of [ids] that the listing shows, in the order they are shown. */
+private fun PickerState.pathsOf(ids: List<RowId>): List<Path> =
+	rows.inOrder(ids.toSet()).map { folder.resolve(it.name) }
+
+/** [wanted], or, if the folder holds an entry of that name, the first of "[wanted] 2", "[wanted] 3", ... it does not. */
+private fun PickerState.freeName(wanted: String): String {
+	val taken = (listing as? Listing.Shown)?.entries?.mapTo(HashSet()) { it.name }.orEmpty()
+
+	return (
+		sequenceOf(
+			wanted,
+		) + generateSequence(2) { it + 1 }.map { "$wanted $it" }
+	).first {
+		it !in
+			taken
 	}
 }
 

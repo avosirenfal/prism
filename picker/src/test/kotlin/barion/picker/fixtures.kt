@@ -117,26 +117,33 @@ object Fixtures {
 					else -> Found.Nothing(inFolder = path.parent in tree)
 				}
 			}
+
+		/** Every change done, as far as a disk held in code can say: the tree itself never changes. */
+		override fun make(change: Change): ChangeResult = ChangeResult.Done
 	}
 
 	/**
-	 * A picker opened on [folder] over [Memory], choosing [choosing], settled. A picker shows hidden entries until the
-	 * user hides them; most of the tests count rows without the fixture's two dotfiles, so this hides them unless
-	 * [showHidden] says not to.
+	 * A picker opened on [folder] over [Memory], choosing [choosing], settled. A picker shows hidden files until the
+	 * user hides them; most of the tests count rows without the fixture's two dotfiles (`.bashrc`, and the folder
+	 * `.config`), so this shows neither, unless [hidden] says otherwise.
 	 */
 	fun picker(
 		choosing: Choosing = Choosing.OneFile(),
 		folder: Path = home,
 		filters: List<TypeFilter> = this.filters,
-		showHidden: Boolean = false,
+		hidden: Hidden = NO_HIDDEN,
 	): PickerState {
 		val opened = opened(choosing, folder, home, sidebar, filters = filters).settled(Memory)
+		val shown = opened.arrangement.hidden
 
-		return if (showHidden)
-			opened
-		else
-			step(opened, PickerEvent.ToggledHidden).state
+		return listOfNotNull(
+			PickerEvent.ToggledHiddenFiles.takeIf { hidden.files != shown.files },
+			PickerEvent.ToggledHiddenFolders.takeIf { hidden.folders != shown.folders },
+		).fold(opened) { state, toggle -> step(state, toggle).state }
 	}
+
+	/** No hidden entry shown. */
+	val NO_HIDDEN = Hidden(files = false, folders = false)
 }
 
 /** [state] after each of [inputs] in turn, with every folder read and name looked up answered by [Fixtures.Memory]. */

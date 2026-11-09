@@ -40,6 +40,11 @@ sealed interface PickerEvent : Input {
 		val click: Click,
 	) : PickerEvent
 
+	/** A row chosen and accepted at once, from its menu: a file opened, a folder given by a folder picker. */
+	data class Picked(
+		val row: RowId,
+	) : PickerEvent
+
 	/** The listing pressed where there is no row: nothing chosen. */
 	data object ClickedNowhere : PickerEvent
 
@@ -69,10 +74,21 @@ sealed interface PickerEvent : Input {
 		val by: Sort.Column,
 	) : PickerEvent
 
-	/** Hidden rows shown, or hidden again (Ctrl+H). */
-	data object ToggledHidden : PickerEvent
+	/** Hidden files shown, or hidden again. */
+	data object ToggledHiddenFiles : PickerEvent
 
-	/** A kind of entry added to the kinds shown, or taken away. */
+	/** Hidden folders shown, or hidden again. */
+	data object ToggledHiddenFolders : PickerEvent
+
+	/** Every hidden entry shown, or none where every one was (Ctrl+H). */
+	data object ToggledEveryHidden : PickerEvent
+
+	/** Only one kind of entry shown: a filter chosen from the filter menu. */
+	data class ShowedOnlyKind(
+		val kind: Kind,
+	) : PickerEvent
+
+	/** A kind of entry added to the kinds shown, or taken away: a filter chosen with Ctrl held. */
 	data class ToggledKind(
 		val kind: Kind,
 	) : PickerEvent
@@ -80,9 +96,57 @@ sealed interface PickerEvent : Input {
 	/** Every kind shown again: no kind chosen. */
 	data object ShowedEveryKind : PickerEvent
 
+	/** The listing ordered as [sort] says: chosen from a menu, where the header's click turns the order round. */
+	data class SortedBy(
+		val sort: Sort,
+	) : PickerEvent
+
+	/** The listing drawn [steps] sizes larger, or smaller where negative (Ctrl and the wheel, Ctrl+= and Ctrl+-). */
+	data class Zoomed(
+		val steps: Int,
+	) : PickerEvent
+
+	/** The listing drawn at its usual size again (Ctrl+0). */
+	data object Unzoomed : PickerEvent
+
 	/** The listing drawn as rows or as tiles. */
 	data class Viewed(
 		val layout: Layout,
+	) : PickerEvent
+
+	// ---- changing what is on disk ----
+
+	/** A row's name made into a field to type a new one into (F2). */
+	data class StartedRenaming(
+		val row: RowId,
+	) : PickerEvent
+
+	data class RenameTyped(
+		val text: String,
+	) : PickerEvent
+
+	/** The new name typed, to be given (Enter, or the field left). */
+	data object Renamed : PickerEvent
+
+	/** The name left as it was (Escape). */
+	data object RenameCancelled : PickerEvent
+
+	/** Rows moved to the trash (Delete). */
+	data class Trashed(
+		val rows: List<RowId>,
+	) : PickerEvent
+
+	/** Rows deleted for good, once the user says so (Shift+Delete). */
+	data class Deleted(
+		val rows: List<RowId>,
+	) : PickerEvent
+
+	/** A folder made in the folder shown, its name then typed over (Ctrl+Shift+N). */
+	data object MadeFolder : PickerEvent
+
+	/** Paths put on the clipboard as text, one to a line. */
+	data class CopiedPaths(
+		val paths: List<Path>,
 	) : PickerEvent
 
 	// ---- the fields ----
@@ -173,6 +237,45 @@ sealed interface Answer : Input {
 		val lookup: Lookup,
 		val found: Map<Path, Found>,
 	) : Answer
+
+	data class Changed(
+		val change: Change,
+		val result: ChangeResult,
+	) : Answer
+}
+
+/** A change to what is on disk, asked of the disk; what came of it comes back as [Answer.Changed]. */
+sealed interface Change {
+	/** [from] renamed to [to], in the same folder; never over something already there. */
+	data class Rename(
+		val from: Path,
+		val to: Path,
+	) : Change
+
+	/** [paths] moved to the trash, from where they can be put back. */
+	data class Trash(
+		val paths: List<Path>,
+	) : Change
+
+	/** [paths] deleted for good, folders with all they hold. */
+	data class Delete(
+		val paths: List<Path>,
+	) : Change
+
+	/** An empty folder made at [path]. */
+	data class MakeFolder(
+		val path: Path,
+	) : Change
+}
+
+/** What came of a [Change]. */
+sealed interface ChangeResult {
+	data object Done : ChangeResult
+
+	/** Not done, or not all of it: why, as the system said. */
+	data class Failed(
+		val why: String,
+	) : ChangeResult
 }
 
 /** Paths to look at on disk before the picker knows what to do with them: what the user typed, made into paths. */
@@ -220,6 +323,16 @@ sealed interface Effect {
 	data class Look(
 		val lookup: Lookup,
 	) : Asking
+
+	/** [change] made on disk, and what came of it sent back as [Answer.Changed]. */
+	data class Make(
+		val change: Change,
+	) : Asking
+
+	/** [text] put on the clipboard. */
+	data class Copy(
+		val text: String,
+	) : Effect
 
 	/** The picker done: what it gives the application that asked. */
 	data class Finish(

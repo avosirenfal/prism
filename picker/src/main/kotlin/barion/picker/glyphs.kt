@@ -44,6 +44,7 @@ enum class Glyph {
 	Check,
 	ViewList,
 	ViewGrid,
+	Filter,
 }
 
 /** [glyph] at [size], in [tint]; a file's icon is marked with [category]'s colour. */
@@ -82,6 +83,20 @@ fun GlyphIcon(
 			Glyph.Check -> stroked(unit, tint, listOf(5f to 12.5f, 10f to 17.5f, 19f to 7f))
 			Glyph.ViewList -> viewList(unit, tint)
 			Glyph.ViewGrid -> viewGrid(unit, tint)
+			Glyph.Filter ->
+				stroked(
+					unit,
+					tint,
+					listOf(
+						4f to 5.5f,
+						20f to 5.5f,
+						14f to 12.5f,
+						14f to 19f,
+						10f to 17f,
+						10f to 12.5f,
+						4f to 5.5f,
+					),
+				)
 		}
 	}
 }

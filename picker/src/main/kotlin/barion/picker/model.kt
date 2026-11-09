@@ -173,12 +173,37 @@ enum class Kind(
 	}
 }
 
+/**
+ * Which hidden entries (a name starting with a dot) are shown: hidden files are, and hidden folders are not, until the
+ * user says otherwise. The folders are kept back by default because they are where programs keep their own things
+ * (`.config`, `.cache`, `.local`), which are rarely what a person picks from; a hidden file is more often a person's.
+ */
+@Immutable
+data class Hidden(
+	val files: Boolean = true,
+	val folders: Boolean = false,
+) {
+	/** Whether [row] is shown, as far as being hidden goes. */
+	fun shows(row: Row): Boolean =
+		when {
+			!row.hidden -> true
+			row.isFolder -> folders
+			else -> files
+		}
+
+	/** Every hidden entry shown, or, where every one is already, none: what Ctrl+H does. */
+	fun toggled(): Hidden =
+		if (files && folders)
+			Hidden(files = false, folders = false)
+		else
+			Hidden(files = true, folders = true)
+}
+
 /** How the listing arranges what a folder holds: its order, and which rows it leaves out. */
 @Immutable
 data class Arrangement(
 	val sort: Sort = Sort.BY_NAME,
-	/** Whether hidden entries (a name starting with a dot) are shown: they are, unless the user says otherwise. */
-	val showHidden: Boolean = true,
+	val hidden: Hidden = Hidden(),
 	/** The kinds shown: only these where any are chosen, every row where none is. */
 	val kinds: Set<Kind> = emptySet(),
 	/** The asking application's filter of files, by name. */
@@ -187,35 +212,54 @@ data class Arrangement(
 	val query: String = "",
 ) {
 	fun admits(row: Row): Boolean =
-		admitsAnyKind(row) && (kinds.isEmpty() || Kind.of(row.category) in kinds)
-
-	/** Whether [row] is shown, its kind aside: what the filters' counts count. */
-	fun admitsAnyKind(row: Row): Boolean =
-		(showHidden || !row.hidden) &&
+		hidden.shows(row) &&
+			(kinds.isEmpty() || Kind.of(row.category) in kinds) &&
 			(row.isFolder || filter.admits(row.name)) &&
 			(query.isBlank() || row.name.contains(query.trim(), ignoreCase = true))
-
-	/** This arrangement as far as it narrows what the filters count: their kinds and the order are not. */
-	internal val counting: Arrangement get() = copy(sort = Sort.BY_NAME, kinds = emptySet())
-}
-
-/** How many entries there are to show, whichever kinds are chosen: in all ([every]), and of each kind. */
-@Immutable
-data class Counts(
-	val every: Int,
-	private val byKind: Map<Kind, Int>,
-) {
-	operator fun get(kind: Kind): Int = byKind[kind] ?: 0
-
-	companion object {
-		val NONE = Counts(0, emptyMap())
-	}
 }
 
 /** How the listing is drawn: rows in columns, or tiles with a picture of each. */
 enum class Layout {
 	List,
 	Gallery,
+}
+
+/**
+ * How large the listing is drawn, as Ctrl and the mouse's wheel make it: in the list, its rows' type and icons; in the
+ * gallery, its tiles and their pictures. A step is one notch of the wheel.
+ */
+enum class Zoom(
+	val factor: Float,
+) {
+	Smallest(0.75f),
+	Small(0.875f),
+	Normal(1f),
+	Large(1.25f),
+	Larger(1.5f),
+	Largest(2f),
+	;
+
+	/** [steps] larger, or smaller where negative, as far as there are sizes. */
+	fun by(steps: Int): Zoom = entries[(ordinal + steps).coerceIn(0, entries.lastIndex)]
+}
+
+/** How large each layout is drawn, each kept apart, so a gallery made large leaves the list as it was. */
+@Immutable
+data class Zooms(
+	val list: Zoom = Zoom.Normal,
+	val gallery: Zoom = Zoom.Normal,
+) {
+	operator fun get(layout: Layout): Zoom =
+		when (layout) {
+			Layout.List -> list
+			Layout.Gallery -> gallery
+		}
+
+	fun with(layout: Layout, zoom: Zoom): Zooms =
+		when (layout) {
+			Layout.List -> copy(list = zoom)
+			Layout.Gallery -> copy(gallery = zoom)
+		}
 }
 
 /**
@@ -278,10 +322,8 @@ internal class Memo<K, V>(
 /** What the folder shown holds: being read, read, or why it could not be. */
 @Immutable
 sealed interface Listing {
-	/** Being read; [landing] says where the keyboard's cursor goes when it arrives. */
-	data class Reading(
-		val landing: Landing,
-	) : Listing
+	/** Being read. */
+	data object Reading : Listing
 
 	/** What a read of a folder gives. */
 	sealed interface Read : Listing
@@ -299,24 +341,8 @@ sealed interface Listing {
 		private val sortedBy = Memo<Sort, List<Row>> { sorted(entries, it) }
 		private val arranged =
 			Memo<Arrangement, Rows> { Rows(sortedBy(it.sort).filter(it::admits)) }
-		private val counted =
-			Memo<Arrangement, Counts> { arrangement ->
-				val shown = entries.filter(arrangement::admitsAnyKind)
-
-				Counts(
-					shown.size,
-					shown
-						.mapNotNull {
-							Kind.of(it.category)
-						}.groupingBy { it }
-						.eachCount(),
-				)
-			}
 
 		fun rows(arrangement: Arrangement): Rows = arranged(arrangement)
-
-		/** How many entries of each kind [arrangement] shows, whichever kinds it chooses. */
-		fun counts(arrangement: Arrangement): Counts = counted(arrangement.counting)
 
 		override fun toString(): String = "Shown(${entries.size} entries)"
 	}
@@ -327,18 +353,29 @@ sealed interface Listing {
 	) : Read
 }
 
-/** Where the keyboard's cursor goes in a folder as it arrives. */
+/** Where the keyboard's cursor goes when the next read of the folder shown arrives. */
 @Immutable
 sealed interface Landing {
-	/** Nowhere yet: the first key that moves it starts at the top. */
-	data object Top : Landing
+	val row: RowId
 
 	/** On a row, chosen or not as [choose] says: the folder just left, when going up; the file the path named. */
 	data class On(
-		val row: RowId,
+		override val row: RowId,
 		val choose: Boolean,
 	) : Landing
+
+	/** On a row, chosen, with its name being typed over: a folder just made, as a file manager names one. */
+	data class Renaming(
+		override val row: RowId,
+	) : Landing
 }
+
+/** A row whose name is being typed over in the listing: the row, and its new name as typed so far. */
+@Immutable
+data class Renaming(
+	val row: RowId,
+	val text: String,
+)
 
 /**
  * What the picker is asked to choose, and what has been chosen so far. Each kind holds exactly what it can: a
@@ -428,6 +465,17 @@ sealed interface Notice {
 	data class Replace(
 		val path: Path,
 	) : Notice
+
+	/** Entries to delete for good, not to the trash: done only if the user says so. */
+	data class ConfirmDelete(
+		val paths: List<Path>,
+	) : Notice
+
+	/** Something the user asked for could not be done: what ("Couldn't rename “a.txt”"), and why. */
+	data class Failed(
+		val doing: String,
+		val why: String,
+	) : Notice
 }
 
 /** The button that accepts: what it says, and whether what has been chosen is enough to press it. */
@@ -498,14 +546,13 @@ data class PickerState(
 	/** A name being looked up on disk, whose answer is waited for; an answer for anything else is too late. */
 	val waiting: Lookup?,
 	val layout: Layout = Layout.List,
+	val zooms: Zooms = Zooms(),
+	/** Where the cursor goes when the next read of the folder arrives; nowhere in particular when null. */
+	val landing: Landing? = null,
+	val renaming: Renaming? = null,
 ) {
 	/** The rows the listing shows, its arrangement applied; none while it is read, or when it could not be. */
 	val rows: Rows get() = rowsOf(listing, arrangement)
-
-	/** How many entries of each kind are there to show, whichever kinds are chosen: what each filter says it holds. */
-	val counts: Counts get() =
-		(listing as? Listing.Shown)?.counts(arrangement)
-			?: Counts.NONE
 
 	init {
 		val rows = rows
@@ -520,6 +567,9 @@ data class PickerState(
 		require(cursor == null || (cursor.at in rows && cursor.anchor in rows)) {
 			"the cursor is on a row the listing does not show: $cursor"
 		}
+		require(renaming == null || renaming.row in rows) {
+			"the row being renamed is not a row the listing shows: $renaming"
+		}
 	}
 
 	/** The path to [folder], as steps from the home folder where it is under it and from the root otherwise. */
@@ -527,6 +577,12 @@ data class PickerState(
 
 	/** The rows chosen, in the order they are shown. */
 	val chosenRows: List<Row> get() = rows.inOrder(choosing.rows)
+
+	/** How large the listing is drawn, in the layout it is drawn in. */
+	val zoom: Zoom get() = zooms[layout]
+
+	/** Every entry the folder holds, shown or not: the "of 750" of the status line. */
+	val entryCount: Int get() = (listing as? Listing.Shown)?.entries?.size ?: 0
 
 	/** The button that accepts, worked out from what has been chosen and typed. */
 	val accept: Accept

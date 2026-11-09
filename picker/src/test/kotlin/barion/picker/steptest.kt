@@ -28,7 +28,7 @@ class StepTest {
 	fun aPickerOpensReadingItsFolder() {
 		val first = opened(Choosing.OneFile(), home, home, Fixtures.sidebar)
 
-		assertEquals(Listing.Reading(Landing.Top), first.state.listing)
+		assertEquals(Listing.Reading, first.state.listing)
 		assertEquals(listOf(Effect.Read(home)), first.effects)
 		assertTrue(first.state.rows.isEmpty())
 	}
@@ -312,18 +312,79 @@ class StepTest {
 	}
 
 	@Test
-	fun hiddenEntriesAreShownUntilTheUserHidesThem() {
-		val opened = picker(showHidden = true)
+	fun hiddenFilesAreShownAndHiddenFoldersAreNotUntilTheUserSaysOtherwise() {
+		val opened =
+			opened(
+				Choosing.OneFile(),
+				home,
+				home,
+				Fixtures.sidebar,
+			).settled(Fixtures.Memory)
 
-		assertTrue(opened.arrangement.showHidden)
+		assertEquals(Hidden(files = true, folders = false), opened.arrangement.hidden)
+		assertEquals(
+			listOf(".bashrc"),
+			opened.rows.list
+				.filter { it.hidden }
+				.map { it.name },
+		)
+
+		val folders = after(opened, PickerEvent.ToggledHiddenFolders)
+
 		assertEquals(
 			listOf(".config", ".bashrc"),
-			opened.rows.list
+			folders.rows.list
 				.filter {
 					it.hidden
 				}.map { it.name },
 		)
-		assertFalse(after(opened, PickerEvent.ToggledHidden).rows.list.any { it.hidden })
+		assertEquals(
+			listOf(
+				".config",
+			),
+			after(folders, PickerEvent.ToggledHiddenFiles)
+				.rows.list
+				.filter {
+					it.hidden
+				}.map { it.name },
+		)
+	}
+
+	@Test
+	fun ctrlHShowsEveryHiddenEntryOrNone() {
+		val all = after(picker(), PickerEvent.ToggledEveryHidden)
+
+		assertEquals(Hidden(files = true, folders = true), all.arrangement.hidden)
+		assertEquals(
+			Fixtures.NO_HIDDEN,
+			after(all, PickerEvent.ToggledEveryHidden).arrangement.hidden,
+		)
+		// From the usual (files shown, folders not), it shows every one.
+		assertEquals(
+			Hidden(files = true, folders = true),
+			after(picker(hidden = Hidden()), PickerEvent.ToggledEveryHidden).arrangement.hidden,
+		)
+	}
+
+	@Test
+	fun aFilterChosenShowsOnlyItsKindAndWithCtrlAddsIt() {
+		fun shown(state: PickerState) = state.rows.list.map { it.name }
+
+		val images = after(picker(), PickerEvent.ShowedOnlyKind(Kind.Images))
+
+		assertEquals(
+			listOf("Holiday in Lisbon.jpg", "screenshot 2.png", "screenshot 10.png"),
+			shown(images),
+		)
+		// Another chosen plainly replaces it; chosen with Ctrl, it is added.
+		assertEquals(
+			listOf("trailer.mp4"),
+			shown(after(images, PickerEvent.ShowedOnlyKind(Kind.Videos))),
+		)
+		assertEquals(
+			setOf(Kind.Images, Kind.Videos),
+			after(images, PickerEvent.ToggledKind(Kind.Videos)).arrangement.kinds,
+		)
 	}
 
 	@Test
@@ -382,19 +443,18 @@ class StepTest {
 
 	@Test
 	fun hiddenEntriesAreShownOrNotWhateverKindsAreChosen() {
-		val folders = after(picker(showHidden = true), PickerEvent.ToggledKind(Kind.Folders))
+		val folders =
+			after(
+				picker(hidden = Hidden(files = true, folders = true)),
+				PickerEvent.ShowedOnlyKind(Kind.Folders),
+			)
 
 		assertTrue(folders.rows.list.any { it.name == ".config" })
-		assertFalse(
-			after(folders, PickerEvent.ToggledHidden).rows.list.any {
-				it.name ==
-					".config"
-			},
-		)
-		assertEquals(
-			setOf(Kind.Folders),
-			after(folders, PickerEvent.ToggledHidden).arrangement.kinds,
-		)
+
+		val hiding = after(folders, PickerEvent.ToggledHiddenFolders)
+
+		assertFalse(hiding.rows.list.any { it.name == ".config" })
+		assertEquals(setOf(Kind.Folders), hiding.arrangement.kinds)
 	}
 
 	@Test
@@ -411,21 +471,12 @@ class StepTest {
 	}
 
 	@Test
-	fun eachFilterSaysHowManyItWouldShow() {
-		val counts = picker().counts
+	fun theStatusCountsEveryEntryThatCouldBeShown() {
+		val images = after(picker(), PickerEvent.ShowedOnlyKind(Kind.Images))
 
-		assertEquals(18, counts.every)
-		assertEquals(7, counts[Kind.Folders])
-		assertEquals(3, counts[Kind.Images])
-		assertEquals(1, counts[Kind.Videos])
-		assertEquals(4, counts[Kind.Documents])
-		assertEquals(18, Kind.entries.sumOf { counts[it] })
-
-		// Choosing a kind changes what is shown, not what each filter would show.
-		assertEquals(counts, after(picker(), PickerEvent.ToggledKind(Kind.Images)).counts)
-		// Hidden entries are counted while they are shown; the search narrows the counts as it narrows the rows.
-		assertEquals(8, picker(showHidden = true).counts[Kind.Folders])
-		assertEquals(2, after(picker(), PickerEvent.Searched("screen")).counts[Kind.Images])
+		assertEquals(3, images.rows.size)
+		// Every entry the folder holds, hidden ones too: "3 of 20 items".
+		assertEquals(20, images.entryCount)
 	}
 
 	@Test
@@ -747,6 +798,203 @@ class StepTest {
 		assertEquals(Notice.NotFound("/nowhere"), there.notice)
 		assertEquals(Address.Editing("/nowhere"), there.address)
 		assertEquals(home, there.folder)
+	}
+
+	// ---- changing what is on disk ----
+
+	@Test
+	fun aRenameIsAskedOfTheDiskAndLandsOnTheNewName() {
+		val renaming = after(picker(), PickerEvent.StartedRenaming(id("notes.md")))
+
+		assertEquals(Renaming(id("notes.md"), "notes.md"), renaming.renaming)
+		assertEquals(listOf("notes.md"), names(renaming))
+
+		val done =
+			step(after(renaming, PickerEvent.RenameTyped("journal.md")), PickerEvent.Renamed)
+		val change = Change.Rename(home.resolve("notes.md"), home.resolve("journal.md"))
+
+		assertEquals(listOf(Effect.Make(change)), done.effects)
+		assertNull(done.state.renaming)
+
+		// The disk did it: the folder is read again, and the cursor lands on the new name, chosen.
+		val answered = step(done.state, Answer.Changed(change, ChangeResult.Done))
+
+		assertEquals(listOf(Effect.Read(home)), answered.effects)
+		assertEquals(Landing.On(id("journal.md"), choose = true), answered.state.landing)
+
+		val renamed =
+			Fixtures.homeRows.map {
+				if (it.name ==
+					"notes.md"
+				)
+					Fixtures.row("journal.md", 6_250)
+				else
+					it
+			}
+
+		val arrived = step(answered.state, Answer.Arrived(home, Listing.Shown(renamed))).state
+
+		assertEquals(listOf("journal.md"), names(arrived))
+		assertNull(arrived.landing)
+	}
+
+	@Test
+	fun aNameThatCannotBeANameIsRefusedBeforeTheDiskIsAsked() {
+		val refused =
+			step(
+				after(
+					picker(),
+					PickerEvent.StartedRenaming(id("notes.md")),
+					PickerEvent.RenameTyped("a/b"),
+				),
+				PickerEvent.Renamed,
+			)
+
+		assertTrue(refused.effects.isEmpty())
+		assertInstanceOf(Notice.Failed::class.java, refused.state.notice)
+		// Still being typed, to be put right once the notice is put away.
+		assertEquals("a/b", refused.state.renaming?.text)
+		// The same name renames nothing, and Escape leaves it.
+		assertTrue(
+			step(
+				after(picker(), PickerEvent.StartedRenaming(id("notes.md"))),
+				PickerEvent.Renamed,
+			).effects.isEmpty(),
+		)
+		assertNull(
+			after(
+				picker(),
+				PickerEvent.StartedRenaming(id("notes.md")),
+				PickerEvent.RenameCancelled,
+			).renaming,
+		)
+		assertEquals(null, refusalOf("fine name.txt"))
+		assertTrue(listOf("..", ".", "x".repeat(256)).all { refusalOf(it) != null })
+	}
+
+	@Test
+	fun whatTheDiskRefusesIsSaidWithWhy() {
+		val change = Change.Rename(home.resolve("notes.md"), home.resolve("todo.txt"))
+
+		val failed =
+			step(
+				picker(),
+				Answer.Changed(
+					change,
+					ChangeResult.Failed("There is already something called “todo.txt” here."),
+				),
+			)
+
+		assertEquals(
+			Notice.Failed(
+				"Couldn't rename “notes.md”",
+				"There is already something called “todo.txt” here.",
+			),
+			failed.state.notice,
+		)
+		// Read again all the same: a change half done is a change.
+		assertEquals(listOf(Effect.Read(home)), failed.effects)
+	}
+
+	@Test
+	fun theTrashIsUsedWithoutAsking() {
+		assertEquals(
+			listOf(
+				Effect.Make(Change.Trash(listOf(home.resolve("main.kt"), home.resolve("todo.txt")))),
+			),
+			effectsOf(picker(), PickerEvent.Trashed(listOf(id("todo.txt"), id("main.kt")))),
+		)
+		// A row the listing does not show is not trashed.
+		assertTrue(effectsOf(picker(), PickerEvent.Trashed(listOf(id("not there")))).isEmpty())
+	}
+
+	@Test
+	fun deletingForGoodAsksFirst() {
+		val asked = after(picker(), PickerEvent.Deleted(listOf(id("main.kt"))))
+
+		assertEquals(Notice.ConfirmDelete(listOf(home.resolve("main.kt"))), asked.notice)
+		assertEquals(
+			listOf(Effect.Make(Change.Delete(listOf(home.resolve("main.kt"))))),
+			effectsOf(asked, PickerEvent.Confirmed),
+		)
+		assertTrue(effectsOf(asked, PickerEvent.Dismissed).isEmpty())
+	}
+
+	@Test
+	fun aNewFolderHasAFreeNameAndItsNameTypedOver() {
+		val made = step(picker(), PickerEvent.MadeFolder)
+		val change = Change.MakeFolder(home.resolve("New folder"))
+
+		assertEquals(listOf(Effect.Make(change)), made.effects)
+
+		val answered = step(made.state, Answer.Changed(change, ChangeResult.Done)).state
+
+		assertEquals(Landing.Renaming(id("New folder")), answered.landing)
+
+		val arrived =
+			step(
+				answered,
+				Answer.Arrived(
+					home,
+					Listing.Shown(Fixtures.homeRows + Fixtures.row("New folder")),
+				),
+			).state
+
+		assertEquals(Renaming(id("New folder"), "New folder"), arrived.renaming)
+		// With one there, the next is "New folder 2".
+		assertEquals(
+			listOf(Effect.Make(Change.MakeFolder(home.resolve("New folder 2")))),
+			effectsOf(after(arrived, PickerEvent.RenameCancelled), PickerEvent.MadeFolder),
+		)
+	}
+
+	@Test
+	fun pathsAreCopiedOneToALine() {
+		assertEquals(
+			listOf(Effect.Copy("/home/avery/a\n/home/avery/b")),
+			effectsOf(
+				picker(),
+				PickerEvent.CopiedPaths(listOf(home.resolve("a"), home.resolve("b"))),
+			),
+		)
+	}
+
+	@Test
+	fun pickedIsChosenAndAcceptedAtOnce() {
+		assertEquals(
+			chosen(listOf(home.resolve("Music"))),
+			effectsOf(picker(Choosing.Folder()), PickerEvent.Picked(id("Music"))),
+		)
+		assertEquals(
+			chosen(listOf(home.resolve("notes.md"))),
+			effectsOf(picker(), PickerEvent.Picked(id("notes.md"))),
+		)
+	}
+
+	// ---- how it is drawn ----
+
+	@Test
+	fun zoomGoesInStepsAndIsKeptForEachLayout() {
+		val larger = after(picker(), PickerEvent.Zoomed(1))
+
+		assertEquals(Zoom.Large, larger.zoom)
+		// As far as there are sizes.
+		assertEquals(Zoom.Largest, after(larger, PickerEvent.Zoomed(10)).zoom)
+		assertEquals(Zoom.Smallest, after(larger, PickerEvent.Zoomed(-10)).zoom)
+
+		// The gallery has a size of its own, and the list keeps its own meanwhile.
+		val gallery = after(larger, PickerEvent.Viewed(Layout.Gallery))
+
+		assertEquals(Zoom.Normal, gallery.zoom)
+		assertEquals(Zoom.Large, after(gallery, PickerEvent.Viewed(Layout.List)).zoom)
+		assertEquals(Zoom.Normal, after(larger, PickerEvent.Unzoomed).zoom)
+	}
+
+	@Test
+	fun aMenuSortsAsItSays() {
+		val sort = Sort(Sort.Column.Size, ascending = true)
+
+		assertEquals(sort, after(picker(), PickerEvent.SortedBy(sort)).arrangement.sort)
 	}
 
 	// ---- cancelling ----
