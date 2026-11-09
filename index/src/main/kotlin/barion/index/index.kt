@@ -41,6 +41,7 @@ data class Entry(
 	val where: Where,
 	val kind: Kind,
 	val device: Device,
+	val inode: Long,
 )
 
 /**
@@ -162,11 +163,7 @@ class Index private constructor(
 	/** The entry at [where], if it is held. */
 	fun find(where: Where): Entry? = locate(where)?.let { (at, entry) -> entryAt(at, entry) }
 
-	internal fun entryAt(at: Int, entry: Int): Entry {
-		val block = placed[at].block
-
-		return Entry(block.whereOf(entry), block.kindOf(entry), block.deviceOf(entry))
-	}
+	internal fun entryAt(at: Int, entry: Int): Entry = placed[at].block.entryOf(entry)
 
 	/** Every entry held, but `/` itself, in the order of their paths' bytes. */
 	fun entries(): List<Entry> =
@@ -175,7 +172,19 @@ class Index private constructor(
 
 			(0 until block.size)
 				.filter { block.nameLength(it) > 0 }
-				.map { Entry(block.whereOf(it), block.kindOf(it), block.deviceOf(it)) }
+				.map(block::entryOf)
+		}
+
+	/**
+	 * Where the folders held as [id] are: the folder a change the watcher saw happened in, which it names by device and
+	 * inode. Usually one; none where the index does not hold it (one the rules leave out); two for a folder bind
+	 * mounted in two places.
+	 */
+	fun foldersAt(id: FileId): List<Where> =
+		placed.flatMap { placed ->
+			(placed.block.folders[id] ?: IntArray(0))
+				.filter { it !in placed.hidden }
+				.map(placed.block::whereOf)
 		}
 
 	/** When the picker last gave [where], if it did. */
@@ -210,6 +219,7 @@ class Index private constructor(
 					block.names,
 					block.kindOf(entry),
 					block.deviceOf(entry),
+					block.inodes[entry],
 					block.nameAt[entry],
 					block.nameAt[entry + 1],
 				)

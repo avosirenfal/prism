@@ -4,12 +4,13 @@ import barion.cli.Args
 import barion.cli.Command
 import barion.cli.Outcome
 import barion.cli.ParamType
+import barion.index.Index
 import barion.index.IndexFile
 import barion.index.IndexRead
 import barion.index.IndexStore
 import barion.index.Indexer
 import barion.index.Searched
-import barion.index.query.query
+import barion.index.query.QueryText
 import barion.index.search
 import java.nio.file.Files
 import java.nio.file.Path
@@ -20,8 +21,9 @@ import kotlin.time.measureTimedValue
 
 /**
  * `barion index`: folders indexed into the index's file (or the file read, where there is one), with what it holds,
- * how big the file is and how long each step took; and words searched for, as bare words of the search language, with
- * how long each search took. What the daemon will do when it starts, done once, to be seen.
+ * how big the file is and how long each step took; and queries searched for, each read in the search language with
+ * what is wrong with it shown, and how long each search took. What the daemon will do when it starts, done once, to be
+ * seen.
  */
 object IndexCommand : Command(
 	"index",
@@ -58,11 +60,11 @@ object IndexCommand : Command(
 			shown = "every core",
 		)
 
-	private val words =
+	private val queries =
 		repeated(
 			"--find",
-			type = ParamType.TEXT.named("WORD"),
-			help = "a bare word to search for: report, *.jpg, img_[0-9]*",
+			type = ParamType.TEXT.named("QUERY"),
+			help = "a query in the search language: report, \"tax *.pdf\", dir:funny",
 		)
 
 	override fun run(args: Args): Outcome {
@@ -78,13 +80,12 @@ object IndexCommand : Command(
 				IndexStore.open(file, roots, Indexer(threads = args[threads]))
 			}
 		val index = store.index
+		val entries = "%,d".format(index.size)
+
+		val opened = how(store.origin)
 
 		lines +=
-			"${how(
-				store.origin,
-			)} in ${millis(
-				opening,
-			)}: ${"%,d".format(index.size)} entries under ${index.roots.joinToString()}"
+			"$opened in ${millis(opening)}: $entries entries under ${index.roots.joinToString()}"
 		lines += "$file: ${"%,d".format(file.fileSize())} bytes"
 
 		val (read, reading) = measureTimedValue { IndexFile.read(file) }
@@ -92,29 +93,40 @@ object IndexCommand : Command(
 		if (read is IndexRead.Read)
 			lines += "read back in ${millis(reading)}"
 
-		for (word in args[words]) {
-			val query = query { +word(word) }
-			val runs = (1..5).map { measureTimedValue { index.search(query) } }
-
-			when (val searched = runs.first().value) {
-				is Searched.Refused -> lines += "$word: ${searched.why}"
-				is Searched.Found -> {
-					val results = searched.results
-
-					lines += ""
-					lines +=
-						"$word: ${"%,d".format(
-							results.size,
-						)} found, the first search in ${millis(runs.first().duration)}, " +
-						"the best of ${runs.size} in ${millis(runs.minOf { it.duration })}"
-					results.take(5).forEach { lines += "  ${it.where}" }
-					if (results.size > 5)
-						lines += "  ..."
-				}
-			}
-		}
+		for (text in args[queries])
+			lines += listOf("") + found(index, text)
 
 		return Outcome(lines.joinToString("\n"))
+	}
+
+	/** [text] read and searched for in [index]: what is wrong with it, each underlined, then what it found and how fast. */
+	private fun found(index: Index, text: String): List<String> {
+		val read = QueryText.read(text)
+		val problems =
+			read.problems.flatMap {
+				val under =
+					" ".repeat(it.span.start) + "^".repeat(maxOf(1, it.span.end - it.span.start))
+
+				listOf(under, "${it.kind.name.lowercase()}: ${it.message}")
+			}
+		val runs = (1..5).map { measureTimedValue { index.search(read.query) } }
+		val first = millis(runs.first().duration)
+		val best = millis(runs.minOf { it.duration })
+
+		return listOf(text) + problems +
+			when (val searched = runs.first().value) {
+				is Searched.Refused -> listOf(searched.why)
+				is Searched.Found -> {
+					val results = searched.results
+					val count = "%,d".format(results.size)
+
+					listOf(
+						"$count found, the first search in $first, the best of ${runs.size} in $best",
+					) +
+						results.take(5).map { "  ${it.where}" } +
+						listOfNotNull("  ...".takeIf { results.size > 5 })
+				}
+			}
 	}
 
 	private fun how(origin: IndexStore.Origin): String =

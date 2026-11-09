@@ -24,6 +24,8 @@ dependencies {
 	api(project(":probe"))
 	api(project(":ebpf-loader"))
 	api(project(":linux"))
+	// zstd, for the index's file: the JNI binding, which carries the native library for each platform in its jar.
+	implementation(libs.zstd)
 	add(probeEmitter.name, project(":probe"))
 
 	testImplementation(testFixtures(project(":ebpf")))
@@ -66,4 +68,7 @@ tasks.test {
 	providers.gradleProperty("index.benchmark").orNull?.let {
 		systemProperty("index.benchmark", it)
 	}
+	// `-Pparser.seed=N -Pparser.texts=N` has the parser's fuzzing read other random texts, and more of them.
+	for (property in listOf("parser.seed", "parser.texts"))
+		providers.gradleProperty(property).orNull?.let { systemProperty(property, it) }
 }

@@ -20,7 +20,9 @@ Now and then, once the changes are a quarter of the size of the snapshot, the fi
 written anew as one snapshot, into `index.barion.new` beside the file, flushed to the disk, and renamed over the old
 one. A reader sees the old file or the new one, never half of either.
 
-Every frame is compressed (raw DEFLATE, from the JDK) and carries a CRC-32C of its compressed bytes. A frame cut short
+Every frame is compressed with zstd (through zstd-jni, which carries the native library for each platform in its jar;
+a snapshot at level 9, since it is written now and then and read at every start, a frame of changes at level 3, since
+one is written at every flush) and carries a CRC-32C of its compressed bytes. A frame cut short
 by a crash, or damaged, fails its check, and it and anything after it are dropped: the index is what the frames
 before it say. The next frame appended is written where the bad one began, cutting it off.
 
@@ -35,7 +37,7 @@ byte, the low bits first, the top bit set on every byte but the last), and signe
 | offset | size | what |
 |---|---|---|
 | 0 | 8 | `BARIONIX` in ASCII |
-| 8 | 2 | the version: 1 |
+| 8 | 2 | the version: 2 (version 1 was compressed with DEFLATE and had no inodes; a file of another version is not read, and the index is made again) |
 | 10 | 6 | zeros |
 
 ### A frame: 16 bytes, then the stored payload
@@ -44,10 +46,10 @@ byte, the low bits first, the top bit set on every byte but the last), and signe
 |---|---|---|
 | 0 | 1 | the kind: 1 a snapshot, 2 changes |
 | 1 | 3 | zeros |
-| 4 | 4 | the payload's length, inflated |
-| 8 | 4 | the stored length, deflated |
+| 4 | 4 | the payload's length, decompressed |
+| 8 | 4 | the stored length, compressed |
 | 12 | 4 | the CRC-32C of the stored bytes |
-| 16 | stored length | the payload, deflated (raw DEFLATE, no zlib header) |
+| 16 | stored length | the payload, compressed: one zstd frame |
 
 ### A snapshot's payload
 
@@ -75,6 +77,7 @@ values compresses far better than entries one after another:
 | the names' lengths | for each entry, a count |
 | the names | every name's bytes, back to back |
 | the kinds | for each entry, one byte: 0 folder, 1 file, 2 link to a folder, 3 link to a file, 4 link to something else, 5 broken link |
+| the inodes | for each entry, its inode less the inode of the entry before it (the first, less 0), signed, as 64 bits wrap |
 | the devices of the entries | for each entry, a count: which of the block's devices it is on |
 
 The root is the first entry, at depth 0, and is named as the last level of its path (the root `/` has an empty name,
@@ -84,6 +87,11 @@ nothing after it.
 Reading a block makes its columns directly: each entry's parent is the nearest entry before it one level up, which is
 on a stack of the folders still open; names are copied as they are. Then three more columns are worked out, which are
 never written: where what is under each entry ends, each name folded to lower case, and each name's stem length.
+
+A folder's inode is its own, as reading it gives it: for a mount point, the inode of the root of what is mounted there,
+not of the folder it covers, since that is the folder a change in it happens in. The watcher names the folder a change
+happened in by device and inode, and the index finds it by those two (`Index.foldersAt`), with a map made from a
+block's folders the first time it is asked.
 
 ### A frame of changes' payload
 
@@ -98,6 +106,6 @@ A count, then each change: a kind byte, then its body.
 
 ## Sizes
 
-The index of this development container's `/` (184,589 entries, its caches and build trees left out) is 683 KB and
-reads back in 48 ms. A made-up tree of 3,000,000 entries writes a file of 9.4 MB in 1.3 s and reads back in 0.33 s,
-on 4 cores.
+The index of this development container's `/` (184,676 entries, its caches and build trees left out) is 537 KB and
+reads back in 39 ms. A made-up tree of 3,000,000 entries writes a file of 8.4 MB in 1.1 s and reads back in 0.29 s,
+on 4 cores. (Compressed with DEFLATE, and without inodes, those were 683 KB, and 9.4 MB in 1.3 s, read in 0.33 s.)

@@ -95,7 +95,7 @@ class SearchBenchmark {
 		var count = 0
 
 		fun add(under: Int, name: String, kind: Kind): Int =
-			builder.add(under, name.encodeToByteArray(), kind, disk).also {
+			builder.add(under, name.encodeToByteArray(), kind, disk, 1000L + count).also {
 				count++
 			}
 

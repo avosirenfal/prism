@@ -21,6 +21,7 @@ a device, so a test that ran and a test that could not run are never confused.
 | the picker's menus, as values (`MenuTest`) | the JDK | never |
 | renaming, making and removing folders, and the trash both ways, on real files (`DiskTest`) | Linux | never |
 | every example of the search language, against a tree indexed from disk (`SearchTest`) | Linux | never |
+| the search language's text read: every example to the DSL's query, every prefix of one with nothing invalid, recovery, marks, and random text (`ParserTest`) | the JDK | never |
 | the index as changes are made to it, and its rules (`IndexTest`) | Linux | never |
 | the index's file and the store that keeps it (`FileTest`) | Linux | never |
 | search over an index the size of a desktop (`SearchBenchmark`) | `-Pindex.benchmark=N` | unless asked for |

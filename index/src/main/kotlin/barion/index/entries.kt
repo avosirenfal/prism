@@ -49,6 +49,12 @@ enum class Kind(
 	}
 }
 
+/** What identifies a file on a machine: its device and its inode. A watcher names the folder a change is in by it. */
+data class FileId(
+	val dev: Dev,
+	val ino: Long,
+)
+
 /** A file system entries are on: its device, and its type as `/proc/self/mountinfo` says (null where it did not say). */
 data class Device(
 	val dev: Dev,

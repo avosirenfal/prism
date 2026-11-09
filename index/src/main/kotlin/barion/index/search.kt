@@ -273,7 +273,7 @@ private class Plan(
 								Matching.of(
 									pattern.pattern,
 									Anchors.BOTH,
-									sensitive(Case.Default),
+									sensitive(pattern.case),
 								)
 							is ExtPattern.Regex ->
 								Matching(

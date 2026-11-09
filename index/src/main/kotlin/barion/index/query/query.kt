@@ -197,9 +197,10 @@ sealed interface DirTarget {
 
 /** What `ext:` matches an extension with. */
 sealed interface ExtPattern {
-	/** A word or glob, matched against the whole of an extension: `ext:pdf`, `ext:{jpg,png}`. */
+	/** A word or glob, matched against the whole of an extension: `ext:pdf`, `ext:{jpg,png}`, `ext:c"PDF"`. */
 	data class Text(
 		val pattern: TextPattern,
+		val case: Case = Case.Default,
 	) : ExtPattern
 
 	/** A regex, which must match the whole of an extension: `ext:/jpe?g/i`. */

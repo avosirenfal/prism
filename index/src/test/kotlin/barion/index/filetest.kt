@@ -50,7 +50,7 @@ class FileTest {
 
 	private fun Index.shape(): List<String> =
 		entries().map {
-			"${it.where} ${it.kind} ${it.device}"
+			"${it.where} ${it.kind} ${it.device} ${it.inode}"
 		}
 
 	private fun read(): IndexRead.Read = IndexFile.read(file) as IndexRead.Read

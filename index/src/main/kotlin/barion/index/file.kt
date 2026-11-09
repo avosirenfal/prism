@@ -1,6 +1,7 @@
 package barion.index
 
 import barion.linux.Dev
+import com.github.luben.zstd.Zstd
 import java.io.IOException
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -13,20 +14,18 @@ import java.nio.file.StandardCopyOption
 import java.nio.file.StandardOpenOption
 import java.time.Instant
 import java.util.zip.CRC32C
-import java.util.zip.DataFormatException
-import java.util.zip.Deflater
-import java.util.zip.Inflater
 
 /*
  * The index's file (docs/format.md says it byte by byte): a header, then frames. The first frame is a snapshot of the
  * index, compacted, its blocks written column by column; every frame after it is a batch of changes, appended as the
- * index is flushed. A frame's payload is compressed (raw DEFLATE) and checked (CRC-32C), so a frame cut short by a
+ * index is flushed. A frame's payload is compressed (zstd) and checked (CRC-32C), so a frame cut short by a
  * crash, or damaged, is found, and it and what follows it are dropped: the index is what the frames before it say.
  * Now and then the file is compacted: written anew, as one snapshot, beside the old, and renamed over it.
  *
- * Reading a file is reading each frame's payload into memory, inflating it, and making the columns from it: a
+ * Reading a file is reading each frame's payload into memory, decompressing it, and making the columns from it: a
  * block's entries are laid out in preorder and written so (their depths, their names' lengths, their names, their
- * kinds, their devices), so reading them back makes the block's arrays directly, with nothing to sort or link.
+ * kinds, their inodes, their devices), so reading them back makes the block's arrays directly, with nothing to sort
+ * or link.
  */
 
 /** What reading an index's file gave. */
@@ -53,7 +52,15 @@ sealed interface IndexRead {
 object IndexFile {
 	/** "BARIONIX": the first eight bytes of every index file. */
 	private val MAGIC = "BARIONIX".encodeToByteArray()
-	private const val VERSION: Short = 1
+
+	/** 2: frames compressed with zstd, and every entry's inode. (1 had DEFLATE, and no inodes.) */
+	private const val VERSION: Short = 2
+
+	/** How hard a snapshot is compressed: written now and then, read at every start, so worth more time than a change. */
+	private const val SNAPSHOT_LEVEL = 9
+
+	/** How hard a frame of changes is compressed: written at every flush. */
+	private const val CHANGES_LEVEL = 3
 	private const val HEADER = 16
 	private const val FRAME_HEADER = 16
 
@@ -177,7 +184,17 @@ object IndexFile {
 
 	/** A frame: kind, three zeros, the payload's length, the stored length, the stored bytes' CRC-32C, the stored bytes. */
 	private fun frame(kind: Byte, payload: ByteArray): ByteArray {
-		val stored = deflated(payload)
+		val stored =
+			Zstd.compress(
+				payload,
+				if (kind ==
+					SNAPSHOT
+				)
+					SNAPSHOT_LEVEL
+				else
+					CHANGES_LEVEL,
+			)
+
 		val crc = CRC32C().also { it.update(stored) }
 
 		return ByteBuffer
@@ -210,53 +227,25 @@ object IndexFile {
 		if (CRC32C().also { it.update(bytes, at + FRAME_HEADER, stored) }.value.toInt() != crc)
 			return null
 
-		val payload = inflated(bytes, at + FRAME_HEADER, stored, length) ?: return null
+		val payload = decompressed(bytes, at + FRAME_HEADER, stored, length) ?: return null
 
 		return Frame(kind, payload, FRAME_HEADER + stored)
 	}
 
-	private fun deflated(bytes: ByteArray): ByteArray {
-		val deflater = Deflater(Deflater.DEFAULT_COMPRESSION, true)
+	/** The [length] bytes [stored] bytes from [from] decompress to; null where they do not (damaged). */
+	private fun decompressed(
+		bytes: ByteArray,
+		from: Int,
+		stored: Int,
+		length: Int,
+	): ByteArray? {
+		val out = ByteArray(length)
+		val made = Zstd.decompressByteArray(out, 0, length, bytes, from, stored)
 
-		try {
-			deflater.setInput(bytes)
-			deflater.finish()
-
-			val out = ByteBuilder(maxOf(64, bytes.size / 4))
-			val chunk = ByteArray(64 * 1024)
-
-			while (!deflater.finished())
-				out.add(chunk, 0, deflater.deflate(chunk))
-
-			return out.toArray()
-		} finally {
-			deflater.end()
-		}
-	}
-
-	private fun inflated(bytes: ByteArray, from: Int, stored: Int, length: Int): ByteArray? {
-		val inflater = Inflater(true)
-
-		try {
-			inflater.setInput(bytes, from, stored)
-
-			val out = ByteArray(length)
-			var at = 0
-
-			while (at < length) {
-				val read = inflater.inflate(out, at, length - at)
-
-				if (read == 0 && (inflater.finished() || inflater.needsInput()))
-					return null
-				at += read
-			}
-
-			return out
-		} catch (damaged: DataFormatException) {
-			return null
-		} finally {
-			inflater.end()
-		}
+		return if (Zstd.isError(made) || made != length.toLong())
+			null
+		else
+			out
 	}
 
 	// ---- payloads ------------------------------------------------------------------------------------------------
@@ -320,8 +309,9 @@ object IndexFile {
 
 	/**
 	 * A block, column by column: its root, its devices, then for each entry in turn its depth (as the step from the
-	 * entry before), its name's length, then all the names, all the kinds, all the devices. Columns of like values
-	 * side by side are what compresses well: depths step by -1, 0 or 1, kinds are a handful of values.
+	 * entry before), its name's length, then all the names, all the kinds, every inode (as the step from the entry
+	 * before's), all the devices. Columns of like values side by side are what compresses well: depths step by -1, 0
+	 * or 1, kinds are a handful of values, and entries made together have inodes close together.
 	 */
 	private fun written(out: Out, block: Block) {
 		out.bytes(block.root.bytes)
@@ -343,6 +333,15 @@ object IndexFile {
 			out.count(block.nameLength(entry))
 		out.raw(block.names)
 		out.raw(block.kinds)
+		for (entry in 0 until block.size)
+			out.signed(
+				block.inodes[entry] - (
+					if (entry == 0)
+						0
+					else
+						block.inodes[entry - 1]
+				),
+			)
 		for (entry in 0 until block.size)
 			out.count(block.device[entry].toInt() and 0xFFFF)
 	}
@@ -377,10 +376,20 @@ object IndexFile {
 
 		val names = read.raw(nameAt[size])
 		val kinds = read.raw(size)
+		val inodes = LongArray(size)
+
+		for (entry in 0 until size)
+			inodes[entry] = read.signedLong() + (
+				if (entry == 0)
+					0
+				else
+					inodes[entry - 1]
+			)
+
 		val device = ShortArray(size) { read.count().toShort() }
 
 		return try {
-			Block(root, parent, nameAt, names, kinds, device, devices)
+			Block(root, parent, nameAt, names, kinds, inodes, device, devices)
 		} catch (wrong: IllegalArgumentException) {
 			throw IOException("a block that is not one: ${wrong.message}", wrong)
 		}
@@ -404,6 +413,9 @@ object IndexFile {
 		/** A signed number, zigzagged so that a small one, either way, takes a byte. */
 		fun signed(value: Int) =
 			unsigned(((value shl 1) xor (value shr 31)).toLong() and 0xFFFFFFFFL)
+
+		/** A signed number of 64 bits, zigzagged; a step between two of them wraps as they do, so it is exact. */
+		fun signed(value: Long) = unsigned((value shl 1) xor (value shr 63))
 
 		/** Bytes and their length; null as a length of 0 and empty bytes as 1, then the bytes. */
 		fun bytes(values: ByteArray?) {
@@ -458,6 +470,8 @@ object IndexFile {
 			}
 
 		fun signed(): Int = unsigned().toInt().let { (it ushr 1) xor -(it and 1) }
+
+		fun signedLong(): Long = unsigned().let { (it ushr 1) xor -(it and 1) }
 
 		fun bytes(): ByteArray? =
 			count().let {

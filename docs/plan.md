@@ -96,8 +96,9 @@ The index holds its entries as columns (`barion.index.Block`), in preorder, so e
 slice of every column that follows it:
 
 - per entry: its parent, its name (one byte array of every name, back to back, and where each starts), its kind
-  (folder, file, or a link to a folder, to a file, to something else, or to nowhere), and its device (an index into
-  the block's devices, each a device number and the file system type mountinfo gives it);
+  (folder, file, or a link to a folder, to a file, to something else, or to nowhere), its inode, and its device (an
+  index into the block's devices, each a device number and the file system type mountinfo gives it); a folder's
+  device and inode are what the watcher names it by, and the index finds a folder by them;
 - worked out as it is loaded, never stored: where what is under each entry ends, every name folded to lower case at
   the same offsets, and every name's stem length.
 
@@ -108,8 +109,8 @@ finds the same before and after.
 
 The file is a compressed snapshot followed by frames of changes appended as they are flushed, and is compacted, written
 anew as one snapshot, once the changes are a quarter of it (docs/format.md says it byte by byte). An earlier plan was
-a file mapped into memory as it is; the file is compressed instead, which makes it a fraction of the size, and reading
-it back is fast enough not to need mapping (a third of a second for three million entries). Every change says what is
+a file mapped into memory as it is; the file is compressed instead (zstd), which makes it a fraction of the size, and
+reading it back is fast enough not to need mapping (under a third of a second for three million entries). Every change says what is
 so now (this entry and everything under it is as this tree says, or it is absent), so making one twice is making it
 once, and a frame read twice does no harm.
 
@@ -178,7 +179,9 @@ regex is `r/.../flags`; modifiers say the rest (`dir:`, `ext:`, `type:`, `is:`, 
 Aliases (`~reports`) are named folders, declared in the configuration file and offered in the sidebar.
 
 docs/search.md says it all, with every example and how a search runs. A query is an immutable tree
-(`barion.index.query`), built today with a Kotlin DSL; a parser combinator will make the same trees from text.
+(`barion.index.query`), built in Kotlin with a DSL, or read from text by a parser of combinators that reads any text at
+all: into a tree of what each part is (to colour it), what is wrong where, and a query that searches for what can be
+searched for while the rest is still being typed.
 
 ## The portal
 

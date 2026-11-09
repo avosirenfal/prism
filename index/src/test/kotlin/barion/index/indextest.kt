@@ -2,6 +2,9 @@ package barion.index
 
 import barion.index.query.QueryBuilder
 import barion.index.query.query
+import barion.linux.Fd
+import barion.linux.orThrow
+import barion.linux.statx
 import java.net.StandardProtocolFamily
 import java.net.UnixDomainSocketAddress
 import java.nio.channels.ServerSocketChannel
@@ -233,6 +236,37 @@ class IndexTest {
 		assertNull(index.find(where("skip")))
 		assertNull(index.find(where("fake-proc")))
 		assertFalse(index.find(where("keep/.local/share")) == null)
+	}
+
+	@Test
+	fun aFolderIsFoundByItsDeviceAndInodeAsTheWatcherNamesIt() {
+		made("docs/a.txt", "music/b.mp3")
+
+		fun idOf(path: String): FileId =
+			statx(Fd.CWD, root.resolve(path).toString()).orThrow().let { FileId(it.dev, it.ino) }
+
+		val index = Index.EMPTY.with(indexer.index(root))
+
+		// Every entry's inode is the one on disk.
+		assertEquals(idOf("docs/a.txt").ino, index.find(where("docs/a.txt"))!!.inode)
+		assertEquals(listOf(where("docs")), index.foldersAt(idOf("docs")))
+		assertEquals(listOf(Where.of(root)), index.foldersAt(idOf(".")))
+		// A file is not a folder a change could happen in.
+		assertEquals(emptyList<Where>(), index.foldersAt(idOf("docs/a.txt")))
+
+		// Moved, the folder keeps its inode, and is found where it went.
+		root.resolve("docs").moveTo(root.resolve("music/docs"))
+
+		val moved =
+			index.with(
+				listOfNotNull(indexer.reread(where("docs")), indexer.reread(where("music/docs"))),
+			)
+
+		assertEquals(listOf(where("music/docs")), moved.foldersAt(idOf("music/docs")))
+		assertEquals(
+			listOf(where("music/docs")),
+			moved.compacted().foldersAt(idOf("music/docs")),
+		)
 	}
 
 	@Test

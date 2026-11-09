@@ -74,3 +74,20 @@ internal class ShortBuilder(
 
 	fun toArray(): ShortArray = array.copyOf(size)
 }
+
+internal class LongBuilder(
+	capacity: Int = 16,
+) {
+	private var array = LongArray(capacity)
+
+	var size = 0
+		private set
+
+	fun add(value: Long) {
+		if (size == array.size)
+			array = array.copyOf(array.size * 2)
+		array[size++] = value
+	}
+
+	fun toArray(): LongArray = array.copyOf(size)
+}

@@ -17,22 +17,23 @@ The project is set up and every part named in the first brief exists, builds, an
 | the loader | `ebpf-loader`: libbpf through FFM, each hook checked against BTF and left out if it moved, per-hook verifier logs, the ring buffer read in place with acquire/release ordering |
 | the watcher | `probe`: hooks on the exits of `vfs_mkdir`, `vfs_rmdir`, `vfs_unlink`, `vfs_create`, `vfs_symlink`, `vfs_link`, `vfs_mknod`, `vfs_rename` and `do_filp_open`; compiled by the build into `index`'s resources |
 | the scanner | `index`: one traversal, two backends (getdents64 through FFM, and the JVM's own), names as bytes, what each directory is gathered into the caller's to say; the ignore rules (names and path endings anywhere, absolute paths), pseudo file systems skipped from mountinfo, read once |
-| the index | `index`: entries as columns in preorder (`Block`), an immutable `Index` that changes by hiding and grafting and compacts back to a block a root, changes that say what is so and so can be made twice; its file a compressed snapshot and appended frames of changes, a torn frame dropped, compacted by rename (docs/format.md); `IndexStore` keeps an index and its file in step; `barion index` builds or reads one |
-| search | `index`: queries as an immutable tree with a Kotlin DSL, for every term of the language (names, globs, quoted and raw terms, paths, regexes, `dir:`, `ext:`, `type:`, `is:`, `recent:`, `mount:`, negation); run over the columns as bytes, with ancestors' states kept per level, on every core (docs/search.md) |
+| the index | `index`: entries as columns in preorder (`Block`), inodes among them, a folder found by device and inode as the watcher names it; an immutable `Index` that changes by hiding and grafting and compacts back to a block a root, changes that say what is so and so can be made twice; its file a zstd-compressed snapshot and appended frames of changes, a torn frame dropped, compacted by rename (docs/format.md); `IndexStore` keeps an index and its file in step; `barion index` builds or reads one and searches it |
+| search | `index`: queries as an immutable tree, for every term of the language (names, globs, quoted and raw terms, paths, regexes, `dir:`, `ext:`, `type:`, `is:`, `recent:`, `mount:`, negation), built with a Kotlin DSL or read from text by parser combinators that read any text at all into a tree with spans, problems (unfinished, and searched for as far as it goes; or invalid, and left out) and marks to colour it by; run over the columns as bytes, with ancestors' states kept per level, on every core (docs/search.md) |
 | the picker | `picker`: an immutable `PickerState`, a pure reducer, a session that reads folders, looks up typed paths and makes changes on a background thread, and a view made of its own controls; it browses (back, forward, up, the mouse's side buttons, places, a typed path), chooses (click, Ctrl, Shift, the arrows, type-ahead), searches, sorts, filters by kind from a menu (one, or several with Ctrl; hidden files shown and hidden folders not until the user says), zooms with Ctrl and the wheel (the gallery up to one picture at a time, fitted to the window), and saves (asking before replacing), as a list or a gallery with thumbnails of images; context menus (menus as data, one component for any menu) rename, trash (the desktop's own; the Delete key asks first) and make folders, each undone and redone with Ctrl+Z and Ctrl+Shift+Z; `barion pick` prints what is chosen (docs/picker.md) |
 | D-Bus | `dbus`: the connection (handshake and `Hello` as it opens), messages as data, kotlinx.serialization for bodies with signatures worked out from the types and checked before decoding, calls with replies as values, signals as flows, `watch`, served methods (docs/dbus.md) |
 | the colour scheme | `portal`: the portal's Settings declared; `barion pick` opens in the desktop's palette and follows its changes; light where there is no bus or portal; `--theme` overrides |
 
-260 tests (245 of barion's own, 15 of the house formatting rules), all passing in the development container; one
+269 tests (254 of barion's own, 15 of the house formatting rules), all passing in the development container; one
 skipped there, the search benchmark, which runs only when asked for (`-Pindex.benchmark=N`). The D-Bus ones run against a real dbus-daemon each test starts, and against gdbus, dbus-send and busctl.
 
 ## Measured
 
-**The index of `/`** in this container: 184,589 entries (its caches, build trees and pseudo file systems left out),
-indexed in 1.8 s on 4 cores, written to a file of 683 KB, read back in 48 ms; a search for a word takes 2 ms, a glob
+**The index of `/`** in this container: 184,676 entries (its caches, build trees and pseudo file systems left out),
+indexed in 1.9 s on 4 cores, written to a file of 537 KB, read back in 39 ms; a search for a word takes 2 ms, a glob
 7 ms. **A made-up index of 3,000,000 entries** (`SearchBenchmark`): searches from 5 ms (`is:dir`) to 50 ms
-(`*.jpg`, which finds over a million), a regex over paths 200 ms; its file is 9.4 MB, written in 1.3 s and read in
-0.33 s (docs/search.md has every query's time).
+(`*.jpg`, which finds over a million), a regex over paths 200 ms; its file is 8.4 MB, written in 1.1 s and read in
+0.29 s (docs/search.md has every query's time). Reading a query's text: 30,000 random texts read and searched for in
+0.4 s.
 
 **getdents64 against the JVM** (docs/scanning.md), `/usr`, 92,611 entries, warm caches, 4 cores: getdents64 takes
 **0.23x** the JVM's time on one thread (48.5 ms against 214.8 ms) and **0.44x** on four (32.4 ms against 73.4 ms);
@@ -61,18 +62,16 @@ In the order they unblock each other:
 
 1. **Run the watcher on a real machine**, with the privileges it needs, and read what it sends for a `mkdir`, a
    `touch`, a `mv`, an `rm -r`, a `git checkout` and an `npm install`. Fix what the verifier says about any hook.
-2. **The watcher's changes into the index.** The watcher names the directory a change is in by device and inode,
-   and the index does not keep inodes yet: a column of each folder's inode (which reading it gives already), and a
-   map from (device, inode) to entry built as a block is loaded. Then each change becomes `Indexer.reread` of that one
-   name, and the store's `make` (plan.md, "Keeping it current").
+2. **The watcher's changes into the index.** The index finds the folder a change is in by the device and inode the
+   watcher names it by (`Index.foldersAt`); each change then becomes `Indexer.reread` of that one name, and the
+   store's `make` (plan.md, "Keeping it current").
 3. **The daemon**: an `IndexStore` opened at start (building the index the first time), the watcher's changes made
    as they come, `flush` every few seconds while there are changes.
-4. **The text language's parser**: a parser combinator making the queries the DSL makes (docs/search.md).
-5. **The picker searching the index** from its search field, and reading its folders from the index (an index-backed
+4. **The picker searching the index** from its search field, and reading its folders from the index (an index-backed
    `Disk`), with the picker's kinds and `type:` from one table of extensions.
-6. **The portal backend**: `org.freedesktop.impl.portal.FileChooser` served on the session bus with
+5. **The portal backend**: `org.freedesktop.impl.portal.FileChooser` served on the session bus with
    `Connection.serve`, each request a `PickerState`, the daemon opening a window per request.
-7. **Filtering in the kernel**: a bounded loop in the DSL, so the watcher drops a change under an ignored directory
+6. **Filtering in the kernel**: a bounded loop in the DSL, so the watcher drops a change under an ignored directory
    before it is sent; and the privileged loader service that hands the ring to the user's daemon.
 
 ## Notes for whoever picks this up

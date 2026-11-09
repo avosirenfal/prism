@@ -31,7 +31,7 @@ data class Glob(
 
 		/** `[...]`: one character of [spans], or with [negated], one character of none of them. */
 		data class Class(
-			val spans: List<Span>,
+			val spans: List<Chars>,
 			val negated: Boolean,
 		) : Part {
 			init {
@@ -53,7 +53,7 @@ data class Glob(
 	}
 
 	/** The code points from [first] to [last], both included: `a-z`, or one character alone. */
-	data class Span(
+	data class Chars(
 		val first: Int,
 		val last: Int,
 	) {
@@ -82,12 +82,38 @@ data class Glob(
 
 	override fun toString(): String = parts.joinToString("", transform = ::written)
 
+	/**
+	 * A glob as [read] made it; where in its text a class or a choice was opened that it closed at the end; and where
+	 * a range ran backwards (`z-a`), which it read the right way round.
+	 */
+	data class Reading(
+		val glob: Glob,
+		val unclosed: List<Int>,
+		val backwards: List<Range>,
+	)
+
+	/** Where something is in a glob's text: from [start] up to [end], [end] not included. */
+	data class Range(
+		val start: Int,
+		val end: Int,
+	)
+
 	companion object {
 		/** The characters that make a word a glob, unless `\` comes before them. */
 		private const val SPECIAL = "*?[{"
 
 		/** [text] as a glob. Refused, with why, where it is not one: a class or a choice never closed, a `\` at the end. */
-		fun parse(text: String): Glob = Parser(text).whole()
+		fun parse(text: String): Glob = Parser(text, lenient = false).whole()
+
+		/**
+		 * [text] as a glob, however it ends: a class or a choice never closed is closed at the end (a class with
+		 * nothing in it yet is left out), and a `\` at the end is itself. What the reading had to close is said, by
+		 * where each was opened: how a glob still being typed is searched for as far as it goes.
+		 */
+		fun read(text: String): Reading =
+			Parser(text, lenient = true).let {
+				Reading(it.whole(), it.unclosed.toList(), it.backwards.toList())
+			}
 
 		/** Whether [text] has a character that makes it a glob (`*`, `?`, `[`, `{`) that no `\` comes before. */
 		fun isGlob(text: String): Boolean {
@@ -140,8 +166,15 @@ data class Glob(
 	/** Reads a glob's text, a code point at a time. */
 	private class Parser(
 		private val text: String,
+		private val lenient: Boolean,
 	) {
 		private var at = 0
+
+		/** Where the classes and choices closed at the end, leniently, were opened. */
+		val unclosed = ArrayList<Int>()
+
+		/** The ranges that ran backwards (`[z-a]`), read leniently the right way round. */
+		val backwards = ArrayList<Range>()
 
 		fun whole(): Glob {
 			val glob = glob(inChoice = false)
@@ -171,8 +204,12 @@ data class Glob(
 
 				when {
 					inChoice && (c == ',' || c == '}') -> break
+					c == '\\' && at + 1 == text.length -> {
+						require(lenient) { "“$text” ends with a “\\” that escapes nothing" }
+						literal.append('\\')
+						at++
+					}
 					c == '\\' -> {
-						require(at + 1 < text.length) { "“$text” ends with a “\\” that escapes nothing" }
 						literal.appendCodePoint(text.codePointAt(at + 1))
 						at += 1 + Character.charCount(text.codePointAt(at + 1))
 					}
@@ -184,7 +221,7 @@ data class Glob(
 						add(Part.One)
 						at++
 					}
-					c == '[' -> add(spanClass())
+					c == '[' -> spanClass()?.let(::add)
 					c == '{' -> add(choice())
 					else -> {
 						literal.appendCodePoint(text.codePointAt(at))
@@ -208,15 +245,19 @@ data class Glob(
 
 			while (true) {
 				alternatives += glob(inChoice = true)
-				require(
-					at < text.length,
-				) { "“$text” has a “{” at ${opened + 1} that is never closed" }
+				if (at == text.length) {
+					require(lenient) { "“$text” has a “{” at ${opened + 1} that is never closed" }
+					unclosed += opened
+
+					return Part.Choice(alternatives)
+				}
 				if (text[at++] == '}')
 					return Part.Choice(alternatives)
 			}
 		}
 
-		private fun spanClass(): Part.Class {
+		/** A class; null for one never closed that has nothing in it yet, which a lenient reading leaves out. */
+		private fun spanClass(): Part.Class? {
 			val opened = at
 
 			at++
@@ -226,20 +267,36 @@ data class Glob(
 			if (negated)
 				at++
 
-			val spans = ArrayList<Span>()
+			val spans = ArrayList<Chars>()
 
 			// A `]` first is one of the class, not its end: `[]a]`.
 			while (at < text.length && (text[at] != ']' || spans.isEmpty())) {
+				val from = at
 				val first = codePoint()
 
 				if (at + 1 < text.length && text[at] == '-' && text[at + 1] != ']') {
 					at++
-					spans += Span(first, codePoint())
+
+					val last = codePoint()
+
+					if (last < first) {
+						require(lenient) { "“$text” has a range at ${from + 1} that runs backwards" }
+						backwards += Range(from, at)
+					}
+					spans += Chars(minOf(first, last), maxOf(first, last))
 				} else {
-					spans += Span(first, first)
+					spans += Chars(first, first)
 				}
 			}
-			require(at < text.length) { "“$text” has a “[” at ${opened + 1} that is never closed" }
+			if (at == text.length) {
+				require(lenient) { "“$text” has a “[” at ${opened + 1} that is never closed" }
+				unclosed += opened
+
+				return if (spans.isEmpty())
+					null
+				else
+					Part.Class(spans, negated)
+			}
 			at++
 
 			return Part.Class(spans, negated)

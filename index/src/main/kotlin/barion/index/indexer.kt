@@ -63,10 +63,9 @@ class Indexer(
 
 	private fun treeAt(where: Where): Block? {
 		val own = statOf(where, follow = false) ?: return null
+		val link = own.kind == FileKind.Symlink
 		val target =
-			if (own.kind ==
-				FileKind.Symlink
-			)
+			if (link)
 				statOf(where, follow = true)?.kind
 			else
 				null
@@ -74,7 +73,7 @@ class Indexer(
 		val builder = BlockBuilder(where)
 
 		if (kind != Kind.Directory) {
-			builder.add(-1, where.name, kind, deviceOf(own.dev, null))
+			builder.add(-1, where.name, kind, deviceOf(own.dev, null), own.ino)
 
 			return builder.built()
 		}
@@ -82,7 +81,12 @@ class Indexer(
 		val packed = scanner.gather(where, Packing)
 		val device = deviceOf(packed.dev ?: own.dev, null)
 
-		lay(builder, builder.add(-1, where.name, kind, device), packed, device)
+		lay(
+			builder,
+			builder.add(-1, where.name, kind, device, packed.ino ?: own.ino),
+			packed,
+			device,
+		)
 
 		return builder.built()
 	}
@@ -99,6 +103,7 @@ class Indexer(
 					packed.names,
 					Block.KINDS[packed.kinds[entry].toInt()],
 					on,
+					packed.inodes[entry],
 					packed.nameAt[entry],
 					packed.nameAt[entry + 1],
 				)
@@ -141,14 +146,17 @@ class Indexer(
 }
 
 /**
- * A directory as the indexer gathers it: its own device (null where it could not be read), and its entries packed
- * into arrays, sorted by name: names back to back, each entry's [Kind], and for a folder read, what it holds.
+ * A directory as the indexer gathers it: its own device and inode (null where it could not be read), and its entries
+ * packed into arrays, sorted by name: names back to back, each entry's [Kind] and inode, and for a folder read, what
+ * it holds.
  */
 internal class Packed(
 	val dev: Dev?,
+	val ino: Long?,
 	val names: ByteArray,
 	val nameAt: IntArray,
 	val kinds: ByteArray,
+	val inodes: LongArray,
 	val inside: Array<Packed?>,
 ) {
 	val size: Int get() = kinds.size
@@ -157,7 +165,23 @@ internal class Packed(
 /** How the indexer gathers a directory: what the index holds of it, packed; what it does not hold, left out. */
 internal object Packing : Gathering<Packed> {
 	private val NOTHING =
-		Packed(null, ByteArray(0), intArrayOf(0), ByteArray(0), emptyArray())
+		Packed(
+			null,
+			null,
+			ByteArray(0),
+			intArrayOf(0),
+			ByteArray(0),
+			LongArray(0),
+			emptyArray(),
+		)
+
+	/** An entry the index holds. A folder's inode is its own, as reading it said: a mount point's is the mounted root's. */
+	private class Kept(
+		val name: Name,
+		val kind: Kind,
+		val ino: Long,
+		val inside: Packed?,
+	)
 
 	override fun read(
 		where: Where,
@@ -167,30 +191,40 @@ internal object Packing : Gathering<Packed> {
 		val kept =
 			found
 				.mapNotNull { entry ->
+					val listed = entry.listed
+
 					when (entry) {
 						is Found.Skipped -> null
-						is Found.Folder -> Triple(entry.listed.name, Kind.Directory, entry.gathered)
+						is Found.Folder ->
+							Kept(
+								listed.name,
+								Kind.Directory,
+								entry.gathered.ino ?: listed.ino,
+								entry.gathered,
+							)
 						is Found.Leaf ->
-							Kind.of(entry.listed.kind, entry.listed.target)?.let {
-								Triple(entry.listed.name, it, null)
+							Kind.of(listed.kind, listed.target)?.let {
+								Kept(listed.name, it, listed.ino, null)
 							}
 					}
-				}.sortedBy { it.first }
+				}.sortedBy { it.name }
 
-		val names = ByteBuilder(kept.sumOf { it.first.length })
+		val names = ByteBuilder(kept.sumOf { it.name.length })
 		val nameAt = IntBuilder(kept.size + 1).also { it.add(0) }
 
-		for ((name) in kept) {
-			names.add(name.raw)
+		for (entry in kept) {
+			names.add(entry.name.raw)
 			nameAt.add(names.size)
 		}
 
 		return Packed(
 			listing.dev,
+			listing.ino,
 			names.toArray(),
 			nameAt.toArray(),
-			ByteArray(kept.size) { kept[it].second.ordinal.toByte() },
-			Array(kept.size) { kept[it].third },
+			ByteArray(kept.size) { kept[it].kind.ordinal.toByte() },
+			LongArray(kept.size) { kept[it].ino },
+			Array(kept.size) { kept[it].inside },
 		)
 	}
 

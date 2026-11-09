@@ -1,8 +1,9 @@
 # Searching the index
 
 The index is there to answer a few typed words with every file on the machine that fits them, the way Everything and
-Listary do. This document says what a query means, how it is written in Kotlin today (the text language's parser
-comes later and will make the same queries), and how a search runs over the index's columns.
+Listary do. This document says what a query means; how its text is read, however unfinished or malformed, into a tree
+that can be coloured part by part and a query that can be searched for; how a query is written in Kotlin; and how a
+search runs over the index's columns.
 
 ## A query, by example
 
@@ -116,7 +117,8 @@ a `work` folder and a `2024` folder, nested either way, where `dir:work/2024` wa
 
 **`ext:EXT`** is an extension, matched at any extension boundary: `archive.tar.gz` has `tar.gz` and `gz`, so both
 `ext:gz` and `ext:tar.gz` find it. Globs and braces are allowed (`ext:{jpg,png,webp}`), and so is a regex between
-slashes, which must match the whole of an extension (`ext:/jpe?g/i`).
+slashes, which must match the whole of an extension (`ext:/jpe?g/i`). A dot before it is the boundary, not part of
+it, so `ext:.pdf` is `ext:pdf`; quoted, it takes `c` and `i` as a name term does (`ext:c"PDF"`).
 
 **`type:GROUP`** is any extension of a group: `archive`, `audio`, `code`, `document`, `font`, `image`, `text`,
 `video` (the lists are in `barion.index.query.Group`).
@@ -134,8 +136,8 @@ So `is:file -is:symlink` is regular files only, and `is:dir is:symlink` is links
 alternatives: `is:{file,symlink}`. A file picker implies `is:file`, and a folder picker `is:dir`.
 
 **`recent:WHEN`** is an entry given by the picker since `WHEN`: `today` and `yesterday` (from the start of the day),
-a weekday such as `wednesday` (from the start of the latest one, today if today is that day), or a duration: `5m`
-(minutes), `24h`, `1w`.
+a weekday such as `wednesday` (from the start of the latest one, today if today is that day), or a duration: a number
+and `s`, `m` (minutes), `h`, `d` or `w`: `5m`, `24h`, `2d`, `1w`.
 
 **`mount:FSTYPE`** is an entry on a file system of that type, as `/proc/self/mountinfo` names it: `mount:zfs`,
 `-mount:ntfs`.
@@ -146,7 +148,78 @@ A `-` before any term negates it, and each negated term excludes on its own: `-e
 
 `index/src/test/kotlin/barion/index/searchtest.kt` holds every example above and in the original brief, written in
 the DSL, run against a tree made for them and indexed by the real indexer, each checked entry for entry against what it
-should find. Each one's text form is the comment above it.
+should find. Each one's text form is the comment above it. `parsertest.kt` reads each of those texts and checks that
+it reads, with nothing wrong, to the very query the DSL builds.
+
+## Reading a query's text
+
+A query is read as it is typed, a character at a time, and the picker shows results for it at every moment. So most of
+the text it reads is not finished: `"tax re` is a quote not closed yet, `img_[0-` a class not closed yet, `report ext:`
+a modifier with nothing after it yet. Reading has to give, for any text at all, two things: a query to search for now,
+and a tree of the text that says what each part of it is and what is wrong where, to colour it by.
+
+### Three steps
+
+Take `-ext:{jpg,pn`, typed that far.
+
+1. **The grammar** reads the text into a tree, and never fails: a quote not closed runs to the end of the text, a
+   character no rule expects is a term's junk, so there is always a tree. Here the tree is one term: a negation at
+   0..1, then a modifier whose name `ext` is at 1..4, its colon at 4..5, and its value, the bare words `{jpg,pn`, at
+   5..12. Every node has its span (`barion.index.query.TermSyntax`, `BodySyntax`, `TextSyntax`, ...).
+2. **The meaning** of each term is made from its part of the tree, with what is wrong with it. Here the value is a glob
+   whose `{` is not closed. That runs to the end of the text, so it is *unfinished*: the glob is closed at the end, as
+   `{jpg,pn}`, and the term means "not an extension of jpg or pn". Results show at once, and change as `g}` is typed.
+3. **The marks** colour the text, from the tree alone: `-` a negation, `ext` a modifier, `:` a colon, `{` `,` a
+   wildcard, `jpg` `pn` a modifier's value. A view draws the problems over them.
+
+`QueryText.read(text)` does all three, and gives a `ReadQuery`: its `syntax`, each term's meaning and problems, the
+`query` to search for, the `problems`, and the `marks`.
+
+### Unfinished, and invalid
+
+A problem is one of two kinds, by one rule: where it runs to the end of the text (where the cursor most likely is), it
+is **unfinished**; anywhere else, or where no more typing would mend it, it is **invalid**.
+
+- An unfinished term is finished as well as it can be, and searched for: a quote or a regex not closed runs to the end
+  (`"tax re` is a search for `tax re`), a `[` or `{` not closed is closed at the end. One that has nothing to search
+  for yet (`ext:`, `recent:5`, `type:ima`, a lone `-`) is left out until it has.
+- An invalid term is left out of the search, and the rest of the query is searched without it. `ic"readme"` says two
+  opposite things; `foo:bar` is not a modifier; `dir:funny:5-3` runs backwards; `"abc"def` has no space between its
+  terms. So is a problem that was unfinished once more is typed after it: `img_[0-9 report` leaves `img_[0-9` behind
+  unclosed, so it is invalid, and the search is for `report` alone.
+
+Every problem has a span, so the text can be marked exactly where it is, and a message saying what is wrong in words:
+"the quote is not closed", "“c” and “i” say opposite things: one or the other", "there is no “foo:”; the modifiers are
+dir:, ext:, type:, is:, recent:, mount:". Where the picker knows the user's aliases (`QueryText.read(text, aliases)`),
+a `~name` that is not one of them is invalid too; otherwise it is left for the search to refuse.
+
+### The grammar
+
+The grammar is built from parser combinators of barion's own (`combinators.kt`): a parser is a function from a text
+and a position to a value and the position after it, or to nothing, and bigger parsers are made from smaller ones
+(`and`, `firstOf`, `many`, `optional`, `spanned`, `not`, `ahead`, ...). Choice is ordered and backtracks, as in a PEG,
+which a query's few dozen characters make free. In outline (`syntax.kt` has it rule by rule):
+
+```
+query     = space* (term space*)*
+term      = "-"? (regex | modifier | words)? junk?
+regex     = "r/" source ("/" flags)?
+modifier  = letters ":" value?
+words     = ("=" | "^")? (quoted | bare)? ("$" at the end of the term)?
+quoted    = [rci]* "#"* '"' content ('"' "#"*)?
+bare      = (escape | a character but a space, or a "$" that ends the term)+
+junk      = what follows a term with no space before it
+```
+
+Every rule that could fail has a way not to: what closes a quote or a regex is optional, a term's body is optional
+(a lone `-`), and whatever is left over is junk. That is how any text reads into a tree, and why recovering is nothing
+more than reading the tree that is there. A modifier's value is read by its name: `ext:` takes a regex as well as
+words, and `dir:` takes a depth after its pattern (`dir:"old photos":2`).
+
+Two tests hold this to account. Every example in this document is read character by character, as it would be typed,
+and at no point is any part of it invalid. And 30,000 texts made at random from the characters the language gives
+meaning to are read and searched for, and none of them fails to read or to run (`-Pparser.seed=N -Pparser.texts=N`
+reads others).
 
 ## Queries in Kotlin
 
@@ -174,8 +247,9 @@ query {
 }
 ```
 
-What a word means (a substring or a glob, the stem or the whole name) is decided by the same functions the parser will
-call (`TextPattern.of`, `NamePart.of`, `PathPatterns.parse`), so the DSL and the text cannot disagree.
+What a word means (a substring or a glob, the stem or the whole name) is decided by the same functions the parser
+calls (`NamePart.of`, `PathPatterns.parse`, and `Glob`'s reading), so the DSL and the text cannot disagree; the
+parser's tests read every example and compare it with the DSL's query.
 
 A query is run with `index.search(query, context)`. The `SearchContext` says what the query itself does not: the
 case-sensitivity toggle, the home folder, the aliases, and the time and zone that `recent:` counts from. A query that
@@ -231,7 +305,6 @@ where they lie.
 
 ## Not yet
 
-- The text language's parser, a parser combinator that makes these same queries from text.
 - Sorting results (by name, path, or how recently they were picked); they come in the index's order, by path within
   each block.
 - A trigram index, to find a substring without reading every name; at a few million entries reading them all takes

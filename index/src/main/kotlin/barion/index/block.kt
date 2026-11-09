@@ -21,6 +21,7 @@ class Block internal constructor(
 	internal val nameAt: IntArray,
 	internal val names: ByteArray,
 	internal val kinds: ByteArray,
+	internal val inodes: LongArray,
 	internal val device: ShortArray,
 	val devices: List<Device>,
 ) {
@@ -40,7 +41,10 @@ class Block internal constructor(
 
 	init {
 		require(size > 0) { "a block holds at least its root" }
-		require(kinds.size == size && device.size == size && nameAt.size == size + 1) {
+		require(
+			kinds.size == size && inodes.size == size && device.size == size &&
+				nameAt.size == size + 1,
+		) {
 			"a block's columns are as long as each other"
 		}
 		require(nameAt[0] == 0 && nameAt[size] == names.size) {
@@ -94,6 +98,21 @@ class Block internal constructor(
 	internal fun kindOf(entry: Int): Kind = KINDS[kinds[entry].toInt()]
 
 	internal fun deviceOf(entry: Int): Device = devices[device[entry].toInt() and 0xFFFF]
+
+	/**
+	 * The block's folders by device and inode: how a change the watcher saw, which names the folder it happened in by
+	 * those two numbers, finds the folder. Made the first time it is asked for. Usually one folder each; a folder bind
+	 * mounted elsewhere too is two.
+	 */
+	internal val folders: Map<FileId, IntArray> by lazy {
+		(0 until size)
+			.filter { kindOf(it) == Kind.Directory }
+			.groupBy { FileId(deviceOf(it).dev, inodes[it]) }
+			.mapValues { (_, entries) -> entries.toIntArray() }
+	}
+
+	internal fun entryOf(entry: Int): Entry =
+		Entry(whereOf(entry), kindOf(entry), deviceOf(entry), inodes[entry])
 
 	internal fun nameOf(entry: Int): ByteArray =
 		names.copyOfRange(
@@ -155,6 +174,7 @@ class Block internal constructor(
 			nameAt.contentEquals(other.nameAt) &&
 			names.contentEquals(other.names) &&
 			kinds.contentEquals(other.kinds) &&
+			inodes.contentEquals(other.inodes) &&
 			device.contentEquals(other.device) &&
 			devices == other.devices
 
@@ -194,6 +214,7 @@ internal class BlockBuilder(
 	private val nameAt = IntBuilder().also { it.add(0) }
 	private val names = ByteBuilder()
 	private val kinds = ByteBuilder()
+	private val inodes = LongBuilder()
 	private val device = ShortBuilder()
 	private val devices = LinkedHashMap<Device, Int>()
 
@@ -203,6 +224,7 @@ internal class BlockBuilder(
 		name: ByteArray,
 		kind: Kind,
 		on: Device,
+		inode: Long,
 		from: Int = 0,
 		to: Int = name.size,
 	): Int {
@@ -210,6 +232,7 @@ internal class BlockBuilder(
 		names.add(name, from, to)
 		nameAt.add(names.size)
 		kinds.add(kind.ordinal.toByte())
+		inodes.add(inode)
 		device.add(devices.getOrPut(on) { devices.size }.toShort())
 
 		return this.parent.size - 1
@@ -222,6 +245,7 @@ internal class BlockBuilder(
 			nameAt.toArray(),
 			names.toArray(),
 			kinds.toArray(),
+			inodes.toArray(),
 			device.toArray(),
 			devices.keys.toList(),
 		)
