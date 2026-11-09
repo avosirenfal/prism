@@ -15,6 +15,9 @@ a device, so a test that ran and a test that could not run are never confused.
 | the scanner (`ScanTest`) | the JDK | never |
 | libc's calls (`FilesTest`) | Linux | never |
 | the picker, model and headless drawing (`PickerTest`) | the JDK | never |
+| D-Bus's wire format and types (`WireTest`, `SerialTest`) | the JDK | never |
+| D-Bus, live (`ConnectionTest`, `AppearanceTest`, `ThemeTest`) | dbus-daemon, which each test starts on a socket of its own | without dbus-daemon |
+| D-Bus against other implementations (in `ConnectionTest`) | gdbus, dbus-send, busctl | each, without that tool |
 
 In this project's development container everything runs and nothing skips. On a CI runner, the loader's tests skip
 (they run as an unprivileged user) and everything else runs.

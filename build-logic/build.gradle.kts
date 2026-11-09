@@ -13,6 +13,7 @@ dependencies {
 	implementation(plugin(libs.plugins.kotlin.jvm))
 	implementation(plugin(libs.plugins.compose))
 	implementation(plugin(libs.plugins.kotlin.compose))
+	implementation(plugin(libs.plugins.kotlin.serialization))
 }
 
 /** The Maven coordinates of a plugin from the version catalog, by the plugin marker convention. */

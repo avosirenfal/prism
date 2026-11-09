@@ -1,5 +1,7 @@
 package barion.app
 
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
@@ -12,7 +14,6 @@ import barion.cli.ParamType
 import barion.cli.Size
 import barion.picker.Choosing
 import barion.picker.FilePicker
-import barion.picker.Palette
 import barion.picker.PickerEvent
 import barion.picker.PickerState
 import barion.picker.PickerTheme
@@ -29,7 +30,7 @@ import kotlin.io.path.writeBytes
  * view and whatever will hold its state can be seen before anything holds it.
  */
 
-/** The parameters both commands take: the folder, what the picker is choosing, and the palette. */
+/** The parameters both commands take: the folder, what the picker is choosing, and the theme. */
 private class Picking(
 	command: Command,
 ) {
@@ -48,7 +49,14 @@ private class Picking(
 		)
 	private val many = command.flag("--multiple", help = "a picker that opens several files")
 	private val folders = command.flag("--folder", help = "a picker that chooses a folder")
-	private val dark = command.flag("--dark", help = "the dark palette")
+	private val theme =
+		command.option(
+			"--theme",
+			type = Theme.TYPE,
+			default = Theme.Auto,
+			help = "the palette: the desktop's colour scheme (light where there is none), or light or dark",
+			shown = "auto",
+		)
 
 	fun state(args: Args): PickerState {
 		val asked =
@@ -74,7 +82,7 @@ private class Picking(
 		return pickerOf(args[folder], choosing)
 	}
 
-	fun palette(args: Args): Palette = if (args[dark]) Palette.Dark else Palette.Light
+	fun theme(args: Args): Theme = args[theme]
 }
 
 /** `barion pick`: the picker in a window. */
@@ -86,20 +94,26 @@ object PickCommand : Command(
 
 	override fun run(args: Args): Outcome {
 		val state = picking.state(args)
-		val palette = picking.palette(args)
+		val theme = picking.theme(args)
 
-		application {
-			Window(
-				onCloseRequest = ::exitApplication,
-				title = state.title,
-				state = rememberWindowState(width = 1100.dp, height = 680.dp),
-			) {
-				PickerTheme(palette) {
-					FilePicker(state) { event ->
-						println(event)
+		// The desktop's scheme is asked for before the window opens, so it opens in the right palette, and followed
+		// while it is open, so it changes palette when the user changes their preference.
+		Appearance.follow(theme).use { appearance ->
+			application {
+				val scheme by appearance.changes.collectAsState(appearance.first)
 
-						if (event == PickerEvent.Accepted || event == PickerEvent.Cancelled)
-							exitApplication()
+				Window(
+					onCloseRequest = ::exitApplication,
+					title = state.title,
+					state = rememberWindowState(width = 1100.dp, height = 680.dp),
+				) {
+					PickerTheme(paletteOf(theme, scheme)) {
+						FilePicker(state) { event ->
+							println(event)
+
+							if (event == PickerEvent.Accepted || event == PickerEvent.Cancelled)
+								exitApplication()
+						}
 					}
 				}
 			}
@@ -129,12 +143,15 @@ object SnapshotCommand : Command(
 		option("--scale", type = ParamType.COUNT, default = 2, help = "the display's density")
 
 	override fun run(args: Args): Outcome {
+		val theme = picking.theme(args)
+		val scheme = Appearance.follow(theme).use { it.first }
+
 		val png =
 			renderedPng(
 				picking.state(args),
 				args[size].width,
 				args[size].height,
-				picking.palette(args),
+				paletteOf(theme, scheme),
 				args[scale].toFloat(),
 			)
 

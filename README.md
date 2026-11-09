@@ -3,7 +3,8 @@
 A file picker for Linux desktops on Wayland, over an index of every file on the machine that the kernel keeps
 current. It is meant to stand in for the open and save dialogs applications get through the desktop portal: a
 familiar dialog in front, and behind it an index that finds a file by a few typed words, wherever it is, and never
-goes stale, because an eBPF program sees every entry the kernel makes, removes or moves.
+goes stale, because an eBPF program sees every entry the kernel makes, removes or moves. It follows the desktop's
+light or dark preference through the portal, over a D-Bus library of its own.
 
 ![The picker, light](docs/picker-light.png)
 
@@ -26,7 +27,7 @@ for and how it is meant to work; docs/inprogress.md says where it stands.
 
 | command | what it does |
 |---|---|
-| `pick [FOLDER]` | the picker in a window over a folder (your home folder by default), printing what you do in it; `--save NAME`, `--multiple`, `--folder`, `--dark` |
+| `pick [FOLDER]` | the picker in a window over a folder (your home folder by default), printing what you do in it, in the desktop's light or dark palette as it changes; `--save NAME`, `--multiple`, `--folder`, `--theme auto\|light\|dark` |
 | `snapshot [FOLDER] --out FILE` | the picker drawn headless into a PNG |
 | `scan [PATH]` | a tree read by each scanner backend, several times, with what each found and how fast |
 | `probe c` | the watcher's C, as emitted from its Kotlin declaration |
@@ -45,6 +46,8 @@ for and how it is meant to work; docs/inprogress.md says where it stands.
 | `ebpf-loader` | ebpf, linux | a compiled program loaded and attached through libbpf, its ring buffer read in place |
 | `probe` | ebpf | the watcher: hooks on the exits of the VFS functions that change a directory |
 | `index` | probe, ebpf-loader, linux | the scanner and its backends, the ignore rules, the watcher as the index runs it |
+| `dbus` | kotlinx.serialization, coroutines | D-Bus: the bus's socket, its handshake and `Hello` as a connection opens; messages as data; bodies by kotlinx.serialization, their signatures worked out from the Kotlin types; calls, signals as flows, served methods |
+| `portal` | dbus | the desktop portal as barion speaks to it: the appearance settings (the colour scheme, and its changes) |
 | `picker` | Compose | the picker: an immutable model and a pure view of it |
 | `app` | everything | the command line and the window |
 
@@ -94,4 +97,5 @@ A clang other than the one on the PATH is named with `-Pbarion.clang=PATH` or `$
 | docs/inprogress.md | where the work stands, what is not verified, what is next |
 | docs/ebpf.md | the eBPF DSL: what its types refuse, what it reports, what it checks against the kernel, the C it emits |
 | docs/scanning.md | how a directory is read, and the measurement that chose getdents64 over the JVM |
+| docs/dbus.md | D-Bus from the ground up, and how the library maps it onto Kotlin types, calls, flows and served methods |
 | docs/testing.md | what the tests need, where they skip, and how to run the watcher on a real machine |

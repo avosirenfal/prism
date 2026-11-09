@@ -18,9 +18,11 @@ The project is set up and every part named in the first brief exists, builds, an
 | the watcher | `probe`: hooks on the exits of `vfs_mkdir`, `vfs_rmdir`, `vfs_unlink`, `vfs_create`, `vfs_symlink`, `vfs_link`, `vfs_mknod`, `vfs_rename` and `do_filp_open`; compiled by the build into `index`'s resources |
 | the scanner | `index`: one traversal, two backends (getdents64 through FFM, and the JVM's own), names as bytes, the ignore rules, pseudo file systems skipped from mountinfo |
 | the picker | `picker`: an immutable `PickerState`, a pure Compose view of it in light and dark, a source that reads a real folder through the JVM; drawn headless by the tests and by `barion snapshot` |
+| D-Bus | `dbus`: the connection (handshake and `Hello` as it opens), messages as data, kotlinx.serialization for bodies with signatures worked out from the types and checked before decoding, calls with replies as values, signals as flows, `watch`, served methods (docs/dbus.md) |
+| the colour scheme | `portal`: the portal's Settings declared; `barion pick` opens in the desktop's palette and follows its changes; light where there is no bus or portal; `--theme` overrides |
 
-80 tests (65 of barion's own, 15 of the house formatting rules), all passing in the development container; none
-skipped there.
+113 tests (98 of barion's own, 15 of the house formatting rules), all passing in the development container; none
+skipped there. The D-Bus ones run against a real dbus-daemon each test starts, and against gdbus, dbus-send and busctl.
 
 ## Measured
 
@@ -55,8 +57,8 @@ In the order they unblock each other:
    journal of the changes since.
 4. **The picker's reducer**: a pure function from a state and an event to the next state and the effect wanted, so
    the picker navigates, chooses and searches; then the picker reading its folders from the index.
-5. **The portal backend**: `org.freedesktop.impl.portal.FileChooser` on the session bus, each request a
-   `PickerState`, the daemon opening a window per request.
+5. **The portal backend**: `org.freedesktop.impl.portal.FileChooser` served on the session bus with
+   `Connection.serve`, each request a `PickerState`, the daemon opening a window per request.
 6. **The search language**, over the index's name trigrams.
 7. **Filtering in the kernel**: a bounded loop in the DSL, so the watcher drops a change under an ignored directory
    before it is sent; and the privileged loader service that hands the ring to the user's daemon.

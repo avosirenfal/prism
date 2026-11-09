@@ -40,6 +40,8 @@ include(
 	":linux",
 	":ebpf",
 	":ebpf-loader",
+	":dbus",
+	":portal",
 	":probe",
 	":index",
 	":picker",

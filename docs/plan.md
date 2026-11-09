@@ -49,6 +49,8 @@ runs as a daemon in the user's session, which opens a picker window whenever the
 | `ebpf-loader` | ebpf, linux | a program's compiled object loaded and attached through libbpf, and its ring buffer read in place |
 | `probe` | ebpf | the watcher, declared in the DSL: hooks on the exits of the VFS functions that change a directory |
 | `index` | probe, ebpf-loader, linux | the scanner and its backends, the ignore rules, and the watcher as the index runs it; the build compiles the probe into this module's resources |
+| `dbus` | kotlinx.serialization, coroutines | D-Bus of barion's own: a connection over the bus's Unix socket that makes the handshake and `Hello` as it opens, messages as data, bodies by kotlinx.serialization with their signatures worked out from the Kotlin types, signals as flows, served methods (docs/dbus.md) |
+| `portal` | dbus | the desktop portal as barion speaks to it: the colour scheme now, the file chooser it will serve |
 | `picker` | Compose | the picker: an immutable model and a pure view of it |
 | `app` | everything | the command line and the window: `barion pick`, `snapshot`, `scan`, `probe` |
 
@@ -170,9 +172,9 @@ and the user choosing it in `portals.conf` (`org.freedesktop.impl.portal.FileCho
 `PickerState` (its title, whether it chooses one file or many or a folder, its filters, its current folder and name),
 and the chosen files go back as URIs.
 
-Two things are open. D-Bus from the JVM wants a library (dbus-java, with its native Unix socket transport) or a small
-binding of barion's own over `sd-bus` through FFM. And on Wayland the dialog should be shown over the application that
-asked (the request's `parent_window`, through the `xdg-foreign` protocol), which AWT under XWayland cannot do; the
+D-Bus is barion's own (the `dbus` module, docs/dbus.md): serving `FileChooser` is declaring its methods and answering
+them with `Connection.serve`, as the colour scheme is already read and followed through it. What is open is the
+window: on Wayland the dialog should be shown over the application that asked (the request's `parent_window`, through the `xdg-foreign` protocol), which AWT under XWayland cannot do; the
 JetBrains Runtime's native Wayland toolkit is the way to look at first.
 
 ## Testing

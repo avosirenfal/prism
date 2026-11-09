@@ -7,12 +7,17 @@ import org.jetbrains.compose.desktop.application.dsl.TargetFormat
 // app image (with its own JRE) under build/compose/binaries.
 plugins {
 	id("barion.compose")
+	// The app declares D-Bus messages of its own (its tests' now, the portal backend's to come).
+	id("org.jetbrains.kotlin.plugin.serialization")
 }
 
 dependencies {
 	implementation(project(":cli"))
 	implementation(project(":picker"))
 	implementation(project(":index"))
+	implementation(project(":portal"))
+
+	testImplementation(testFixtures(project(":dbus")))
 }
 
 /** The JDK the modules are compiled for: Compose runs and packages the app on it, whatever JDK runs Gradle. */
