@@ -15,6 +15,9 @@ tasks.test {
 dependencies {
 	// The index the picker searches (Ctrl+Shift+F), and its search language.
 	api(project(":index"))
+	// The desktop's file types, applications and places, and the user's preferences (pins, bindings).
+	api(project(":desktop"))
+	api(project(":preferences"))
 	// A session's states and outcome are coroutines' flows and deferreds.
 	api(libs.kotlinx.coroutines.core)
 	// AWT's event thread as a dispatcher, which headless drawing draws on, as a window does.

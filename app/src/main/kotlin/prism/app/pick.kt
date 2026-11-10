@@ -20,15 +20,14 @@ import prism.browser.BrowserState
 import prism.browser.BrowserTheme
 import prism.browser.Choosing
 import prism.browser.Finder
+import prism.browser.HostedBrowser
 import prism.browser.JvmDisk
-import prism.browser.KeepsKeyboard
 import prism.browser.Search
+import prism.browser.Services
 import prism.browser.Session
-import prism.browser.SessionBrowser
-import prism.browser.SideButtons
 import prism.browser.StaticFinder
 import prism.browser.Step
-import prism.browser.TitleBarTone
+import prism.browser.SystemFileClipboard
 import prism.browser.opened
 import prism.browser.pickerOf
 import prism.browser.renderedPng
@@ -41,10 +40,12 @@ import prism.cli.Outcome
 import prism.cli.ParamType
 import prism.cli.Parsed
 import prism.cli.Size
+import prism.desktop.currentDesktop
 import prism.index.IndexFile
 import prism.index.IndexRead
 import prism.index.UsageFile
 import prism.index.UsageRead
+import prism.preferences.PreferenceFile
 import prism.browser.Outcome as Ended
 
 /*
@@ -152,22 +153,30 @@ object PickCommand : Command(
 	override fun run(args: Args): Outcome {
 		val home = Path(System.getProperty("user.home"))
 		val (search, finder) = searchOf(args[index], home)
+		val desktop = currentDesktop()
+		val preferences = PreferenceFile.open()
+
+		preferences.problem?.let {
+			warn("the preferences can't be read ($it); every default is used meanwhile")
+		}
 
 		val first =
 			opened(
 				picking.choosing(args),
 				picking.folder(args),
 				home,
-				sidebarOf(home),
+				sidebarOf(desktop.places, home, preferences.preferences.value.pinned),
 				search = search,
 			)
+
+		val services = Services(JvmDisk(), finder, desktop, SystemFileClipboard, preferences)
 
 		return when (
 			val outcome =
 				keepingStdout {
 					picked(
 						first,
-						finder,
+						services,
 						picking.theme(args),
 						args[decorated],
 					)
@@ -226,7 +235,7 @@ object PickCommand : Command(
 	@OptIn(ExperimentalCoroutinesApi::class)
 	private fun picked(
 		first: Step,
-		finder: Finder?,
+		services: Services,
 		theme: Theme,
 		decorated: Boolean,
 	): Ended {
@@ -236,7 +245,7 @@ object PickCommand : Command(
 			application(exitProcessOnExit = false) {
 				val scheme by appearance.changes.collectAsState(appearance.first)
 				val scope = rememberCoroutineScope()
-				val session = remember { Session(first, JvmDisk(), scope, finder = finder) }
+				val session = remember { Session(first, services, scope) }
 				val state by session.state.collectAsState()
 
 				LaunchedEffect(session) {
@@ -252,10 +261,7 @@ object PickCommand : Command(
 					state = rememberWindowState(width = 1100.dp, height = 680.dp),
 					undecorated = !decorated,
 				) {
-					SideButtons(window, session::send)
-					KeepsKeyboard(window)
-					TitleBarTone(window, palette.isDark)
-					BrowserTheme(palette) { SessionBrowser(session) }
+					HostedBrowser(window, session, services.preferences, palette)
 				}
 			}
 		}

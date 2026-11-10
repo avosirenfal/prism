@@ -16,6 +16,7 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import prism.browser.Fixtures.home
 import prism.browser.Fixtures.picker
+import prism.desktop.freedesktop.XdgPlaces
 
 /**
  * The picker's model, its source and its drawing. The model's rules are checked as values; the view is composed and
@@ -287,8 +288,14 @@ class PickerTest {
 				".config/user-dirs.dirs",
 			).writeText("XDG_DOWNLOAD_DIR=\"\$HOME/Téléchargements\"\n")
 
-		assertEquals(work.resolve("Téléchargements"), userDirectories(work)["XDG_DOWNLOAD_DIR"])
-		assertEquals(work.resolve("Desktop"), userDirectories(work)["XDG_DESKTOP_DIR"])
+		assertEquals(
+			work.resolve("Téléchargements"),
+			XdgPlaces.userDirectories(work)["XDG_DOWNLOAD_DIR"],
+		)
+		assertEquals(
+			work.resolve("Desktop"),
+			XdgPlaces.userDirectories(work)["XDG_DESKTOP_DIR"],
+		)
 	}
 
 	@Test

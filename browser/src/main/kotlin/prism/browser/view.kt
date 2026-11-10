@@ -97,9 +97,12 @@ import androidx.compose.ui.window.PopupProperties
 import java.nio.file.Path
 import kotlin.io.path.name
 import kotlin.math.roundToInt
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
+import prism.desktop.Place
 
 /*
  * The picker, drawn: a pure function of a [BrowserState], made of the controls in elements.kt. It shows what the state
@@ -142,6 +145,7 @@ private class Stops {
 fun FileBrowser(
 	state: BrowserState,
 	modifier: Modifier = Modifier,
+	mouseChords: Flow<Chord> = emptyFlow(),
 	onEvent: (BrowserEvent) -> Unit = {},
 ) {
 	val palette = LocalPalette.current
@@ -149,6 +153,16 @@ fun FileBrowser(
 	val saving = state.choosing is Choosing.SaveAs
 	val keyboard = remember { KeyboardUse() }
 	val latest by rememberUpdatedState(onEvent)
+	val bindings = LocalBindings.current
+	val current by rememberUpdatedState(state)
+
+	/** What a window's action (or one left to the window) does. */
+	fun act(action: Action): Boolean = windowAction(action, current, stops, latest)
+
+	// The mouse's buttons, read from AWT by whoever runs the browser, bound as the keys are.
+	LaunchedEffect(mouseChords, bindings) {
+		mouseChords.collect { chord -> bindings.window(chord)?.let(::act) }
+	}
 
 	// The keyboard starts where a desktop's dialogs start it: at the name to save under, or at the listing.
 	LaunchedEffect(Unit) {
@@ -165,19 +179,23 @@ fun FileBrowser(
 				.background(palette.window)
 				.usedBy(keyboard)
 				.zoomedByWheel { latest(BrowserEvent.Zoomed(it)) }
-				.onPreviewKeyEvent { shortcut(it, stops, onEvent) }
-				.onKeyEvent { afterwards(it, onEvent) },
+				.onPreviewKeyEvent { shortcut(it, bindings, ::act) }
+				.onKeyEvent { afterwards(it, bindings, ::act) },
 		) {
 			Column(Modifier.fillMaxSize()) {
 				Toolbar(state, stops, onEvent)
 				Line(palette.border)
 				Row(Modifier.weight(1f).fillMaxWidth()) {
-					SidebarPane(state.sidebar, state.folder, stops, onEvent)
+					SidebarPane(state, stops, onEvent)
 					Box(Modifier.width(1.dp).fillMaxHeight().background(palette.border))
-					ListingPane(state, stops, Modifier.weight(1f), onEvent)
+					ListingPane(state, stops, Modifier.weight(1f), ::act, onEvent)
 				}
 				Line(palette.border)
-				Footer(state, stops, onEvent)
+				// A picker's name and buttons; an explorer, which chooses nothing for anyone, has only a status line.
+				if (state.choosing is Choosing.Exploring)
+					StatusBar(state)
+				else
+					Footer(state, stops, onEvent)
 			}
 			state.search.takeIf { it.open }?.let { SearchLayer(it, state.home, onEvent) }
 			state.notice?.let { NoticeLayer(it, onEvent) }
@@ -204,11 +222,14 @@ private fun Modifier.usedBy(keyboard: KeyboardUse): Modifier =
 		}
 	}
 
-/** The keys that work wherever the keyboard is, seen before the control it is on sees them. */
+/**
+ * The window's actions bound to chords no text field types, seen before the control the keyboard is on sees them
+ * (docs/picker.md, "Bindings"), so they work wherever the keyboard is.
+ */
 private fun shortcut(
 	key: KeyEvent,
-	stops: Stops,
-	onEvent: (BrowserEvent) -> Unit,
+	bindings: Bindings,
+	act: (Action) -> Boolean,
 ): Boolean {
 	// A chord with Ctrl types its character as well, after it (Ctrl+2 types a "2"), which a text field would take as
 	// typing: it is the chord's, and goes nowhere. Ctrl with Alt is AltGr on many keyboards, which types for real.
@@ -218,58 +239,73 @@ private fun shortcut(
 	if (key.type != KeyEventType.KeyDown)
 		return false
 
-	val alt = key.isAltPressed
-	val ctrl = key.isCtrlPressed
-
-	val event =
-		when {
-			alt && key.key == Key.DirectionLeft -> BrowserEvent.Back
-			alt && key.key == Key.DirectionRight -> BrowserEvent.Forward
-			alt && key.key == Key.DirectionUp -> BrowserEvent.Up
-			(ctrl && key.key == Key.L) || (alt && key.key == Key.D) -> BrowserEvent.EditedAddress
-			ctrl && key.key == Key.H -> BrowserEvent.ToggledEveryHidden
-			ctrl && key.isShiftPressed && key.key == Key.N -> BrowserEvent.MadeFolder
-			ctrl && key.isShiftPressed && key.key == Key.F -> BrowserEvent.OpenedSearch
-			ctrl && key.key in LARGER -> BrowserEvent.Zoomed(1)
-			ctrl && key.key in SMALLER -> BrowserEvent.Zoomed(-1)
-			ctrl && key.key in USUAL -> BrowserEvent.Unzoomed
-			key.key == Key.F5 || (ctrl && key.key == Key.R) -> BrowserEvent.Refreshed
-			ctrl && key.key == Key.One -> BrowserEvent.Viewed(Layout.List)
-			ctrl && key.key == Key.Two -> BrowserEvent.Viewed(Layout.Gallery)
-			else -> null
-		}
-
-	val searching = (ctrl && !key.isShiftPressed && key.key == Key.F) || key.key == Key.F3
-
-	event?.let(onEvent)
-
-	if (searching)
-		stops.search.requestFocus()
-
-	return event != null || searching
+	return Chord.of(key)?.let(bindings::window)?.let(act) ?: false
 }
 
-/** The keys that, with Ctrl, draw the listing larger, smaller, and at its usual size: on either side of the keyboard. */
-private val LARGER = setOf(Key.Equals, Key.Plus, Key.NumPadAdd)
-private val SMALLER = setOf(Key.Minus, Key.NumPadSubtract)
-private val USUAL = setOf(Key.Zero, Key.NumPad0)
-
 /**
- * The keys left to the picker by whatever has the keyboard, which sees them first: Escape (a field leaves what it is
- * doing first), and Ctrl+Z and Ctrl+Shift+Z (or Ctrl+Y), which undo and redo the picker's changes to the disk, except
- * in a text field, whose own typing they undo.
+ * The actions left to the window by whatever has the keyboard, which sees them first: Escape (a field leaves what it is
+ * doing first), and undo and redo of the browser's changes to the disk, except in a text field, whose own typing they
+ * undo.
  */
-private fun afterwards(key: KeyEvent, onEvent: (BrowserEvent) -> Unit): Boolean {
+private fun afterwards(
+	key: KeyEvent,
+	bindings: Bindings,
+	act: (Action) -> Boolean,
+): Boolean {
 	if (key.type != KeyEventType.KeyDown)
 		return false
 
-	val ctrl = key.isCtrlPressed || key.isMetaPressed
+	return Chord.of(key)?.let(bindings::leftover)?.let(act) ?: false
+}
+
+/**
+ * What a window's action does in [state]: the event it is, or the keyboard taken where it goes. False for an action
+ * that is not a window's (a row's, or a move of the cursor, which the listing does), or that this browser does not do.
+ */
+private fun windowAction(
+	action: Action,
+	state: BrowserState,
+	stops: Stops,
+	onEvent: (BrowserEvent) -> Unit,
+): Boolean {
+	val exploring = state.choosing is Choosing.Exploring
+
 	val event =
-		when {
-			key.key == Key.Escape -> BrowserEvent.Cancelled
-			ctrl && key.isShiftPressed && key.key == Key.Z -> BrowserEvent.Redone
-			ctrl && key.key == Key.Y -> BrowserEvent.Redone
-			ctrl && key.key == Key.Z -> BrowserEvent.Undone
+		when (action) {
+			Action.Back -> BrowserEvent.Back
+			Action.Forward -> BrowserEvent.Forward
+			Action.Up -> BrowserEvent.Up
+			Action.EditAddress -> BrowserEvent.EditedAddress
+			Action.SearchIndex -> BrowserEvent.OpenedSearch
+			Action.Refresh -> BrowserEvent.Refreshed
+			Action.ToggleHidden -> BrowserEvent.ToggledEveryHidden
+			Action.NewFolder -> BrowserEvent.MadeFolder
+			Action.NewFile -> BrowserEvent.MadeFile.takeIf { exploring }
+			Action.ViewList -> BrowserEvent.Viewed(Layout.List)
+			Action.ViewGallery -> BrowserEvent.Viewed(Layout.Gallery)
+			Action.ZoomIn -> BrowserEvent.Zoomed(1)
+			Action.ZoomOut -> BrowserEvent.Zoomed(-1)
+			Action.ZoomReset -> BrowserEvent.Unzoomed
+			Action.OpenTerminal -> BrowserEvent.OpenedTerminal().takeIf { exploring }
+			Action.NewWindow ->
+				BrowserEvent
+					.Requested(
+						Request.NewWindow(state.folder ?: state.home),
+					).takeIf { exploring }
+			Action.Preferences -> BrowserEvent.Requested(Request.Preferences).takeIf { exploring }
+			// Exploring, there is nothing to cancel: Escape lets go of what is chosen. A picker is cancelled.
+			Action.Cancel ->
+				if (exploring)
+					BrowserEvent.ClickedNowhere
+				else
+					BrowserEvent.Cancelled
+			Action.Undo -> BrowserEvent.Undone
+			Action.Redo -> BrowserEvent.Redone
+			Action.SearchFolder -> {
+				stops.search.requestFocus()
+
+				return true
+			}
 			else -> null
 		}
 
@@ -324,6 +360,13 @@ private fun Toolbar(state: BrowserState, stops: Stops, onEvent: (BrowserEvent) -
 			Modifier.testTag("filters"),
 			selected = state.arrangement.kinds.isNotEmpty(),
 		)
+		if (state.choosing is Choosing.Exploring) {
+			val bindings = LocalBindings.current
+
+			MenuButton(Glyph.Menu, "Menu", {
+				appMenuOf(state, bindings)
+			}, onEvent, Modifier.testTag("menu-button"))
+		}
 		Spacer(Modifier.width(Dims.gapSmall))
 		AddressBar(state, stops, Modifier.weight(1f), onEvent)
 		Spacer(Modifier.width(Dims.gapSmall))
@@ -559,14 +602,17 @@ private fun CrumbStep(crumb: Crumb, last: Boolean, onClick: () -> Unit) {
  */
 @Composable
 private fun SidebarPane(
-	sidebar: Sidebar,
-	current: Path?,
+	state: BrowserState,
 	stops: Stops,
 	onEvent: (BrowserEvent) -> Unit,
 ) {
 	val palette = LocalPalette.current
 	val type = LocalType.current
+	val sidebar = state.sidebar
+	val current = state.folder
 	val places = sidebar.places
+	val menus = rememberContextMenus<BrowserEvent>()
+	val bindings = LocalBindings.current
 	val source = remember { MutableInteractionSource() }
 	val felt = source.felt()
 	var at by remember(sidebar) {
@@ -577,15 +623,15 @@ private fun SidebarPane(
 		if (key.type != KeyEventType.KeyDown || places.isEmpty())
 			return false
 
-		when (key.key) {
-			Key.DirectionUp -> at = (at - 1).coerceAtLeast(0)
-			Key.DirectionDown -> at = (at + 1).coerceAtMost(places.lastIndex)
-			Key.MoveHome -> at = 0
-			Key.MoveEnd -> at = places.lastIndex
-			Key.Enter, Key.NumPadEnter, Key.Spacebar ->
-				onEvent(
-					BrowserEvent.Opened(places[at].path),
-				)
+		val chord = Chord.of(key) ?: return false
+
+		// The listing's moves and its Open, as the user has bound them, move through the places and open one.
+		when (bindings.movement(chord) ?: bindings.listing(chord)) {
+			Action.MoveUp, Action.PageUp -> at = (at - 1).coerceAtLeast(0)
+			Action.MoveDown, Action.PageDown -> at = (at + 1).coerceAtMost(places.lastIndex)
+			Action.First -> at = 0
+			Action.Last -> at = places.lastIndex
+			Action.Open, Action.Toggle -> onEvent(BrowserEvent.Opened(places[at].path))
 			else -> return false
 		}
 
@@ -613,7 +659,12 @@ private fun SidebarPane(
 			for (place in group.places) {
 				val index = places.indexOf(place)
 
-				PlaceRow(place, current = place.path == current, keyed = felt.ringed && index == at) {
+				PlaceRow(
+					place,
+					current = place.path == current,
+					keyed = felt.ringed && index == at,
+					Modifier.contextMenu(menus) { contextMenuOf(state, Target.Place(place), bindings) },
+				) {
 					// A place clicked takes the keyboard to the places, as a list clicked does on any desktop.
 					at = index
 					stops.places.requestFocus()
@@ -621,6 +672,7 @@ private fun SidebarPane(
 				}
 			}
 		}
+		ContextMenuHost(menus, onEvent)
 	}
 }
 
@@ -629,6 +681,7 @@ private fun PlaceRow(
 	place: Place,
 	current: Boolean,
 	keyed: Boolean,
+	modifier: Modifier,
 	onOpen: () -> Unit,
 ) {
 	val palette = LocalPalette.current
@@ -644,7 +697,7 @@ private fun PlaceRow(
 		}
 
 	Row(
-		Modifier
+		modifier
 			.fillMaxWidth()
 			.height(Dims.row)
 			.ring(keyed, palette.focus, outset = 0.dp, width = 1.5.dp)
@@ -689,6 +742,7 @@ private fun glyphOf(kind: Place.Kind): Glyph =
 		Place.Kind.Music -> Glyph.Music
 		Place.Kind.Videos -> Glyph.Videos
 		Place.Kind.Drive -> Glyph.Drive
+		Place.Kind.Folder -> Glyph.Folder
 	}
 
 // ---- the listing: the folder's entries in columns ------------------------------------------------------------
@@ -723,8 +777,10 @@ private fun ListingPane(
 	state: BrowserState,
 	stops: Stops,
 	modifier: Modifier,
+	act: (Action) -> Boolean,
 	onEvent: (BrowserEvent) -> Unit,
 ) {
+	val bindings = LocalBindings.current
 	val palette = LocalPalette.current
 	val source = remember { MutableInteractionSource() }
 	val felt = source.felt()
@@ -807,13 +863,14 @@ private fun ListingPane(
 				else
 					listOf(row),
 			),
+			bindings,
 		)
 	}
 
 	fun folderMenu(): Menu<BrowserEvent> {
 		stops.listing.requestFocus()
 
-		return contextMenuOf(state, Target.Folder)
+		return contextMenuOf(state, Target.Folder, bindings)
 	}
 
 	/** The menu of what is chosen (or of the folder, where nothing is), opened from the keyboard at the cursor's row. */
@@ -821,9 +878,9 @@ private fun ListingPane(
 		val shown = state.chosenRows
 		val menu =
 			if (shown.isEmpty())
-				contextMenuOf(state, Target.Folder)
+				contextMenuOf(state, Target.Folder, bindings)
 			else
-				contextMenuOf(state, Target.Rows(shown))
+				contextMenuOf(state, Target.Rows(shown), bindings)
 
 		val inside =
 			cursorAt
@@ -848,26 +905,69 @@ private fun ListingPane(
 		}
 	}
 
+	/** What a row's action does, on the rows chosen (or the cursor's); false where there are none to act on. */
+	fun rowAction(action: Action): Boolean {
+		val ids = targets().map { it.id }
+		val exploring = state.choosing is Choosing.Exploring
+
+		val event =
+			when (action) {
+				Action.Open -> BrowserEvent.Accepted
+				Action.Toggle -> BrowserEvent.Toggled
+				Action.SelectAll -> BrowserEvent.ChoseAll
+				Action.Rename -> ids.singleOrNull()?.let { BrowserEvent.StartedRenaming(it) }
+				// The trash: Delete asks first, since it is easily pressed by mistake; Shift+Delete does not.
+				Action.Trash -> ids.takeIf { it.isNotEmpty() }?.let { BrowserEvent.AskedToTrash(it) }
+				Action.TrashNow -> ids.takeIf { it.isNotEmpty() }?.let { BrowserEvent.Trashed(it) }
+				Action.CopyPaths ->
+					BrowserEvent.CopiedPaths(
+						targets()
+							.map {
+								it.path
+							}.ifEmpty { listOfNotNull(state.folder) },
+					)
+				Action.CopyFiles ->
+					ids
+						.takeIf {
+							it.isNotEmpty() && exploring
+						}?.let { BrowserEvent.CopiedFiles(it) }
+				Action.CutFiles ->
+					ids
+						.takeIf {
+							it.isNotEmpty() && exploring
+						}?.let { BrowserEvent.CutFiles(it) }
+				Action.Paste -> BrowserEvent.Pasted().takeIf { exploring }
+				Action.Properties ->
+					BrowserEvent
+						.Requested(
+							Request.Properties(
+								targets().map { it.path }.ifEmpty { listOfNotNull(state.folder) },
+							),
+						).takeIf { exploring }
+				Action.ContextMenu -> {
+					openMenuByKey()
+
+					return true
+				}
+				else -> null
+			}
+
+		event?.let(onEvent)
+
+		return event != null
+	}
+
 	fun key(key: KeyEvent): Boolean {
 		// A name being typed over has the keys; what it leaves is not the listing's.
 		if (key.type != KeyEventType.KeyDown || renaming != null)
 			return false
 
-		val ctrl = key.isCtrlPressed || key.isMetaPressed
-		val shift = key.isShiftPressed
+		val chord = Chord.of(key) ?: return false
 
-		if ((shift && key.key == Key.F10) || key.key == Key.Menu) {
-			openMenuByKey()
-
-			return true
+		bindings.listing(chord)?.let { action ->
+			if (rowAction(action) || act(action))
+				return true
 		}
-
-		val carry =
-			when {
-				shift -> Carry.Extend
-				ctrl -> Carry.Stay
-				else -> Carry.Choose
-			}
 
 		// A line is a row in the list, and as many tiles as fit across in the gallery.
 		val line =
@@ -885,48 +985,45 @@ private fun ListingPane(
 			else
 				list.layoutInfo.visibleItemsInfo.size
 		val page = line * (lines - 1).coerceAtLeast(1)
-		val letter =
-			key.utf16CodePoint
-				.takeIf {
-					it > ' '.code && !ctrl && !key.isAltPressed
-				}?.toChar()
-		val ids = targets().map { it.id }
 
-		val event =
+		// Shift extends what is chosen as the cursor moves, and Ctrl moves it without choosing, whatever key moves it.
+		val carry =
 			when {
-				key.key == Key.DirectionUp -> BrowserEvent.Moved(Move.By(-line), carry)
-				key.key == Key.DirectionDown -> BrowserEvent.Moved(Move.By(line), carry)
-				gallery && key.key == Key.DirectionLeft -> BrowserEvent.Moved(Move.By(-1), carry)
-				gallery && key.key == Key.DirectionRight -> BrowserEvent.Moved(Move.By(1), carry)
-				key.key == Key.PageUp -> BrowserEvent.Moved(Move.By(-page), carry)
-				key.key == Key.PageDown -> BrowserEvent.Moved(Move.By(page), carry)
-				key.key == Key.MoveHome -> BrowserEvent.Moved(Move.First, carry)
-				key.key == Key.MoveEnd -> BrowserEvent.Moved(Move.Last, carry)
-				key.key == Key.Spacebar -> BrowserEvent.Toggled
-				key.isEnter -> BrowserEvent.Accepted
-				key.key == Key.Backspace -> BrowserEvent.Up
-				key.key == Key.F2 -> ids.singleOrNull()?.let { BrowserEvent.StartedRenaming(it) }
-				// The trash: Delete asks first, since it is easily pressed by mistake; Shift+Delete does not.
-				key.key == Key.Delete && ids.isNotEmpty() ->
-					if (shift)
-						BrowserEvent.Trashed(ids)
-					else
-						BrowserEvent.AskedToTrash(ids)
-				ctrl && shift && key.key == Key.C ->
-					BrowserEvent.CopiedPaths(
-						targets().map { it.path }.ifEmpty { listOfNotNull(state.folder) },
-					)
-				ctrl && key.key == Key.A -> BrowserEvent.ChoseAll
-				letter != null -> {
-					typing = typing.then(letter, System.currentTimeMillis())
-					BrowserEvent.Jumped(typing.prefix)
-				}
+				chord.shift -> Carry.Extend
+				chord.ctrl || chord.meta -> Carry.Stay
+				else -> Carry.Choose
+			}
+
+		val move =
+			when (bindings.movement(chord)) {
+				Action.MoveUp -> Move.By(-line)
+				Action.MoveDown -> Move.By(line)
+				Action.MoveLeft -> Move.By(-1).takeIf { gallery }
+				Action.MoveRight -> Move.By(1).takeIf { gallery }
+				Action.PageUp -> Move.By(-page)
+				Action.PageDown -> Move.By(page)
+				Action.First -> Move.First
+				Action.Last -> Move.Last
 				else -> null
 			}
 
-		event?.let(onEvent)
+		if (move != null) {
+			onEvent(BrowserEvent.Moved(move, carry))
 
-		return event != null
+			return true
+		}
+
+		// Letters typed jump to the next row whose name starts with them.
+		val letter =
+			key.utf16CodePoint
+				.takeIf {
+					it > ' '.code && !chord.ctrl && !chord.alt && !chord.meta
+				}?.toChar() ?: return false
+
+		typing = typing.then(letter, System.currentTimeMillis())
+		onEvent(BrowserEvent.Jumped(typing.prefix))
+
+		return true
 	}
 
 	val nowhere =
@@ -1752,6 +1849,23 @@ private fun Footer(state: BrowserState, stops: Stops, onEvent: (BrowserEvent) ->
 				onEvent(BrowserEvent.Cancelled)
 			}
 		}
+	}
+}
+
+/** An explorer's foot: the status line alone, as a file manager's is. */
+@Composable
+private fun StatusBar(state: BrowserState) {
+	val type = LocalType.current
+
+	Row(
+		Modifier.fillMaxWidth().height(Dims.header).padding(horizontal = Dims.gap * 2),
+		verticalAlignment = Alignment.CenterVertically,
+	) {
+		Text(
+			statusOf(state),
+			style = type.muted,
+			modifier = Modifier.weight(1f).testTag("status"),
+		)
 	}
 }
 

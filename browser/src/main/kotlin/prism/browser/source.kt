@@ -9,6 +9,7 @@ import java.nio.file.Files
 import java.nio.file.LinkOption
 import java.nio.file.NoSuchFileException
 import java.nio.file.Path
+import java.nio.file.StandardCopyOption
 import java.nio.file.attribute.BasicFileAttributes
 import java.time.Instant
 import java.time.ZoneId
@@ -19,7 +20,15 @@ import kotlin.io.path.exists
 import kotlin.io.path.isDirectory
 import kotlin.io.path.name
 import kotlin.io.path.readLines
+import prism.desktop.Desktop
+import prism.desktop.Launched
+import prism.desktop.Opening
+import prism.desktop.Place
+import prism.desktop.Places
+import prism.desktop.currentDesktop
 import prism.index.Searched
+import prism.preferences.MemoryPreferences
+import prism.preferences.PreferenceStore
 
 /*
  * The one place the picker meets a real file system: a [Disk] reads a folder into rows, with every row's text worked
@@ -42,17 +51,30 @@ interface Disk {
 	fun stat(paths: List<Path>): List<Stat>
 }
 
-/** The answer to [asking], from this disk, and from [finder] for a search. */
-fun Disk.answer(asking: Effect.Asking, finder: Finder? = null): Answer =
+/**
+ * What a browser's effects are carried out against: the [disk], the index it searches ([finder]), the [desktop] it opens
+ * files and starts terminals on, the [clipboard] files are copied to, and the user's [preferences]. Without a desktop,
+ * nothing can be opened, and is said not to be.
+ */
+data class Services(
+	val disk: Disk,
+	val finder: Finder? = null,
+	val desktop: Desktop? = null,
+	val clipboard: FileClipboard = MemoryFileClipboard(),
+	val preferences: PreferenceStore = MemoryPreferences(),
+)
+
+/** The answer to [asking], from these. */
+fun Services.answer(asking: Effect.Asking): Answer =
 	when (asking) {
-		is Effect.Read -> Answer.Arrived(asking.folder, read(asking.folder))
-		is Effect.Look -> Answer.Looked(asking.lookup, look(asking.lookup.paths))
-		is Effect.Make -> Answer.Changed(asking.change, make(asking.change), asking.doing)
+		is Effect.Read -> Answer.Arrived(asking.folder, disk.read(asking.folder))
+		is Effect.Look -> Answer.Looked(asking.lookup, disk.look(asking.lookup.paths))
+		is Effect.Make -> Answer.Changed(asking.change, disk.make(asking.change), asking.doing)
 		is Effect.Search -> Answer.Searched(finder.findingOf(asking), asking.purpose)
 		is Effect.Stat ->
 			Answer.Stated(
 				asking.matches,
-				asking.places.zip(stat(asking.places.map(asking.matches::pathOf))).toMap(),
+				asking.places.zip(disk.stat(asking.places.map(asking.matches::pathOf))).toMap(),
 			)
 		is Effect.Order ->
 			Answer.Ordered(
@@ -60,7 +82,19 @@ fun Disk.answer(asking: Effect.Asking, finder: Finder? = null): Answer =
 				asking.column,
 				orderOf(asking.matches, Stats.none(asking.matches.size), asking.column),
 			)
+		is Effect.Open ->
+			Answer.Opened(desktop?.open(asking.paths) ?: Opening(emptyList(), asking.paths))
+		is Effect.Terminal ->
+			Answer.Started(
+				desktop?.launcher?.terminal(asking.folder, preferences.preferences.value.terminal)
+					?: Launched.Failed("a terminal", "there is no desktop to start one on"),
+			)
+		is Effect.ReadClip -> Answer.Clipped(asking.into, clipboard.read())
 	}
+
+/** The answer to [asking], from this disk, and from [finder] for a search. */
+fun Disk.answer(asking: Effect.Asking, finder: Finder? = null): Answer =
+	Services(this, finder).answer(asking)
 
 /** What [search] finds through this finder; refused where there is none. */
 fun Finder?.findingOf(search: Effect.Search): Finding =
@@ -93,8 +127,58 @@ class JvmDisk(
 				is Change.RemoveFolder -> Change.MakeFolder(change.path.also(Files::delete))
 				is Change.Trash -> Change.PutBack(change.paths.map(trash::put))
 				is Change.PutBack -> Change.Trash(change.entries.map(trash::putBack))
+				is Change.MakeFile -> Change.RemoveFile(Files.createFile(change.path))
+				// Only an empty file: what was written into it since would be lost.
+				is Change.RemoveFile -> {
+					if (Files.size(change.path) != 0L)
+						throw IOException("“${change.path.fileName}” has something in it now")
+					Files.delete(change.path)
+					Change.MakeFile(change.path)
+				}
+				// What undoes copies is trashing them, which can be undone in turn.
+				is Change.Copy -> Change.Trash(change.sources.map { copied(it, change.into) })
+				is Change.Move ->
+					Change.Relocate(
+						change.sources
+							.filter { it.parent != change.into }
+							.map { Moved(moved(it, change.into), it) },
+					)
+				is Change.Relocate ->
+					Change.Relocate(change.moves.map { Moved(Files.move(it.from, it.to), it.from) })
 			}
 		}
+
+	/** [source] copied into [into], with all it holds, under a name free there; where it went. */
+	private fun copied(source: Path, into: Path): Path {
+		refuseInto(source, into)
+
+		val target = into.resolve(freeName(into, source.fileName.toString()))
+
+		Files.walk(source).use { entries ->
+			for (entry in entries)
+				Files.copy(
+					entry,
+					target.resolve(source.relativize(entry).toString()),
+					StandardCopyOption.COPY_ATTRIBUTES,
+					LinkOption.NOFOLLOW_LINKS,
+				)
+		}
+
+		return target
+	}
+
+	/** [source] moved into [into] under a name free there; where it went. */
+	private fun moved(source: Path, into: Path): Path {
+		refuseInto(source, into)
+
+		return Files.move(source, into.resolve(freeName(into, source.fileName.toString())))
+	}
+
+	/** A folder cannot go inside itself. */
+	private fun refuseInto(source: Path, into: Path) {
+		if (into.toAbsolutePath().normalize().startsWith(source.toAbsolutePath().normalize()))
+			throw IOException("“${source.fileName}” can't go inside itself")
+	}
 
 	override fun stat(paths: List<Path>): List<Stat> = paths.map { statOf(it, zone) }
 }
@@ -116,6 +200,21 @@ private fun statOf(path: Path, zone: ZoneId): Stat =
 	} catch (denied: SecurityException) {
 		Stat.Read(null, null)
 	}
+
+/**
+ * [name], or, where [folder] holds something of that name, the first of "a (copy).txt", "a (copy 2).txt", ... it does
+ * not: the copy's mark before the extension, as file managers write it.
+ */
+fun freeName(folder: Path, name: String): String {
+	val dot = name.lastIndexOf('.').takeIf { it > 0 } ?: name.length
+	val stem = name.substring(0, dot)
+	val extension = name.substring(dot)
+
+	return (
+		sequenceOf(name, "$stem (copy)$extension") +
+			generateSequence(2) { it + 1 }.map { "$stem (copy $it)$extension" }
+	).first { !Files.exists(folder.resolve(it), LinkOption.NOFOLLOW_LINKS) }
+}
 
 /** [work] done, answered with what undoes it, or why it was not done, in the words a person reads. */
 private fun attempted(work: () -> Change): ChangeResult =
@@ -141,12 +240,21 @@ private fun attempted(work: () -> Change): ChangeResult =
  * The state [step] comes to once everything it asks of the disk (and of [finder]) has been answered, in turn, here:
  * the picker as it is once it has settled, for drawing it headless and for tests.
  */
-tailrec fun Step.settled(disk: Disk, finder: Finder? = null): BrowserState {
+fun Step.settled(disk: Disk, finder: Finder? = null): BrowserState =
+	settled(Services(disk, finder))
+
+/** As [settled], with everything asked answered by [services]: a clip and a pin are made there too, at once. */
+tailrec fun Step.settled(services: Services): BrowserState {
+	effects.filterIsInstance<Effect.Clip>().forEach { services.clipboard.put(it.clip) }
+	effects.filterIsInstance<Effect.Pin>().forEach { pin ->
+		services.preferences.update { it.pinning(pin.paths) }
+	}
+
 	val asking = effects.filterIsInstance<Effect.Asking>()
 	val first = asking.firstOrNull() ?: return state
-	val next = step(state, disk.answer(first, finder))
+	val next = step(state, services.answer(first))
 
-	return Step(next.state, asking.drop(1) + next.effects).settled(disk, finder)
+	return Step(next.state, asking.drop(1) + next.effects).settled(services)
 }
 
 /** [folder] read into a picker that is [choosing], settled: what `prism snapshot` and the tests draw. */
@@ -156,7 +264,9 @@ fun pickerOf(
 	disk: Disk = JvmDisk(),
 	home: Path = Path(System.getProperty("user.home")),
 	title: String = titleOf(choosing),
-): BrowserState = opened(choosing, folder, home, sidebarOf(home), title).settled(disk)
+	places: Places = currentDesktop().places,
+): BrowserState =
+	opened(choosing, folder, home, sidebarOf(places, home, null), title).settled(disk)
 
 /** What [folder] holds, as rows in no particular order, or why it cannot be read. */
 fun listingOf(folder: Path, zone: ZoneId = ZoneId.systemDefault()): Listing.Read =
@@ -366,66 +476,19 @@ fun crumbsOf(folder: Path, home: Path): List<Crumb> {
 	) { previous, part -> Crumb(part.toString(), previous.path.resolve(part)) }
 }
 
-/** The places the sidebar offers: the home folder and its well-known folders, then the file systems. */
-fun sidebarOf(home: Path): Sidebar {
-	val known = userDirectories(home)
-
-	val quick =
-		listOf(Place("Home", Place.Kind.Home, home)) +
-			listOf(
-				Place.Kind.Desktop to "XDG_DESKTOP_DIR",
-				Place.Kind.Documents to "XDG_DOCUMENTS_DIR",
-				Place.Kind.Downloads to "XDG_DOWNLOAD_DIR",
-				Place.Kind.Pictures to "XDG_PICTURES_DIR",
-				Place.Kind.Music to "XDG_MUSIC_DIR",
-				Place.Kind.Videos to "XDG_VIDEOS_DIR",
-			).mapNotNull { (kind, key) ->
-				known[key]?.takeIf { it.isDirectory() && it != home }?.let {
-					Place(
-						it.name,
-						kind,
-						it,
-					)
-				}
-			}
-
-	val drives =
-		listOf(Place("File system", Place.Kind.Drive, Path("/"))) +
-			listOf(Path("/media"), Path("/mnt"), Path("/run/media/${home.name}"))
-				.filter { it.isDirectory() }
-				.flatMap { mounts ->
-					Files.list(mounts).use { it.toList() }.filter { it.isDirectory() }
-				}.map { Place(it.name, Place.Kind.Drive, it) }
+/**
+ * The sidebar: the places [pinned] (where the user has pinned or unpinned any; each named as [places] names it where it
+ * is one of the desktop's, and by its own name otherwise), or the desktop's own; then the drives.
+ */
+fun sidebarOf(places: Places, home: Path, pinned: List<Path>?): Sidebar {
+	val known = places.known(home)
 
 	return Sidebar(
-		listOf(Sidebar.Group("Quick access", quick), Sidebar.Group("This computer", drives)),
+		pinned?.map { path ->
+			known.firstOrNull { it.path == path }
+				?: Place(path.name.ifEmpty { "/" }, Place.Kind.Folder, path)
+		}
+			?: known,
+		places.drives(home),
 	)
-}
-
-/**
- * The XDG user directories as `~/.config/user-dirs.dirs` names them (`XDG_DESKTOP_DIR="$HOME/Desktop"`), with the
- * usual English names where it does not.
- */
-fun userDirectories(home: Path): Map<String, Path> {
-	val defaults =
-		mapOf(
-			"XDG_DESKTOP_DIR" to "Desktop",
-			"XDG_DOCUMENTS_DIR" to "Documents",
-			"XDG_DOWNLOAD_DIR" to "Downloads",
-			"XDG_PICTURES_DIR" to "Pictures",
-			"XDG_MUSIC_DIR" to "Music",
-			"XDG_VIDEOS_DIR" to "Videos",
-		).mapValues { (_, name) -> home.resolve(name) }
-
-	val file = home.resolve(".config/user-dirs.dirs")
-	val configured =
-		if (file.exists())
-			file
-				.readLines()
-				.mapNotNull { Regex("""^(XDG_\w+_DIR)="(.*)"$""").find(it.trim())?.destructured }
-				.associate { (key, value) -> key to Path(value.replace("\$HOME", home.toString())) }
-		else
-			emptyMap()
-
-	return defaults + configured
 }

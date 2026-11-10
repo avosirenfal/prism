@@ -933,31 +933,31 @@ class StepTest {
 		val back = Change.Rename(home.resolve("journal.md"), home.resolve("notes.md"))
 		val done = step(picker(), Answer.Changed(rename, ChangeResult.Done(back))).state
 
-		// Done, what undoes it is kept.
-		assertEquals(Changes(undo = listOf(back)), done.changes)
+		// Done, what undoes it is kept, with what it was.
+		assertEquals(Changes(undo = listOf(Undoable(rename, back))), done.changes)
 
 		val undoing = step(done, BrowserEvent.Undone)
 
-		assertEquals(listOf(Effect.Make(back, Doing.Undo)), undoing.effects)
+		assertEquals(listOf(Effect.Make(back, Doing.Undo(rename))), undoing.effects)
 		assertEquals(Changes(), undoing.state.changes)
 
 		// Undone, what does it again is kept to redo.
 		val undone =
 			step(
 				undoing.state,
-				Answer.Changed(back, ChangeResult.Done(rename), Doing.Undo),
+				Answer.Changed(back, ChangeResult.Done(rename), Doing.Undo(rename)),
 			).state
 
-		assertEquals(Changes(redo = listOf(rename)), undone.changes)
+		assertEquals(Changes(redo = listOf(Undoable(rename, rename))), undone.changes)
 
 		val redoing = step(undone, BrowserEvent.Redone)
 
-		assertEquals(listOf(Effect.Make(rename, Doing.Redo)), redoing.effects)
+		assertEquals(listOf(Effect.Make(rename, Doing.Redo(rename))), redoing.effects)
 		assertEquals(
-			Changes(undo = listOf(back)),
+			Changes(undo = listOf(Undoable(rename, back))),
 			step(
 				redoing.state,
-				Answer.Changed(rename, ChangeResult.Done(back), Doing.Redo),
+				Answer.Changed(rename, ChangeResult.Done(back), Doing.Redo(rename)),
 			).state.changes,
 		)
 		// With nothing to undo or to redo, nothing is done.
@@ -969,7 +969,16 @@ class StepTest {
 	fun aNewChangeLeavesNothingToRedo() {
 		val redoable =
 			picker().copy(
-				changes = Changes(redo = listOf(Change.MakeFolder(home.resolve("x")))),
+				changes =
+					Changes(
+						redo =
+							listOf(
+								Undoable(
+									Change.MakeFolder(home.resolve("x")),
+									Change.MakeFolder(home.resolve("x")),
+								),
+							),
+					),
 			)
 
 		val folder = home.resolve("y")
@@ -983,7 +992,12 @@ class StepTest {
 				),
 			).state
 
-		assertEquals(Changes(undo = listOf(Change.RemoveFolder(folder))), made.changes)
+		assertEquals(
+			Changes(
+				undo = listOf(Undoable(Change.MakeFolder(folder), Change.RemoveFolder(folder))),
+			),
+			made.changes,
+		)
 	}
 
 	@Test
@@ -996,7 +1010,7 @@ class StepTest {
 				Answer.Changed(
 					back,
 					ChangeResult.Done(Change.Trash(listOf(home.resolve("main.kt")))),
-					Doing.Undo,
+					Doing.Undo(Change.Trash(listOf(home.resolve("main.kt")))),
 				),
 			)
 
@@ -1008,7 +1022,7 @@ class StepTest {
 				Answer.Changed(
 					back,
 					ChangeResult.Failed("“main.kt” isn't in the trash any more."),
-					Doing.Undo,
+					Doing.Undo(Change.Trash(listOf(home.resolve("main.kt")))),
 				),
 			)
 
@@ -1171,14 +1185,19 @@ class StepTest {
 	}
 
 	@Test
-	fun theSideButtonsAreXsEightAndNineWhichAwtNumbersSixAndSeven() {
-		assertEquals(BrowserEvent.Back, sideButtonOf(6))
-		assertEquals(BrowserEvent.Forward, sideButtonOf(7))
-		// AWT's 4 and 5 are X's sideways scroll on Linux, and the rest are clicks: none of them goes anywhere.
+	fun theSideButtonsAreXsEightAndNineWhichAwtNumbersSixAndSevenOnLinux() {
+		assertEquals(MouseButton.Back, mouseButtonOf(6, linux = true))
+		assertEquals(MouseButton.Forward, mouseButtonOf(7, linux = true))
+		assertEquals(MouseButton.Middle, mouseButtonOf(2, linux = true))
+		// AWT's 4 and 5 are X's sideways scroll on Linux, and the rest are clicks: none of them is a chord's.
 		assertEquals(
-			listOf(null, null, null, null, null),
-			listOf(1, 2, 3, 4, 5).map(::sideButtonOf),
+			listOf(null, null, null, null),
+			listOf(1, 3, 4, 5).map {
+				mouseButtonOf(it, linux = true)
+			},
 		)
+		// Elsewhere, AWT's 4 and 5 are the side buttons.
+		assertEquals(MouseButton.Back, mouseButtonOf(4, linux = false))
 	}
 
 	@Test

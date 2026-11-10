@@ -54,6 +54,7 @@ import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
+import prism.desktop.freedesktop.XdgPlaces
 
 /**
  * The picker as a user meets it: composed headless around a running [Session] over a real folder, then clicked,
@@ -106,7 +107,7 @@ class InteractionTest {
 							choosing,
 							folder,
 							work,
-							sidebarOf(work),
+							sidebarOf(XdgPlaces(), work, null),
 							search =
 								finder?.let { Search.Ready() } ?: Search.Unavailable(
 									BrowserState.NO_INDEX,

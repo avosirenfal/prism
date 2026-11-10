@@ -13,6 +13,7 @@ import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
+import prism.desktop.freedesktop.XdgPlaces
 import prism.index.Index
 import prism.index.Indexer
 import prism.index.Searched
@@ -54,7 +55,7 @@ class FindTest {
 			choosing,
 			root,
 			root,
-			sidebarOf(root),
+			sidebarOf(XdgPlaces(), root, null),
 			search = Search.Ready(),
 		).settled(disk, finder)
 
@@ -80,7 +81,14 @@ class FindTest {
 	fun aPickerWithNoIndexSaysWhyItHasNoSearch() {
 		made("a.txt")
 
-		val without = opened(Choosing.OneFile(), root, root, sidebarOf(root)).settled(disk)
+		val without =
+			opened(
+				Choosing.OneFile(),
+				root,
+				root,
+				sidebarOf(XdgPlaces(), root, null),
+			).settled(disk)
+
 		val asked = after(without, BrowserEvent.OpenedSearch)
 
 		assertTrue(asked.search.open)

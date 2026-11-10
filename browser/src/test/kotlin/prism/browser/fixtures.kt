@@ -4,6 +4,7 @@ import java.nio.file.Path
 import java.time.Instant
 import java.time.ZoneOffset
 import kotlin.io.path.Path
+import prism.desktop.Place
 
 /** What the picker's tests share: rows made as the source makes them, a home folder of them, and a disk in memory. */
 object Fixtures {
@@ -87,27 +88,21 @@ object Fixtures {
 
 	val sidebar: Sidebar =
 		Sidebar(
-			listOf(
-				Sidebar.Group(
-					"Quick access",
-					listOf(
-						Place("Home", Place.Kind.Home, home),
-						Place("Desktop", Place.Kind.Desktop, home.resolve("Desktop")),
-						Place("Documents", Place.Kind.Documents, home.resolve("Documents")),
-						Place("Downloads", Place.Kind.Downloads, home.resolve("Downloads")),
-						Place("Pictures", Place.Kind.Pictures, home.resolve("Pictures")),
-						Place("Music", Place.Kind.Music, home.resolve("Music")),
-						Place("Videos", Place.Kind.Videos, home.resolve("Videos")),
-					),
+			pinned =
+				listOf(
+					Place("Home", Place.Kind.Home, home),
+					Place("Desktop", Place.Kind.Desktop, home.resolve("Desktop")),
+					Place("Documents", Place.Kind.Documents, home.resolve("Documents")),
+					Place("Downloads", Place.Kind.Downloads, home.resolve("Downloads")),
+					Place("Pictures", Place.Kind.Pictures, home.resolve("Pictures")),
+					Place("Music", Place.Kind.Music, home.resolve("Music")),
+					Place("Videos", Place.Kind.Videos, home.resolve("Videos")),
 				),
-				Sidebar.Group(
-					"This computer",
-					listOf(
-						Place("File system", Place.Kind.Drive, Path("/")),
-						Place("Data", Place.Kind.Drive, Path("/mnt/data")),
-					),
+			drives =
+				listOf(
+					Place("File system", Place.Kind.Drive, Path("/")),
+					Place("Data", Place.Kind.Drive, Path("/mnt/data")),
 				),
-			),
 		)
 
 	val filters =
@@ -162,6 +157,16 @@ object Fixtures {
 							},
 						)
 					is Change.PutBack -> Change.Trash(change.entries.map { it.original })
+					is Change.MakeFile -> Change.RemoveFile(change.path)
+					is Change.RemoveFile -> Change.MakeFile(change.path)
+					// Copies and moves keep their names: the tree holds nothing to clash with.
+					is Change.Copy ->
+						Change.Trash(
+							change.sources.map { change.into.resolve(it.fileName) },
+						)
+					is Change.Move ->
+						Change.Relocate(change.sources.map { Moved(change.into.resolve(it.fileName), it) })
+					is Change.Relocate -> Change.Relocate(change.moves.map { Moved(it.to, it.from) })
 				},
 			)
 	}

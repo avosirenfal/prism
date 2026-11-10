@@ -45,6 +45,7 @@ enum class Glyph {
 	ViewList,
 	ViewGrid,
 	Filter,
+	Menu,
 }
 
 /** [glyph] at [size], in [tint]; a file's icon is marked with [category]'s colour. */
@@ -97,6 +98,10 @@ fun GlyphIcon(
 						4f to 5.5f,
 					),
 				)
+			// Three lines across: a window's own menu, as desktops draw it.
+			Glyph.Menu ->
+				for (y in listOf(6.5f, 12f, 17.5f))
+					stroked(unit, tint, listOf(4.5f to y, 19.5f to y))
 		}
 	}
 }

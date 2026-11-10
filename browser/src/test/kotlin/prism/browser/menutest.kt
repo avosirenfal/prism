@@ -140,6 +140,8 @@ class MenuTest {
 				"—",
 				"New folder",
 				"Copy path",
+				// The home folder is pinned to the sidebar, as it is until the user unpins it.
+				"Unpin from sidebar",
 				"Refresh",
 			),
 			menu.labels(),
@@ -171,12 +173,19 @@ class MenuTest {
 
 	@Test
 	fun theFoldersMenuUndoesAndRedoesWhatThePickerChanged() {
+		val rename = Change.Rename(home.resolve("notes.md"), home.resolve("journal.md"))
 		val back = Change.Rename(home.resolve("journal.md"), home.resolve("notes.md"))
-		val again = Change.Trash(listOf(home.resolve("main.kt")))
+		val trash = Change.Trash(listOf(home.resolve("main.kt")))
 
 		val menu =
 			contextMenuOf(
-				picker().copy(changes = Changes(undo = listOf(back), redo = listOf(again))),
+				picker().copy(
+					changes =
+						Changes(
+							undo = listOf(Undoable(rename, back)),
+							redo = listOf(Undoable(trash, trash)),
+						),
+				),
 				Target.Folder,
 			)
 

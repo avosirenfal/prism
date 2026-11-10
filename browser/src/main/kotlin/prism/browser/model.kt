@@ -4,6 +4,7 @@ import androidx.compose.runtime.Immutable
 import java.nio.file.Path
 import java.time.Instant
 import java.util.concurrent.atomic.AtomicReference
+import prism.desktop.Place
 
 /*
  * What the picker shows, as immutable data. The view (view.kt) is a pure function of a [BrowserState]: it draws what
@@ -308,11 +309,22 @@ data class Zooms(
 		}
 }
 
-/** The picker's own changes to the disk, each kept as the change that undoes it, the latest last, and those undone. */
+/** The picker's own changes to the disk that can be taken back, the latest last, and those taken back, to make again. */
 @Immutable
 data class Changes(
-	val undo: List<Change> = emptyList(),
-	val redo: List<Change> = emptyList(),
+	val undo: List<Undoable> = emptyList(),
+	val redo: List<Undoable> = emptyList(),
+)
+
+/**
+ * What the user did, [done], which names it in the menus, and the change [by] which it is taken back (kept in
+ * [Changes.undo]) or made again (kept in [Changes.redo]). Both are kept because the second cannot say what the first
+ * was: a copy and a putting back from the trash are each undone by moving files to the trash.
+ */
+@Immutable
+data class Undoable(
+	val done: Change,
+	val by: Change,
 )
 
 /**
@@ -644,6 +656,14 @@ sealed interface Choosing {
 		val typed: String? = null,
 	) : Choosing
 
+	/**
+	 * Nothing to give back: the explorer's, where what is chosen is what the user acts on (opens, copies, trashes),
+	 * and a file accepted is opened with its application rather than handed to one.
+	 */
+	data class Exploring(
+		val chosen: Set<RowId> = emptySet(),
+	) : Choosing
+
 	/** The rows this has chosen. */
 	val rows: Set<RowId>
 		get() =
@@ -652,10 +672,11 @@ sealed interface Choosing {
 				is Files -> chosen
 				is SaveAs -> setOfNotNull(chosen)
 				is Folder -> setOfNotNull(chosen)
+				is Exploring -> chosen
 			}
 
 	/** Whether this can hold more than one row. */
-	val many: Boolean get() = this is Files
+	val many: Boolean get() = this is Files || this is Exploring
 }
 
 /** Where the keyboard is in the listing: on [at], with a range chosen by Shift reaching from [anchor]. */
@@ -731,29 +752,14 @@ data class Crumb(
 	val path: Path,
 )
 
-/** A place the sidebar offers. */
-@Immutable
-data class Place(
-	val label: String,
-	val kind: Kind,
-	val path: Path,
-) {
-	enum class Kind {
-		Home,
-		Desktop,
-		Documents,
-		Downloads,
-		Pictures,
-		Music,
-		Videos,
-		Drive,
-	}
-}
-
-/** The sidebar: places, under the heading each belongs to. */
+/**
+ * The sidebar: the places pinned to it (its quick access, which the user pins to and unpins from), then the drives,
+ * each under its heading.
+ */
 @Immutable
 data class Sidebar(
-	val groups: List<Group>,
+	val pinned: List<Place>,
+	val drives: List<Place>,
 ) {
 	@Immutable
 	data class Group(
@@ -761,7 +767,16 @@ data class Sidebar(
 		val places: List<Place>,
 	)
 
-	val places: List<Place> get() = groups.flatMap { it.places }
+	val groups: List<Group> get() =
+		listOf(
+			Group("Quick access", pinned),
+			Group("This computer", drives),
+		)
+
+	val places: List<Place> get() = pinned + drives
+
+	/** Whether [path] is pinned. */
+	fun pins(path: Path): Boolean = pinned.any { it.path == path }
 }
 
 /** Everything the picker shows. */
@@ -890,6 +905,7 @@ data class BrowserState(
 						"Select folder",
 						folder != null || chosenRows.isNotEmpty() || !choosing.typed.isNullOrBlank(),
 					)
+				is Choosing.Exploring -> Accept("Open", chosenRows.isNotEmpty())
 			}
 
 	/**
@@ -908,6 +924,7 @@ data class BrowserState(
 						?: chosenRows.filterNot { it.isFolder }.namesWritten()
 				is Choosing.SaveAs -> choosing.name
 				is Choosing.Folder -> choosing.typed ?: chosenRows.namesWritten()
+				is Choosing.Exploring -> chosenRows.namesWritten()
 			}
 
 	/** What the name field says faintly when it is empty: in a folder picker, the folder that is chosen then. */

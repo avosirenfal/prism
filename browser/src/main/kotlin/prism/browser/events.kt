@@ -2,6 +2,8 @@ package prism.browser
 
 import androidx.compose.runtime.Immutable
 import java.nio.file.Path
+import prism.desktop.Launched
+import prism.desktop.Opening
 import prism.index.query.Query
 
 /*
@@ -200,6 +202,46 @@ sealed interface BrowserEvent : Input {
 		val paths: List<Path>,
 	) : BrowserEvent
 
+	/** An empty file made in the folder shown, its name then typed over. */
+	data object MadeFile : BrowserEvent
+
+	/** Rows put on the clipboard as files, to be copied where they are pasted (Ctrl+C). */
+	data class CopiedFiles(
+		val rows: List<RowId>,
+	) : BrowserEvent
+
+	/** Rows put on the clipboard as files, to be moved where they are pasted (Ctrl+X). */
+	data class CutFiles(
+		val rows: List<RowId>,
+	) : BrowserEvent
+
+	/** The files on the clipboard copied, or moved where they were cut, into [into]: the folder shown, where null. */
+	data class Pasted(
+		val into: Path? = null,
+	) : BrowserEvent
+
+	// ---- the desktop, and the application around the browser ----
+
+	/** [path] pinned to the sidebar, after the places pinned already. */
+	data class Pinned(
+		val path: Path,
+	) : BrowserEvent
+
+	/** [path] taken off the sidebar. */
+	data class Unpinned(
+		val path: Path,
+	) : BrowserEvent
+
+	/** A terminal opened in [folder]: the folder shown, where null. */
+	data class OpenedTerminal(
+		val folder: Path? = null,
+	) : BrowserEvent
+
+	/** Something only the application around the browser can do: a window of its own. */
+	data class Requested(
+		val request: Request,
+	) : BrowserEvent
+
 	// ---- the fields ----
 
 	data class Searched(
@@ -313,13 +355,72 @@ sealed interface Answer : Input {
 		val column: Sort.Column,
 		val order: IntArray,
 	) : Answer
+
+	/** What opening files with their applications came to. */
+	data class Opened(
+		val opening: Opening,
+	) : Answer
+
+	/** What starting a program (a terminal) came to. */
+	data class Started(
+		val launched: Launched,
+	) : Answer
+
+	/** The files on the clipboard, read to be pasted into [into]; null where it holds none. */
+	data class Clipped(
+		val into: Path,
+		val clip: FileClip?,
+	) : Answer
+
+	/** The sidebar, as the places pinned (which another window may have changed) and the drives now make it. */
+	data class Placed(
+		val sidebar: Sidebar,
+	) : Answer
 }
 
-/** Why a change is made: asked for anew, or to undo or redo one; which says where what undoes it is kept. */
-enum class Doing {
-	New,
-	Undo,
-	Redo,
+/** Files on the clipboard, and whether they were cut (to be moved) or copied. */
+@Immutable
+data class FileClip(
+	val paths: List<Path>,
+	val cut: Boolean,
+)
+
+/** What only the application around a browser can do: open a window of its own. */
+@Immutable
+sealed interface Request {
+	/** A window to choose an application to open [paths] with, and to make it the default. */
+	data class OpenWith(
+		val paths: List<Path>,
+	) : Request
+
+	/** A window of [paths]' properties. */
+	data class Properties(
+		val paths: List<Path>,
+	) : Request
+
+	/** Another explorer, on [folder]. */
+	data class NewWindow(
+		val folder: Path,
+	) : Request
+
+	/** The preferences: pinned places, the terminal, and every binding. */
+	data object Preferences : Request
+}
+
+/**
+ * Why a change is made: asked for anew, or to undo or redo what the user [did][Undo.done]. It says where what takes the
+ * change back is kept, and what a change that fails is called.
+ */
+sealed interface Doing {
+	data object New : Doing
+
+	data class Undo(
+		val done: Change,
+	) : Doing
+
+	data class Redo(
+		val done: Change,
+	) : Doing
 }
 
 /** A change to what is on disk, asked of the disk; what came of it comes back as [Answer.Changed]. */
@@ -352,7 +453,41 @@ sealed interface Change {
 	data class RemoveFolder(
 		val path: Path,
 	) : Change
+
+	/** An empty file made at [path]. */
+	data class MakeFile(
+		val path: Path,
+	) : Change
+
+	/** The empty file at [path] removed: what undoes making it. Refused if anything has been written into it. */
+	data class RemoveFile(
+		val path: Path,
+	) : Change
+
+	/** [sources] copied into [into], a name taken by something there given a free one ("a (copy).txt"). */
+	data class Copy(
+		val sources: List<Path>,
+		val into: Path,
+	) : Change
+
+	/** [sources] moved into [into], a name taken by something there given a free one. */
+	data class Move(
+		val sources: List<Path>,
+		val into: Path,
+	) : Change
+
+	/** Each of [moves] moved exactly where it says, never over something there: what undoes a move. */
+	data class Relocate(
+		val moves: List<Moved>,
+	) : Change
 }
+
+/** An entry moved, from where to where. */
+@Immutable
+data class Moved(
+	val from: Path,
+	val to: Path,
+)
 
 /** An entry in the trash: where it was, and the name the trash keeps it under. */
 @Immutable
@@ -447,6 +582,36 @@ sealed interface Effect {
 		val matches: Matches,
 		val column: Sort.Column,
 	) : Asking
+
+	/** [paths] opened with their applications, sent back as [Answer.Opened]. */
+	data class Open(
+		val paths: List<Path>,
+	) : Asking
+
+	/** A terminal started in [folder], sent back as [Answer.Started]. */
+	data class Terminal(
+		val folder: Path,
+	) : Asking
+
+	/** The files on the clipboard read, to be pasted into [into], sent back as [Answer.Clipped]. */
+	data class ReadClip(
+		val into: Path,
+	) : Asking
+
+	/** [clip] put on the clipboard. */
+	data class Clip(
+		val clip: FileClip,
+	) : Effect
+
+	/** The sidebar's pinned places made [paths]: a preference, so every window is given them. */
+	data class Pin(
+		val paths: List<Path>,
+	) : Effect
+
+	/** [request] made of the application around the browser. */
+	data class Ask(
+		val request: Request,
+	) : Effect
 
 	/** [text] put on the clipboard. */
 	data class Copy(

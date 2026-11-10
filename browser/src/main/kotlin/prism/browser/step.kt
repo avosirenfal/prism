@@ -2,6 +2,7 @@ package prism.browser
 
 import java.nio.file.InvalidPathException
 import java.nio.file.Path
+import prism.desktop.Launched
 import prism.index.query.QueryText
 
 /*
@@ -73,6 +74,7 @@ fun titleOf(choosing: Choosing): String =
 		is Choosing.Files -> "Open files"
 		is Choosing.SaveAs -> "Save as"
 		is Choosing.Folder -> "Select folder"
+		is Choosing.Exploring -> "Files"
 	}
 
 /** [state] after [input]. */
@@ -166,14 +168,14 @@ private fun did(state: BrowserState, event: BrowserEvent): Step =
 				state
 					.copy(
 						changes = state.changes.copy(undo = state.changes.undo.dropLast(1)),
-					).making(it, Doing.Undo)
+					).making(it.by, Doing.Undo(it.done))
 			} ?: Step(state)
 		BrowserEvent.Redone ->
 			state.changes.redo.lastOrNull()?.let {
 				state
 					.copy(
 						changes = state.changes.copy(redo = state.changes.redo.dropLast(1)),
-					).making(it, Doing.Redo)
+					).making(it.by, Doing.Redo(it.done))
 			} ?: Step(state)
 		is BrowserEvent.StartedRenaming -> Step(state.renaming(event.row))
 		is BrowserEvent.RenameTyped ->
@@ -253,6 +255,46 @@ private fun did(state: BrowserState, event: BrowserEvent): Step =
 			(state.search as? Search.Ready)?.highlighted?.let(state::chosenMatch)
 				?: state.showingMatches()
 		BrowserEvent.ShowedResults -> state.showingMatches()
+		BrowserEvent.MadeFile ->
+			state.folder?.let {
+				state.making(Change.MakeFile(it.resolve(state.freeName("New file"))))
+			} ?: Step(state)
+		is BrowserEvent.CopiedFiles -> state.clipping(event.rows, cut = false)
+		is BrowserEvent.CutFiles -> state.clipping(event.rows, cut = true)
+		is BrowserEvent.Pasted ->
+			(event.into ?: state.folder)?.let { Step(state, listOf(Effect.ReadClip(it))) }
+				?: Step(state)
+		is BrowserEvent.Pinned ->
+			if (state.sidebar.pins(event.path))
+				Step(state)
+			else
+				Step(
+					state,
+					listOf(
+						Effect.Pin(
+							state.sidebar.pinned
+								.map {
+									it.path
+								}.plusElement(event.path),
+						),
+					),
+				)
+		is BrowserEvent.Unpinned ->
+			Step(
+				state,
+				listOf(
+					Effect.Pin(
+						state.sidebar.pinned
+							.map {
+								it.path
+							}.minusElement(event.path),
+					),
+				),
+			)
+		is BrowserEvent.OpenedTerminal ->
+			(event.folder ?: state.folder)?.let { Step(state, listOf(Effect.Terminal(it))) }
+				?: Step(state)
+		is BrowserEvent.Requested -> Step(state, listOf(Effect.Ask(event.request)))
 	}
 
 /** While a notice is shown, it is all the picker answers to: the rest of it is behind the notice. */
@@ -588,6 +630,7 @@ private fun BrowserState.activated(id: RowId): Step {
 
 	return when {
 		row.isFolder -> went(row.path)
+		choosing is Choosing.Exploring -> Step(this, listOf(Effect.Open(listOf(row.path))))
 		choosing is Choosing.SaveAs ->
 			copy(
 				choosing = choosing.chose(setOf(id), rows),
@@ -606,6 +649,12 @@ private fun BrowserState.accepted(): Step {
 	val files = chosen.filterNot { it.isFolder }
 
 	return when (choosing) {
+		// What is chosen opened: the files with their applications; a folder alone, gone into.
+		is Choosing.Exploring ->
+			when {
+				files.isNotEmpty() -> Step(this, listOf(Effect.Open(files.map { it.path })))
+				else -> chosen.singleOrNull()?.let { went(it.path) } ?: Step(this)
+			}
 		is Choosing.OneFile ->
 			when {
 				choosing.typed != null -> looking(choosing.typed)
@@ -702,6 +751,41 @@ private fun BrowserState.notice(notice: Notice): Step = Step(copy(notice = notic
 
 private fun answered(state: BrowserState, answer: Answer): Step =
 	when (answer) {
+		// What nothing opened is offered to an application the user chooses; what failed to start is said.
+		is Answer.Opened ->
+			Step(
+				state.copy(
+					notice =
+						answer.opening.failures.firstOrNull()?.let {
+							Notice.Failed("Couldn't open “${it.what}”", it.why)
+						}
+							?: state.notice,
+				),
+				listOfNotNull(
+					answer.opening.unopened
+						.takeIf {
+							it.isNotEmpty()
+						}?.let { Effect.Ask(Request.OpenWith(it)) },
+				),
+			)
+		is Answer.Started ->
+			when (val launched = answer.launched) {
+				is Launched.Started -> Step(state)
+				is Launched.Failed ->
+					state.notice(
+						Notice.Failed("Couldn't open ${launched.what}", launched.why),
+					)
+			}
+		is Answer.Clipped ->
+			answer.clip?.let {
+				state.making(
+					if (it.cut)
+						Change.Move(it.paths, answer.into)
+					else
+						Change.Copy(it.paths, answer.into),
+				)
+			} ?: Step(state)
+		is Answer.Placed -> Step(state.copy(sidebar = answer.sidebar))
 		// A read of a folder no longer shown is too late to matter.
 		is Answer.Arrived ->
 			Step(
@@ -802,6 +886,8 @@ private fun BrowserState.accepting(
 	val notFound = notice(Notice.NotFound(lookup.text.trim()))
 
 	return when (choosing) {
+		// Nothing is typed to be accepted while exploring: a lookup of one is too late to matter.
+		is Choosing.Exploring -> Step(this)
 		is Choosing.OneFile ->
 			when (one?.second) {
 				Found.Folder -> went(one.first)
@@ -1066,8 +1152,8 @@ private fun BrowserState.changed(
 	when (result) {
 		is ChangeResult.Done ->
 			copy(
-				changes = changes.after(result.undo, doing),
-			).reread(landingAfter(change, doing))
+				changes = changes.after(change, result.undo, doing),
+			).reread(landingAfter(change, doing, result.undo))
 		is ChangeResult.Failed ->
 			reread().let {
 				Step(
@@ -1077,21 +1163,45 @@ private fun BrowserState.changed(
 			}
 	}
 
-/** The changes after one is done for [doing]: what undoes it kept to undo, or, for an undo, to redo. */
-private fun Changes.after(undoneBy: Change, doing: Doing): Changes =
+/** The changes after [change] is done for [doing]: what takes it back, [by], kept to undo, or, for an undo, to redo. */
+private fun Changes.after(change: Change, by: Change, doing: Doing): Changes =
 	when (doing) {
-		Doing.New -> Changes(undo = undo.plusElement(undoneBy), redo = emptyList())
-		Doing.Redo -> copy(undo = undo.plusElement(undoneBy))
-		Doing.Undo -> copy(redo = redo.plusElement(undoneBy))
+		Doing.New -> Changes(undo = undo.plusElement(Undoable(change, by)), redo = emptyList())
+		is Doing.Redo -> copy(undo = undo.plusElement(Undoable(doing.done, by)))
+		is Doing.Undo -> copy(redo = redo.plusElement(Undoable(doing.done, by)))
 	}
 
-/** Where the cursor goes once [change] is done, if it made something in the folder shown. */
-private fun BrowserState.landingAfter(change: Change, doing: Doing): Landing? {
+/**
+ * Where the cursor goes once [change] is done, if it made something in the folder shown; [undo] is what undoes it,
+ * which says what a copy or a move made, since the disk chose their names.
+ */
+private fun BrowserState.landingAfter(
+	change: Change,
+	doing: Doing,
+	undo: Change,
+): Landing? {
 	fun here(path: Path) = path.parent == folder
 
 	fun rowOf(path: Path) = RowId(path.fileName.toString())
 
+	val made =
+		when (undo) {
+			is Change.Trash -> undo.paths.takeIf { change is Change.Copy }
+			is Change.Relocate -> undo.moves.map { it.from }
+			else -> null
+		}
+
 	return when (change) {
+		is Change.Copy, is Change.Move, is Change.Relocate ->
+			made?.firstOrNull(::here)?.let { Landing.On(rowOf(it), choose = true) }
+		is Change.MakeFile ->
+			change.path.takeIf(::here)?.let {
+				if (doing == Doing.New)
+					Landing.Renaming(rowOf(it))
+				else
+					Landing.On(rowOf(it), choose = true)
+			}
+		is Change.RemoveFile -> null
 		is Change.Rename ->
 			change.to
 				.takeIf(
@@ -1120,22 +1230,17 @@ private fun failingOf(change: Change, doing: Doing): String =
 				is Change.MakeFolder -> "Couldn't make a folder"
 				is Change.PutBack -> "Couldn't put ${countOf(change.originals)} back"
 				is Change.RemoveFolder -> "Couldn't remove “${change.path.fileName}”"
+				is Change.MakeFile -> "Couldn't make a file"
+				is Change.RemoveFile -> "Couldn't remove “${change.path.fileName}”"
+				is Change.Copy -> "Couldn't copy ${countOf(change.sources)}"
+				is Change.Move -> "Couldn't move ${countOf(change.sources)}"
+				is Change.Relocate -> "Couldn't move ${countOf(change.moves.map { it.from })}"
 			}
-		Doing.Undo -> "Couldn't undo ${undoneBy(change)}"
-		Doing.Redo -> "Couldn't redo ${doneBy(change)}"
+		is Doing.Undo -> "Couldn't undo ${doneBy(doing.done)}"
+		is Doing.Redo -> "Couldn't redo ${doneBy(doing.done)}"
 	}
 
-/** What the user did that [change] undoes, in words: what the undo menu item and a failed undo name. */
-fun undoneBy(change: Change): String =
-	when (change) {
-		is Change.Rename -> "the rename"
-		is Change.PutBack -> "the move to the trash"
-		is Change.RemoveFolder -> "the new folder"
-		is Change.Trash -> "putting back"
-		is Change.MakeFolder -> "removing the folder"
-	}
-
-/** What the user did that [change] does again, in words: what the redo menu item and a failed redo name. */
+/** What the user did, [change], in words: what the undo and redo menu items, and a failed undo or redo, name. */
 fun doneBy(change: Change): String =
 	when (change) {
 		is Change.Rename -> "the rename"
@@ -1143,6 +1248,10 @@ fun doneBy(change: Change): String =
 		is Change.MakeFolder -> "the new folder"
 		is Change.PutBack -> "putting back"
 		is Change.RemoveFolder -> "removing the folder"
+		is Change.MakeFile -> "the new file"
+		is Change.RemoveFile -> "removing the file"
+		is Change.Copy -> "the copy"
+		is Change.Move, is Change.Relocate -> "the move"
 	}
 
 /** "“a.txt”" for one path, "3 items" for several: how a change's paths are named in what is said of it. */
@@ -1158,6 +1267,14 @@ fun refusalOf(name: String): String? =
 		name.toByteArray().size > 255 -> "That name is too long."
 		else -> null
 	}
+
+/** The rows [ids] put on the clipboard as files, to be moved where they are pasted where [cut]. */
+private fun BrowserState.clipping(ids: List<RowId>, cut: Boolean): Step =
+	pathsOf(ids)
+		.takeIf {
+			it.isNotEmpty()
+		}?.let { Step(this, listOf(Effect.Clip(FileClip(it, cut)))) }
+		?: Step(this)
 
 /** The paths of [ids] that the listing shows, in the order they are shown. */
 private fun BrowserState.pathsOf(ids: List<RowId>): List<Path> =
@@ -1195,6 +1312,7 @@ private fun Choosing.chose(ids: Set<RowId>, rows: Rows): Choosing {
 				chosen = one,
 			)
 		is Choosing.Folder -> Choosing.Folder(one)
+		is Choosing.Exploring -> Choosing.Exploring(ids)
 	}
 }
 
@@ -1203,6 +1321,13 @@ private fun Choosing.toggled(id: RowId, rows: Rows): Choosing =
 	when (this) {
 		is Choosing.Files ->
 			Choosing.Files(
+				if (id in chosen)
+					chosen - id
+				else
+					chosen + id,
+			)
+		is Choosing.Exploring ->
+			Choosing.Exploring(
 				if (id in chosen)
 					chosen - id
 				else
@@ -1218,6 +1343,7 @@ private fun Choosing.unchosen(): Choosing =
 		is Choosing.Files -> copy(chosen = emptySet())
 		is Choosing.SaveAs -> copy(chosen = null)
 		is Choosing.Folder -> copy(chosen = null)
+		is Choosing.Exploring -> copy(chosen = emptySet())
 	}
 
 /** What is chosen, kept where it is in [rows]. */
@@ -1227,6 +1353,7 @@ private fun Choosing.within(rows: Rows): Choosing =
 		is Choosing.Files -> copy(chosen = chosen.filterTo(LinkedHashSet()) { it in rows })
 		is Choosing.SaveAs -> copy(chosen = chosen?.takeIf { it in rows })
 		is Choosing.Folder -> copy(chosen = chosen?.takeIf { it in rows })
+		is Choosing.Exploring -> copy(chosen = chosen.filterTo(LinkedHashSet()) { it in rows })
 	}
 
 /** [text] typed into the name field. Saving, a folder chosen is let go, so the button saves again. */
@@ -1244,6 +1371,8 @@ private fun Choosing.named(text: String, rows: Rows): Choosing =
 					},
 			)
 		is Choosing.Folder -> copy(typed = text)
+		// Nothing is typed into a name field while exploring: there is none.
+		is Choosing.Exploring -> this
 	}
 
 private fun Cursor?.within(rows: Rows): Cursor? =

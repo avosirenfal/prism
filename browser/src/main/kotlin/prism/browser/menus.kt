@@ -6,8 +6,9 @@ import androidx.compose.runtime.Immutable
  * The picker's menus, worked out from its state: pure functions, so what each offers is a test of values. Each
  * item's action is the event choosing it reports, as if the user had pressed its keys.
  *
- * What a context menu offers depends on what it is a menu of ([Target]): one row or several, a file or a folder, or
- * the folder itself where no row is. New targets (a place in the sidebar, a step of the path) are new cases here.
+ * What a context menu offers depends on what it is a menu of ([Target]): one row or several, a file or a folder, the
+ * folder itself where no row is, or a place in the sidebar; and on what the browser is for: a picker offers what
+ * choosing needs, an explorer what a file manager does. Each item shows the keys its action is bound to.
  */
 
 /** What a context menu is a menu of. */
@@ -20,89 +21,155 @@ sealed interface Target {
 
 	/** The folder shown: the listing pressed where there is no row. */
 	data object Folder : Target
+
+	/** A place in the sidebar. */
+	data class Place(
+		val place: prism.desktop.Place,
+	) : Target
 }
 
-/** The context menu of [target] in [state]. */
-fun contextMenuOf(state: BrowserState, target: Target): Menu<BrowserEvent> =
+/** The context menu of [target] in [state], each item showing the keys [bindings] bind its action to. */
+fun contextMenuOf(
+	state: BrowserState,
+	target: Target,
+	bindings: Bindings = Bindings.DEFAULT,
+): Menu<BrowserEvent> =
 	when (target) {
-		is Target.Rows -> rowsMenuOf(state, target.rows)
-		Target.Folder -> folderMenuOf(state)
+		is Target.Rows -> rowsMenuOf(state, target.rows, bindings)
+		Target.Folder -> folderMenuOf(state, bindings)
+		is Target.Place -> placeMenuOf(state, target.place)
 	}
 
-private fun rowsMenuOf(state: BrowserState, rows: List<Row>): Menu<BrowserEvent> {
+/** The first chord [action] is bound to, as a menu shows it; nothing where it is bound to none. */
+private fun Bindings.keys(action: Action): String? = of(action).firstOrNull()?.toString()
+
+private fun rowsMenuOf(
+	state: BrowserState,
+	rows: List<Row>,
+	bindings: Bindings,
+): Menu<BrowserEvent> {
 	val one = rows.singleOrNull()
 	val ids = rows.map { it.id }
 	val paths = rows.map { it.path }
+	val exploring = state.choosing is Choosing.Exploring
+	val folder = one?.takeIf { it.isFolder }
 
 	return menu {
 		one?.let { row ->
 			when {
 				row.isFolder -> {
-					item("Open", BrowserEvent.Activated(row.id), keys = "Enter")
+					item("Open", BrowserEvent.Activated(row.id), keys = bindings.keys(Action.Open))
+					if (exploring)
+						item("Open in new window", BrowserEvent.Requested(Request.NewWindow(row.path)))
 					// A folder picker gives a folder: this one, without going into it.
 					if (state.choosing is Choosing.Folder)
 						item("Select folder", BrowserEvent.Picked(row.id))
 				}
 				state.choosing is Choosing.SaveAs -> item("Save over it", BrowserEvent.Picked(row.id))
-				else -> item("Open", BrowserEvent.Picked(row.id), keys = "Enter")
+				else -> item("Open", BrowserEvent.Picked(row.id), keys = bindings.keys(Action.Open))
 			}
 		}
+		// Several files open together, each with its application.
+		if (exploring && one == null && rows.any { !it.isFolder })
+			item("Open", BrowserEvent.Accepted, keys = bindings.keys(Action.Open))
+		if (exploring && rows.none { it.isFolder })
+			item("Open with…", BrowserEvent.Requested(Request.OpenWith(paths)))
 		separator()
-		one?.let { item("Rename", BrowserEvent.StartedRenaming(it.id), keys = "F2") }
+		if (exploring) {
+			item("Cut", BrowserEvent.CutFiles(ids), keys = bindings.keys(Action.CutFiles))
+			item("Copy", BrowserEvent.CopiedFiles(ids), keys = bindings.keys(Action.CopyFiles))
+			folder?.let { item("Paste into folder", BrowserEvent.Pasted(it.path)) }
+			separator()
+		}
+		one?.let {
+			item(
+				"Rename",
+				BrowserEvent.StartedRenaming(it.id),
+				keys = bindings.keys(Action.Rename),
+			)
+		}
 		item(
 			if (one != null) "Copy path" else "Copy paths",
 			BrowserEvent.CopiedPaths(paths),
-			keys = "Ctrl+Shift+C",
+			keys = bindings.keys(Action.CopyPaths),
 		)
+		folder?.let { pinning(state, it.path) }
+		if (exploring)
+			folder?.let { item("Open terminal here", BrowserEvent.OpenedTerminal(it.path)) }
+		// The trash apart from the rest, last, where it is not pressed in passing. Chosen from a menu, it is meant: the
+		// trash at once, as Shift+Delete does; Delete alone asks first.
 		separator()
-		// Chosen from a menu, it is meant: the trash at once, as Shift+Delete does; Delete alone asks first.
-		item("Move to trash", BrowserEvent.Trashed(ids), keys = "Delete")
+		item("Move to trash", BrowserEvent.Trashed(ids), keys = bindings.keys(Action.Trash))
+		if (exploring) {
+			separator()
+			item(
+				"Properties",
+				BrowserEvent.Requested(Request.Properties(paths)),
+				keys = bindings.keys(Action.Properties),
+			)
+		}
 	}
 }
 
-private fun folderMenuOf(state: BrowserState): Menu<BrowserEvent> {
+/** Pinning [path] to the sidebar, or taking it off where it is pinned. */
+private fun MenuBuilder<BrowserEvent>.pinning(
+	state: BrowserState,
+	path: java.nio.file.Path,
+) {
+	if (state.sidebar.pins(path))
+		item("Unpin from sidebar", BrowserEvent.Unpinned(path))
+	else
+		item("Pin to sidebar", BrowserEvent.Pinned(path))
+}
+
+private fun folderMenuOf(state: BrowserState, bindings: Bindings): Menu<BrowserEvent> {
 	val folders = state.choosing is Choosing.Folder
+	val exploring = state.choosing is Choosing.Exploring
 
 	return menu {
 		state.changes.undo.lastOrNull()?.let {
-			item("Undo ${undoneBy(it)}", BrowserEvent.Undone, keys = "Ctrl+Z")
+			item("Undo ${doneBy(it.done)}", BrowserEvent.Undone, keys = bindings.keys(Action.Undo))
 		}
 		state.changes.redo.lastOrNull()?.let {
-			item("Redo ${doneBy(it)}", BrowserEvent.Redone, keys = "Ctrl+Shift+Z")
+			item("Redo ${doneBy(it.done)}", BrowserEvent.Redone, keys = bindings.keys(Action.Redo))
 		}
 		separator()
+		if (exploring && state.folder != null) {
+			item("Paste", BrowserEvent.Pasted(), keys = bindings.keys(Action.Paste))
+			separator()
+		}
 		submenu("Sort by") { sorts(state) }
 		submenu("View") {
 			radio(
 				"List",
 				state.layout == Layout.List,
 				BrowserEvent.Viewed(Layout.List),
-				keys = "Ctrl+1",
+				keys = bindings.keys(Action.ViewList),
 			)
 			radio(
 				"Gallery",
 				state.layout == Layout.Gallery,
 				BrowserEvent.Viewed(Layout.Gallery),
-				keys = "Ctrl+2",
+				keys = bindings.keys(Action.ViewGallery),
 			)
 			separator()
 			// Each can be chosen where it would change something: what it would do is asked of the reducer itself.
 			item(
 				"Larger",
 				BrowserEvent.Zoomed(1),
-				keys = "Ctrl+=",
+				keys = bindings.keys(Action.ZoomIn),
 				enabled = state.changedBy(BrowserEvent.Zoomed(1)),
 			)
 			item(
 				"Smaller",
 				BrowserEvent.Zoomed(-1),
-				keys = "Ctrl+-",
+				keys = bindings.keys(Action.ZoomOut),
 				enabled = state.changedBy(BrowserEvent.Zoomed(-1)),
 			)
 			item(
 				"Usual size",
 				BrowserEvent.Unzoomed,
-				keys = "Ctrl+0",
+				keys = bindings.keys(Action.ZoomReset),
 				enabled = state.changedBy(BrowserEvent.Unzoomed),
 			)
 		}
@@ -111,12 +178,70 @@ private fun folderMenuOf(state: BrowserState): Menu<BrowserEvent> {
 		separator()
 		// A search's results are in no one folder: there is nowhere to make one, and no path to copy.
 		state.folder?.let {
-			item("New folder", BrowserEvent.MadeFolder, keys = "Ctrl+Shift+N")
+			item("New folder", BrowserEvent.MadeFolder, keys = bindings.keys(Action.NewFolder))
+			if (exploring)
+				item("New file", BrowserEvent.MadeFile, keys = bindings.keys(Action.NewFile))
 			item("Copy path", BrowserEvent.CopiedPaths(listOf(it)))
+			pinning(state, it)
+			if (exploring)
+				item(
+					"Open terminal here",
+					BrowserEvent.OpenedTerminal(it),
+					keys = bindings.keys(Action.OpenTerminal),
+				)
 		}
-		item("Refresh", BrowserEvent.Refreshed, keys = "F5")
+		item("Refresh", BrowserEvent.Refreshed, keys = bindings.keys(Action.Refresh))
+		if (exploring)
+			state.folder?.let {
+				separator()
+				item("Properties", BrowserEvent.Requested(Request.Properties(listOf(it))))
+			}
 	}
 }
+
+/** An explorer's own menu, behind its toolbar's button: another window, a terminal here, the preferences. */
+fun appMenuOf(
+	state: BrowserState,
+	bindings: Bindings = Bindings.DEFAULT,
+): Menu<BrowserEvent> =
+	menu {
+		item(
+			"New window",
+			BrowserEvent.Requested(Request.NewWindow(state.folder ?: state.home)),
+			keys = bindings.keys(Action.NewWindow),
+		)
+		state.folder?.let {
+			item(
+				"Open terminal here",
+				BrowserEvent.OpenedTerminal(it),
+				keys = bindings.keys(Action.OpenTerminal),
+			)
+		}
+		separator()
+		item(
+			"Preferences…",
+			BrowserEvent.Requested(Request.Preferences),
+			keys = bindings.keys(Action.Preferences),
+		)
+	}
+
+/** A sidebar place's menu: open it, here or in a window of its own, and unpin it where it is pinned. */
+private fun placeMenuOf(
+	state: BrowserState,
+	place: prism.desktop.Place,
+): Menu<BrowserEvent> =
+	menu {
+		item("Open", BrowserEvent.Opened(place.path))
+		if (state.choosing is Choosing.Exploring) {
+			item("Open in new window", BrowserEvent.Requested(Request.NewWindow(place.path)))
+			separator()
+			item("Properties", BrowserEvent.Requested(Request.Properties(listOf(place.path))))
+		}
+		if (state.sidebar.pinned.contains(place)) {
+			separator()
+			item("Unpin from sidebar", BrowserEvent.Unpinned(place.path))
+		}
+	}
 
 /**
  * The orders the listing can be put in: a folder's by each column, either way; a search's best first as well, and by
