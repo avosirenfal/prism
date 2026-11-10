@@ -1,5 +1,5 @@
 // The file picker: an immutable model of what it shows, a pure reducer from one state to the next, a composable view
-// of it, and a session that runs the effects the reducer asks for against a disk (picker.source).
+// of it, and a session that runs the effects the reducer asks for against a disk (picker.source) and an index.
 plugins {
 	id("barion.compose")
 }
@@ -12,6 +12,8 @@ tasks.test {
 }
 
 dependencies {
+	// The index the picker searches (Ctrl+Shift+F), and its search language.
+	api(project(":index"))
 	// A session's states and outcome are coroutines' flows and deferreds.
 	api(libs.kotlinx.coroutines.core)
 	// AWT's event thread as a dispatcher, which headless drawing draws on, as a window does.

@@ -97,6 +97,13 @@ abstract class Command(
 		shown: String = default.toString(),
 	): Param<T> = declared(Defaulted(names.toList(), type, default, shown, help))
 
+	/** An option given alone or with a value ([ValueOptional]): null where it is not given. */
+	fun <T> optionalValue(
+		vararg names: String,
+		type: ParamType<T>,
+		help: String,
+	): Param<Given<T>?> = declared(ValueOptional(names.toList(), type, help))
+
 	fun <T> required(vararg names: String, type: ParamType<T>, help: String): Param<T> =
 		declared(Required(names.toList(), type, help))
 

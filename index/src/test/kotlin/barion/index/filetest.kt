@@ -59,12 +59,22 @@ class FileTest {
 	fun anIndexWrittenIsTheIndexRead() {
 		made("docs/a.txt", "docs/b.md", "music/c.flac")
 
-		val index =
-			Index.EMPTY
-				.with(indexer.index(root))
-				.with(
-					Change.Picked(where("docs/a.txt"), Instant.parse("2026-11-01T12:30:00.123456789Z")),
-				)
+		val later =
+			Indexer(
+				mounts = emptyList(),
+				clock =
+					java.time.Clock.fixed(
+						Instant.parse("2026-11-01T12:30:00Z"),
+						java.time.ZoneOffset.UTC,
+					),
+			)
+
+		val first = Index.EMPTY.with(indexer.index(root))
+
+		made("docs/new.txt")
+
+		// Through a graft and compacted as it is written.
+		val index = first.with(later.reread(where("docs/new.txt"))!!)
 
 		IndexFile.write(file, index)
 
@@ -76,9 +86,10 @@ class FileTest {
 		assertEquals(index.roots, read.index.roots)
 		assertEquals(index.shape(), read.index.shape())
 		assertEquals(
-			Instant.parse("2026-11-01T12:30:00.123456789Z"),
-			read.index.pickedAt(where("docs/a.txt")),
+			Instant.parse("2026-11-01T12:30:00Z"),
+			read.index.seenAt(where("docs/new.txt")),
 		)
+		assertEquals(null, read.index.seenAt(where("docs/a.txt")))
 	}
 
 	@Test
@@ -105,21 +116,17 @@ class FileTest {
 
 		val changes =
 			listOfNotNull(indexer.reread(where("a")), indexer.reread(where("b/two.txt")))
-		val second = Change.Picked(where("a/three.txt"), Instant.parse("2026-11-12T10:00:00Z"))
 
-		length = IndexFile.append(file, length, changes)
-		length = IndexFile.append(file, length, listOf(second))
+		length = IndexFile.append(file, length, changes.take(1))
+		length = IndexFile.append(file, length, changes.drop(1))
 
 		val read = read()
-		val made = first.with(changes).with(second)
+		val made = first.with(changes)
 
 		assertEquals(length, read.length)
 		assertTrue(read.changes > 0)
 		assertEquals(made.shape(), read.index.shape())
-		assertEquals(
-			made.pickedAt(where("a/three.txt")),
-			read.index.pickedAt(where("a/three.txt")),
-		)
+		assertEquals(made.seenAt(where("a/three.txt")), read.index.seenAt(where("a/three.txt")))
 		assertEquals(
 			setOf(where("a/three.txt")),
 			(

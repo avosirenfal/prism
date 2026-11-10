@@ -75,7 +75,8 @@ private fun Param<*>.notes(): List<String> =
 		is Repeated<*> ->
 			listOf("repeatable") +
 				listOfNotNull("required".takeIf { atLeastOnce })
-		is Flag, is Single<*>, is Argument<*>, is Arguments<*> -> emptyList()
+		is Flag, is Single<*>, is ValueOptional<*> -> emptyList()
+		is Argument<*>, is Arguments<*> -> emptyList()
 	}
 
 private fun Param<*>.described(): String =
@@ -83,10 +84,11 @@ private fun Param<*>.described(): String =
 
 private fun Opt<*>.term(): String =
 	names.joinToString(", ") +
-		if (this is Valued<*, *>)
-			" ${type.metavar}"
-		else
-			""
+		when (this) {
+			is ValueOptional<*> -> " [${type.metavar}]"
+			is Valued<*, *> -> " ${type.metavar}"
+			is Flag -> ""
+		}
 
 /** [node]'s help, reached by [path]. */
 fun help(node: Node, path: List<String>): String =

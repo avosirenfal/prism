@@ -19,21 +19,21 @@ The project is set up and every part named in the first brief exists, builds, an
 | the scanner | `index`: one traversal, two backends (getdents64 through FFM, and the JVM's own), names as bytes, what each directory is gathered into the caller's to say; the ignore rules (names and path endings anywhere, absolute paths), pseudo file systems skipped from mountinfo, read once |
 | the index | `index`: entries as columns in preorder (`Block`), inodes among them, a folder found by device and inode as the watcher names it; an immutable `Index` that changes by hiding and grafting and compacts back to a block a root, changes that say what is so and so can be made twice; its file a zstd-compressed snapshot and appended frames of changes, a torn frame dropped, compacted by rename (docs/format.md); `IndexStore` keeps an index and its file in step; `barion index` builds or reads one and searches it |
 | the daemon | `watcher`: the eBPF watcher, its program compiled into the module, read on a thread of its own; `daemon`: a `LiveIndex` that opens at once and reads its roots behind, reads places again when told (`rescan`), makes changes it is told of and makes them again once a scan they happened during lands, and reads places the rules leave out for searches alone, in memory, never written; and a `Daemon` that starts the watcher before the index is read, queues what it sees onto a thread of its own, writes every few seconds, and reads the roots again where changes were lost or there is no watcher (docs/daemon.md); `barion daemon` runs one |
-| search | `index`: queries as an immutable tree, for every term of the language (names, globs, quoted and raw terms, paths, regexes, `dir:`, `ext:`, `type:`, `is:`, `recent:`, `mount:`, negation), built with a Kotlin DSL or read from text by parser combinators that read any text at all into a tree with spans, problems (unfinished, and searched for as far as it goes; or invalid, and left out) and marks to colour it by; run over the columns as bytes, with ancestors' states kept per level, on every core (docs/search.md) |
-| the picker | `picker`: an immutable `PickerState`, a pure reducer, a session that reads folders, looks up typed paths and makes changes on a background thread, and a view made of its own controls; it browses (back, forward, up, the mouse's side buttons, places, a typed path), chooses (click, Ctrl, Shift, the arrows, type-ahead), searches, sorts, filters by kind from a menu (one, or several with Ctrl; hidden files shown and hidden folders not until the user says), zooms with Ctrl and the wheel (the gallery up to one picture at a time, fitted to the window), and saves (asking before replacing), as a list or a gallery with thumbnails of images; context menus (menus as data, one component for any menu) rename, trash (the desktop's own; the Delete key asks first) and make folders, each undone and redone with Ctrl+Z and Ctrl+Shift+Z; `barion pick` prints what is chosen (docs/picker.md) |
+| search | `index`: queries as an immutable tree, for every term of the language (names, globs, quoted and raw terms, paths, regexes, `dir:`, `ext:`, `type:`, `is:`, `recent:`, `mount:`, negation), built with a Kotlin DSL or read from text by parser combinators that read any text at all into a tree with spans, problems (unfinished, and searched for as far as it goes; or invalid, and left out) and marks to colour it by; run over the columns as bytes, with ancestors' states kept per level, on every core; each result scored as it is found (how the words match the name, how much it and its folder have been picked, how new it is, where it is) and the results given best first; what was picked kept beside the index, in a file of its own (docs/search.md) |
+| the picker | `picker`: an immutable `PickerState`, a pure reducer, a session that reads folders, looks up typed paths and makes changes on a background thread, and a view made of its own controls; it browses (back, forward, up, the mouse's side buttons, places, a typed path), chooses (click, Ctrl, Shift, the arrows, type-ahead), searches, sorts, filters by kind from a menu (one, or several with Ctrl; hidden files shown and hidden folders not until the user says), zooms with Ctrl and the wheel (the gallery up to one picture at a time, fitted to the window), and saves (asking before replacing), as a list or a gallery with thumbnails of images; context menus (menus as data, one component for any menu) rename, trash (the desktop's own; the Delete key asks first) and make folders, each undone and redone with Ctrl+Z and Ctrl+Shift+Z; Ctrl+Shift+F searches the index, its first matches listed as the query is typed (coloured as it is read), a match gone to as the kind of picker says, every match shown in the listing as a folder holding them would show them (filtered, ordered best first or by a column, read on disk as they come into sight, millions without making millions of rows), Back returning to them; `barion pick` prints what is chosen, and `--index [FILE]` gives it an index to search (docs/picker.md) |
 | D-Bus | `dbus`: the connection (handshake and `Hello` as it opens), messages as data, kotlinx.serialization for bodies with signatures worked out from the types and checked before decoding, calls with replies as values, signals as flows, `watch`, served methods (docs/dbus.md) |
 | the colour scheme | `portal`: the portal's Settings declared; `barion pick` opens in the desktop's palette and follows its changes; light where there is no bus or portal; `--theme` overrides |
 
-288 tests (273 of barion's own, 15 of the house formatting rules), all passing in the development container; one
+317 tests (302 of barion's own, 15 of the house formatting rules), all passing in the development container; one
 skipped there, the search benchmark, which runs only when asked for (`-Pindex.benchmark=N`). The D-Bus ones run against a real dbus-daemon each test starts, and against gdbus, dbus-send and busctl.
 
 ## Measured
 
-**The index of `/`** in this container: 184,676 entries (its caches, build trees and pseudo file systems left out),
-indexed in 1.9 s on 4 cores, written to a file of 537 KB, read back in 39 ms; a search for a word takes 2 ms, a glob
-7 ms. **A made-up index of 3,000,000 entries** (`SearchBenchmark`): searches from 5 ms (`is:dir`) to 50 ms
-(`*.jpg`, which finds over a million), a regex over paths 200 ms; its file is 8.4 MB, written in 1.1 s and read in
-0.29 s (docs/search.md has every query's time). Reading a query's text: 30,000 random texts read and searched for in
+**The index of `/`** in this container: 185,359 entries (its caches, build trees and pseudo file systems left out),
+indexed in 1.6 s on 4 cores, written to a file of 540 KB, read back in 57 ms; a search for a word takes 2 ms, a glob
+7 ms. **A made-up index of 3,000,000 entries** (`SearchBenchmark`): searches, their results ranked and ordered, from
+9 ms (`is:dir`) to 76 ms (`*.jpg`, which finds over a million), a regex over paths 280 ms; its file is 8.4 MB, written
+in 1.2 s and read in 0.28 s (docs/search.md has every query's time). Reading a query's text: 30,000 random texts read and searched for in
 0.4 s.
 
 **getdents64 against the JVM** (docs/scanning.md), `/usr`, 92,611 entries, warm caches, 4 cores: getdents64 takes
@@ -64,13 +64,14 @@ In the order they unblock each other:
 1. **Run the watcher on a real machine**, with the privileges it needs, and read what it sends for a `mkdir`, a
    `touch`, a `mv`, an `rm -r`, a `git checkout` and an `npm install`. Fix what the verifier says about any hook.
    Then `barion daemon` there, and the same changes seen made in its index.
-2. **The picker searching the daemon's index** from its search field (the marks colouring the field, the problems
-   drawn over it), and reading its folders from the index (an index-backed `Disk`), with the picker's kinds and
-   `type:` from one table of extensions.
-3. **The portal backend**: `org.freedesktop.impl.portal.FileChooser` served on the session bus with
-   `Connection.serve`, each request a `PickerState`, the daemon opening a window per request; and a D-Bus method of
-   the daemon's to read places again from outside it.
-4. **Filtering in the kernel**: a bounded loop in the DSL, so the watcher drops a change under an ignored directory
+2. **The portal backend**: `org.freedesktop.impl.portal.FileChooser` served on the session bus with
+   `Connection.serve`, each request a `PickerState`, the daemon opening a window per request and handing it a `Finder`
+   over its live index (the picker's search already takes one), and writing the usage as things are picked; and a
+   D-Bus method of the daemon's to read places again from outside it.
+3. **The picker reading its folders from the index** (an index-backed `Disk`), with the picker's kinds and `type:`
+   from one table of extensions; and a search that asks for a place the rules leave out waiting for it to be read.
+4. **A Graal native command line** that talks to the running daemon: queries in a terminal, jumping to places.
+5. **Filtering in the kernel**: a bounded loop in the DSL, so the watcher drops a change under an ignored directory
    before it is sent; and the privileged loader service that hands the ring to the user's daemon.
 
 ## Notes for whoever picks this up

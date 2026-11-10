@@ -38,9 +38,14 @@ import kotlin.io.path.Path
  * Names are compared as bytes, in the [Block.names] column or the [Block.folded] one, so matching a name allocates
  * nothing; only a regex, which Java runs over strings, decodes one. Large blocks are walked in slices on every core,
  * each slice starting its stack from the ancestors of its first entry.
+ *
+ * Each entry found is scored as it is found ([Ranker], rank.kt), and the results are given best first.
  */
 
-/** What a search is run in: what the search as a whole says, and what `~`, `~name` and `recent:` need to know. */
+/**
+ * What a search is run in: what the search as a whole says, what `~`, `~name` and `recent:` need to know, and what
+ * its results are ranked by.
+ */
 data class SearchContext(
 	/** The toggle for the whole search: whether terms that do not say otherwise tell upper from lower case. */
 	val caseSensitive: Boolean = false,
@@ -49,6 +54,9 @@ data class SearchContext(
 	val aliases: Map<String, List<Path>> = emptyMap(),
 	val now: Instant = Instant.now(),
 	val zone: ZoneId = ZoneId.systemDefault(),
+	/** What the user has picked, and from where: what `recent:` asks about, and what ranks a result higher. */
+	val usage: Usage = Usage.NONE,
+	val ranking: Ranking = Ranking(),
 )
 
 /** What a search gave: the entries found, or why the query could not be run. */
@@ -64,30 +72,102 @@ sealed interface Searched {
 }
 
 /**
- * The entries a search found, in the index's order: by path, within each block. Each is made into an [Entry] when it
- * is asked for, so a search that finds a million entries keeps a million numbers, not a million paths.
+ * The entries a search found, best first: by their scores ([Ranking]), and among equals by path. Each is made into an
+ * [Entry] when it is asked for, so a search that finds a million entries keeps a few million numbers, not a million
+ * paths; [nameOf] and [kindOf] say what a result is without making its path.
  */
 class Results internal constructor(
-	private val index: Index,
-	private val found: List<IntArray>,
+	private val parts: List<Part>,
 ) : AbstractList<Entry>() {
+	/** The entries found in one placed block of an index, by their places in it, and their scores. */
+	internal class Part(
+		val index: Index,
+		val placed: Int,
+		val entries: IntArray,
+		val scores: IntArray,
+	)
+
 	private val starts: IntArray =
-		found
+		parts
 			.runningFold(
 				0,
-			) { at, it -> at + it.size }
+			) { at, it -> at + it.entries.size }
 			.toIntArray()
+
+	/** Each result's place among the parts' entries, one part after another, best first. */
+	private val order: IntArray = ranked()
 
 	override val size: Int get() = starts.last()
 
-	override fun get(index: Int): Entry {
+	override fun get(index: Int): Entry =
+		at(index) { part, found -> part.index.entryAt(part.placed, part.entries[found]) }
+
+	/** The name of the [index]th result, as text. */
+	fun nameOf(index: Int): String =
+		at(index) { part, found ->
+			val block = part.index.placed[part.placed].block
+			val entry = part.entries[found]
+
+			String(block.names, block.nameAt[entry], block.nameLength(entry), Charsets.UTF_8)
+		}
+
+	fun kindOf(index: Int): Kind =
+		at(
+			index,
+		) { part, found ->
+			part.index.placed[part.placed]
+				.block
+				.kindOf(part.entries[found])
+		}
+
+	/** The [index]th result's score: what put it where it is. */
+	fun scoreOf(index: Int): Int = at(index) { part, found -> part.scores[found] }
+
+	/** What [read] makes of the [index]th result: its part, and where among that part's results it is. */
+	private inline fun <T> at(index: Int, read: (Part, Int) -> T): T {
 		if (index !in 0 until size)
 			throw IndexOutOfBoundsException("$index of $size")
 
-		// The block whose results run past [index]; there are a handful of blocks, so a look at each is enough.
-		val placed = found.indices.first { starts[it + 1] > index }
+		val position = order[index]
+		// The part whose results run past [position]; there are a handful of parts, so a look at each is enough.
+		val part = parts.indices.first { starts[it + 1] > position }
 
-		return this.index.entryAt(placed, found[placed][index - starts[placed]])
+		return read(parts[part], position - starts[part])
+	}
+
+	/** Every result's position, in order of score from the highest, and of position among equals: a counting sort. */
+	private fun ranked(): IntArray {
+		val counts = IntArray(Ranking.MOST + 1)
+
+		for (part in parts)
+			for (score in part.scores)
+				counts[score]++
+
+		var at = 0
+
+		for (score in Ranking.MOST downTo 0) {
+			val count = counts[score]
+
+			counts[score] = at
+			at += count
+		}
+
+		val order = IntArray(at)
+		var position = 0
+
+		for (part in parts)
+			for (score in part.scores)
+				order[counts[score]++] = position++
+
+		return order
+	}
+
+	companion object {
+		/** Nothing found. */
+		val NONE = Results(emptyList())
+
+		/** The results of several searches as one, best first among them all: an index's and those of places beside it. */
+		fun of(results: List<Results>): Results = Results(results.flatMap { it.parts })
 	}
 }
 
@@ -98,7 +178,6 @@ fun Index.search(query: Query, context: SearchContext = SearchContext()): Search
 		is Planning.Ready ->
 			Searched.Found(
 				Results(
-					this,
 					placed.indices.map {
 						plan.plan.run(this, it)
 					},
@@ -176,38 +255,60 @@ private sealed interface Compiled {
 	) : Compiled
 }
 
-/** A query compiled: a check for each term, made afresh for each block it walks. */
+/**
+ * A query compiled: a check for each term, made afresh for each block it walks; and the words whose match of a name
+ * ranks a result, with the context that ranks the rest.
+ */
 private class Plan(
 	private val making: List<Making>,
+	private val words: List<Word>,
+	private val context: SearchContext,
 ) {
-	/** The entries of the [placed]th block of [index] that pass every check. */
-	fun run(index: Index, placed: Int): IntArray {
+	/** The entries of the [placed]th block of [index] that pass every check, each with its score. */
+	fun run(index: Index, placed: Int): Results.Part {
 		val (block, hidden) = index.placed[placed].let { it.block to it.hidden }
 		val checks = making.map { it(block, placed) }.sortedBy { it.cost }
 
-		if (block.size <= SLICE)
-			return Walk(block, hidden, checks).run(0, block.size)
+		val ranker =
+			Ranker.of(
+				block,
+				hidden,
+				words,
+				context.usage,
+				context.ranking,
+				Where.of(context.home),
+				context.now,
+			)
 
-		val slices = (block.size + SLICE - 1) / SLICE
+		val slices =
+			if (block.size <= SLICE)
+				listOf(Walk(block, hidden, checks, ranker).run(0, block.size))
+			else
+				IntStream
+					.range(0, (block.size + SLICE - 1) / SLICE)
+					.parallel()
+					.mapToObj {
+						Walk(block, hidden, checks, ranker).run(
+							it * SLICE,
+							minOf(
+								block.size,
+								(it + 1) * SLICE,
+							),
+						)
+					}.toList()
 
-		val found =
-			IntStream
-				.range(0, slices)
-				.parallel()
-				.mapToObj {
-					Walk(block, hidden, checks).run(
-						it * SLICE,
-						minOf(
-							block.size,
-							(it + 1) * SLICE,
-						),
-					)
-				}.toList()
-
-		return IntArray(found.sumOf { it.size }).also { all ->
-			found.fold(0) { at, slice -> slice.copyInto(all, at).let { at + slice.size } }
-		}
+		return Results.Part(
+			index,
+			placed,
+			joined(slices.map { it.entries }),
+			joined(slices.map { it.scores }),
+		)
 	}
+
+	private fun joined(slices: List<IntArray>): IntArray =
+		slices.singleOrNull() ?: IntArray(slices.sumOf { it.size }).also { all ->
+			slices.fold(0) { at, slice -> slice.copyInto(all, at).let { at + slice.size } }
+		}
 
 	companion object {
 		/** How many entries a walk takes at a time, a slice of a block walked on one core. */
@@ -221,8 +322,36 @@ private class Plan(
 			return compiled.filterIsInstance<Compiled.Refused>().firstOrNull()?.let {
 				Planning.Refused(it.why)
 			}
-				?: Planning.Ready(Plan(compiled.filterIsInstance<Compiled.Made>().map { it.making }))
+				?: Planning.Ready(
+					Plan(
+						compiled.filterIsInstance<Compiled.Made>().map { it.making },
+						wordsOf(query, context),
+						context,
+					),
+				)
 		}
+
+		/** The words whose match of a name ranks a result: those of the terms that ask for a name to hold some text. */
+		private fun wordsOf(query: Query, context: SearchContext): List<Word> =
+			query.terms
+				.filterNot { it.negated }
+				.mapNotNull { term ->
+					val test = term.test as? Test.Name
+					val literal = test?.match?.pattern as? TextPattern.Literal
+
+					literal?.takeIf { it.text.isNotEmpty() }?.let {
+						val sensitive = test.case.sensitive(context.caseSensitive)
+						val bytes = it.text.encodeToByteArray()
+
+						Word(
+							if (sensitive)
+								bytes
+							else
+								Fold.folded(bytes),
+							folded = !sensitive,
+						)
+					}
+				}
 
 		/** [term] compiled, or why it cannot be run. */
 		private fun compile(
@@ -342,9 +471,8 @@ private class Plan(
 				is Test.Recent -> {
 					val since = cutoffOf(test.since, context)
 					val picked =
-						index.picked
-							.filterValues { it >= since }
-							.keys
+						context.usage
+							.pickedSince(since)
 							.mapNotNull(index::locate)
 							.groupBy({ it.first }, { it.second })
 							.mapValues { (_, entries) -> BitSet().also { set -> entries.forEach(set::set) } }
@@ -775,7 +903,14 @@ private class Walk(
 	val block: Block,
 	private val hidden: Ranges,
 	private val checks: List<Check>,
+	private val ranker: Ranker,
 ) {
+	/** The entries a walk found, and each one's score. */
+	class Found(
+		val entries: IntArray,
+		val scores: IntArray,
+	)
+
 	private val ancestral: List<AncestralCheck> = checks.filterIsInstance<AncestralCheck>()
 	private val slots = (ancestral.maxOfOrNull { it.slot } ?: -1) + 1
 
@@ -789,14 +924,19 @@ private class Walk(
 	private var states = Array(slots) { LongArray(INITIAL) }
 	private var paths = arrayOfNulls<String>(INITIAL)
 
+	/** Whether a name at each level, or one above it, starts with a dot. */
+	private var hiddenAt = BooleanArray(INITIAL)
+
 	/** An [AncestralCheck]'s state at [level]. */
 	fun state(slot: Int, level: Int): Long = states[slot][level]
 
-	fun run(from: Int, to: Int): IntArray {
+	fun run(from: Int, to: Int): Found {
 		val found = IntBuilder()
+		val scores = IntBuilder()
 
 		depth = 0
 		ends[0] = Int.MAX_VALUE
+		hiddenAt[0] = false
 		for (check in ancestral)
 			states[check.slot][0] = check.initial
 		for (name in block.above)
@@ -824,15 +964,17 @@ private class Walk(
 			while (ends[depth] <= entry)
 				depth--
 
-			if (block.nameLength(entry) > 0 && checks.all { it.test(this, entry) != it.negated })
+			if (block.nameLength(entry) > 0 && checks.all { it.test(this, entry) != it.negated }) {
 				found.add(entry)
+				scores.add(ranker.score(entry, depth + 1, hiddenAt[depth]))
+			}
 
 			if (block.end[entry] > entry + 1 && block.nameLength(entry) > 0)
 				enter(entry)
 			entry++
 		}
 
-		return found.toArray()
+		return Found(found.toArray(), scores.toArray())
 	}
 
 	/** Into the folder [entry]. */
@@ -866,6 +1008,7 @@ private class Walk(
 		entries[depth] = entry
 		aboveNames[depth] = above
 		paths[depth] = null
+		hiddenAt[depth] = hiddenAt[depth - 1] || (to > from && original[from] == DOT)
 		for (check in ancestral)
 			states[check.slot][depth] =
 				check.step(states[check.slot][depth - 1], original, folded, from, to)
@@ -878,6 +1021,7 @@ private class Walk(
 		entries = entries.copyOf(size)
 		aboveNames = aboveNames.copyOf(size)
 		paths = paths.copyOf(size)
+		hiddenAt = hiddenAt.copyOf(size)
 		states = Array(slots) { states[it].copyOf(size) }
 	}
 
@@ -905,6 +1049,7 @@ private class Walk(
 
 	private companion object {
 		const val INITIAL = 32
+		const val DOT = '.'.code.toByte()
 	}
 }
 

@@ -32,7 +32,7 @@ fun contextMenuOf(state: PickerState, target: Target): Menu<PickerEvent> =
 private fun rowsMenuOf(state: PickerState, rows: List<Row>): Menu<PickerEvent> {
 	val one = rows.singleOrNull()
 	val ids = rows.map { it.id }
-	val paths = rows.map { state.folder.resolve(it.name) }
+	val paths = rows.map { it.path }
 
 	return menu {
 		one?.let { row ->
@@ -61,7 +61,6 @@ private fun rowsMenuOf(state: PickerState, rows: List<Row>): Menu<PickerEvent> {
 }
 
 private fun folderMenuOf(state: PickerState): Menu<PickerEvent> {
-	val sort = state.arrangement.sort
 	val folders = state.choosing is Choosing.Folder
 
 	return menu {
@@ -72,21 +71,7 @@ private fun folderMenuOf(state: PickerState): Menu<PickerEvent> {
 			item("Redo ${doneBy(it)}", PickerEvent.Redone, keys = "Ctrl+Shift+Z")
 		}
 		separator()
-		submenu("Sort by") {
-			for (heading in Sort.Column.entries)
-				radio(
-					headingOf(heading),
-					sort.by == heading,
-					PickerEvent.SortedBy(sort.copy(by = heading)),
-				)
-			separator()
-			radio("Ascending", sort.ascending, PickerEvent.SortedBy(sort.copy(ascending = true)))
-			radio(
-				"Descending",
-				!sort.ascending,
-				PickerEvent.SortedBy(sort.copy(ascending = false)),
-			)
-		}
+		submenu("Sort by") { sorts(state) }
 		submenu("View") {
 			radio(
 				"List",
@@ -124,9 +109,54 @@ private fun folderMenuOf(state: PickerState): Menu<PickerEvent> {
 		separator()
 		hiddenChecks(state, folders)
 		separator()
-		item("New folder", PickerEvent.MadeFolder, keys = "Ctrl+Shift+N")
-		item("Copy path", PickerEvent.CopiedPaths(listOf(state.folder)))
+		// A search's results are in no one folder: there is nowhere to make one, and no path to copy.
+		state.folder?.let {
+			item("New folder", PickerEvent.MadeFolder, keys = "Ctrl+Shift+N")
+			item("Copy path", PickerEvent.CopiedPaths(listOf(it)))
+		}
 		item("Refresh", PickerEvent.Refreshed, keys = "F5")
+	}
+}
+
+/**
+ * The orders the listing can be put in: a folder's by each column, either way; a search's best first as well, and by
+ * each column it can be ordered by ([Listing.Found.orders]), the rest shown but not to be chosen.
+ */
+private fun MenuBuilder<PickerEvent>.sorts(state: PickerState) {
+	val found = state.listing as? Listing.Found
+	val order =
+		if (found == null)
+			Order.By(state.arrangement.sort)
+		else
+			state.arrangement.results
+	val sort = (order as? Order.By)?.sort
+
+	if (found != null) {
+		radio("Best match", order == Order.Relevance, PickerEvent.SortedByRelevance)
+		separator()
+	}
+	for (heading in Sort.Column.entries)
+		radio(
+			headingOf(heading),
+			sort?.by == heading,
+			PickerEvent.SortedBy(
+				sort?.copy(by = heading)
+					?: Sort(
+						heading,
+						ascending =
+							heading == Sort.Column.Name || heading == Sort.Column.Type,
+					),
+			),
+			enabled = found?.orders(heading) != false,
+		)
+	if (sort != null) {
+		separator()
+		radio("Ascending", sort.ascending, PickerEvent.SortedBy(sort.copy(ascending = true)))
+		radio(
+			"Descending",
+			!sort.ascending,
+			PickerEvent.SortedBy(sort.copy(ascending = false)),
+		)
 	}
 }
 

@@ -122,11 +122,27 @@ class SearchTest {
 	/** Thursday, 12 November 2026, at ten in the morning, in UTC. */
 	private val now = Instant.parse("2026-11-12T10:00:00Z")
 
-	private val context =
+	/** What the picker gave when: what `recent:` asks about, which is kept beside the index rather than in it. */
+	private val usage: Usage by lazy {
+		listOf(
+			"report.pdf" to "2026-11-12T08:00:00Z",
+			"funny/a.jpg" to "2026-11-11T20:00:00Z",
+			"photo.jpg" to "2026-11-12T09:58:00Z",
+			"q4-report.pdf" to "2026-11-06T12:00:00Z",
+			"tax 2023.pdf" to "2026-10-01T12:00:00Z",
+			"funny/sub/c.jpg" to "2026-11-10T12:00:00Z",
+		).fold(Usage.NONE) { usage, (path, at) ->
+			usage.picked(listOf(Where.of(root.resolve(path))), Instant.parse(at))
+		}
+	}
+
+	private val context by lazy {
 		SearchContext(
 			now = now,
 			zone = ZoneOffset.UTC,
+			usage = usage,
 		)
+	}
 
 	@BeforeAll
 	fun made(
@@ -142,21 +158,8 @@ class SearchTest {
 		val dev = statx(Fd.CWD, root.toString()).orThrow().dev
 		val indexer = Indexer(mounts = listOf(Mount(root, "zfs", dev.major, dev.minor)))
 
-		index =
-			Index.EMPTY.with(indexer.index(root)).with(
-				listOf(
-					picked("report.pdf", "2026-11-12T08:00:00Z"),
-					picked("funny/a.jpg", "2026-11-11T20:00:00Z"),
-					picked("photo.jpg", "2026-11-12T09:58:00Z"),
-					picked("q4-report.pdf", "2026-11-06T12:00:00Z"),
-					picked("tax 2023.pdf", "2026-10-01T12:00:00Z"),
-					picked("funny/sub/c.jpg", "2026-11-10T12:00:00Z"),
-				),
-			)
+		index = Index.EMPTY.with(indexer.index(root))
 	}
-
-	private fun picked(path: String, at: String) =
-		Change.Picked(Where.of(root.resolve(path)), Instant.parse(at))
 
 	/** What the query [build] makes finds, as paths under [root]. */
 	private fun found(

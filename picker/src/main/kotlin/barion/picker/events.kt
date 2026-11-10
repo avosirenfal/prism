@@ -1,6 +1,7 @@
 package barion.picker
 
 import androidx.compose.runtime.Immutable
+import barion.index.query.Query
 import java.nio.file.Path
 
 /*
@@ -125,6 +126,44 @@ sealed interface PickerEvent : Input {
 	data class Viewed(
 		val layout: Layout,
 	) : PickerEvent
+
+	/** A search's results ordered best first again, as they were found (from the sort menu). */
+	data object SortedByRelevance : PickerEvent
+
+	/** The rows from [first] to [last] (counting from the top) in sight, as the listing is laid out or scrolled. */
+	data class Scrolled(
+		val first: Int,
+		val last: Int,
+	) : PickerEvent
+
+	// ---- the search of the index ----
+
+	/** The search's window opened over the picker, with what was typed into it before (Ctrl+Shift+F). */
+	data object OpenedSearch : PickerEvent
+
+	/** The search's window put away, what was typed kept (Escape, or a click outside it). */
+	data object ClosedSearch : PickerEvent
+
+	/** The search's field typed into. */
+	data class SearchTyped(
+		val text: String,
+	) : PickerEvent
+
+	/** The arrows moved through the matches: [by] down, or up where negative; up from the first is back to the field. */
+	data class MatchMoved(
+		val by: Int,
+	) : PickerEvent
+
+	/** A match clicked: gone to, as the picker's kind says. */
+	data class MatchChosen(
+		val at: Int,
+	) : PickerEvent
+
+	/** Enter in the search's window: the match the arrows are on gone to, or, from the field, every match shown. */
+	data object SearchEntered : PickerEvent
+
+	/** The search's button: every match shown in the listing. */
+	data object ShowedResults : PickerEvent
 
 	// ---- changing what is on disk ----
 
@@ -255,6 +294,25 @@ sealed interface Answer : Input {
 		val result: ChangeResult,
 		val doing: Doing = Doing.New,
 	) : Answer
+
+	/** What a search asked for [purpose] found. */
+	data class Searched(
+		val finding: Finding,
+		val purpose: Purpose,
+	) : Answer
+
+	/** What reading some of [matches] on disk said of each, by its place among them. */
+	data class Stated(
+		val matches: Matches,
+		val stats: Map<Int, Stat>,
+	) : Answer
+
+	/** [matches]' places ordered by [column], from the least, as [orderOf] works it out. */
+	data class Ordered(
+		val matches: Matches,
+		val column: Sort.Column,
+		val order: IntArray,
+	) : Answer
 }
 
 /** Why a change is made: asked for anew, or to undo or redo one; which says where what undoes it is kept. */
@@ -366,6 +424,28 @@ sealed interface Effect {
 	data class Make(
 		val change: Change,
 		val doing: Doing = Doing.New,
+	) : Asking
+
+	/**
+	 * [query] searched for, as [text] was read, and what it found sent back as [Answer.Searched]. A search for the
+	 * search's window is overtaken by the next one asked for: only the latest is answered.
+	 */
+	data class Search(
+		val text: String,
+		val query: Query,
+		val purpose: Purpose,
+	) : Asking
+
+	/** The results at [places] among [matches] read on disk, and what was read sent back as [Answer.Stated]. */
+	data class Stat(
+		val matches: Matches,
+		val places: List<Int>,
+	) : Asking
+
+	/** [matches] ordered by [column] off the picker's thread, sent back as [Answer.Ordered]. */
+	data class Order(
+		val matches: Matches,
+		val column: Sort.Column,
 	) : Asking
 
 	/** [text] put on the clipboard. */

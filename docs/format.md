@@ -37,7 +37,7 @@ byte, the low bits first, the top bit set on every byte but the last), and signe
 | offset | size | what |
 |---|---|---|
 | 0 | 8 | `BARIONIX` in ASCII |
-| 8 | 2 | the version: 3 (version 2 had each device's number as a stat gives it alone; version 1 was compressed with DEFLATE and had no inodes; a file of another version is not read, and the index is made again) |
+| 8 | 2 | the version: 4 (version 3 had no first sightings, and kept what the picker gave, which is now kept beside the index; version 2 had each device's number as a stat gives it alone; version 1 was compressed with DEFLATE and had no inodes; a file of another version is not read, and the index is made again) |
 | 10 | 6 | zeros |
 
 ### A frame: 16 bytes, then the stored payload
@@ -56,11 +56,9 @@ byte, the low bits first, the top bit set on every byte but the last), and signe
 | what | how |
 |---|---|
 | the roots | a count, then each root's path as bytes |
-| what was picked when | a count, then each: a path as bytes, and a time |
 | the blocks | a count, then each block, one a root, in the order of their roots' paths |
 
-Bytes are written as their length plus one, then the bytes, so that a length of 0 is "none": `[n + 1][n bytes]`. A
-time is the seconds since 1970 (signed) and then the nanoseconds.
+Bytes are written as their length plus one, then the bytes, so that a length of 0 is "none": `[n + 1][n bytes]`.
 
 ### A block
 
@@ -79,10 +77,12 @@ values compresses far better than entries one after another:
 | the kinds | for each entry, one byte: 0 folder, 1 file, 2 link to a folder, 3 link to a file, 4 link to something else, 5 broken link |
 | the inodes | for each entry, its inode less the inode of the entry before it (the first, less 0), signed, as 64 bits wrap |
 | the devices of the entries | for each entry, a count: which of the block's devices it is on |
+| when each was first seen | for each entry, the seconds since 1970 when the index first held it (0 for one held since its root was first indexed, whose age that says nothing of), less those of the entry before it, signed |
 
 The root is the first entry, at depth 0, and is named as the last level of its path (the root `/` has an empty name,
 the only one). Depths step by -1, 0 or 1 most of the time, so they take a byte each before compression and almost
-nothing after it.
+nothing after it. So do first sightings: most entries were there when the index began, and the rest turned up in
+bunches, so the steps are almost all 0.
 
 Reading a block makes its columns directly: each entry's parent is the nearest entry before it one level up, which is
 on a stack of the folders still open; names are copied as they are. Then three more columns are worked out, which are
@@ -102,10 +102,30 @@ A count, then each change: a kind byte, then its body.
 | 1 | indexed: a root of the index, held as this tree | a block |
 | 2 | present: the entry at the block's root is as this tree says | a block |
 | 3 | absent: nothing at this path, nor under it | a path as bytes |
-| 4 | picked: the picker gave this path at this time | a path as bytes, and a time |
+
+A tree read again is written with every entry seen when it was read; reading the frame back makes the change again,
+which keeps for what the index held already when it was first seen, as making it did.
 
 ## Sizes
 
-The index of this development container's `/` (184,676 entries, its caches and build trees left out) is 537 KB and
-reads back in 39 ms. A made-up tree of 3,000,000 entries writes a file of 8.4 MB in 1.1 s and reads back in 0.29 s,
+The index of this development container's `/` (185,359 entries, its caches and build trees left out) is 540 KB and
+reads back in 57 ms. A made-up tree of 3,000,000 entries writes a file of 8.4 MB in 1.1 s and reads back in 0.29 s,
 on 4 cores. (Compressed with DEFLATE, and without inodes, those were 683 KB, and 9.4 MB in 1.3 s, read in 0.33 s.)
+
+## The usage beside it
+
+What the picker gave, and from where, is kept beside the index in `usage.barion` (`barion.index.UsageFile`): not in
+the index's file, since the index can be made again from the disk, and this cannot (docs/search.md, "Which results
+come first"). It is small (a place for each thing picked lately, and each folder picked from), so it is written whole
+each time, beside itself and renamed over, as a snapshot is. Numbers are big-endian, as Java's `DataOutputStream`
+writes them.
+
+| what | how |
+|---|---|
+| `BARIONUS` | 8 bytes of ASCII |
+| the version: 1 | 2 bytes |
+| how many places | 4 bytes |
+| each place, in the order of their paths' bytes | its path's length (2 bytes) and bytes; its weight, as of when it was last used (an 8-byte double); when it was last used, and when it was last picked itself (the milliseconds since 1970, 8 bytes each; the least 64-bit number for never) |
+| a CRC-32C of everything before it | 4 bytes |
+
+A file that is not one, or whose check fails, is read as no usage at all, and the picker says so.

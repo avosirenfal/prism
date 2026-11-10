@@ -119,6 +119,20 @@ private tailrec fun options(
 					Parsed.Invalid("$name takes no value")
 				else
 					Parsed.Value(0 to true)
+			is ValueOptional<*> -> {
+				val next =
+					words
+						.getOrNull(1)
+						?.takeUnless { isOption(it) || it == "--" }
+						?.let { opt.type.read(it) as? Parsed.Value }
+
+				when {
+					inline != null ->
+						value(opt.type, inline, name).then { Parsed.Value(0 to Given.With(it)) }
+					next != null -> Parsed.Value(1 to Given.With(next.value))
+					else -> Parsed.Value(0 to Given.Alone)
+				}
+			}
 			is Valued<*, *> -> {
 				val next =
 					words.getOrNull(1)?.takeUnless {
@@ -162,6 +176,7 @@ private fun optionValues(
 		when (opt) {
 			is Flag -> Parsed.Value(values.isNotEmpty())
 			is Single<*> -> Parsed.Value(values.singleOrNull())
+			is ValueOptional<*> -> Parsed.Value(values.singleOrNull())
 			is Defaulted<*> -> Parsed.Value(values.singleOrNull() ?: opt.default)
 			is Required<*> ->
 				values.singleOrNull()?.let { Parsed.Value(it) }

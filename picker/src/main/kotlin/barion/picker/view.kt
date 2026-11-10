@@ -97,6 +97,8 @@ import androidx.compose.ui.window.PopupProperties
 import java.nio.file.Path
 import kotlin.io.path.name
 import kotlin.math.roundToInt
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 
 /*
@@ -117,7 +119,8 @@ import kotlinx.coroutines.flow.first
  * | Backspace, Alt+Up | listing; anywhere | the folder above |
  * | Alt+Left, Alt+Right | anywhere | back, forward |
  * | Ctrl+L, Alt+D | anywhere | type a path |
- * | Ctrl+F, F3 | anywhere | search |
+ * | Ctrl+F, F3 | anywhere | search the folder shown |
+ * | Ctrl+Shift+F | anywhere | search the index: the first matches as it is typed, every one in the listing on Enter |
  * | Ctrl+H | anywhere | hidden files shown, or not |
  * | F5, Ctrl+R | anywhere | the folder read again |
  * | Ctrl+A | listing | every row chosen |
@@ -176,6 +179,7 @@ fun FilePicker(
 				Line(palette.border)
 				Footer(state, stops, onEvent)
 			}
+			state.search.takeIf { it.open }?.let { SearchLayer(it, state.home, onEvent) }
 			state.notice?.let { NoticeLayer(it, onEvent) }
 		}
 	}
@@ -225,6 +229,7 @@ private fun shortcut(
 			(ctrl && key.key == Key.L) || (alt && key.key == Key.D) -> PickerEvent.EditedAddress
 			ctrl && key.key == Key.H -> PickerEvent.ToggledEveryHidden
 			ctrl && key.isShiftPressed && key.key == Key.N -> PickerEvent.MadeFolder
+			ctrl && key.isShiftPressed && key.key == Key.F -> PickerEvent.OpenedSearch
 			ctrl && key.key in LARGER -> PickerEvent.Zoomed(1)
 			ctrl && key.key in SMALLER -> PickerEvent.Zoomed(-1)
 			ctrl && key.key in USUAL -> PickerEvent.Unzoomed
@@ -234,7 +239,7 @@ private fun shortcut(
 			else -> null
 		}
 
-	val searching = (ctrl && key.key == Key.F) || key.key == Key.F3
+	val searching = (ctrl && !key.isShiftPressed && key.key == Key.F) || key.key == Key.F3
 
 	event?.let(onEvent)
 
@@ -308,7 +313,7 @@ private fun Toolbar(state: PickerState, stops: Stops, onEvent: (PickerEvent) -> 
 		) {
 			onEvent(PickerEvent.Forward)
 		}
-		ToolButton(Glyph.Up, "Up", state.folder.parent != null, Modifier.testTag("up")) {
+		ToolButton(Glyph.Up, "Up", state.folder?.parent != null, Modifier.testTag("up")) {
 			onEvent(PickerEvent.Up)
 		}
 		MenuButton(
@@ -326,7 +331,7 @@ private fun Toolbar(state: PickerState, stops: Stops, onEvent: (PickerEvent) -> 
 			state.arrangement.query,
 			{ onEvent(PickerEvent.Searched(it)) },
 			Modifier.width(260.dp).testTag("search"),
-			hint = "Search ${state.crumbs.last().label}",
+			hint = "Search ${state.placeName}",
 			trailing = Glyph.Search,
 			focus = stops.search,
 			onKey = { searchKey(it, state.arrangement.query, stops, onEvent) },
@@ -375,7 +380,7 @@ private fun AddressBar(
 	// Set when Enter goes to the path typed, so that the keyboard follows to the listing when the folder arrives.
 	var going by remember { mutableStateOf(false) }
 
-	LaunchedEffect(state.folder) {
+	LaunchedEffect(state.at) {
 		if (going) {
 			going = false
 			stops.listing.requestFocus()
@@ -383,7 +388,11 @@ private fun AddressBar(
 	}
 
 	when (val address = state.address) {
-		Address.Crumbs -> Crumbs(state.crumbs, modifier, onEvent)
+		Address.Crumbs ->
+			when (val results = state.results) {
+				null -> Crumbs(state.crumbs, modifier, onEvent)
+				else -> ResultsBar(results, modifier, onEvent)
+			}
 		is Address.Editing -> {
 			Field(
 				address.text,
@@ -465,6 +474,53 @@ private fun Crumbs(
 	}
 }
 
+/**
+ * In place of the path, what a search's results are: the words searched for, which open the search's window again
+ * (with them in it) when clicked, as the path's bar opens a path to type.
+ */
+@Composable
+private fun ResultsBar(
+	results: Finding.Matched,
+	modifier: Modifier,
+	onEvent: (PickerEvent) -> Unit,
+) {
+	val palette = LocalPalette.current
+	val type = LocalType.current
+	val source = remember { MutableInteractionSource() }
+	val felt = source.felt()
+	val shape = RoundedCornerShape(Dims.radius)
+
+	Row(
+		modifier
+			.ring(felt.ringed, palette.focus)
+			.height(Dims.control)
+			.background(
+				if (felt.hovered)
+					palette.hover
+				else
+					palette.field,
+				shape,
+			).border(1.dp, palette.fieldEdge, shape)
+			.clickable(source, indication = null, onClickLabel = "Search again") {
+				onEvent(PickerEvent.OpenedSearch)
+			}.testTag("results")
+			.padding(horizontal = Dims.gap),
+		verticalAlignment = Alignment.CenterVertically,
+	) {
+		GlyphIcon(Glyph.Search, palette.text, 16.dp)
+		Spacer(Modifier.width(Dims.gap))
+		Text("Search results", style = type.body, maxLines = 1)
+		Spacer(Modifier.width(Dims.gap))
+		Text(
+			"“${results.text}”",
+			style = type.muted,
+			maxLines = 1,
+			overflow = TextOverflow.Ellipsis,
+			modifier = Modifier.weight(1f, fill = false),
+		)
+	}
+}
+
 @Composable
 private fun CrumbStep(crumb: Crumb, last: Boolean, onClick: () -> Unit) {
 	val palette = LocalPalette.current
@@ -504,7 +560,7 @@ private fun CrumbStep(crumb: Crumb, last: Boolean, onClick: () -> Unit) {
 @Composable
 private fun SidebarPane(
 	sidebar: Sidebar,
-	current: Path,
+	current: Path?,
 	stops: Stops,
 	onEvent: (PickerEvent) -> Unit,
 ) {
@@ -672,8 +728,8 @@ private fun ListingPane(
 	val palette = LocalPalette.current
 	val source = remember { MutableInteractionSource() }
 	val felt = source.felt()
-	val list = remember(state.folder) { LazyListState() }
-	val grid = remember(state.folder) { LazyGridState() }
+	val list = remember(state.at) { LazyListState() }
+	val grid = remember(state.at) { LazyGridState() }
 	val menus = rememberContextMenus<PickerEvent>()
 	val area = remember { Placed() }
 	val rows = state.rows
@@ -694,6 +750,25 @@ private fun ListingPane(
 			else
 				list.reveal(it)
 		}
+	}
+
+	// A search's results are read on disk as they come into sight: which rows are in sight is said as it changes.
+	val found = state.listing is Listing.Found
+	val latest by rememberUpdatedState(onEvent)
+
+	LaunchedEffect(found, list, grid, gallery) {
+		if (found)
+			snapshotFlow {
+				val shown =
+					if (gallery)
+						grid.layoutInfo.visibleItemsInfo.map { it.index }
+					else
+						list.layoutInfo.visibleItemsInfo.map { it.index }
+
+				shown.minOrNull()?.let { it to shown.max() }
+			}.filterNotNull()
+				.distinctUntilChanged()
+				.collect { (first, last) -> latest(PickerEvent.Scrolled(first, last)) }
 	}
 
 	// A second plain press of the row pressed last, soon enough, is a double click; a third starts again.
@@ -839,10 +914,7 @@ private fun ListingPane(
 						PickerEvent.AskedToTrash(ids)
 				ctrl && shift && key.key == Key.C ->
 					PickerEvent.CopiedPaths(
-						targets()
-							.map {
-								state.folder.resolve(it.name)
-							}.ifEmpty { listOf(state.folder) },
+						targets().map { it.path }.ifEmpty { listOfNotNull(state.folder) },
 					)
 				ctrl && key.key == Key.A -> PickerEvent.ChoseAll
 				letter != null -> {
@@ -872,7 +944,7 @@ private fun ListingPane(
 			.focusable(interactionSource = source)
 			.testTag("listing"),
 	) {
-		Header(state.arrangement.sort, state.layout, onEvent)
+		Header(state, onEvent)
 		Line(palette.divider)
 
 		Box(
@@ -886,25 +958,29 @@ private fun ListingPane(
 				// A folder that reads quickly would only flash a message, so a folder being read shows nothing yet.
 				Listing.Reading -> Box(Modifier.fillMaxSize())
 				is Listing.Unreadable -> Message("This folder can't be opened", listing.why)
-				is Listing.Shown ->
+				is Listing.Shown, is Listing.Found ->
 					when {
-						rows.isEmpty() ->
+						rows.isEmpty() -> {
+							val none = state.entryCount == 0
+
 							Message(
 								when {
 									query.isNotBlank() -> "Nothing here matches “$query”"
-									listing.entries.isEmpty() -> "This folder is empty"
+									none && listing is Listing.Found -> "Nothing matches “${listing.finding.text}”"
+									none -> "This folder is empty"
 									else -> "Nothing here is shown"
 								},
-								if (listing.entries.isEmpty() || query.isNotBlank())
+								if (none || query.isNotBlank())
 									null
 								else
-									"The filters leave out everything in this folder.",
+									"The filters leave out everything here.",
 							)
+						}
 						gallery ->
 							Gallery(state, grid, nowhere, onEvent) { row, scale ->
 								Tile(
 									row,
-									state.folder.resolve(row.name),
+									row.path,
 									chosen = row.id in chosen,
 									cursor = felt.ringed && row.id == cursor,
 									zoom = scale,
@@ -922,9 +998,12 @@ private fun ListingPane(
 									.padding(horizontal = Dims.gapSmall, vertical = Dims.gapSmall),
 								state = list,
 							) {
-								items(rows.list, key = { it.id.name }, contentType = { "row" }) { row ->
+								items(rows.size, key = rows::idAt, contentType = { "row" }) { index ->
+									val row = rows[index]
+
 									EntryRow(
 										row,
+										where = whereOf(row, state),
 										chosen = row.id in chosen,
 										cursor = felt.ringed && row.id == cursor,
 										zoom = zoom,
@@ -974,11 +1053,13 @@ private fun Gallery(
 			horizontalArrangement = Arrangement.spacedBy(Dims.gapSmall),
 			verticalArrangement = Arrangement.spacedBy(Dims.gapSmall),
 		) {
+			val rows = state.rows
+
 			items(
-				state.rows.list,
-				key = { it.id.name },
+				rows.size,
+				key = rows::idAt,
 				contentType = { "tile" },
-			) { tile(it, scale) }
+			) { tile(rows[it], scale) }
 		}
 	}
 }
@@ -1225,14 +1306,18 @@ private fun clickOf(keys: PointerKeyboardModifiers): Click =
 		else -> Click.Only
 	}
 
-/** A column of the list: its heading, the order it sorts by, its share of the width, and which side it keeps to. */
+/**
+ * A column of the list: its heading, the order it sorts by (none, for one that sorts nothing), its share of the width,
+ * and which side it keeps to.
+ */
 private data class Heading(
 	val label: String,
-	val column: Sort.Column,
+	val column: Sort.Column?,
 	val share: Float,
 	val end: Boolean = false,
 )
 
+/** The listing's headings: a folder's, and a search's, which says where each result is. */
 private val HEADINGS =
 	listOf(
 		Heading("Name", Sort.Column.Name, Dims.nameColumn),
@@ -1241,13 +1326,32 @@ private val HEADINGS =
 		Heading("Size", Sort.Column.Size, Dims.sizeColumn, end = true),
 	)
 
+private val RESULT_HEADINGS =
+	HEADINGS.take(1) + Heading("Folder", null, Dims.folderColumn) + HEADINGS.drop(1)
+
 /**
  * The headings that sort the listing, each by its column, the other way round when clicked again: over the list's
- * columns, or, over a gallery's tiles, which have no columns, as a row of the same choices after "Sort by".
+ * columns, or, over a gallery's tiles, which have no columns, as a row of the same choices after "Sort by". A search's
+ * results are best first until a heading is clicked, and a column they cannot be ordered by (too many to read every
+ * one's size or date) is drawn faint and does nothing.
  */
 @Composable
-private fun Header(sort: Sort, layout: Layout, onEvent: (PickerEvent) -> Unit) {
+private fun Header(state: PickerState, onEvent: (PickerEvent) -> Unit) {
 	val type = LocalType.current
+	val layout = state.layout
+	val found = state.listing as? Listing.Found
+	val sort =
+		if (found == null)
+			state.arrangement.sort
+		else
+			(state.arrangement.results as? Order.By)?.sort
+
+	val headings =
+		when {
+			found == null -> HEADINGS
+			layout == Layout.Gallery -> HEADINGS
+			else -> RESULT_HEADINGS
+		}
 
 	Row(
 		Modifier.fillMaxWidth().height(Dims.header).padding(
@@ -1263,7 +1367,7 @@ private fun Header(sort: Sort, layout: Layout, onEvent: (PickerEvent) -> Unit) {
 	) {
 		if (layout == Layout.Gallery)
 			Text("Sort by", style = type.muted, maxLines = 1)
-		for (heading in HEADINGS)
+		for (heading in headings)
 			HeaderCell(
 				heading,
 				sort,
@@ -1272,6 +1376,7 @@ private fun Header(sort: Sort, layout: Layout, onEvent: (PickerEvent) -> Unit) {
 					Layout.Gallery -> Modifier
 				},
 				end = heading.end && layout == Layout.List,
+				enabled = heading.column != null && found?.orders(heading.column) != false,
 				onEvent,
 			)
 	}
@@ -1280,9 +1385,10 @@ private fun Header(sort: Sort, layout: Layout, onEvent: (PickerEvent) -> Unit) {
 @Composable
 private fun HeaderCell(
 	heading: Heading,
-	sort: Sort,
+	sort: Sort?,
 	modifier: Modifier,
 	end: Boolean,
+	enabled: Boolean,
 	onEvent: (PickerEvent) -> Unit,
 ) {
 	val palette = LocalPalette.current
@@ -1290,17 +1396,20 @@ private fun HeaderCell(
 	val source = remember { MutableInteractionSource() }
 	val felt = source.felt()
 
+	val sorted = sort != null && sort.by == heading.column
+
 	Row(
 		modifier
 			.fillMaxHeight()
 			.background(
-				if (felt.hovered)
+				if (felt.hovered && enabled)
 					palette.hover
 				else
 					Color.Transparent,
 			).focusProperties { canFocus = false }
-			.clickable(source, indication = null) { onEvent(PickerEvent.Sorted(heading.column)) }
-			.testTag("column:${heading.label}")
+			.clickable(source, indication = null, enabled = enabled) {
+				heading.column?.let { onEvent(PickerEvent.Sorted(it)) }
+			}.testTag("column:${heading.label}")
 			.padding(horizontal = Dims.gapSmall),
 		verticalAlignment = Alignment.CenterVertically,
 		horizontalArrangement = if (end) Arrangement.End else Arrangement.Start,
@@ -1308,15 +1417,16 @@ private fun HeaderCell(
 		Text(
 			heading.label,
 			style =
-				if (sort.by == heading.column)
-					type.muted.copy(color = palette.text)
-				else
-					type.muted,
+				when {
+					sorted -> type.muted.copy(color = palette.text)
+					enabled || heading.column == null -> type.muted
+					else -> type.muted.copy(color = palette.textFaint)
+				},
 			maxLines = 1,
 		)
-		if (sort.by == heading.column)
+		if (sorted)
 			GlyphIcon(
-				if (sort.ascending)
+				if (sort!!.ascending)
 					Glyph.SortUp
 				else
 					Glyph.SortDown,
@@ -1326,9 +1436,24 @@ private fun HeaderCell(
 	}
 }
 
+/** Where [row] is, as a search's results say it; nothing in a folder, where every row is in the folder shown. */
+private fun whereOf(row: Row, state: PickerState): String? =
+	state.results?.let { folderOf(row, state.home) }
+
+/** The folder [row] is in, from `~` where it is under [home]. */
+internal fun folderOf(row: Row, home: Path): String {
+	val folder = row.path.parent ?: return "/"
+
+	return if (folder.startsWith(home))
+		"~" + folder.toString().removePrefix(home.toString())
+	else
+		folder.toString()
+}
+
 @Composable
 private fun EntryRow(
 	row: Row,
+	where: String?,
 	chosen: Boolean,
 	cursor: Boolean,
 	zoom: Float,
@@ -1383,6 +1508,15 @@ private fun EntryRow(
 			)
 			Spacer(Modifier.width(Dims.gap + 2.dp))
 			NameOf(row, renamed, body, stops, onEvent, Modifier.weight(1f, fill = renamed != null))
+		}
+		where?.let {
+			Text(
+				it,
+				style = muted,
+				maxLines = 1,
+				overflow = TextOverflow.Ellipsis,
+				modifier = Modifier.weight(Dims.folderColumn).padding(end = Dims.gap),
+			)
 		}
 		Text(
 			row.modified?.text.orEmpty(),
@@ -1621,16 +1755,34 @@ private fun Footer(state: PickerState, stops: Stops, onEvent: (PickerEvent) -> U
 	}
 }
 
-/** How many rows are shown (of how many, where some are left out) and how many chosen, as the status line says it. */
+/**
+ * How many rows are shown (of how many, where some are left out) and how many chosen, as the status line says it; of
+ * a search's results, what they are ordered by, where it is being worked out still or cannot be had of so many.
+ */
 private fun statusOf(state: PickerState): String {
 	val shown = state.rows.size
 	val chosen = state.choosing.rows.size
 	val entries = state.entryCount
+	val found = state.listing as? Listing.Found
+	val noun =
+		if (found == null)
+			"item"
+		else
+			"result"
+
 	val items =
 		if (entries == 1)
-			"1 item"
+			"1 $noun"
 		else
-			"$entries items"
+			"${"%,d".format(entries)} ${noun}s"
+
+	val ordering =
+		found?.let {
+			when (val column = it.pending(state.arrangement.results)) {
+				null -> null
+				else -> "ordering by ${headingOf(column).lowercase()}…"
+			}
+		}
 
 	val counted =
 		if (shown == entries)
@@ -1640,8 +1792,14 @@ private fun statusOf(state: PickerState): String {
 
 	return when {
 		state.listing is Listing.Reading -> "Reading…"
-		chosen > 0 -> "$counted  ·  $chosen selected"
-		else -> counted
+		else ->
+			listOfNotNull(
+				counted,
+				"$chosen selected".takeIf {
+					chosen > 0
+				},
+				ordering,
+			).joinToString("  ·  ")
 	}
 }
 
@@ -1687,6 +1845,13 @@ private fun wordsOf(notice: Notice): Words =
 				"Cancel",
 			)
 		is Notice.Failed -> Words(notice.doing, notice.why, "OK", null)
+		is Notice.NoFolder ->
+			Words(
+				"Search results aren't a folder",
+				"Choose a result to save “${notice.text}” beside, or type a whole path.",
+				"OK",
+				null,
+			)
 	}
 
 /**

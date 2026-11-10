@@ -172,8 +172,13 @@ threads, drawn larger or smaller with Ctrl and the wheel, the gallery up to one 
 for what was pressed, and one component that draws any of them) rename, trash and make folders, and Ctrl+Z undoes
 any of it. Nothing is deleted for good: the trash is as far as anything goes.
 
+Ctrl+Shift+F searches the whole index, Everything's and Listary's way: a window over the picker lists the first matches
+as the query is typed, coloured as it is read; a match chosen is gone to (a file chosen in its folder, its name ready
+to save over); Enter shows every match in the listing as a folder holding them all would, filtered as a folder is,
+best first, millions of them without making millions of rows, and Back returns to them from a folder gone into.
+
 Features to come, roughly in order: type filters from the portal's request (MIME types as well as patterns); the
-folders read from the index, and search across the index from the search field; a details pane with a preview;
+folders read from the index; a details pane with a preview;
 thumbnails of videos and documents, and the desktop's own thumbnail cache; the list's column widths and order kept per
 user; drag and drop out of the picker.
 

@@ -32,7 +32,7 @@ class SearchBenchmark {
 
 		val (index, making) =
 			measureTimedValue {
-				Index.of(setOf(Where.ROOT), listOf(made(wanted!!)), emptyMap())
+				Index.of(setOf(Where.ROOT), listOf(made(wanted!!)))
 			}
 
 		println("made ${"%,d".format(index.size)} entries in $making")

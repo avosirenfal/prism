@@ -1,5 +1,6 @@
 package barion.picker
 
+import barion.index.Searched
 import java.io.IOException
 import java.nio.file.AccessDeniedException
 import java.nio.file.DirectoryIteratorException
@@ -22,8 +23,8 @@ import kotlin.io.path.readLines
 
 /*
  * The one place the picker meets a real file system: a [Disk] reads a folder into rows, with every row's text worked
- * out here, and says what is at a typed path. The reducer never reads anything; whoever runs the picker asks a disk
- * for what an effect wants. When the index is behind the picker, it is another [Disk].
+ * out here, says what is at a typed path, and reads a search's results for their sizes and dates. The reducer never
+ * reads anything; whoever runs the picker asks a disk (and a [Finder], for a search) for what an effect wants.
  */
 
 /** What the picker reads its folders and looks up typed paths through. */
@@ -36,14 +37,37 @@ interface Disk {
 
 	/** [change] made, and what came of it. */
 	fun make(change: Change): ChangeResult
+
+	/** What each of [paths] is on disk now: its size and date, as a row of its folder would show them; or gone. */
+	fun stat(paths: List<Path>): List<Stat>
 }
 
-/** The answer to [asking], from this disk. */
-fun Disk.answer(asking: Effect.Asking): Answer =
+/** The answer to [asking], from this disk, and from [finder] for a search. */
+fun Disk.answer(asking: Effect.Asking, finder: Finder? = null): Answer =
 	when (asking) {
 		is Effect.Read -> Answer.Arrived(asking.folder, read(asking.folder))
 		is Effect.Look -> Answer.Looked(asking.lookup, look(asking.lookup.paths))
 		is Effect.Make -> Answer.Changed(asking.change, make(asking.change), asking.doing)
+		is Effect.Search -> Answer.Searched(finder.findingOf(asking), asking.purpose)
+		is Effect.Stat ->
+			Answer.Stated(
+				asking.matches,
+				asking.places.zip(stat(asking.places.map(asking.matches::pathOf))).toMap(),
+			)
+		is Effect.Order ->
+			Answer.Ordered(
+				asking.matches,
+				asking.column,
+				orderOf(asking.matches, Stats.none(asking.matches.size), asking.column),
+			)
+	}
+
+/** What [search] finds through this finder; refused where there is none. */
+fun Finder?.findingOf(search: Effect.Search): Finding =
+	when (val found = this?.find(search.query)) {
+		null -> Finding.Refused(search.text, PickerState.NO_INDEX)
+		is Searched.Found -> Finding.Matched(search.text, Matches(found.results))
+		is Searched.Refused -> Finding.Refused(search.text, found.why)
 	}
 
 /** The file system through the JVM, its times said in [zone]. */
@@ -71,7 +95,27 @@ class JvmDisk(
 				is Change.PutBack -> Change.Trash(change.entries.map(trash::putBack))
 			}
 		}
+
+	override fun stat(paths: List<Path>): List<Stat> = paths.map { statOf(it, zone) }
 }
+
+/** What [path] is now, its link followed, with its size and date said as its row would say them; gone if it is not there. */
+private fun statOf(path: Path, zone: ZoneId): Stat =
+	try {
+		val read = Files.readAttributes(path, BasicFileAttributes::class.java)
+
+		Stat.Read(
+			if (read.isDirectory)
+				null
+			else
+				read.size().let { Shown(it, sizeOf(it)) },
+			read.lastModifiedTime().toInstant().let { Shown(it, dateOf(it, zone)) },
+		)
+	} catch (gone: IOException) {
+		Stat.Gone
+	} catch (denied: SecurityException) {
+		Stat.Read(null, null)
+	}
 
 /** [work] done, answered with what undoes it, or why it was not done, in the words a person reads. */
 private fun attempted(work: () -> Change): ChangeResult =
@@ -94,15 +138,15 @@ private fun attempted(work: () -> Change): ChangeResult =
 	}
 
 /**
- * The state [step] comes to once every folder it reads and every name it looks up has been answered by [disk], in
- * turn, here: the picker as it is once it has settled, for drawing it headless and for tests.
+ * The state [step] comes to once everything it asks of the disk (and of [finder]) has been answered, in turn, here:
+ * the picker as it is once it has settled, for drawing it headless and for tests.
  */
-tailrec fun Step.settled(disk: Disk): PickerState {
+tailrec fun Step.settled(disk: Disk, finder: Finder? = null): PickerState {
 	val asking = effects.filterIsInstance<Effect.Asking>()
 	val first = asking.firstOrNull() ?: return state
-	val next = step(state, disk.answer(first))
+	val next = step(state, disk.answer(first, finder))
 
-	return Step(next.state, asking.drop(1) + next.effects).settled(disk)
+	return Step(next.state, asking.drop(1) + next.effects).settled(disk, finder)
 }
 
 /** [folder] read into a picker that is [choosing], settled: what `barion snapshot` and the tests draw. */
@@ -168,6 +212,7 @@ private fun rowOf(entry: Path, zone: ZoneId): Row? {
 
 	return Row(
 		id = RowId(name),
+		path = entry,
 		name = name,
 		category = category,
 		type =

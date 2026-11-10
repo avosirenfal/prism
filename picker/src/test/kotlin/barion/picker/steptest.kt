@@ -22,6 +22,9 @@ class StepTest {
 
 	private fun chosen(paths: List<Path>) = listOf(Effect.Finish(Outcome.Chosen(paths)))
 
+	/** Folders, as places in the history. */
+	private fun folders(vararg paths: Path): List<Location> = paths.map(Location::Folder)
+
 	// ---- going places ----
 
 	@Test
@@ -39,7 +42,7 @@ class StepTest {
 		val opening = step(picker(), PickerEvent.Opened(documents))
 
 		assertEquals(listOf(Effect.Read(documents)), opening.effects)
-		assertEquals(History(back = listOf(home)), opening.state.history)
+		assertEquals(History(back = folders(home)), opening.state.history)
 
 		val there =
 			opening.state.let {
@@ -66,15 +69,15 @@ class StepTest {
 		val back = after(deep, PickerEvent.Back)
 
 		assertEquals(documents, back.folder)
-		assertEquals(History(back = listOf(home), forward = listOf(taxes)), back.history)
+		assertEquals(History(back = folders(home), forward = folders(taxes)), back.history)
 
 		val forward = after(back, PickerEvent.Forward)
 
 		assertEquals(taxes, forward.folder)
-		assertEquals(History(back = listOf(home, documents)), forward.history)
+		assertEquals(History(back = folders(home, documents)), forward.history)
 		// Going somewhere new forgets what was ahead.
 		assertEquals(
-			History(back = listOf(home, documents)),
+			History(back = folders(home, documents)),
 			after(back, PickerEvent.Opened(Path("/etc"))).history,
 		)
 	}

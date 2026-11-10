@@ -26,6 +26,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -58,7 +59,9 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -278,6 +281,8 @@ fun Field(
 	selecting: (String) -> TextRange = { TextRange(0, it.length) },
 	onLeave: () -> Unit = {},
 	onKey: (KeyEvent) -> Boolean = { false },
+	colouring: VisualTransformation = VisualTransformation.None,
+	style: TextStyle = LocalType.current.body,
 ) {
 	val palette = LocalPalette.current
 	val type = LocalType.current
@@ -286,12 +291,21 @@ fun Field(
 	val shape = RoundedCornerShape(Dims.radius)
 	var typed by remember { mutableStateOf(TextFieldValue(text, TextRange(text.length))) }
 	var visited by remember { mutableStateOf(false) }
-	// The caller's text is the text; where it has changed from what was typed here, the caret goes to its end.
+	// What this field has said was typed that the caller's text has not come round to yet. The caller's text is the
+	// text, but it comes back a moment after each key, and a key pressed meanwhile types onto what was typed here, not
+	// onto the text a key behind; so while the caller's text is one of these, the field is catching up, not changed.
+	val echoes = remember { ArrayList<String>() }
 	val shown =
-		if (typed.text == text)
-			typed
-		else
-			TextFieldValue(text, TextRange(text.length))
+		when (text) {
+			typed.text, in echoes -> typed
+			// Changed from outside (emptied, say): the caret goes to its end.
+			else -> TextFieldValue(text, TextRange(text.length))
+		}
+
+	SideEffect {
+		if (text == typed.text || text !in echoes)
+			echoes.clear()
+	}
 
 	// What is selected as the keyboard arrives, once the field has settled its own caret from the focus.
 	LaunchedEffect(felt.focused) {
@@ -310,14 +324,21 @@ fun Field(
 	) {
 		Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
 			if (text.isEmpty() && hint.isNotEmpty())
-				Text(hint, style = type.muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+				Text(
+					hint,
+					style = type.muted.copy(fontSize = style.fontSize),
+					maxLines = 1,
+					overflow = TextOverflow.Ellipsis,
+				)
 			BasicTextField(
 				shown,
 				{
 					typed = it
 
-					if (it.text != text)
+					if (it.text != text) {
+						echoes += it.text
 						onText(it.text)
+					}
 				},
 				Modifier
 					.fillMaxWidth()
@@ -330,9 +351,10 @@ fun Field(
 					}.onPreviewKeyEvent(onKey),
 				singleLine = true,
 				readOnly = readOnly,
-				textStyle = type.body,
+				textStyle = style,
 				cursorBrush = SolidColor(palette.accent),
 				interactionSource = source,
+				visualTransformation = colouring,
 			)
 		}
 		trailing?.let {

@@ -8,14 +8,14 @@ package barion.index
  * column. Siblings are in the order of their names' bytes, so a tree makes the same block however it was read.
  *
  * Kept, and written to disk: each entry's [parent] (-1 for the root), its name (the names back to back in [names],
- * each from its [nameAt] to the next), its [kinds] (a [Kind]'s ordinal), and the [Device] it is on (an index into
- * [devices]). Worked out from those as the block is made, and never written: each entry's [end], each name [folded] to
+ * each from its [nameAt] to the next), its [kinds] (a [Kind]'s ordinal), its inode, the [Device] it is on (an index
+ * into [devices]), and when the index first held it ([seen]). Worked out from those as the block is made, and never written: each entry's [end], each name [folded] to
  * lower case, and each name's [stem] length.
  *
  * The root's name is the last level of [root]: empty for `/`, which is the one entry without a name, and never a
  * result of a search.
  */
-class Block internal constructor(
+class Block private constructor(
 	val root: Where,
 	internal val parent: IntArray,
 	internal val nameAt: IntArray,
@@ -24,75 +24,130 @@ class Block internal constructor(
 	internal val inodes: LongArray,
 	internal val device: ShortArray,
 	val devices: List<Device>,
+	/** When the index first held each entry, as [Seen] says it. */
+	internal val seen: IntArray,
+	private val derived: Derived,
 ) {
+	internal constructor(
+		root: Where,
+		parent: IntArray,
+		nameAt: IntArray,
+		names: ByteArray,
+		kinds: ByteArray,
+		inodes: LongArray,
+		device: ShortArray,
+		devices: List<Device>,
+		seen: IntArray = IntArray(parent.size),
+	) : this(
+		root,
+		parent,
+		nameAt,
+		names,
+		kinds,
+		inodes,
+		device,
+		devices,
+		seen,
+		Derived(root, parent, nameAt, names, kinds, inodes, device, devices),
+	)
+
+	init {
+		require(seen.size == size) { "a block's columns are as long as each other" }
+	}
+
 	val size: Int get() = parent.size
 
 	/** Where what is under each entry ends: the first entry after it that is not under it. */
-	internal val end: IntArray = IntArray(size) { it + 1 }
+	internal val end: IntArray get() = derived.end
 
 	/** The names, folded to lower case ([Fold]), at the same offsets as [names]. */
-	internal val folded: ByteArray = ByteArray(names.size)
+	internal val folded: ByteArray get() = derived.folded
 
 	/** How many bytes of each name are its stem: the name up to its extension ([stemLength]). */
-	internal val stem: ShortArray = ShortArray(size)
+	internal val stem: ShortArray get() = derived.stem
 
 	/** The names of the root's ancestors, from the top: the levels of [root] above the root itself. */
-	internal val above: List<ByteArray> = root.levels.dropLast(1)
+	internal val above: List<ByteArray> get() = derived.above
 
-	init {
-		require(size > 0) { "a block holds at least its root" }
-		require(
-			kinds.size == size && inodes.size == size && device.size == size &&
-				nameAt.size == size + 1,
-		) {
-			"a block's columns are as long as each other"
-		}
-		require(nameAt[0] == 0 && nameAt[size] == names.size) {
-			"a block's names are back to back"
-		}
-		require(parent[0] == -1) { "a block's first entry is its root" }
-		require(
-			nameOf(0).contentEquals(root.name),
-		) { "a block's root is named as its place is" }
-		require(devices.size <= 0xFFFF) { "a block is on at most ${0xFFFF} devices" }
+	/** This block with each entry first held when [seen] says: what the disk said, with what the index knew of it. */
+	internal fun seenAs(seen: IntArray): Block =
+		Block(root, parent, nameAt, names, kinds, inodes, device, devices, seen, derived)
 
-		val open = IntBuilder()
+	/**
+	 * What is worked out from a block's columns as it is made, never written, and checked as it is: that the columns
+	 * make a tree. Shared by a block and the same block seen otherwise ([seenAs]), which need not work it out again.
+	 */
+	private class Derived(
+		root: Where,
+		parent: IntArray,
+		nameAt: IntArray,
+		names: ByteArray,
+		kinds: ByteArray,
+		inodes: LongArray,
+		device: ShortArray,
+		devices: List<Device>,
+	) {
+		val end: IntArray = IntArray(parent.size) { it + 1 }
+		val folded: ByteArray = ByteArray(names.size)
+		val stem: ShortArray = ShortArray(parent.size)
+		val above: List<ByteArray> = root.levels.dropLast(1)
 
-		for (entry in 0 until size) {
-			val name = nameAt[entry + 1] - nameAt[entry]
+		init {
+			val size = parent.size
 
+			require(size > 0) { "a block holds at least its root" }
 			require(
-				name in (
-					if (entry ==
+				kinds.size == size && inodes.size == size && device.size == size &&
+					nameAt.size == size + 1,
+			) {
+				"a block's columns are as long as each other"
+			}
+			require(nameAt[0] == 0 && nameAt[size] == names.size) {
+				"a block's names are back to back"
+			}
+			require(parent[0] == -1) { "a block's first entry is its root" }
+			require(
+				java.util.Arrays.equals(names, 0, nameAt[1], root.name, 0, root.name.size),
+			) { "a block's root is named as its place is" }
+			require(devices.size <= 0xFFFF) { "a block is on at most ${0xFFFF} devices" }
+
+			val open = IntBuilder()
+
+			for (entry in 0 until size) {
+				val name = nameAt[entry + 1] - nameAt[entry]
+				val least =
+					if (entry == 0)
 						0
-					) 0 else 1
-				)..Short.MAX_VALUE,
-			) { "entry $entry's name is ${name}B long" }
-			require(kinds[entry] in 0 until KINDS.size) { "entry $entry is of no kind" }
-			require((device[entry].toInt() and 0xFFFF) < devices.size) {
-				"entry $entry is on no device"
-			}
+					else
+						1
 
-			if (entry > 0) {
-				// Preorder: an entry's parent is a folder it is still under.
-				var top = open.size - 1
-
-				while (top >= 0 && open[top] != parent[entry])
-					top--
-				require(top >= 0) { "entry $entry is not under its parent ${parent[entry]}" }
-				require(KINDS[kinds[parent[entry]].toInt()] == Kind.Directory) {
-					"entry $entry is in something not a folder"
+				require(name in least..Short.MAX_VALUE) { "entry $entry's name is ${name}B long" }
+				require(kinds[entry] in 0 until KINDS.size) { "entry $entry is of no kind" }
+				require((device[entry].toInt() and 0xFFFF) < devices.size) {
+					"entry $entry is on no device"
 				}
-				open.truncate(top + 1)
+
+				if (entry > 0) {
+					// Preorder: an entry's parent is a folder it is still under.
+					var top = open.size - 1
+
+					while (top >= 0 && open[top] != parent[entry])
+						top--
+					require(top >= 0) { "entry $entry is not under its parent ${parent[entry]}" }
+					require(KINDS[kinds[parent[entry]].toInt()] == Kind.Directory) {
+						"entry $entry is in something not a folder"
+					}
+					open.truncate(top + 1)
+				}
+				open.add(entry)
+
+				Fold.fold(names, nameAt[entry], nameAt[entry + 1], folded, nameAt[entry])
+				stem[entry] = stemLength(names, nameAt[entry], nameAt[entry + 1]).toShort()
 			}
-			open.add(entry)
 
-			Fold.fold(names, nameAt[entry], nameAt[entry + 1], folded, nameAt[entry])
-			stem[entry] = stemLength(names, nameAt[entry], nameAt[entry + 1]).toShort()
+			for (entry in size - 1 downTo 1)
+				end[parent[entry]] = maxOf(end[parent[entry]], end[entry])
 		}
-
-		for (entry in size - 1 downTo 1)
-			end[parent[entry]] = maxOf(end[parent[entry]], end[entry])
 	}
 
 	internal fun kindOf(entry: Int): Kind = KINDS[kinds[entry].toInt()]
@@ -176,7 +231,8 @@ class Block internal constructor(
 			kinds.contentEquals(other.kinds) &&
 			inodes.contentEquals(other.inodes) &&
 			device.contentEquals(other.device) &&
-			devices == other.devices
+			devices == other.devices &&
+			seen.contentEquals(other.seen)
 
 	override fun hashCode(): Int = root.hashCode() * 31 + names.contentHashCode()
 
@@ -209,6 +265,8 @@ class Block internal constructor(
 /** Builds a [Block], entry by entry, in preorder. */
 internal class BlockBuilder(
 	private val root: Where,
+	/** When the entries added were first seen, unless [add] says otherwise: when they were read ([Seen]). */
+	private val stamp: Int = Seen.UNKNOWN,
 ) {
 	private val parent = IntBuilder()
 	private val nameAt = IntBuilder().also { it.add(0) }
@@ -216,6 +274,7 @@ internal class BlockBuilder(
 	private val kinds = ByteBuilder()
 	private val inodes = LongBuilder()
 	private val device = ShortBuilder()
+	private val seen = IntBuilder()
 	private val devices = LinkedHashMap<Device, Int>()
 
 	/** An entry, under [parent] (-1 for the root): its id. */
@@ -227,6 +286,7 @@ internal class BlockBuilder(
 		inode: Long,
 		from: Int = 0,
 		to: Int = name.size,
+		seen: Int = stamp,
 	): Int {
 		this.parent.add(parent)
 		names.add(name, from, to)
@@ -234,6 +294,7 @@ internal class BlockBuilder(
 		kinds.add(kind.ordinal.toByte())
 		inodes.add(inode)
 		device.add(devices.getOrPut(on) { devices.size }.toShort())
+		this.seen.add(seen)
 
 		return this.parent.size - 1
 	}
@@ -248,7 +309,25 @@ internal class BlockBuilder(
 			inodes.toArray(),
 			device.toArray(),
 			devices.keys.toList(),
+			seen.toArray(),
 		)
+}
+
+/**
+ * When the index first held an entry, as a block's [Block.seen] keeps it: the seconds since 1970, unsigned, in an Int
+ * (which holds them until 2106). An entry held since its root was first indexed was seen then with everything else,
+ * which says nothing of how old it is, so it is [UNKNOWN]; one that turned up after is as new as when it did.
+ */
+internal object Seen {
+	const val UNKNOWN = 0
+
+	fun of(at: java.time.Instant): Int = at.epochSecond.coerceIn(1, 0xFFFFFFFFL).toInt()
+
+	fun instantOf(seen: Int): java.time.Instant? =
+		if (seen == UNKNOWN)
+			null
+		else
+			java.time.Instant.ofEpochSecond(seen.toLong() and 0xFFFFFFFFL)
 }
 
 /**

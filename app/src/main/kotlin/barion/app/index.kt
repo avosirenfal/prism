@@ -40,7 +40,7 @@ object IndexCommand : Command(
 		option(
 			"--file",
 			type = ParamType.PATH,
-			default = defaultFile(),
+			default = defaultIndexFile(),
 			help = "the index's file",
 			shown = "\$XDG_CACHE_HOME/barion/index.barion",
 		)
@@ -149,15 +149,18 @@ object IndexCommand : Command(
 					"read"
 		}
 
-	/** `$XDG_CACHE_HOME/barion/index.barion`: an index can always be made again, which is what a cache is. */
-	private fun defaultFile(): Path {
-		val cache =
-			System.getenv("XDG_CACHE_HOME")?.takeIf { it.startsWith("/") }?.let(::Path)
-				?: Path(System.getProperty("user.home"), ".cache")
-
-		return cache.resolve("barion/index.barion")
-	}
-
 	private fun millis(elapsed: Duration): String =
 		"%.1f ms".format(elapsed.inWholeMicroseconds / 1000.0)
+}
+
+/**
+ * `$XDG_CACHE_HOME/barion/index.barion`, where the index is kept unless told otherwise: an index can always be made
+ * again, which is what a cache is. What every command that reads or writes the index starts from.
+ */
+internal fun defaultIndexFile(): Path {
+	val cache =
+		System.getenv("XDG_CACHE_HOME")?.takeIf { it.startsWith("/") }?.let(::Path)
+			?: Path(System.getProperty("user.home"), ".cache")
+
+	return cache.resolve("barion/index.barion")
 }

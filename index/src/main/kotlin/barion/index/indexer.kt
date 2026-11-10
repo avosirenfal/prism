@@ -20,13 +20,15 @@ import java.nio.file.Path
  * What the index keeps of an entry is what a directory listing says (its name, and whether it is a folder, a file or
  * a link), what a link leads to (one stat that follows it), and the device each folder is on (one stat of each
  * folder, which reading it takes anyway). Devices, pipes and sockets are left out. [mounts], read once, say each
- * device's file system type, and which mount points are of file systems the rules leave out.
+ * device's file system type, and which mount points are of file systems the rules leave out. Each entry read is
+ * seen when [clock] says it was read, which is how new it is to an index that did not hold it ([Change.Present]).
  */
 class Indexer(
 	val rules: IgnoreRules = IgnoreRules.DEFAULT,
 	val mounts: List<Mount> = Mounts.current(),
 	val backend: Backend = Backend.Getdents,
 	val threads: Int = Runtime.getRuntime().availableProcessors(),
+	private val clock: java.time.Clock = java.time.Clock.systemUTC(),
 ) {
 	private val ignoredMounts: Set<Path> = Mounts.ignored(rules, mounts)
 	private val ignoredKeys: Set<String> = ignoredMounts.map(Where::keyOf).toSet()
@@ -135,7 +137,7 @@ class Indexer(
 			else
 				null
 		val kind = Kind.of(own.kind, target) ?: return null
-		val builder = BlockBuilder(where)
+		val builder = BlockBuilder(where, Seen.of(clock.instant()))
 
 		if (kind != Kind.Directory) {
 			builder.add(-1, where.name, kind, deviceOf(own.dev, where, null), own.ino)

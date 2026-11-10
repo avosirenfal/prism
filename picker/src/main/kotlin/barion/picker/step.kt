@@ -1,5 +1,6 @@
 package barion.picker
 
+import barion.index.query.QueryText
 import java.nio.file.InvalidPathException
 import java.nio.file.Path
 
@@ -24,6 +25,11 @@ import java.nio.file.Path
  * - Renaming, the trash and making a folder are asked of the disk, and the folder is read again after, whatever came
  *   of it. The Delete key asks before it moves anything to the trash; Shift+Delete and the menu do not. A name with a
  *   slash in it, or `.` or `..`, is refused before the disk is asked.
+ * - Ctrl+Shift+F searches the index, in a window over the picker that lists the first few matches as the query is
+ *   typed. A match chosen is gone to: a folder, into it; a file, to the folder it is in, chosen (saving, its name to
+ *   save over). The search given shows every match in the listing, as a folder holding them all would show them,
+ *   filtered as a folder is and ordered best first; Back from a folder gone into from them returns to them. A folder
+ *   picker's search finds only folders.
  */
 
 /** The picker opened on [folder]: its first state, and the read of its folder that it waits for. */
@@ -34,6 +40,7 @@ fun opened(
 	sidebar: Sidebar,
 	title: String = titleOf(choosing),
 	filters: List<TypeFilter> = listOf(TypeFilter.ALL_FILES),
+	search: Search = Search.Unavailable(PickerState.NO_INDEX),
 ): Step {
 	require(filters.isNotEmpty()) { "a picker offers at least one filter" }
 
@@ -43,7 +50,7 @@ fun opened(
 		PickerState(
 			title = title,
 			choosing = choosing.unchosen(),
-			folder = shown,
+			at = Location.Folder(shown),
 			home = home.toAbsolutePath().normalize(),
 			history = History(),
 			sidebar = sidebar,
@@ -54,6 +61,7 @@ fun opened(
 			address = Address.Crumbs,
 			notice = null,
 			waiting = null,
+			search = search,
 		)
 
 	return Step(state, listOf(Effect.Read(shown)))
@@ -85,8 +93,8 @@ private fun did(state: PickerState, event: PickerEvent): Step =
 		is PickerEvent.Opened -> state.went(event.path)
 		PickerEvent.Back -> state.back()
 		PickerEvent.Forward -> state.forward()
-		PickerEvent.Up -> state.folder.parent?.let { state.went(it) } ?: Step(state)
-		PickerEvent.Refreshed -> Step(state, listOf(Effect.Read(state.folder)))
+		PickerEvent.Up -> state.folder?.parent?.let { state.went(it) } ?: Step(state)
+		PickerEvent.Refreshed -> state.reread()
 		is PickerEvent.Clicked -> Step(state.clicked(event.row, event.click))
 		PickerEvent.ClickedNowhere -> Step(state.copy(choosing = state.choosing.unchosen()))
 		is PickerEvent.Activated -> state.activated(event.row)
@@ -99,8 +107,26 @@ private fun did(state: PickerState, event: PickerEvent): Step =
 		PickerEvent.Toggled -> Step(state.toggled())
 		PickerEvent.ChoseAll -> Step(state.choseAll())
 		is PickerEvent.Jumped -> Step(state.jumped(event.prefix))
-		is PickerEvent.Sorted -> state.arranged { copy(sort = sort.toggled(event.by)) }
-		is PickerEvent.SortedBy -> state.arranged { copy(sort = event.sort) }
+		is PickerEvent.Sorted ->
+			when (val listing = state.listing) {
+				is Listing.Found ->
+					if (listing.orders(event.by))
+						state.arranged { copy(results = results.toggled(event.by)) }
+					else
+						Step(state)
+				else -> state.arranged { copy(sort = sort.toggled(event.by)) }
+			}
+		is PickerEvent.SortedBy ->
+			when (val listing = state.listing) {
+				is Listing.Found ->
+					if (listing.orders(event.sort.by))
+						state.arranged { copy(results = Order.By(event.sort)) }
+					else
+						Step(state)
+				else -> state.arranged { copy(sort = event.sort) }
+			}
+		PickerEvent.SortedByRelevance -> state.arranged { copy(results = Order.Relevance) }
+		is PickerEvent.Scrolled -> state.scrolled(event.first, event.last)
 		PickerEvent.ToggledHiddenFiles ->
 			state.arranged {
 				copy(hidden = hidden.copy(files = !hidden.files))
@@ -171,9 +197,9 @@ private fun did(state: PickerState, event: PickerEvent): Step =
 				}?.let { state.notice(Notice.ConfirmTrash(it)) }
 				?: Step(state)
 		PickerEvent.MadeFolder ->
-			state.making(
-				Change.MakeFolder(state.folder.resolve(state.freeName("New folder"))),
-			)
+			state.folder?.let {
+				state.making(Change.MakeFolder(it.resolve(state.freeName("New folder"))))
+			} ?: Step(state)
 		is PickerEvent.CopiedPaths ->
 			Step(
 				state,
@@ -194,7 +220,7 @@ private fun did(state: PickerState, event: PickerEvent): Step =
 			)
 		PickerEvent.EditedAddress ->
 			Step(
-				state.copy(address = Address.Editing(state.folder.toString())),
+				state.copy(address = Address.Editing(state.folder?.toString().orEmpty())),
 			)
 		is PickerEvent.AddressTyped ->
 			Step(
@@ -209,6 +235,24 @@ private fun did(state: PickerState, event: PickerEvent): Step =
 		PickerEvent.Cancelled -> Step(state, listOf(Effect.Finish(Outcome.Cancelled)))
 		// Answers to a notice, with none shown.
 		PickerEvent.Confirmed, PickerEvent.Dismissed -> Step(state)
+		PickerEvent.OpenedSearch -> state.openedSearch()
+		PickerEvent.ClosedSearch ->
+			Step(
+				state.copy(
+					search =
+						when (val search = state.search) {
+							is Search.Unavailable -> search.copy(open = false)
+							is Search.Ready -> search.closed()
+						},
+				),
+			)
+		is PickerEvent.SearchTyped -> state.searchTyped(event.text)
+		is PickerEvent.MatchMoved -> Step(state.withSearch { moved(event.by) })
+		is PickerEvent.MatchChosen -> state.chosenMatch(event.at)
+		PickerEvent.SearchEntered ->
+			(state.search as? Search.Ready)?.highlighted?.let(state::chosenMatch)
+				?: state.showingMatches()
+		PickerEvent.ShowedResults -> state.showingMatches()
 	}
 
 /** While a notice is shown, it is all the picker answers to: the rest of it is behind the notice. */
@@ -218,7 +262,7 @@ private fun noticed(state: PickerState, notice: Notice, event: PickerEvent): Ste
 			when (notice) {
 				is Notice.Replace -> state.finished(listOf(notice.path))
 				is Notice.ConfirmTrash -> state.copy(notice = null).making(Change.Trash(notice.paths))
-				is Notice.NotFound, is Notice.NotAFolder, is Notice.Failed ->
+				is Notice.NotFound, is Notice.NotAFolder, is Notice.Failed, is Notice.NoFolder ->
 					Step(
 						state.copy(notice = null),
 					)
@@ -231,8 +275,7 @@ private fun noticed(state: PickerState, notice: Notice, event: PickerEvent): Ste
 // ---- going places ----------------------------------------------------------------------------------------------
 
 /**
- * [to] gone to: the folder left goes behind it in the history, and nothing is ahead. (A path is a list of its own
- * names, so a list of paths takes one with `plusElement`: `+` would add its names.) Going to the folder shown reads
+ * [to] gone to: the place left goes behind it in the history, and nothing is ahead. Going to the folder shown reads
  * it again, and lands where [landing] says when that read arrives.
  */
 private fun PickerState.went(to: Path, landing: Landing? = landingFrom(to)): Step {
@@ -241,18 +284,35 @@ private fun PickerState.went(to: Path, landing: Landing? = landingFrom(to)): Ste
 	return if (target == folder)
 		reread(landing).let { Step(it.state.copy(address = Address.Crumbs), it.effects) }
 	else
-		shown(target, History(history.back.plusElement(folder), emptyList()), landing)
+		shown(Location.Folder(target), History(history.back + at, emptyList()), landing)
 }
 
-/** The folder shown read again, the cursor to land where [landing] says (if anywhere) when the read arrives. */
+/**
+ * The place shown read again, the cursor to land where [landing] says (if anywhere) when the read arrives: a folder
+ * read, or a search's results searched for again, shown in their place when they are found.
+ */
 private fun PickerState.reread(landing: Landing? = null): Step =
-	Step(copy(landing = landing ?: this.landing), listOf(Effect.Read(folder)))
+	when (val at = at) {
+		is Location.Folder ->
+			Step(
+				copy(landing = landing ?: this.landing),
+				listOf(Effect.Read(at.path)),
+			)
+		is Location.Results -> {
+			val text = at.finding.text
+
+			Step(
+				this,
+				listOf(Effect.Search(text, queryOf(QueryText.read(text), choosing), Purpose.Refresh)),
+			)
+		}
+	}
 
 private fun PickerState.back(): Step =
 	history.back.lastOrNull()?.let {
 		shown(
 			it,
-			History(history.back.dropLast(1), listOf(folder) + history.forward),
+			History(history.back.dropLast(1), listOf(at) + history.forward),
 			landingFrom(it),
 		)
 	} ?: Step(this)
@@ -261,22 +321,29 @@ private fun PickerState.forward(): Step =
 	history.forward.firstOrNull()?.let {
 		shown(
 			it,
-			History(history.back.plusElement(folder), history.forward.drop(1)),
+			History(history.back + at, history.forward.drop(1)),
 			landingFrom(it),
 		)
 	} ?: Step(this)
 
 /** Going from the folder shown to its parent lands on the folder left, as every file manager does. */
+private fun PickerState.landingFrom(to: Location): Landing? =
+	(to as? Location.Folder)?.let { landingFrom(it.path) }
+
 private fun PickerState.landingFrom(to: Path): Landing? =
-	folder.fileName
-		?.takeIf { folder.parent == to }
+	folder
+		?.takeIf { it.parent == to }
+		?.fileName
 		?.let { Landing.On(RowId(it.toString()), choose = false) }
 
-/** [to] shown in place of the folder shown, waiting for its read: nothing chosen, nothing searched for. */
-private fun PickerState.shown(to: Path, history: History, landing: Landing?): Step =
-	Step(
+/**
+ * [to] shown in place of what is shown, with nothing chosen and nothing searched for in the listing: a folder,
+ * waiting for its read; a search's results, at once, and their sizes and dates read as [rows] in sight need them.
+ */
+private fun PickerState.shown(to: Location, history: History, landing: Landing?): Step {
+	val left =
 		copy(
-			folder = to,
+			at = to,
 			history = history,
 			listing = Listing.Reading,
 			landing = landing,
@@ -286,9 +353,85 @@ private fun PickerState.shown(to: Path, history: History, landing: Landing?): St
 			cursor = null,
 			address = Address.Crumbs,
 			waiting = null,
+		)
+
+	return when (to) {
+		is Location.Folder -> Step(left, listOf(Effect.Read(to.path)))
+		is Location.Results -> left.showingResults(to.finding)
+	}
+}
+
+/**
+ * [finding]'s results in the listing, nothing of them read on disk yet: few enough, every one read at once, the best
+ * first; more, those in sight first, as the view says what is (and the rest as it is scrolled to). Their order is the
+ * arrangement's, where it can be had of these results, and best first where it cannot.
+ */
+private fun PickerState.showingResults(finding: Finding.Matched): Step {
+	val listing = Listing.Found(finding, Stats.none(finding.matches.size))
+	val order =
+		arrangement.results.takeIf {
+			(it as? Order.By)?.sort?.by?.let(listing::orders) !=
+				false
+		}
+	val shown = relisted(listing, arrangement.copy(results = order ?: Order.Relevance))
+	val rows = shown.rows as Rows.Found
+	val first =
+		if (listing.few)
+			rows.placesBetween(0, rows.size) + (0 until listing.matches.size)
+		else
+			rows.placesBetween(0, PAGE)
+
+	return shown.stating(first.distinct()).let {
+		Step(
+			it.state,
+			it.effects + it.state.ordering(),
+		)
+	}
+}
+
+/** The results at [places] asked to be read on disk, those not asked for already, in batches. */
+private fun PickerState.stating(places: List<Int>): Step {
+	val listing = listing as? Listing.Found ?: return Step(this)
+	val asked = listing.stats.unasked(places)
+
+	if (asked.isEmpty())
+		return Step(this)
+
+	return Step(
+		copy(
+			listing = Listing.Found(listing.finding, listing.stats.asking(asked), listing.orders),
 		),
-		listOf(Effect.Read(to)),
+		asked.chunked(STAT_BATCH).map { Effect.Stat(listing.matches, it) },
 	)
+}
+
+/** The rows from [first] to [last] in sight: of a search's results, those and the next few read, where not yet. */
+private fun PickerState.scrolled(first: Int, last: Int): Step {
+	val rows = rows as? Rows.Found ?: return Step(this)
+
+	return stating(rows.placesBetween(first - BEHIND, last + 1 + AHEAD))
+}
+
+/** The order the arrangement asks of a search's results, asked to be worked out behind where it is not yet. */
+private fun PickerState.ordering(): List<Effect> {
+	val listing = listing as? Listing.Found ?: return emptyList()
+
+	return listOfNotNull(
+		listing.pending(arrangement.results)?.let {
+			Effect.Order(listing.matches, it)
+		},
+	)
+}
+
+/** How many results are read on disk at a time. */
+private const val STAT_BATCH = 256
+
+/** How many of too many results are read first, before the view says which are in sight: a window's worth and more. */
+private const val PAGE = 120
+
+/** How many rows behind and ahead of those in sight are read with them, so a scroll finds them read. */
+private const val BEHIND = 40
+private const val AHEAD = 160
 
 /** The cursor where [landing] says, if that row is shown. */
 private fun PickerState.landed(landing: Landing): PickerState =
@@ -310,18 +453,26 @@ private fun PickerState.landed(landing: Landing): PickerState =
 
 // ---- the listing ------------------------------------------------------------------------------------------------
 
-/** The listing arranged anew, what was chosen kept where it is still shown. */
+/** The listing arranged anew, what was chosen kept where it is still shown; an order of results asked for behind. */
 private fun PickerState.arranged(change: Arrangement.() -> Arrangement): Step {
-	val arrangement = arrangement.change()
+	val arranged = relisted(listing, arrangement.change())
+
+	return Step(arranged, arranged.ordering())
+}
+
+/** [listing] shown in place of what was, arranged by [arrangement], what was chosen kept where it is still shown. */
+private fun PickerState.relisted(
+	listing: Listing,
+	arrangement: Arrangement = this.arrangement,
+): PickerState {
 	val rows = rowsOf(listing, arrangement)
 
-	return Step(
-		copy(
-			arrangement = arrangement,
-			choosing = choosing.within(rows),
-			cursor = cursor.within(rows),
-			renaming = renaming?.takeIf { it.row in rows },
-		),
+	return copy(
+		listing = listing,
+		arrangement = arrangement,
+		choosing = choosing.within(rows),
+		cursor = cursor.within(rows),
+		renaming = renaming?.takeIf { it.row in rows },
 	)
 }
 
@@ -359,7 +510,7 @@ private fun PickerState.moved(move: Move, carry: Carry): PickerState {
 			// The first move with no cursor yet lands on the first row, whichever way it goes.
 			is Move.By -> from?.let { (it + move.rows).coerceIn(0, rows.size - 1) } ?: 0
 		}
-	val target = rows.list[to].id
+	val target = rows.idAt(to)
 	val anchor = cursor?.anchor ?: target
 
 	return when {
@@ -385,7 +536,13 @@ private fun PickerState.toggled(): PickerState =
 
 private fun PickerState.choseAll(): PickerState =
 	if (choosing.many)
-		copy(choosing = choosing.chose(rows.list.mapTo(LinkedHashSet()) { it.id }, rows))
+		copy(
+			choosing =
+				choosing.chose(
+					(0 until rows.size).mapTo(LinkedHashSet(), rows::idAt),
+					rows,
+				),
+		)
 	else
 		this
 
@@ -415,13 +572,14 @@ private fun PickerState.jumped(prefix: String): PickerState {
 	val found =
 		(0 until rows.size)
 			.asSequence()
-			.map { rows.list[(start + it).mod(rows.size)] }
-			.firstOrNull { it.name.startsWith(sought, ignoreCase = true) }
+			.map { (start + it).mod(rows.size) }
+			.firstOrNull { rows.nameAt(it).startsWith(sought, ignoreCase = true) }
+			?.let(rows::idAt)
 			?: return this
 
 	return copy(
-		choosing = choosing.chose(setOf(found.id), rows),
-		cursor = Cursor(found.id, found.id),
+		choosing = choosing.chose(setOf(found), rows),
+		cursor = Cursor(found, found),
 	)
 }
 
@@ -429,12 +587,12 @@ private fun PickerState.activated(id: RowId): Step {
 	val row = rows[id] ?: return Step(this)
 
 	return when {
-		row.isFolder -> went(folder.resolve(row.name))
+		row.isFolder -> went(row.path)
 		choosing is Choosing.SaveAs ->
 			copy(
 				choosing = choosing.chose(setOf(id), rows),
 			).accepted()
-		else -> finished(listOf(folder.resolve(row.name)))
+		else -> finished(listOf(row.path))
 	}
 }
 
@@ -456,7 +614,7 @@ private fun PickerState.accepted(): Step {
 		is Choosing.Files ->
 			when {
 				choosing.typed != null -> looking(choosing.typed)
-				files.isNotEmpty() -> finished(files.map { folder.resolve(it.name) })
+				files.isNotEmpty() -> finished(files.map { it.path })
 				else -> chosen.singleOrNull()?.let { opening(it) } ?: Step(this)
 			}
 		is Choosing.SaveAs ->
@@ -472,18 +630,16 @@ private fun PickerState.accepted(): Step {
 			when {
 				!choosing.typed.isNullOrBlank() -> looking(choosing.typed)
 				else ->
-					finished(
-						listOf(chosen.singleOrNull()?.let { folder.resolve(it.name) } ?: folder),
-					)
+					(chosen.singleOrNull()?.path ?: folder)?.let { finished(listOf(it)) } ?: Step(this)
 			}
 	}
 }
 
 private fun PickerState.opening(row: Row): Step =
 	if (row.isFolder)
-		went(folder.resolve(row.name))
+		went(row.path)
 	else
-		finished(listOf(folder.resolve(row.name)))
+		finished(listOf(row.path))
 
 /** What [text] names, looked up on disk before anything is done with it. */
 private fun PickerState.looking(text: String): Step {
@@ -492,10 +648,20 @@ private fun PickerState.looking(text: String): Step {
 	if (names.isEmpty())
 		return Step(this)
 
-	val paths = names.mapNotNull { pathOf(it, folder, home) }
+	val paths = names.mapNotNull { pathOf(it, base, home) }
 
 	if (paths.size < names.size)
-		return Step(copy(notice = Notice.NotFound(text.trim())))
+		return Step(
+			copy(
+				notice =
+					if (base ==
+						null
+					)
+						Notice.NoFolder(text.trim())
+					else
+						Notice.NotFound(text.trim()),
+			),
+		)
 
 	val lookup = Lookup.Accepting(text, paths)
 
@@ -509,7 +675,19 @@ private fun PickerState.goingTo(): Step {
 		return Step(copy(address = Address.Crumbs))
 
 	val path =
-		pathOf(text, folder, home) ?: return Step(copy(notice = Notice.NotFound(text)))
+		pathOf(text, folder, home)
+			?: return Step(
+				copy(
+					notice =
+						if (folder ==
+							null
+						)
+							Notice.NoFolder(text)
+						else
+							Notice.NotFound(text),
+				),
+			)
+
 	val lookup = Lookup.Going(text, path)
 
 	return Step(copy(waiting = lookup), listOf(Effect.Look(lookup)))
@@ -533,6 +711,38 @@ private fun answered(state: PickerState, answer: Answer): Step =
 					state,
 			)
 		is Answer.Changed -> state.changed(answer.change, answer.result, answer.doing)
+		is Answer.Searched -> state.searched(answer.finding, answer.purpose)
+		// What was read of results, or an order of them, for results no longer shown, is too late too.
+		is Answer.Stated ->
+			when (val listing = state.listing) {
+				is Listing.Found ->
+					Step(
+						if (listing.matches === answer.matches)
+							state.relisted(
+								Listing.Found(listing.finding, listing.stats.with(answer.stats), listing.orders),
+							)
+						else
+							state,
+					)
+				else -> Step(state)
+			}
+		is Answer.Ordered ->
+			when (val listing = state.listing) {
+				is Listing.Found ->
+					Step(
+						if (listing.matches === answer.matches)
+							state.relisted(
+								Listing.Found(
+									listing.finding,
+									listing.stats,
+									listing.orders + (answer.column to answer.order),
+								),
+							)
+						else
+							state,
+					)
+				else -> Step(state)
+			}
 		// So is a lookup the picker no longer waits for.
 		is Answer.Looked ->
 			if (answer.lookup == state.waiting)
@@ -561,16 +771,7 @@ private fun PickerState.arrived(read: Listing.Read): PickerState {
 			else -> read
 		}
 
-	val rows = rowsOf(listing, arrangement)
-
-	val shown =
-		copy(
-			listing = listing,
-			choosing = choosing.within(rows),
-			cursor = cursor.within(rows),
-			renaming = renaming?.takeIf { it.row in rows },
-			landing = null,
-		)
+	val shown = relisted(listing).copy(landing = null)
 
 	return landing?.let(shown::landed) ?: shown
 }
@@ -642,6 +843,151 @@ private fun PickerState.accepting(
 	}
 }
 
+// ---- the search of the index ------------------------------------------------------------------------------------
+
+/** The search as [change] makes it, where there is an index to search. */
+private fun PickerState.withSearch(change: Search.Ready.() -> Search): PickerState =
+	when (val search = search) {
+		is Search.Ready -> copy(search = search.change())
+		is Search.Unavailable -> this
+	}
+
+/**
+ * The search's window opened, with what was typed before; searched for again, since what the index holds may have
+ * changed. With no index, the window says why there is no search.
+ */
+private fun PickerState.openedSearch(): Step =
+	when (val search = search) {
+		is Search.Unavailable -> Step(copy(search = search.copy(open = true)))
+		is Search.Ready ->
+			copy(search = search.copy(open = true, highlighted = null)).previewing()
+	}
+
+/** The search's text searched for, for the window's matches; nothing, for no text. */
+private fun PickerState.previewing(): Step {
+	val search = search as? Search.Ready ?: return Step(this)
+
+	// Nothing typed, or nothing yet that can be searched for (`ext:` alone), would find everything: nothing is found.
+	if (!search.searchable)
+		return Step(copy(search = search.copy(found = null)))
+
+	return Step(
+		this,
+		listOf(Effect.Search(search.text, queryOf(search.read, choosing), Purpose.Preview)),
+	)
+}
+
+private fun Search.Ready.closed(): Search =
+	copy(open = false, highlighted = null, showing = false)
+
+private fun PickerState.searchTyped(text: String): Step =
+	withSearch { copy(text = text, highlighted = null, showing = false) }.previewing()
+
+/** The arrows' match [by] down: from the field, the first; up from the first, back to the field. */
+private fun Search.Ready.moved(by: Int): Search {
+	if (listed == 0)
+		return copy(highlighted = null)
+
+	val next = (highlighted ?: -1) + by
+
+	return copy(
+		highlighted =
+			if (next < 0)
+				null
+			else
+				next.coerceAtMost(listed - 1),
+	)
+}
+
+/**
+ * The [at]th match the window lists gone to, the window put away: a folder, into it; a file, to the folder it is in,
+ * chosen, so that saving saves over it once the user says so, and opening opens it once they do.
+ */
+private fun PickerState.chosenMatch(at: Int): Step {
+	val search = search as? Search.Ready ?: return Step(this)
+	val matches = (search.found as? Finding.Matched)?.matches ?: return Step(this)
+
+	if (at !in 0 until search.listed)
+		return Step(this)
+
+	val path = matches.pathOf(at)
+	val closed = copy(search = search.closed())
+
+	return if (matches.isFolder(at))
+		closed.went(path)
+	else
+		path.parent?.let {
+			closed.went(it, Landing.On(RowId(path.fileName.toString()), choose = true))
+		}
+			?: Step(closed)
+}
+
+/** Every match shown in the listing: at once where the search for what is typed is back, and once it is otherwise. */
+private fun PickerState.showingMatches(): Step {
+	val search = search as? Search.Ready ?: return Step(this)
+
+	if (!search.searchable)
+		return Step(this)
+
+	search.matched?.let { return copy(search = search.closed()).showing(it) }
+
+	// Refused for this text: nothing to show, and the window says why.
+	if (search.found?.text == search.text)
+		return Step(this)
+
+	return Step(
+		copy(search = search.copy(showing = true)),
+		listOf(Effect.Search(search.text, queryOf(search.read, choosing), Purpose.Show)),
+	)
+}
+
+/** [finding]'s results shown in the listing, in place of what is shown, which goes behind them in the history. */
+private fun PickerState.showing(finding: Finding.Matched): Step =
+	shown(Location.Results(finding), History(history.back + at, emptyList()), null)
+
+/**
+ * What a search came back with. For the window, kept where it is for what is typed now (a search overtaken by typing
+ * is dropped), and shown in the listing where that was asked for meanwhile. For the results shown, searched again,
+ * shown in their place, where they are still shown.
+ */
+private fun PickerState.searched(finding: Finding, purpose: Purpose): Step {
+	val search = search as? Search.Ready ?: return Step(this)
+
+	return when (purpose) {
+		Purpose.Preview, Purpose.Show -> {
+			if (finding.text != search.text)
+				return Step(this)
+
+			// The arrows stay on the match they were on, where the new matches still list that many.
+			val found =
+				search.copy(found = finding).let {
+					it.copy(highlighted = it.highlighted?.takeIf { at -> at < it.listed })
+				}
+
+			when {
+				!search.showing -> Step(copy(search = found))
+				finding is Finding.Matched -> copy(search = found.closed()).showing(finding)
+				else -> Step(copy(search = found.copy(showing = false)))
+			}
+		}
+		Purpose.Refresh -> {
+			val shown = results
+
+			// The new results' places are not the old ones': what was chosen by its place among them is let go.
+			if (shown == null || finding !is Finding.Matched || finding.text != shown.text)
+				Step(this)
+			else
+				copy(
+					at = Location.Results(finding),
+					listing = Listing.Reading,
+					choosing = choosing.unchosen(),
+					cursor = null,
+					renaming = null,
+				).showingResults(finding)
+		}
+	}
+}
+
 // ---- how large it is drawn ----------------------------------------------------------------------------------------
 
 /**
@@ -686,8 +1032,9 @@ private fun PickerState.renaming(id: RowId): PickerState {
 /** The name typed given: refused here if it cannot be a name, left alone if it is the same, asked of the disk. */
 private fun PickerState.renamed(): Step {
 	val renaming = renaming ?: return Step(this)
+	val row = rows[renaming.row] ?: return Step(copy(renaming = null))
 	val name = renaming.text.trim()
-	val old = renaming.row.name
+	val old = row.name
 	val refusal = refusalOf(name)
 
 	return when {
@@ -696,7 +1043,7 @@ private fun PickerState.renamed(): Step {
 		else ->
 			copy(
 				renaming = null,
-			).making(Change.Rename(folder.resolve(old), folder.resolve(name)))
+			).making(Change.Rename(row.path, row.path.resolveSibling(name)))
 	}
 }
 
@@ -814,7 +1161,7 @@ fun refusalOf(name: String): String? =
 
 /** The paths of [ids] that the listing shows, in the order they are shown. */
 private fun PickerState.pathsOf(ids: List<RowId>): List<Path> =
-	rows.inOrder(ids.toSet()).map { folder.resolve(it.name) }
+	rows.inOrder(ids.toSet()).map { it.path }
 
 /** [wanted], or, if the folder holds an entry of that name, the first of "[wanted] 2", "[wanted] 3", ... it does not. */
 private fun PickerState.freeName(wanted: String): String {
@@ -921,14 +1268,18 @@ fun namesIn(text: String): List<String> {
 	return quoted.ifEmpty { listOfNotNull(text.trim().takeIf { it.isNotEmpty() }) }
 }
 
-/** [name] as a path: absolute as it is, from [home] after `~`, and in [folder] otherwise; null if it cannot be one. */
-fun pathOf(name: String, folder: Path, home: Path): Path? =
+/**
+ * [name] as a path: absolute as it is, from [home] after `~`, and in [folder] otherwise; null if it cannot be one, or
+ * if it needs a folder and there is none.
+ */
+fun pathOf(name: String, folder: Path?, home: Path): Path? =
 	try {
 		when {
 			name == "~" -> home
 			name.startsWith("~/") -> home.resolve(name.drop(2))
-			else -> folder.resolve(name)
-		}.normalize()
+			Path.of(name).isAbsolute -> Path.of(name)
+			else -> folder?.resolve(name)
+		}?.normalize()
 	} catch (bad: InvalidPathException) {
 		null
 	}

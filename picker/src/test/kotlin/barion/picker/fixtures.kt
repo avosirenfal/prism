@@ -9,17 +9,30 @@ import kotlin.io.path.Path
 object Fixtures {
 	val home: Path = Path("/home/avery")
 
-	/** A row as the source would make it, from a size in bytes (none for a folder) and a time, said in UTC. */
-	fun row(name: String, bytes: Long? = null, at: String = "2026-11-08T09:41:00Z"): Row {
-		val folder = bytes == null
-		val category = if (folder) Category.Folder else categoryOf(name)
+	/**
+	 * A row as the source would make it, from a size in bytes (none for a folder) and a time, said in UTC, in [folder]
+	 * (where [Memory] reads it from, whatever this says).
+	 */
+	fun row(
+		name: String,
+		bytes: Long? = null,
+		at: String = "2026-11-08T09:41:00Z",
+		folder: Path = home,
+	): Row {
+		val isFolder = bytes == null
+		val category =
+			if (isFolder)
+				Category.Folder
+			else
+				categoryOf(name)
 		val instant = Instant.parse(at)
 
 		return Row(
 			RowId(name),
+			folder.resolve(name),
 			name,
 			category,
-			if (folder)
+			if (isFolder)
 				"Folder"
 			else
 				typeOf(name, category),
@@ -103,8 +116,22 @@ object Fixtures {
 	/** A disk of [tree]: folders it holds are folders, rows that are not are files, and the rest is not there. */
 	object Memory : Disk {
 		override fun read(folder: Path): Listing.Read =
-			tree[folder]?.let { Listing.Shown(it) }
+			tree[folder]?.let { rows ->
+				Listing.Shown(rows.map { it.copy(path = folder.resolve(it.name)) })
+			}
 				?: Listing.Unreadable("No such file or directory")
+
+		/** What [tree] says of each path: its row's size and date, or gone where it holds no such row. */
+		override fun stat(paths: List<Path>): List<Stat> =
+			paths.map { path ->
+				val row =
+					path.parent?.let(tree::get)?.firstOrNull {
+						it.name ==
+							path.fileName.toString()
+					}
+
+				row?.let { Stat.Read(it.size, it.modified) } ?: Stat.Gone
+			}
 
 		override fun look(paths: List<Path>): Map<Path, Found> =
 			paths.associateWith { path ->

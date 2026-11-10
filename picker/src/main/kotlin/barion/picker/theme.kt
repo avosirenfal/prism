@@ -215,6 +215,9 @@ object Dims {
 	val dateColumn = 0.22f
 	val typeColumn = 0.18f
 	val sizeColumn = 0.14f
+
+	/** Where a search's result is, in the list of results. */
+	val folderColumn = 0.34f
 }
 
 val LocalPalette = staticCompositionLocalOf { Palette.Light }

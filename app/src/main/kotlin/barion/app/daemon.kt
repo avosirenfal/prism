@@ -36,11 +36,7 @@ object DaemonCommand : Command(
 		option(
 			"--file",
 			type = ParamType.PATH,
-			default =
-				Path(
-					System.getenv("XDG_CACHE_HOME") ?: "${System.getProperty("user.home")}/.cache",
-					"barion/index.barion",
-				),
+			default = defaultIndexFile(),
 			help = "the index's file",
 			shown = "\$XDG_CACHE_HOME/barion/index.barion",
 		)
@@ -135,8 +131,8 @@ object DaemonCommand : Command(
 		when (searched) {
 			is LiveSearch.Refused -> say("$text: ${searched.why}")
 			is LiveSearch.Found -> {
-				say("$text: ${"%,d".format(searched.entries.size)} found")
-				searched.entries.take(5).forEach { say("  ${it.where}") }
+				say("$text: ${"%,d".format(searched.results.size)} found")
+				searched.results.take(5).forEach { say("  ${it.where}") }
 			}
 		}
 	}

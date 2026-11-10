@@ -112,8 +112,15 @@ class MenuBuilder<A> internal constructor() {
 	}
 
 	/** One item of a group of which one is on, dotted when it is. */
-	fun radio(label: String, on: Boolean, action: A, keys: String? = null) {
-		entries += MenuEntry.Item(label, action, mark = Mark.Radio(on), keys = keys)
+	fun radio(
+		label: String,
+		on: Boolean,
+		action: A,
+		keys: String? = null,
+		enabled: Boolean = true,
+	) {
+		entries +=
+			MenuEntry.Item(label, action, enabled = enabled, mark = Mark.Radio(on), keys = keys)
 	}
 
 	fun submenu(label: String, build: MenuBuilder<A>.() -> Unit) {

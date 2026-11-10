@@ -60,7 +60,9 @@ part of it.
 | `events.kt` | what changes it (`PickerEvent` from the user, `Answer` from the disk) and what it asks for (`Effect`) |
 | `step.kt` | the reducer, `step(state, input): Step`, and every rule of what the picker does |
 | `session.kt` | `Session`: the reducer run over every input in turn, the effects carried out |
-| `source.kt` | `Disk`, and `JvmDisk`: a folder read into rows, a typed path looked up, a change made; the rows' text worked out |
+| `source.kt` | `Disk`, and `JvmDisk`: a folder read into rows, a typed path looked up, a change made, results read for their sizes and dates; the rows' text worked out |
+| `found.kt` | the search of the index: `Finder` (what searches) and `StaticFinder`, `Search` (the window's state), `Finding`, `Matches` (results as rows made when asked for), `Stats`, `Order` |
+| `searchview.kt` | `SearchLayer`: the search's window, its field coloured as the query is read |
 | `trash.kt` | `Trash`: the desktop's own trash, as the freedesktop.org specification lays it out |
 | `menu.kt` | `Menu`: menus as data, and `menu { }` to build one |
 | `menuview.kt` | `MenuPopup`, `ContextMenus`, `Modifier.contextMenu`, `MenuButton`: any menu drawn and opened |
@@ -78,10 +80,11 @@ giving a state and an event and looking at what comes back, and that is what `St
 | field | what |
 |---|---|
 | `choosing` | what the picker is for, and what is chosen so far (below) |
-| `folder`, `home` | the folder shown, and the home folder the path across the top starts from |
-| `history` | the folders Back and Forward go to |
-| `listing` | the folder's entries: being read, read, or unreadable (with why) |
-| `arrangement` | the order, the kinds of entry shown, which hidden entries are shown, the application's filter, the search words |
+| `at`, `home` | where the picker is (a folder, or a search's results), and the home folder the path across the top starts from |
+| `history` | the places Back and Forward go to |
+| `listing` | the folder's entries (being read, read, or unreadable, with why), or a search's results |
+| `arrangement` | the order of a folder, and of a search's results; the kinds of entry shown, which hidden entries are shown, the application's filter, the search words |
+| `search` | the search of the index: what is typed, what it found, which match the arrows are on; or why there is none |
 | `layout`, `zooms`, `whole` | the listing as rows or as a gallery; how large each is drawn; and how large a gallery tile can be before it is larger than the gallery, as last measured |
 | `landing` | where the cursor goes when the next read of the folder arrives: the folder just left, a file just renamed |
 | `renaming` | a row whose name is being typed over, and the name as typed so far |
@@ -377,6 +380,114 @@ back and forward, and the side buttons as nothing at all. So the picker reads th
 Linux's numbering (`SideButtons`, which the app puts in its window), and does nothing with what Compose calls back and
 forward. Both halves were checked on a real window: X's buttons 8 and 9 go back and forward, and 6 and 7 do nothing.
 
+## Searching the index
+
+Searching the folder shown (Ctrl+F) narrows the rows the folder already has. Searching the index (Ctrl+Shift+F) looks
+through every file the index holds, wherever it is. Here is one search, followed through.
+
+![The search's window over the picker](picker-search-index.png)
+
+**The window opens.** Ctrl+Shift+F is `PickerEvent.OpenedSearch`. The state's `search` is `Search.Ready` when the
+picker was given an index, and `Search.Unavailable(why)` when it was not. Opening sets `open`, and the view draws a
+window over the picker: a field, a Search button, and room for matches under them. Without an index, the window says
+why instead.
+
+**You type `report -ext:pdf`.** Each key is `PickerEvent.SearchTyped(text)`. The reducer keeps the text and asks for a
+search of it:
+
+```kotlin
+Effect.Search("report -ext:pdf", query, Purpose.Preview)
+```
+
+The query is the text read in the search language (`QueryText.read`, docs/search.md). A folder picker adds `is:dir` to
+it, which the field never shows, so it finds only folders. The session asks the `Finder` on a background thread, and
+sends back what it found:
+
+```kotlin
+Answer.Searched(Finding.Matched("report -ext:pdf", matches), Purpose.Preview)
+```
+
+The reducer keeps it, if it is for what is typed now; an answer for an older text, overtaken as you typed, is dropped.
+The window lists the first eight matches, best first, each with the folder it is in. The field colours the text as it
+reads it, each part by what it is (the `-` red, `ext:` blue, `pdf` green), with what is wrong underlined and the reason
+written under the field.
+
+The session runs the window's searches one at a time, the latest only. While one runs, the next waits, and a search
+asked for meanwhile takes the place of the one waiting. So typing quickly runs a search for the text as it is once you
+pause, not one for every letter.
+
+**You press Down twice, then Enter.** Down is `MatchMoved(1)`: from the field to the first match, then to the second.
+Up from the first goes back to the field. Enter is `SearchEntered`, and with a match highlighted, that match is gone
+to, as the picker's kind says:
+
+| the picker | a file chosen | a folder chosen |
+|---|---|---|
+| opens files | its folder, with the file chosen; Open opens it | into the folder |
+| saves | its folder, with the file chosen and its name in the name field; Save asks before replacing it | into the folder |
+| chooses a folder | (it finds only folders) | into the folder |
+
+Nothing is accepted for you. Going to a match is only going there; the picker's own button still accepts. A click on a
+match does the same as Enter on it.
+
+**Or you press Enter in the field (or click Search).** That is `SearchEntered` with no match highlighted, or
+`ShowedResults`: every match is shown in the listing. Where the picker is, `at`, becomes `Location.Results` in place
+of `Location.Folder`, and the folder left goes into the history, so Back returns to it. The path across the top says
+"Search results" and what was searched for; clicking it opens the window again. The window closes, and keeps what was
+typed for the next Ctrl+Shift+F.
+
+![A search's results in the listing](picker-results.png)
+
+### Results, as a folder holding them all
+
+The listing shows a search's results as a folder holding them all would show them. Every filter applies: the kinds,
+hidden files and folders, the application's filter, and the words typed into Ctrl+F's field. The gallery draws them. A
+double click goes into a folder (and Back returns to the results) or opens a file. They are ordered folders first,
+then best first; a column's heading orders them by that column instead, and "Best match" in the folder menu's "Sort
+by" puts them back. A column between the name and the date says which folder each is in.
+
+A search can find millions of results, so their rows are not all made at once. `Matches` keeps the index's results (a
+few numbers each), and works out once, on the search's thread, what the filters need of every result: its kind of row
+and whether its name starts with a dot. A result's row is made when the listing asks for it. It is known by its place
+among the results (`RowId.Found(at)`), as a folder's row is known by its name (`RowId.Named`), and every row carries its
+path, so opening, renaming and the trash work the same in both.
+
+Sizes and dates are not in the index. They are read on disk (`Effect.Stat`, answered with `Answer.Stated`) and kept in
+`Stats`, in chunks of 1,024, so taking in a batch copies only the chunks it touched:
+
+- **Up to 10,000 results** (`FEW_RESULTS`): every one is read as soon as they are shown, best first, 256 at a time, and
+  they can be ordered by any column at once, as a folder is.
+- **More than that**: the rows in sight are read, with 160 rows ahead and 40 behind, as the view says which are in
+  sight (`PickerEvent.Scrolled`), and rows fill in as their reads arrive. They can be ordered by name or by type, which
+  the index knows; the order is worked out behind the picker (`Effect.Order`), and meanwhile the status line says
+  "ordering by name…". Size and date cannot order them, since only reading every one would say, and those headings are
+  drawn faint.
+
+A result read and found gone (deleted since the index saw it) is not shown. After a rename or the trash among the
+results, they are searched for again and shown in their place.
+
+### Where a search comes from
+
+The picker never searches itself. A `Finder` does:
+
+```kotlin
+interface Finder {
+	fun find(query: Query): Searched
+	fun picked(paths: List<Path>, at: Instant)
+}
+```
+
+The session asks it for each search, and tells it what was picked when the picker finishes, which is what ranks those
+higher next time. Run on its own, `barion pick --index` reads an index once from its file, with the usage kept beside
+it, into a `StaticFinder`: searched as it was read and never updated, which is what developing against a copy of the
+index wants. What is picked ranks higher for as long as it runs, and is not written. The daemon will give each picker
+it opens a finder over its live index (docs/daemon.md); nothing in the picker changes for that.
+
+`--index` alone reads the usual file, `$XDG_CACHE_HOME/barion/index.barion`; `--index FILE` reads that one. A folder
+after `--index` is the folder to open, not the index. Where there is no index, or it cannot be read, the picker says so
+on standard error and opens without a search, and Ctrl+Shift+F's window says why.
+
+Which matches are "best" is the index's ranking: docs/search.md, "Which results come first".
+
 ## The listing's rows, and keeping them fast
 
 A folder is read once into its **entries**: every one, hidden files included, in no particular order. What the
@@ -408,8 +519,9 @@ inputs; a finish completes `outcome`. The current state is a `StateFlow` the win
 outright (an exception rather than an error it reports) is answered as unreadable or not found, so a failure never
 stops the picker.
 
-`Disk` is an interface, so what reads folders can change without anything else changing. Today it is `JvmDisk`. When
-the index is behind the picker, it will be another `Disk`.
+`Disk` is an interface, so what reads folders can change without anything else changing. Today it is `JvmDisk`. A
+search goes to a `Finder` instead ("Where a search comes from", above), and the window's searches are run one at a
+time, the latest only.
 
 ## The view and its controls
 
@@ -516,6 +628,14 @@ list by one row, not a page, and a row far away is scrolled to directly (never b
   listing scrolled before it had been laid out.
 - **The drawing** (`PickerTest`): every kind of picker drawn headless, in both palettes, with a notice up, a path
   being typed, a search and an unreadable folder; `-Ppicker.screenshots=DIR` keeps the pictures.
+- **The search of the index** (`FindTest`): over a real index of a folder made for each test, as `--index` searches
+  one. The window's matches, best first, kept when it is closed, an answer for an older text dropped, and the arrows;
+  a match gone to as each kind of picker goes to it; a folder picker finding only folders; every match in the listing,
+  filtered, ordered and read on disk as a folder's would be, a folder among them gone into and Back to them; a name
+  saved beside a result, and nowhere without one; a result trashed and gone once searched for again; more than 10,000
+  results read as they come into sight, not ordered by size, and ordered by name behind; a pick ranking higher; and
+  the window and the results drawn, in both palettes. `InteractionTest` has Ctrl+Shift+F, typing, Enter and the arrows
+  as a user presses them.
 
 `barion pick` itself has been run in a real window on a virtual X display (Xvfb), driven by xdotool: opening a file
 from the keyboard, several with Ctrl-click and the Open button, saving under a typed name, choosing a folder, and
@@ -529,10 +649,22 @@ made smaller (the picture shrinking to fit) and larger again (the size chosen co
 Enter, Ctrl+Z, Ctrl+Shift+Z and Shift+Delete on real files, with the trash in a temporary folder. docs/testing.md
 says how to do the same.
 
+The search of the index has been run the same way, over an index `barion index` made of a small home: a missing index
+warned of and the picker opening without search; Ctrl+Shift+F with a query typed by real keys; Enter showing every
+match in the listing; a folder among them gone into, and Alt+Left back to them; the window opened again with what was
+typed, the arrows down to a file, Enter going to its folder with it chosen and named, and Enter again printing its
+path. The real keyboard found what the tests could not: typing quickly lost letters (`report` became `rprt`), since a
+field drew the picker's state, which comes back a moment after each key, and a key pressed meanwhile typed onto text a
+key behind. A field now keeps what it typed while the state is only catching up to it.
+
 ## Not yet
 
-- The portal: each request of an application becoming a picker (docs/plan.md, "The portal").
-- Reading folders from the index, and the search language searching all of it rather than the folder shown.
+- The portal: each request of an application becoming a picker (docs/plan.md, "The portal"), and the daemon handing
+  each picker a finder over its live index.
+- Reading folders from the index.
+- A search of a place the rules leave out (an absolute path in the query) waits for nothing in the picker: the live
+  index reads such a place for a search alone and says when it is ready to search again, which the picker does not
+  ask yet.
 - Filters by MIME type, as the portal can send them; today the application's filter is name patterns (`*.png`), and
   the kinds go by extension.
 - Pictures of videos and documents (ffmpeg, poppler), and the pictures the desktop has already made

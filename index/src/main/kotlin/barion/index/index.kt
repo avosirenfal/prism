@@ -1,16 +1,15 @@
 package barion.index
 
-import java.time.Instant
-
 /**
- * A change to what the index holds: what reading the disk again says ([Indexer]), or what the picker says was picked.
- * Each says what is so now rather than what happened, so making one twice is making it once: an index with a
- * change made, and then made again, is the index with it made once.
+ * A change to what the index holds: what reading the disk again says ([Indexer]). Each says what is so now rather
+ * than what happened, so making one twice is making it once: an index with a change made, and then made again, is the
+ * index with it made once.
  */
 sealed interface Change {
 	/**
 	 * The folder (or file) at [tree]'s root is to be indexed, with everything under it as [tree] says: a root of the
-	 * index, unless it is already held under one, in which case it is read again as [Present] reads it.
+	 * index, unless it is already held under one, in which case it is read again as [Present] reads it. A new root's
+	 * entries are seen as the index began ([Seen.UNKNOWN]): being indexed says nothing of how new they are.
 	 */
 	data class Indexed(
 		val tree: Block,
@@ -18,7 +17,8 @@ sealed interface Change {
 
 	/**
 	 * The entry at [tree]'s root is now as [tree] says, with everything under it: made, changed, or read again. Not
-	 * held, and dropped, where the folder it is in is not held: one the rules leave out, or one not indexed.
+	 * held, and dropped, where the folder it is in is not held: one the rules leave out, or one not indexed. An entry
+	 * the index held already keeps when it was first seen; one it did not is as new as [tree] says.
 	 */
 	data class Present(
 		val tree: Block,
@@ -27,12 +27,6 @@ sealed interface Change {
 	/** Nothing is at [where] any more, nor under it. */
 	data class Absent(
 		val where: Where,
-	) : Change
-
-	/** The picker gave [where] at [at]: what `recent:` asks about. The latest time is what is kept. */
-	data class Picked(
-		val where: Where,
-		val at: Instant,
 	) : Change
 }
 
@@ -46,7 +40,7 @@ data class Entry(
 
 /**
  * Everything indexed: the folders asked for (its [roots]) and everything under them that the rules let in, held as
- * [Block]s of columns; and when the picker last gave each entry it gave.
+ * [Block]s of columns, with when each entry was first seen.
  *
  * An index is a value. A change makes a new one, which shares with the old whatever did not change: a block is never
  * changed, so taking entries out hides them (each block's [Ranges]), and putting a tree in places a block of its own
@@ -56,7 +50,6 @@ data class Entry(
 class Index private constructor(
 	val roots: Set<Where>,
 	internal val placed: List<Placed>,
-	internal val picked: Map<Where, Instant>,
 ) {
 	/** A block, and the entries of it no longer there. */
 	internal class Placed(
@@ -88,12 +81,6 @@ class Index private constructor(
 							it.within(change.where)
 						}.toSet(),
 				)
-			is Change.Picked ->
-				Index(
-					roots,
-					placed,
-					picked + (change.where to maxOf(change.at, picked[change.where] ?: change.at)),
-				)
 		}
 
 	/** The index with [changes] made, in order. */
@@ -106,7 +93,9 @@ class Index private constructor(
 		return if (heldAbove || at in roots)
 			present(tree)
 		else
-			without(at).rooted(roots.filterNot { it.within(at) }.toSet() + at).placing(tree)
+			without(at)
+				.rooted(roots.filterNot { it.within(at) }.toSet() + at)
+				.placing(tree.seenAs(IntArray(tree.size)))
 	}
 
 	private fun present(tree: Block): Index {
@@ -114,15 +103,111 @@ class Index private constructor(
 		val held = at in roots || at.parent?.let(::isFolder) == true
 
 		return if (held)
-			without(at).placing(tree)
+			without(at).placing(carried(tree))
 		else
 			this
 	}
 
-	private fun rooted(roots: Set<Where>) = Index(roots, placed, picked)
+	private fun rooted(roots: Set<Where>) = Index(roots, placed)
 
-	private fun placing(tree: Block) =
-		Index(roots, placed + Placed(tree, Ranges.NONE), picked)
+	private fun placing(tree: Block) = Index(roots, placed + Placed(tree, Ranges.NONE))
+
+	/**
+	 * [tree] with each entry this index holds already seen when the index first saw it, and the rest as [tree] says:
+	 * the old entries and the new walked side by side, folder by folder, each folder's children matched by name (in
+	 * the order of their names' bytes, which both keep). An entry is the same entry where it has the same path and is
+	 * the same kind of thing; a folder made where a file was is new.
+	 */
+	private fun carried(tree: Block): Block {
+		val start = locate(tree.root) ?: return tree
+		val seen = tree.seen.copyOf()
+		val grafts = graftsUnder(tree.root)
+
+		fun children(of: Pair<Int, Int>): List<Pair<Int, Int>> {
+			val (at, entry) = of
+			val within = placed[at].block.childrenOf(entry, placed[at].hidden).map { at to it }
+			val grafted = grafts[of].orEmpty().map { it to 0 }
+
+			return if (grafted.isEmpty())
+				within
+			else
+				(within + grafted).sortedWith(::byName)
+		}
+
+		fun carry(new: Int, old: Pair<Int, Int>) {
+			val block = placed[old.first].block
+
+			if (block.kindOf(old.second) != tree.kindOf(new))
+				return
+
+			seen[new] = block.seen[old.second]
+
+			if (tree.kindOf(new) != Kind.Directory)
+				return
+
+			val olds = children(old)
+			val news = tree.childrenOf(new, Ranges.NONE)
+			var i = 0
+			var j = 0
+
+			while (i < news.size && j < olds.size) {
+				val (at, entry) = olds[j]
+				val other = placed[at].block
+
+				val order =
+					java.util.Arrays.compareUnsigned(
+						tree.names,
+						tree.nameAt[news[i]],
+						tree.nameAt[news[i] + 1],
+						other.names,
+						other.nameAt[entry],
+						other.nameAt[entry + 1],
+					)
+
+				when {
+					order < 0 -> i++
+					order > 0 -> j++
+					else -> {
+						carry(news[i], olds[j])
+						i++
+						j++
+					}
+				}
+			}
+		}
+
+		carry(0, start)
+
+		return tree.seenAs(seen)
+	}
+
+	/** The grafts under [where] (or all, for null), each by the entry it is placed under. */
+	private fun graftsUnder(where: Where?): Map<Pair<Int, Int>?, List<Int>> =
+		placed.indices
+			.filter {
+				val root = placed[it].block.root
+
+				root !in roots && 0 !in placed[it].hidden && (where == null || root.within(where))
+			}.groupBy { at ->
+				placed[at]
+					.block.root.parent
+					?.let(::locate)
+			}
+
+	/** Two entries, each a placed block's, in the order of their names' bytes. */
+	private fun byName(one: Pair<Int, Int>, other: Pair<Int, Int>): Int {
+		val a = placed[one.first].block
+		val b = placed[other.first].block
+
+		return java.util.Arrays.compareUnsigned(
+			a.names,
+			a.nameAt[one.second],
+			a.nameAt[one.second + 1],
+			b.names,
+			b.nameAt[other.second],
+			b.nameAt[other.second + 1],
+		)
+	}
 
 	/** The index without the entry at [where] and everything under it: blocks under it dropped, the rest hidden. */
 	private fun without(where: Where): Index =
@@ -140,7 +225,6 @@ class Index private constructor(
 					else -> it
 				}
 			},
-			picked,
 		)
 
 	/** Where the entry at [where] is held: which placed block, and which entry of it; null where it is not held. */
@@ -207,12 +291,13 @@ class Index private constructor(
 		return block.childrenOf(entry, hidden).map(block::entryOf) + grafted
 	}
 
-	/** When the picker last gave [where], if it did. */
-	fun pickedAt(where: Where): Instant? = picked[where]
+	/** When the index first held the entry at [where]: null for one held since its root was indexed, or not held. */
+	fun seenAt(where: Where): java.time.Instant? =
+		locate(where)?.let { (at, entry) -> Seen.instantOf(placed[at].block.seen[entry]) }
 
 	/**
-	 * The index as one block a root, made again from what is held now, without what is hidden; what was picked kept
-	 * only for entries still held. It holds the same entries as this index, and a search of it finds the same.
+	 * The index as one block a root, made again from what is held now, without what is hidden. It holds the same
+	 * entries as this index, each seen when it was, and a search of it finds the same.
 	 */
 	fun compacted(): Index {
 		if (placed.size == roots.size &&
@@ -221,14 +306,7 @@ class Index private constructor(
 			return this
 
 		// Each graft, by the entry it was placed under.
-		val grafts =
-			placed.indices
-				.filter { placed[it].block.root !in roots && 0 !in placed[it].hidden }
-				.groupBy { at ->
-					placed[at]
-						.block.root.parent
-						?.let(::locate)
-				}
+		val grafts = graftsUnder(null)
 
 		fun copy(builder: BlockBuilder, under: Int, at: Int, entry: Int) {
 			val (block, hidden) = placed[at].let { it.block to it.hidden }
@@ -242,6 +320,7 @@ class Index private constructor(
 					block.inodes[entry],
 					block.nameAt[entry],
 					block.nameAt[entry + 1],
+					block.seen[entry],
 				)
 
 			if (block.kindOf(entry) != Kind.Directory)
@@ -252,19 +331,8 @@ class Index private constructor(
 					grafts[at to entry].orEmpty().map { it to 0 }
 
 			children
-				.sortedWith { one, other ->
-					val a = placed[one.first].block
-					val b = placed[other.first].block
-
-					java.util.Arrays.compareUnsigned(
-						a.names,
-						a.nameAt[one.second],
-						a.nameAt[one.second + 1],
-						b.names,
-						b.nameAt[other.second],
-						b.nameAt[other.second + 1],
-					)
-				}.forEach { (childAt, child) -> copy(builder, id, childAt, child) }
+				.sortedWith(::byName)
+				.forEach { (childAt, child) -> copy(builder, id, childAt, child) }
 		}
 
 		val compact =
@@ -273,21 +341,16 @@ class Index private constructor(
 					Placed(BlockBuilder(root).also { copy(it, -1, at, entry) }.built(), Ranges.NONE)
 				}
 			}
-		val held = Index(roots, compact, emptyMap())
 
-		return Index(roots, compact, picked.filterKeys { held.locate(it) != null })
+		return Index(roots, compact)
 	}
 
 	companion object {
 		/** An index of nothing. */
-		val EMPTY = Index(emptySet(), emptyList(), emptyMap())
+		val EMPTY = Index(emptySet(), emptyList())
 
-		/** An index as a file holds it: [roots], one block of each, and what was picked when. */
-		internal fun of(
-			roots: Set<Where>,
-			blocks: List<Block>,
-			picked: Map<Where, Instant>,
-		): Index {
+		/** An index as a file holds it: [roots], and one block of each. */
+		internal fun of(roots: Set<Where>, blocks: List<Block>): Index {
 			require(
 				blocks
 					.map {
@@ -295,7 +358,7 @@ class Index private constructor(
 					}.toSet() == roots,
 			) { "a compact index holds one block a root" }
 
-			return Index(roots, blocks.map { Placed(it, Ranges.NONE) }, picked)
+			return Index(roots, blocks.map { Placed(it, Ranges.NONE) })
 		}
 	}
 }

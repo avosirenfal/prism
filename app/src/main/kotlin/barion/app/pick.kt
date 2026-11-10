@@ -11,18 +11,27 @@ import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
 import barion.cli.Args
 import barion.cli.Command
+import barion.cli.Given
 import barion.cli.InputError
 import barion.cli.Outcome
 import barion.cli.ParamType
+import barion.cli.Parsed
 import barion.cli.Size
+import barion.index.IndexFile
+import barion.index.IndexRead
+import barion.index.UsageFile
+import barion.index.UsageRead
 import barion.picker.Choosing
+import barion.picker.Finder
 import barion.picker.JvmDisk
 import barion.picker.PickerEvent
 import barion.picker.PickerState
 import barion.picker.PickerTheme
+import barion.picker.Search
 import barion.picker.Session
 import barion.picker.SessionPicker
 import barion.picker.SideButtons
+import barion.picker.StaticFinder
 import barion.picker.Step
 import barion.picker.opened
 import barion.picker.pickerOf
@@ -30,6 +39,7 @@ import barion.picker.renderedPng
 import barion.picker.sidebarOf
 import java.nio.file.Path
 import kotlin.io.path.Path
+import kotlin.io.path.isDirectory
 import kotlin.io.path.writeBytes
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -99,22 +109,101 @@ private class Picking(
 	fun theme(args: Args): Theme = args[theme]
 }
 
-/** `barion pick`: the picker in a window. */
+/** A file that is not a folder: what `--index` reads, told apart so from the folder that may follow it. */
+private val INDEX_FILE =
+	ParamType("FILE") { word ->
+		if (Path(word).isDirectory())
+			Parsed.Invalid("$word is a folder, not an index")
+		else
+			Parsed.Value(Path(word))
+	}
+
+/**
+ * `barion pick`: the picker in a window. With `--index`, Ctrl+Shift+F searches an index read once from its file (and
+ * the usage beside it), as it was read: what the daemon will hand a picker it opens, kept current, for now a copy to
+ * develop against. Where there is none, or it cannot be read, the picker says so on standard error and opens without.
+ */
 object PickCommand : Command(
 	"pick",
 	"open the picker in a window over a folder, and print what is chosen",
 ) {
 	private val picking = Picking(this)
 
+	private val index =
+		optionalValue(
+			"--index",
+			type = INDEX_FILE,
+			help =
+				"search an index with Ctrl+Shift+F: the one in FILE, or without FILE the usual one " +
+					"(\$XDG_CACHE_HOME/barion/index.barion); read once, and never updated",
+		)
+
 	override fun run(args: Args): Outcome {
 		val home = Path(System.getProperty("user.home"))
-		val first = opened(picking.choosing(args), picking.folder(args), home, sidebarOf(home))
+		val (search, finder) = searchOf(args[index], home)
 
-		return when (val outcome = keepingStdout { picked(first, picking.theme(args)) }) {
+		val first =
+			opened(
+				picking.choosing(args),
+				picking.folder(args),
+				home,
+				sidebarOf(home),
+				search = search,
+			)
+
+		return when (
+			val outcome =
+				keepingStdout {
+					picked(
+						first,
+						finder,
+						picking.theme(args),
+					)
+				}
+		) {
 			is Ended.Chosen -> Outcome(outcome.paths.joinToString("\n"))
 			Ended.Cancelled -> Outcome("", status = 1)
 		}
 	}
+
+	/**
+	 * The search [given] asks for, and what it searches: none without `--index`; with it, the index in its file, with
+	 * the usage kept beside it, or, where there is no index there or it cannot be read, a warning and no search.
+	 */
+	private fun searchOf(given: Given<Path>?, home: Path): Pair<Search, Finder?> {
+		val file =
+			when (given) {
+				null -> return Search.Unavailable(
+					"${PickerState.NO_INDEX} barion pick --index searches one.",
+				) to
+					null
+				Given.Alone -> defaultIndexFile()
+				is Given.With -> given.value
+			}
+
+		return when (val read = IndexFile.read(file)) {
+			is IndexRead.Read -> {
+				val usage = UsageFile.read(UsageFile.beside(file))
+
+				if (usage is UsageRead.Unreadable)
+					warn(
+						"the usage beside the index can't be read (${usage.why}); results are ranked without it",
+					)
+
+				Search.Ready() to StaticFinder(read.index, usage.usage, home)
+			}
+			IndexRead.Missing -> {
+				warn("there is no index at $file, so there is no search; barion index makes one")
+				Search.Unavailable("There is no index at $file. barion index makes one.") to null
+			}
+			is IndexRead.Unreadable -> {
+				warn("the index at $file can't be read (${read.why}), so there is no search")
+				Search.Unavailable("The index at $file can't be read: ${read.why}") to null
+			}
+		}
+	}
+
+	private fun warn(line: String) = System.err.println("barion pick: warning: $line")
 
 	/**
 	 * The picker [first] opens in a window, run until it ends. The desktop's colour scheme is asked for before the
@@ -123,14 +212,14 @@ object PickCommand : Command(
 	 * so that what was chosen can be printed after it; a window closed is a picker cancelled.
 	 */
 	@OptIn(ExperimentalCoroutinesApi::class)
-	private fun picked(first: Step, theme: Theme): Ended {
+	private fun picked(first: Step, finder: Finder?, theme: Theme): Ended {
 		val ended = CompletableDeferred<Ended>()
 
 		Appearance.follow(theme).use { appearance ->
 			application(exitProcessOnExit = false) {
 				val scheme by appearance.changes.collectAsState(appearance.first)
 				val scope = rememberCoroutineScope()
-				val session = remember { Session(first, JvmDisk(), scope) }
+				val session = remember { Session(first, JvmDisk(), scope, finder = finder) }
 				val state by session.state.collectAsState()
 
 				LaunchedEffect(session) {

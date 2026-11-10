@@ -12,7 +12,6 @@ import java.nio.file.NoSuchFileException
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
 import java.nio.file.StandardOpenOption
-import java.time.Instant
 import java.util.zip.CRC32C
 
 /*
@@ -24,8 +23,8 @@ import java.util.zip.CRC32C
  *
  * Reading a file is reading each frame's payload into memory, decompressing it, and making the columns from it: a
  * block's entries are laid out in preorder and written so (their depths, their names' lengths, their names, their
- * kinds, their inodes, their devices), so reading them back makes the block's arrays directly, with nothing to sort
- * or link.
+ * kinds, their inodes, their devices, when each was first seen), so reading them back makes the block's arrays
+ * directly, with nothing to sort or link.
  */
 
 /** What reading an index's file gave. */
@@ -54,10 +53,11 @@ object IndexFile {
 	private val MAGIC = "BARIONIX".encodeToByteArray()
 
 	/**
-	 * 3: every device with the kernel's number for it as well as a stat's. (2 had a stat's alone; 1 was compressed with
-	 * DEFLATE, and had no inodes.)
+	 * 4: when each entry was first seen, and nothing of what was picked, which is kept beside the index ([UsageFile]).
+	 * (3 had no first sightings, and kept picks; 2 had a stat's device numbers alone; 1 was compressed with DEFLATE,
+	 * and had no inodes.)
 	 */
-	private const val VERSION: Short = 3
+	private const val VERSION: Short = 4
 
 	/** How hard a snapshot is compressed: written now and then, read at every start, so worth more time than a change. */
 	private const val SNAPSHOT_LEVEL = 9
@@ -73,7 +73,6 @@ object IndexFile {
 	private const val INDEXED: Byte = 1
 	private const val PRESENT: Byte = 2
 	private const val ABSENT: Byte = 3
-	private const val PICKED: Byte = 4
 
 	/** The index [file] holds. */
 	fun read(file: Path): IndexRead {
@@ -253,25 +252,19 @@ object IndexFile {
 
 	// ---- payloads ------------------------------------------------------------------------------------------------
 
-	/** A snapshot: the roots, what was picked when, and one block a root. */
+	/** A snapshot: the roots, and one block a root. */
 	private fun written(out: Out, index: Index) {
 		out.count(index.roots.size)
 		index.roots.sortedBy { it.key }.forEach { out.bytes(it.bytes) }
-		out.count(index.picked.size)
-		for ((where, at) in index.picked) {
-			out.bytes(where.bytes)
-			out.instant(at)
-		}
 		out.count(index.placed.size)
 		index.placed.forEach { written(out, it.block) }
 	}
 
 	private fun snapshotOf(read: In): Index {
 		val roots = List(read.count()) { whereOf(read.bytes()) }.toSet()
-		val picked = List(read.count()) { whereOf(read.bytes()) to read.instant() }.toMap()
 		val blocks = List(read.count()) { blockOf(read) }
 
-		return Index.of(roots, blocks, picked)
+		return Index.of(roots, blocks)
 	}
 
 	private fun written(out: Out, changes: List<Change>) {
@@ -290,11 +283,6 @@ object IndexFile {
 					out.byte(ABSENT)
 					out.bytes(change.where.bytes)
 				}
-				is Change.Picked -> {
-					out.byte(PICKED)
-					out.bytes(change.where.bytes)
-					out.instant(change.at)
-				}
 			}
 		}
 	}
@@ -305,7 +293,6 @@ object IndexFile {
 				INDEXED -> Change.Indexed(blockOf(read))
 				PRESENT -> Change.Present(blockOf(read))
 				ABSENT -> Change.Absent(whereOf(read.bytes()))
-				PICKED -> Change.Picked(whereOf(read.bytes()), read.instant())
 				else -> throw IOException("a change of kind $kind")
 			}
 		}
@@ -313,8 +300,9 @@ object IndexFile {
 	/**
 	 * A block, column by column: its root, its devices, then for each entry in turn its depth (as the step from the
 	 * entry before), its name's length, then all the names, all the kinds, every inode (as the step from the entry
-	 * before's), all the devices. Columns of like values side by side are what compresses well: depths step by -1, 0
-	 * or 1, kinds are a handful of values, and entries made together have inodes close together.
+	 * before's), all the devices, and when each was first seen (as the step from the entry before's). Columns of like
+	 * values side by side are what compresses well: depths step by -1, 0 or 1, kinds are a handful of values, entries
+	 * made together have inodes close together, and most entries were seen when their root was first indexed.
 	 */
 	private fun written(out: Out, block: Block) {
 		out.bytes(block.root.bytes)
@@ -349,7 +337,18 @@ object IndexFile {
 			)
 		for (entry in 0 until block.size)
 			out.count(block.device[entry].toInt() and 0xFFFF)
+		for (entry in 0 until block.size)
+			out.signed(
+				seenOf(block.seen[entry]) -
+					if (entry == 0)
+						0
+					else
+						seenOf(block.seen[entry - 1]),
+			)
 	}
+
+	/** A first sighting's seconds, which [Seen] keeps unsigned in an Int, as the number they are. */
+	private fun seenOf(seen: Int): Long = seen.toLong() and 0xFFFFFFFFL
 
 	private fun blockOf(read: In): Block {
 		val root = whereOf(read.bytes())
@@ -398,9 +397,16 @@ object IndexFile {
 			)
 
 		val device = ShortArray(size) { read.count().toShort() }
+		val seen = IntArray(size)
+		var last = 0L
+
+		for (entry in 0 until size) {
+			last += read.signedLong()
+			seen[entry] = last.toInt()
+		}
 
 		return try {
-			Block(root, parent, nameAt, names, kinds, inodes, device, devices)
+			Block(root, parent, nameAt, names, kinds, inodes, device, devices, seen)
 		} catch (wrong: IllegalArgumentException) {
 			throw IOException("a block that is not one: ${wrong.message}", wrong)
 		}
@@ -437,11 +443,6 @@ object IndexFile {
 			}
 			count(values.size + 1)
 			raw(values)
-		}
-
-		fun instant(at: Instant) {
-			unsigned((at.epochSecond shl 1) xor (at.epochSecond shr 63))
-			count(at.nano)
 		}
 
 		private fun unsigned(value: Long) {
@@ -491,12 +492,6 @@ object IndexFile {
 				else
 					raw(it - 1)
 			}
-
-		fun instant(): Instant {
-			val zigzag = unsigned()
-
-			return Instant.ofEpochSecond((zigzag ushr 1) xor -(zigzag and 1), count().toLong())
-		}
 
 		private fun unsigned(): Long {
 			var value = 0L

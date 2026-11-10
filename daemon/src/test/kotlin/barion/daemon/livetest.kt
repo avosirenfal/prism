@@ -186,7 +186,7 @@ class LiveIndexTest {
 			assertEquals(setOf(where("proj/node_modules")), first.reading)
 			first.ready.done()
 
-			val found = (live.search(asked) as LiveSearch.Found).entries.map { it.where }.toSet()
+			val found = (live.search(asked) as LiveSearch.Found).results.map { it.where }.toSet()
 
 			// Read with the rule that left it out set aside, so a node_modules within it is read too.
 			assertEquals(
@@ -201,7 +201,7 @@ class LiveIndexTest {
 			live.changed(listOf(Changed(idOf("proj/node_modules/pkg"), Name.of("new.js"))))
 			assertTrue(
 				where("proj/node_modules/pkg/new.js") in
-					(live.search(asked) as LiveSearch.Found).entries.map { it.where },
+					(live.search(asked) as LiveSearch.Found).results.map { it.where },
 			)
 
 			// Never in the index proper, nor written with it.

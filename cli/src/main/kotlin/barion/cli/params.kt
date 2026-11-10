@@ -144,6 +144,26 @@ data class Defaulted<T>(
 	override val help: String,
 ) : Valued<T, T>
 
+/** How an option whose value may be left out was given: alone, or with a value. Not given at all is null. */
+sealed interface Given<out T> {
+	data object Alone : Given<Nothing>
+
+	data class With<T>(
+		val value: T,
+	) : Given<T>
+}
+
+/**
+ * Given at most once, alone or with a value: `--name`, `--name VALUE` or `--name=VALUE`. The word after it is its value
+ * only where [type] reads it as one; where it does not, the option is given alone, and the word is read as what it is
+ * (an argument, say), so a type that tells its values apart from the arguments' keeps the two from being mistaken.
+ */
+data class ValueOptional<T>(
+	override val names: List<String>,
+	override val type: ParamType<T>,
+	override val help: String,
+) : Valued<T, Given<T>?>
+
 /** Given exactly once. */
 data class Required<T>(
 	override val names: List<String>,

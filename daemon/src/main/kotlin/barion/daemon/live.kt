@@ -1,12 +1,12 @@
 package barion.daemon
 
 import barion.index.Change
-import barion.index.Entry
 import barion.index.FileId
 import barion.index.Index
 import barion.index.IndexStore
 import barion.index.Indexer
 import barion.index.Name
+import barion.index.Results
 import barion.index.SearchContext
 import barion.index.Searched
 import barion.index.Where
@@ -50,12 +50,12 @@ data class LiveSettings(
 /** What a search of a live index gave. */
 sealed interface LiveSearch {
 	/**
-	 * The [entries] found, in the index and in the places read for searches alone; the places this search looks under
-	 * that are still being read ([reading]), whose entries are not among these yet; and [ready], which completes once
-	 * they are read, for the search to be run again.
+	 * The [results] found, in the index and in the places read for searches alone, best first among them all; the
+	 * places this search looks under that are still being read ([reading]), whose entries are not among these yet; and
+	 * [ready], which completes once they are read, for the search to be run again.
 	 */
 	data class Found(
-		val entries: List<Entry>,
+		val results: Results,
 		val reading: Set<Where>,
 		val ready: CompletableFuture<Unit>,
 	) : LiveSearch
@@ -209,10 +209,10 @@ class LiveIndex private constructor(
 			asked
 				.mapNotNull {
 					it.index?.search(query, context) as? Searched.Found
-				}.flatMap { it.results }
+				}.map { it.results }
 
 		return LiveSearch.Found(
-			found + alone,
+			Results.of(listOf(found) + alone),
 			asked.filter { it.index == null }.map { it.place }.toSet(),
 			CompletableFuture.allOf(*asked.map { it.ready }.toTypedArray()).thenApply { },
 		)

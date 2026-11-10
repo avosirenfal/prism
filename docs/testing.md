@@ -152,6 +152,33 @@ DISPLAY=:99 xdotool windowsize --sync "$(DISPLAY=:99 xdotool search --name Open)
 To try the trash without touching the real one, start the picker with `XDG_DATA_HOME` pointing somewhere temporary;
 the trash is then `$XDG_DATA_HOME/Trash`.
 
+To try the search of the index, index a folder into a file of its own and give the picker that file:
+
+```bash
+app/build/compose/binaries/main/app/barion/bin/barion index --file /tmp/idx/index.barion ~/Documents
+```
+
+```bash
+DISPLAY=:99 app/build/compose/binaries/main/app/barion/bin/barion pick --index /tmp/idx/index.barion ~ > picked.txt &
+```
+
+Then, once a click has given the window the keyboard, Ctrl+Shift+F, a query typed as fast as a person types, Enter to
+show every match in the listing, and the arrows and Enter to go to one:
+
+```bash
+DISPLAY=:99 xdotool key ctrl+shift+f && DISPLAY=:99 xdotool type --delay 30 "report -ext:pdf"
+```
+
+```bash
+DISPLAY=:99 xdotool key Return
+```
+
+```bash
+DISPLAY=:99 xdotool key ctrl+shift+f Down Down Return
+```
+
+`--index` with a file that is not there says so on standard error, and the picker opens without a search.
+
 ## The C the DSL emits
 
 To keep the C the DSL's tests emit, to read or to compile by hand:

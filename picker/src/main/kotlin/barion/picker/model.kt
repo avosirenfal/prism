@@ -17,11 +17,22 @@ import java.util.concurrent.atomic.AtomicReference
  * made, so no state the view is given can name a row it does not show.
  */
 
-/** A row of the listing, by an identity that survives sorting and filtering: its name in its folder. */
-@JvmInline
-value class RowId(
-	val name: String,
-)
+/** A row of the listing, by an identity that survives sorting and filtering. */
+@Immutable
+sealed interface RowId {
+	/** An entry of the folder shown, by its name in it. */
+	data class Named(
+		val name: String,
+	) : RowId
+
+	/** A result of the search shown, by its place among the results, best first from 0. */
+	data class Found(
+		val at: Int,
+	) : RowId
+}
+
+/** The entry of the folder shown named [name]: how the folder's rows are known. */
+fun RowId(name: String): RowId = RowId.Named(name)
 
 /** What a row is, for its icon and its type column. */
 enum class Category {
@@ -50,17 +61,19 @@ data class Shown<T : Comparable<T>>(
 	override fun compareTo(other: Shown<T>): Int = value.compareTo(other.value)
 }
 
-/** One entry of the folder shown, with everything the view shows of it already worked out. */
+/** One entry of the folder shown, or one result of a search, with everything the view shows of it worked out. */
 @Immutable
 data class Row(
 	val id: RowId,
+	/** Where it is: absolute, its last name [name]. */
+	val path: Path,
 	val name: String,
 	val category: Category,
 	/** What the type column says: "Folder", "PNG image", "Kotlin source". */
 	val type: String,
-	/** The size in bytes, said as the size column says it ("4.2 KB"); null for a folder. */
+	/** The size in bytes, said as the size column says it ("4.2 KB"); null for a folder, or a result not read yet. */
 	val size: Shown<Long>?,
-	/** When it was last modified, said as the date column says it; null where that could not be read. */
+	/** When it was last modified, said as the date column says it; null where that is not read, or could not be. */
 	val modified: Shown<Instant>?,
 	val hidden: Boolean,
 ) {
@@ -183,11 +196,11 @@ data class Hidden(
 	val files: Boolean = true,
 	val folders: Boolean = false,
 ) {
-	/** Whether [row] is shown, as far as being hidden goes. */
-	fun shows(row: Row): Boolean =
+	/** Whether an entry is shown, as far as being hidden goes. */
+	fun shows(hidden: Boolean, folder: Boolean): Boolean =
 		when {
-			!row.hidden -> true
-			row.isFolder -> folders
+			!hidden -> true
+			folder -> folders
 			else -> files
 		}
 
@@ -199,10 +212,15 @@ data class Hidden(
 			Hidden(files = true, folders = true)
 }
 
-/** How the listing arranges what a folder holds: its order, and which rows it leaves out. */
+/**
+ * How the listing arranges what a folder holds, or what a search found: its order, and which rows it leaves out. A
+ * folder's order and a search's are kept apart, since a search's is best first until the user says otherwise; what
+ * leaves rows out is the same for both, so the results of a search are filtered as a folder holding them would be.
+ */
 @Immutable
 data class Arrangement(
 	val sort: Sort = Sort.BY_NAME,
+	val results: Order = Order.Relevance,
 	val hidden: Hidden = Hidden(),
 	/** The kinds shown: only these where any are chosen, every row where none is. */
 	val kinds: Set<Kind> = emptySet(),
@@ -211,11 +229,30 @@ data class Arrangement(
 	/** Words a row's name must contain to be shown, without case; blank for every row. */
 	val query: String = "",
 ) {
-	fun admits(row: Row): Boolean =
-		hidden.shows(row) &&
-			(kinds.isEmpty() || Kind.of(row.category) in kinds) &&
-			(row.isFolder || filter.admits(row.name)) &&
-			(query.isBlank() || row.name.contains(query.trim(), ignoreCase = true))
+	fun admits(row: Row): Boolean = admits(row.category, row.hidden) { row.name }
+
+	/**
+	 * Whether an entry of [category], hidden or not, is shown: its [name] asked for only where a filter of names needs
+	 * it, since for a search's results it is made from the index's bytes for the asking.
+	 */
+	fun admits(category: Category, hidden: Boolean, name: () -> String): Boolean {
+		val folder = category == Category.Folder
+
+		if (!this.hidden.shows(hidden, folder) ||
+			(kinds.isNotEmpty() && Kind.of(category) !in kinds)
+		)
+			return false
+
+		val named = (!folder && filter.patterns.isNotEmpty()) || query.isNotBlank()
+
+		if (!named)
+			return true
+
+		val text = name()
+
+		return (folder || filter.admits(text)) &&
+			(query.isBlank() || text.contains(query.trim(), ignoreCase = true))
+	}
 }
 
 /** How the listing is drawn: rows in columns, or tiles with a picture of each. */
@@ -280,28 +317,40 @@ data class Changes(
 
 /**
  * The rows the listing shows, in order, with where each is: what the view draws and what the keyboard moves
- * through, so a row is found by its identity without searching for it.
+ * through, so a row is found by its identity without searching for it. A folder's are a list; a search's are made as
+ * they are asked for, so that a million results are not a million rows.
  */
 @Immutable
-class Rows(
-	val list: List<Row>,
-) {
-	private val positions: Map<RowId, Int> by lazy {
-		list.indices.associateBy { list[it].id }
-	}
+sealed class Rows {
+	abstract val size: Int
 
-	val size: Int get() = list.size
+	/** The row at [index], counting from the top. */
+	abstract operator fun get(index: Int): Row
 
-	fun isEmpty(): Boolean = list.isEmpty()
+	/** The identity of the row at [index], without making the row. */
+	abstract fun idAt(index: Int): RowId
 
-	operator fun contains(id: RowId): Boolean = id in positions
+	/** The name of the row at [index], without making the row. */
+	abstract fun nameAt(index: Int): String
 
-	operator fun get(id: RowId): Row? = positions[id]?.let(list::get)
+	abstract fun indexOf(id: RowId): Int?
 
-	fun indexOf(id: RowId): Int? = positions[id]
+	/** The rows, in order, as a list made as it is read. */
+	val list: List<Row> =
+		object : AbstractList<Row>() {
+			override val size: Int get() = this@Rows.size
+
+			override fun get(index: Int): Row = this@Rows[index]
+		}
+
+	fun isEmpty(): Boolean = size == 0
+
+	operator fun contains(id: RowId): Boolean = indexOf(id) != null
+
+	operator fun get(id: RowId): Row? = indexOf(id)?.let(::get)
 
 	/** [ids] in the order they are shown. */
-	fun inOrder(ids: Set<RowId>): List<Row> = list.filter { it.id in ids }
+	fun inOrder(ids: Set<RowId>): List<Row> = ids.mapNotNull(::indexOf).sorted().map(::get)
 
 	/** The rows from [from] to [to], whichever way round, both included. */
 	fun between(from: RowId, to: RowId): Set<RowId> {
@@ -310,13 +359,76 @@ class Rows(
 		return if (ends.size < 2)
 			setOf(to)
 		else
-			list.subList(ends[0], ends[1] + 1).mapTo(LinkedHashSet()) { it.id }
+			(ends[0]..ends[1]).mapTo(LinkedHashSet(), ::idAt)
 	}
 
-	override fun toString(): String = "Rows(${list.map { it.name }})"
+	/** A folder's rows, as a list. */
+	class Of(
+		private val rows: List<Row>,
+	) : Rows() {
+		private val positions: Map<RowId, Int> by lazy {
+			rows.indices.associateBy { rows[it].id }
+		}
+
+		override val size: Int get() = rows.size
+
+		override fun get(index: Int): Row = rows[index]
+
+		override fun idAt(index: Int): RowId = rows[index].id
+
+		override fun nameAt(index: Int): String = rows[index].name
+
+		override fun indexOf(id: RowId): Int? = positions[id]
+
+		override fun toString(): String = "Rows(${rows.map { it.name }})"
+	}
+
+	/** A search's rows: the results at [order]'s places, each made from [matches] and [stats] as it is asked for. */
+	class Found(
+		private val matches: Matches,
+		private val stats: Stats,
+		private val order: IntArray,
+	) : Rows() {
+		/** Where each result is shown, by its place among the results; -1 for one not shown. */
+		private val shownAt: IntArray by lazy {
+			IntArray(matches.size) { -1 }.also { at ->
+				order.forEachIndexed { index, place ->
+					at[place] =
+						index
+				}
+			}
+		}
+
+		override val size: Int get() = order.size
+
+		override fun get(index: Int): Row = matches.rowOf(order[index], stats[order[index]])
+
+		override fun idAt(index: Int): RowId = RowId.Found(order[index])
+
+		override fun nameAt(index: Int): String = matches.nameOf(order[index])
+
+		override fun indexOf(id: RowId): Int? =
+			(id as? RowId.Found)
+				?.at
+				?.takeIf {
+					it in 0 until matches.size
+				}?.let { shownAt[it] }
+				?.takeIf {
+					it >=
+						0
+				}
+
+		/** The places among the results of the rows from [from] up to [to]. */
+		fun placesBetween(from: Int, to: Int): List<Int> =
+			(from.coerceAtLeast(0) until to.coerceAtMost(size)).map { order[it] }
+
+		override fun toString(): String = "Rows($size of ${matches.size} results)"
+	}
 
 	companion object {
-		val NONE = Rows(emptyList())
+		val NONE: Rows = Of(emptyList())
+
+		operator fun invoke(rows: List<Row>): Rows = Of(rows)
 	}
 }
 
@@ -367,6 +479,112 @@ sealed interface Listing {
 	data class Unreadable(
 		val why: String,
 	) : Read
+
+	/**
+	 * A search's results, shown as a folder holding them all would be: [matches], best first; what has been read of
+	 * each on disk so far ([stats]); and their orders by the columns that have been worked out in the background
+	 * ([orders], for results too many to order at once). What it shows is [rows], worked out again only when what
+	 * arranges them changes. A result read and found gone is not shown.
+	 *
+	 * A listing is equal only to itself.
+	 */
+	class Found(
+		val finding: Finding.Matched,
+		val stats: Stats,
+		val orders: Map<Sort.Column, IntArray> = emptyMap(),
+	) : Listing {
+		val matches: Matches get() = finding.matches
+
+		/** Whether they are few enough to be read every one, and ordered by any column at once ([FEW_RESULTS]). */
+		val few: Boolean get() = matches.size <= FEW_RESULTS
+
+		private val sortedBy = Memo<Sort.Column, IntArray> { orderOf(matches, stats, it) }
+		private val arranged = Memo<Arrangement, Rows> { arrange(it) }
+
+		fun rows(arrangement: Arrangement): Rows = arranged(arrangement)
+
+		/**
+		 * Whether the results can be ordered by [column]: by any, where they are few (all read at once, and ordered as
+		 * they are read); by those the index knows (name and type) where they are not; never by what only the disk
+		 * knows of too many to read.
+		 */
+		fun orders(column: Sort.Column): Boolean =
+			when (column) {
+				Sort.Column.Name, Sort.Column.Type -> true
+				Sort.Column.Modified, Sort.Column.Size -> few
+			}
+
+		/** The order [order] asks for, where it is worked out; for too many results, once it is worked out behind. */
+		fun placesBy(order: Order): IntArray? =
+			when (order) {
+				Order.Relevance -> null
+				is Order.By ->
+					when {
+						!orders(order.sort.by) -> null
+						few -> sortedBy(order.sort.by)
+						else -> orders[order.sort.by]
+					}
+			}
+
+		/** The column [order] asks for that is still being worked out behind, if it is. */
+		fun pending(order: Order): Sort.Column? =
+			(order as? Order.By)
+				?.sort
+				?.by
+				?.takeIf { orders(it) && !few && it !in orders }
+
+		/** The rows shown: filtered as a folder's are, then in [Arrangement.results]' order, folders first. */
+		private fun arrange(arrangement: Arrangement): Rows {
+			val order = arrangement.results
+			val sorted = placesBy(order)
+			val places =
+				when {
+					sorted == null -> IntArray(matches.size) { it }
+					(order as Order.By).sort.ascending -> sorted
+					else -> sorted.reversedArray()
+				}
+
+			// There can be millions, arranged again as each batch of them is read: so into arrays, nothing boxed.
+			val folders = IntArray(places.size)
+			val files = IntArray(places.size)
+			var folderCount = 0
+			var fileCount = 0
+
+			for (at in places) {
+				val kept =
+					stats[at] != Stat.Gone &&
+						arrangement.admits(matches.categoryOf(at), matches.isHidden(at)) {
+							matches.nameOf(at)
+						}
+
+				when {
+					!kept -> Unit
+					matches.isFolder(at) -> folders[folderCount++] = at
+					else -> files[fileCount++] = at
+				}
+			}
+
+			return Rows.Found(
+				matches,
+				stats,
+				folders.copyOf(folderCount) + files.copyOf(fileCount),
+			)
+		}
+
+		override fun toString(): String = "Found(${matches.size} results, $stats)"
+	}
+}
+
+/** Where the picker is: in a folder, or among a search's results, which it shows as if a folder held them all. */
+@Immutable
+sealed interface Location {
+	data class Folder(
+		val path: Path,
+	) : Location
+
+	data class Results(
+		val finding: Finding.Matched,
+	) : Location
 }
 
 /** Where the keyboard's cursor goes when the next read of the folder shown arrives. */
@@ -447,11 +665,11 @@ data class Cursor(
 	val anchor: RowId,
 )
 
-/** The folders behind and ahead of the one shown: [back]'s last is the one Back goes to, [forward]'s first Forward's. */
+/** The places behind and ahead of the one shown: [back]'s last is the one Back goes to, [forward]'s first Forward's. */
 @Immutable
 data class History(
-	val back: List<Path> = emptyList(),
-	val forward: List<Path> = emptyList(),
+	val back: List<Location> = emptyList(),
+	val forward: List<Location> = emptyList(),
 )
 
 /** The path across the top: shown as steps to click, or being typed into. */
@@ -491,6 +709,11 @@ sealed interface Notice {
 	data class Failed(
 		val doing: String,
 		val why: String,
+	) : Notice
+
+	/** A name was typed among a search's results, which are in no one folder, with no result chosen to go beside. */
+	data class NoFolder(
+		val text: String,
 	) : Notice
 }
 
@@ -546,8 +769,8 @@ data class Sidebar(
 data class PickerState(
 	val title: String,
 	val choosing: Choosing,
-	/** The folder shown, absolute and normalized. */
-	val folder: Path,
+	/** Where the picker is: a folder (absolute and normalized), or a search's results. */
+	val at: Location,
 	/** The user's home, which the path across the top starts from where it can, and `~` names. */
 	val home: Path,
 	val history: History,
@@ -573,7 +796,21 @@ data class PickerState(
 	/** Where the cursor goes when the next read of the folder arrives; nowhere in particular when null. */
 	val landing: Landing? = null,
 	val renaming: Renaming? = null,
+	/** The search of the index, as Ctrl+Shift+F opens it; unavailable where there is no index. */
+	val search: Search = Search.Unavailable(NO_INDEX),
 ) {
+	/** The folder shown; none among a search's results. */
+	val folder: Path? get() = (at as? Location.Folder)?.path
+
+	/** The search whose results are shown, where they are. */
+	val results: Finding.Matched? get() = (at as? Location.Results)?.finding
+
+	/**
+	 * Where a name typed is looked for: in the folder shown, or, among a search's results, beside the one chosen;
+	 * nowhere where none is.
+	 */
+	val base: Path? get() = folder ?: chosenRows.singleOrNull()?.path?.parent
+
 	/** The rows the listing shows, its arrangement applied; none while it is read, or when it could not be. */
 	val rows: Rows get() = rowsOf(listing, arrangement)
 
@@ -596,7 +833,15 @@ data class PickerState(
 	}
 
 	/** The path to [folder], as steps from the home folder where it is under it and from the root otherwise. */
-	val crumbs: List<Crumb> by lazy { crumbsOf(folder, home) }
+	val crumbs: List<Crumb> by lazy { folder?.let { crumbsOf(it, home) }.orEmpty() }
+
+	/** What the place shown is called: the folder's name, or what the search was for. */
+	val placeName: String
+		get() =
+			when (val at = at) {
+				is Location.Folder -> crumbs.last().label
+				is Location.Results -> "results for “${at.finding.text}”"
+			}
 
 	/** The rows chosen, in the order they are shown. */
 	val chosenRows: List<Row> get() = rows.inOrder(choosing.rows)
@@ -610,8 +855,14 @@ data class PickerState(
 	 */
 	val scale: Float get() = scaleOf(zoom, whole)
 
-	/** Every entry the folder holds, shown or not: the "of 750" of the status line. */
-	val entryCount: Int get() = (listing as? Listing.Shown)?.entries?.size ?: 0
+	/** Every entry the folder holds, or every result, shown or not: the "of 750" of the status line. */
+	val entryCount: Int
+		get() =
+			when (val listing = listing) {
+				is Listing.Shown -> listing.entries.size
+				is Listing.Found -> listing.matches.size
+				Listing.Reading, is Listing.Unreadable -> 0
+			}
 
 	/** The button that accepts, worked out from what has been chosen and typed. */
 	val accept: Accept
@@ -633,8 +884,12 @@ data class PickerState(
 						Accept("Open", true)
 					else
 						Accept("Save", choosing.name.isNotBlank())
-				// A folder picker always has a folder: the one shown, when none is chosen or typed.
-				is Choosing.Folder -> Accept("Select folder", true)
+				// A folder picker always has a folder in a folder: the one shown, when none is chosen or typed.
+				is Choosing.Folder ->
+					Accept(
+						"Select folder",
+						folder != null || chosenRows.isNotEmpty() || !choosing.typed.isNullOrBlank(),
+					)
 			}
 
 	/**
@@ -659,9 +914,14 @@ data class PickerState(
 	val nameHint: String
 		get() =
 			when (choosing) {
-				is Choosing.Folder -> crumbs.last().label
+				is Choosing.Folder -> crumbs.lastOrNull()?.label.orEmpty()
 				else -> ""
 			}
+
+	companion object {
+		/** Why a picker opened without an index has no search. */
+		const val NO_INDEX = "This picker was opened without an index to search."
+	}
 }
 
 /** How many times its usual size [zoom] draws, where a tile fills the listing at [whole] (as [PickerState.scale]). */
@@ -675,6 +935,7 @@ fun scaleOf(zoom: Zoom, whole: Float): Float =
 fun rowsOf(listing: Listing, arrangement: Arrangement): Rows =
 	when (listing) {
 		is Listing.Shown -> listing.rows(arrangement)
+		is Listing.Found -> listing.rows(arrangement)
 		is Listing.Reading, is Listing.Unreadable -> Rows.NONE
 	}
 

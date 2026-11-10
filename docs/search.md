@@ -135,7 +135,8 @@ it, so `ext:.pdf` is `ext:pdf`; quoted, it takes `c` and `i` as a name term does
 So `is:file -is:symlink` is regular files only, and `is:dir is:symlink` is links to folders. Braces give
 alternatives: `is:{file,symlink}`. A file picker implies `is:file`, and a folder picker `is:dir`.
 
-**`recent:WHEN`** is an entry given by the picker since `WHEN`: `today` and `yesterday` (from the start of the day),
+**`recent:WHEN`** is an entry given by the picker since `WHEN` (as the usage kept beside the index says: "Which
+results come first", below): `today` and `yesterday` (from the start of the day),
 a weekday such as `wednesday` (from the start of the latest one, today if today is that day), or a duration: a number
 and `s`, `m` (minutes), `h`, `d` or `w`: `5m`, `24h`, `2d`, `1w`.
 
@@ -271,9 +272,11 @@ Each term is compiled once per search into a check of one entry:
 - a path, or a `dir:` with a path, becomes a small automaton over the names of an entry's ancestors, its states the
   bits of a `Long`;
 - `type:` becomes a sorted array of the group's extensions, each packed into a `Long`, searched by halving;
-- `mount:` becomes, for each block, a flag per device; `recent:` a bit set of the entries picked since then.
+- `mount:` becomes, for each block, a flag per device; `recent:` a bit set of the entries the usage says were picked
+  since then.
 
-A search then walks each block in order, keeping the folders it is under on a stack. A check that asks about
+A search then walks each block in order, keeping the folders it is under on a stack, and scores each entry it keeps as
+it keeps it ("Which results come first", below). A check that asks about
 ancestors (`dir:`, a path) keeps a state at each level of that stack, worked out once as the walk enters a folder, so
 it costs one step per folder and one look per entry, never a climb up the tree per entry. Checks are run cheapest
 first; every one must pass, so the order changes nothing but the time. A block of more than 65,536 entries is cut into
@@ -281,32 +284,86 @@ slices walked on every core, each slice starting its stack from the ancestors of
 
 Measured on this project's development machine (4 cores), over a made-up tree of 3,000,000 entries
 (`./gradlew :index:test --tests barion.index.SearchBenchmark -Pindex.benchmark=3000000`), the best of seven runs of
-each:
+each, results ranked and ordered:
 
 | query | found | time |
 |---|---|---|
-| `report` | 33,414 | 12 ms |
-| `^img_2024` | 138,368 | 8 ms |
-| `*.jpg` | 1,106,888 | 47 ms |
-| `img_[0-9]*` | 1,106,888 | 17 ms |
-| `ext:pdf` | 264,251 | 16 ms |
-| `type:image` | 1,106,888 | 21 ms |
-| `is:dir` | 131,842 | 5 ms |
-| `dir:photos *.jpg` | 1,106,888 | 30 ms |
-| `dir:project*:1 =readme` | 13,878 | 12 ms |
-| `/home/*/Documents/` | 352,114 | 10 ms |
-| `work/2024/` | 34,467 | 9 ms |
-| `r/^img_\d{4}/` | 1,106,888 | 48 ms |
-| `r/2024/p` | 180,409 | 204 ms |
+| `report` | 33,414 | 19 ms |
+| `^img_2024` | 138,368 | 11 ms |
+| `*.jpg` | 1,106,888 | 76 ms |
+| `img_[0-9]*` | 1,106,888 | 37 ms |
+| `ext:pdf` | 264,251 | 29 ms |
+| `type:image` | 1,106,888 | 36 ms |
+| `is:dir` | 131,842 | 9 ms |
+| `dir:photos *.jpg` | 1,106,888 | 51 ms |
+| `dir:project*:1 =readme` | 13,878 | 17 ms |
+| `/home/*/Documents/` | 352,114 | 23 ms |
+| `work/2024/` | 34,467 | 12 ms |
+| `r/^img_\d{4}/` | 1,106,888 | 63 ms |
+| `r/2024/p` | 180,409 | 279 ms |
 
-The first run of each takes 60 to 320 ms more while the JVM compiles it, which a daemon pays once. A regex over paths
-is the slow one, since Java's regexes run over strings and every path is made into one; every other term reads bytes
-where they lie.
+Before results were ranked, the same searches took 5 to 55 ms (and `r/2024/p` 204 ms): scoring and ordering a million
+results costs some 20 to 30 ms more. The first run of each takes 60 to 320 ms more while the JVM compiles it, which a
+daemon pays once. A regex over paths is the slow one, since Java's regexes run over strings and every path is made
+into one; every other term reads bytes where they lie.
+
+## Which results come first
+
+Say you search for `report`, and these are found:
+
+- `~/Documents/report.pdf`
+- `~/reports` (a folder)
+- `~/old/q4-report.pdf`
+- `~/myreport.txt`
+- `~/.config/report.tmp`
+
+They come back in that order. Each result is given a score as the walk finds it, from what can be known of it
+without reading the disk, and the results are put in order of their scores, highest first, and by path among equal
+scores. A score is a small number, so ordering them is a counting sort: one pass, however many there are. Here is what
+counts, worth the most first:
+
+| what | points |
+|---|---|
+| each word of the query that is the whole name, or the name but for its extension (`report.pdf`) | 4 × 400 |
+| ... that the name starts with (`reports`) | 3 × 400 |
+| ... that a word in the name starts with: after `-`, `_`, `.` or a space, between a digit and a letter, or at a capital after a small letter (`q4-report`, `QuarterlyReport`) | 2 × 400 |
+| ... that is only inside a word (`myreport`) | 1 × 400 |
+| how much the user has picked it: for each doubling of its uses | 200, up to 600 |
+| how much the user has used the folder it is in: for each doubling | 120, up to 400 |
+| how new it is: seen just now, halving every 3 days since (nothing, for what was there when its root was indexed) | up to 300 |
+| under the home folder | 200 |
+| how deep it is: for each level of its path | −12, up to −150 |
+| hidden: a name on its path starts with a dot | −250 |
+
+So a better match of the name outweighs everything but heavy use, and heavy use of a file outweighs one step of its
+name's match: a file picked every day, whose name only has the word inside it, comes before one that merely starts
+with it. Only the first three words of a query count, and only plain words: a glob, a path or a modifier finds what it
+finds, but says nothing of how well. The points are `Ranking`'s, all in one place (`index/.../rank.kt`), to be tuned;
+`SearchContext.ranking` takes others.
+
+### What the user has picked: the usage
+
+Picking something is a use of it, and of the folder it was picked from. A place's uses are kept as one weight that
+halves every 14 days (a "frecency"): a file picked every day this week outweighs one picked ten times last year, and
+no list of every pick is kept. A place used once some months ago, and not picked in 90 days, is let go.
+
+The usage is not what is on the disk, so it is not the index's. The index can be thrown away and built again from the
+disk; the usage cannot. So it is kept in its own file beside the index's, `usage.barion` (docs/format.md), read with
+it, and given to a search in its context (`SearchContext.usage`). `recent:` asks it too.
+
+### How new something is: first sightings
+
+The index keeps, for each entry, when it first held it (a `seen` column in each block). What is there when a root is
+first indexed was seen as the index began, which says nothing of how old it is. What turns up after (the watcher saw
+it made, or a rescan found it) is seen when it was found. When a folder is read again, what the index held already
+keeps when it was first seen: the old tree and the new one are walked side by side, each folder's children matched by
+name (both are in the order of their names' bytes), and only names the old tree did not have keep the new time. So
+the order things turned up in, after the first scan, says how new each is next to everything else.
 
 ## Not yet
 
-- Sorting results (by name, path, or how recently they were picked); they come in the index's order, by path within
-  each block.
+- More of what could rank a result: the folder the picker is in, a word matched in a folder's name above it, and
+  what the application asked for (its filters, its current folder).
 - A trigram index, to find a substring without reading every name; at a few million entries reading them all takes
   milliseconds, so it waits until a measurement says otherwise.
 - One table of extensions for `type:` and the picker's icons and kind filters, which have their own today.

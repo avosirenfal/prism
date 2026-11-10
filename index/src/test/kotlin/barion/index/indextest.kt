@@ -97,8 +97,6 @@ class IndexTest {
 			listOfNotNull(
 				indexer.reread(where("a")),
 				indexer.reread(where("b/two.txt")),
-				Change.Picked(where("a/one.txt"), Instant.parse("2026-01-01T00:00:00Z")),
-				Change.Picked(where("a/one.txt"), Instant.parse("2025-01-01T00:00:00Z")),
 			)
 
 		val once = first.with(changes)
@@ -106,9 +104,52 @@ class IndexTest {
 
 		assertEquals(once.shape(), twice.shape())
 		assertEquals(once.found { +word("t") }, twice.found { +word("t") })
-		assertEquals(Instant.parse("2026-01-01T00:00:00Z"), twice.pickedAt(where("a/one.txt")))
+		assertEquals(once.seenAt(where("a/three.txt")), twice.seenAt(where("a/three.txt")))
 		// And indexing the root again changes nothing.
 		assertEquals(once.shape(), once.with(indexer.index(root)).shape())
+	}
+
+	@Test
+	fun anEntryIsSeenWhenItFirstTurnsUpAndKeepsItThroughRereadsAndCompacting() {
+		made("docs/a.txt")
+
+		fun at(time: String) =
+			Indexer(
+				mounts = emptyList(),
+				clock = java.time.Clock.fixed(Instant.parse(time), java.time.ZoneOffset.UTC),
+			)
+
+		// What is there when a root is first indexed was seen as the index began, which says nothing of how old it is.
+		val first = Index.EMPTY.with(at("2026-11-01T00:00:00Z").index(root))
+
+		assertNull(first.seenAt(where("docs/a.txt")))
+
+		// What turns up after is as new as the read that found it.
+		made("docs/b.txt")
+
+		val second = first.with(at("2026-11-05T00:00:00Z").reread(where("docs"))!!)
+
+		assertNull(second.seenAt(where("docs/a.txt")))
+		assertEquals(Instant.parse("2026-11-05T00:00:00Z"), second.seenAt(where("docs/b.txt")))
+
+		// Read again later, and the root with it, each keeps when it was first seen: through a graft, and compacted.
+		made("docs/deep/c.txt")
+
+		val third =
+			second
+				.with(at("2026-11-09T00:00:00Z").reread(where("docs/deep"))!!)
+				.with(at("2026-11-10T00:00:00Z").index(root))
+
+		assertNull(third.seenAt(where("docs/a.txt")))
+		assertEquals(Instant.parse("2026-11-05T00:00:00Z"), third.seenAt(where("docs/b.txt")))
+		assertEquals(
+			Instant.parse("2026-11-09T00:00:00Z"),
+			third.seenAt(where("docs/deep/c.txt")),
+		)
+		assertEquals(
+			Instant.parse("2026-11-09T00:00:00Z"),
+			third.compacted().seenAt(where("docs/deep/c.txt")),
+		)
 	}
 
 	@Test

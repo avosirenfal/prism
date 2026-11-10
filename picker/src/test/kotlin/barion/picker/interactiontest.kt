@@ -91,6 +91,7 @@ class InteractionTest {
 		choosing: Choosing = Choosing.OneFile(),
 		folder: Path = home(),
 		width: State<Dp>? = null,
+		finder: Finder? = null,
 		check: ComposeUiTest.(Session) -> Unit,
 	) = runComposeUiTest {
 		val running = arrayOfNulls<Session>(1)
@@ -101,10 +102,20 @@ class InteractionTest {
 			val session =
 				remember {
 					Session(
-						opened(choosing, folder, work, sidebarOf(work)),
+						opened(
+							choosing,
+							folder,
+							work,
+							sidebarOf(work),
+							search =
+								finder?.let { Search.Ready() } ?: Search.Unavailable(
+									PickerState.NO_INDEX,
+								),
+						),
 						JvmDisk(trash = Trash(bin)),
 						scope,
 						clipboard = { copied += it },
+						finder = finder,
 					)
 				}
 
@@ -158,6 +169,7 @@ class InteractionTest {
 		listOf(
 			isFocused() and hasTestTag("menu"),
 			isFocused() and hasAnyAncestor(hasTestTag("notice")),
+			isFocused() and hasAnyAncestor(hasTestTag("search-layer")),
 		).firstOrNull { onAllNodes(it).fetchSemanticsNodes().isNotEmpty() }
 			?.let { onNode(it) }
 			?: onNode(isFocused())
@@ -913,5 +925,81 @@ class InteractionTest {
 
 		/** What Compose calls the back button: AWT's fourth, which on Linux is X's sideways scroll. */
 		val COMPOSE_BACK = MouseButton(3)
+	}
+
+	/** A finder over an index of [folder], as `barion pick --index` searches one. */
+	private fun finderOf(folder: Path): Finder =
+		StaticFinder(
+			barion.index.Index.EMPTY.with(
+				barion.index.Indexer(mounts = emptyList()).index(folder),
+			),
+			home = folder,
+		)
+
+	@Test
+	fun ctrlShiftFSearchesTheIndexAndEnterShowsEveryMatchInTheListing() {
+		val home = home()
+
+		picking(folder = home, finder = finderOf(home)) { session ->
+			ctrlShift(Key.F)
+			waitForIdle()
+			onNodeWithTag("search-layer").assertExists()
+			focusIsIn("search-query")
+
+			field("search-query").performTextReplacement("notes")
+			waitUntil(timeoutMillis = TIMEOUT) {
+				onAllNodes(hasTestTag("match:notes.md")).fetchSemanticsNodes().isNotEmpty()
+			}
+
+			// Enter from the field: every match, in the listing, and the window put away.
+			press(Key.Enter)
+			waitUntil(timeoutMillis = TIMEOUT) { session.state.value.results != null }
+			waitForIdle()
+			assertEquals(0, onAllNodes(hasTestTag("search-layer")).fetchSemanticsNodes().size)
+			onNodeWithTag("results").assertIsDisplayed()
+			row("notes.md").assertIsDisplayed()
+			onNodeWithTag("status").assertTextEquals("1 result")
+
+			// Opened again, what was typed is there.
+			ctrlShift(Key.F)
+			waitForIdle()
+			field("search-query").assertTextEquals("notes")
+		}
+	}
+
+	@Test
+	fun aMatchChosenWithTheArrowsGoesToTheFileChosen() {
+		val home = home()
+
+		picking(folder = home, finder = finderOf(home)) { session ->
+			ctrlShift(Key.F)
+			waitForIdle()
+			field("search-query").performTextReplacement("letter")
+			waitUntil(timeoutMillis = TIMEOUT) {
+				onAllNodes(hasTestTag("match:letter.odt")).fetchSemanticsNodes().isNotEmpty()
+			}
+			press(Key.DirectionDown)
+			waitForIdle()
+			onNodeWithTag("match:letter.odt").assertIsSelected()
+			press(Key.Enter)
+			waitUntil(timeoutMillis = TIMEOUT) {
+				session.state.value.chosenRows
+					.map { it.name } == listOf("letter.odt")
+			}
+			assertEquals(work.resolve("Documents"), session.state.value.folder)
+			row("letter.odt").assertIsSelected()
+		}
+	}
+
+	@Test
+	fun withNoIndexTheSearchSaysSo() {
+		picking { _ ->
+			ctrlShift(Key.F)
+			waitForIdle()
+			onNodeWithTag("search-ok").assertIsDisplayed()
+			press(Key.Escape)
+			waitForIdle()
+			assertEquals(0, onAllNodes(hasTestTag("search-layer")).fetchSemanticsNodes().size)
+		}
 	}
 }

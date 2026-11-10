@@ -29,8 +29,27 @@ class CliTest {
 		override fun run(args: Args) = Outcome("${args[where]} ${args[size]}")
 	}
 
+	/** An option whose value may be left out, before an argument that its values are told apart from. */
+	private object Index : Command("index", "an option given alone or with a value") {
+		val file =
+			optionalValue(
+				"--file",
+				type =
+					ParamType("FILE") { word ->
+						if (word.endsWith(".idx"))
+							Parsed.Value(word)
+						else
+							Parsed.Invalid("'$word' is not an index")
+					},
+				help = "the index",
+			)
+		val folder = argument("FOLDER", ParamType.TEXT, default = { "home" }, shown = "home")
+
+		override fun run(args: Args) = Outcome("")
+	}
+
 	private val root =
-		Group("root", "the commands", listOf(Category("probing", listOf(Probe, Maybe))))
+		Group("root", "the commands", listOf(Category("probing", listOf(Probe, Maybe, Index))))
 
 	private fun run(vararg words: String): Args =
 		assertInstanceOf(
@@ -53,6 +72,28 @@ class CliTest {
 		assertEquals("0x40", args[Probe.at])
 		assertEquals(15, args[Probe.need])
 		assertEquals(listOf("s1", "s2"), args[Probe.tag])
+	}
+
+	@Test
+	fun anOptionalValueIsTheNextWordOnlyWhereItReadsAsOne() {
+		fun given(vararg words: String): Pair<Given<String>?, String> =
+			assertInstanceOf(
+				Invocation.Run::class.java,
+				invocation(root, listOf("index") + words),
+			).args.let {
+				it[Index.file] to it[Index.folder]
+			}
+
+		assertEquals(null to "home", given())
+		assertEquals(Given.Alone to "home", given("--file"))
+		assertEquals(Given.With("a.idx") to "home", given("--file", "a.idx"))
+		assertEquals(Given.With("a.idx") to "docs", given("--file=a.idx", "docs"))
+		// The next word is not an index, so the option is given alone, and the word is the folder.
+		assertEquals(Given.Alone to "docs", given("--file", "docs"))
+		assertEquals(Given.Alone to "docs", given("docs", "--file"))
+		// Given with `=`, it must be a value.
+		assertTrue("not an index" in wrong("index", "--file=docs"))
+		assertTrue("[FILE]" in help(Index, listOf("root", "index")))
 	}
 
 	@Test
