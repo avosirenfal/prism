@@ -13,7 +13,7 @@ plugins {
 
 dependencies {
 	implementation(project(":cli"))
-	implementation(project(":picker"))
+	implementation(project(":browser"))
 	implementation(project(":index"))
 	implementation(project(":daemon"))
 	implementation(project(":portal"))

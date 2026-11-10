@@ -36,14 +36,14 @@ The same function that made the first state now makes the next one from it and t
 into an event and sends it to the session:
 
 ```kotlin
-PickerEvent.Moved(Move.By(1), Carry.Choose)
+BrowserEvent.Moved(Move.By(1), Carry.Choose)
 ```
 
 The reducer moves the cursor to the first row (with no cursor yet, the first move lands on the first row) and
 chooses it. The view draws the row highlighted, and the name field shows its name, because the name field shows what
 is chosen.
 
-**You press Enter.** That is `PickerEvent.Accepted`. If the row is a folder, accepting goes into it: the reducer
+**You press Enter.** That is `BrowserEvent.Accepted`. If the row is a folder, accepting goes into it: the reducer
 answers with a new state reading that folder, and an `Effect.Read` for it. If it is a file, the reducer answers with
 `Effect.Finish(Outcome.Chosen([that file]))`. The session completes its outcome with that, the window closes, and
 `prism pick` prints the path.
@@ -56,8 +56,8 @@ part of it.
 
 | file | what |
 |---|---|
-| `model.kt` | the state: `PickerState` and everything it holds |
-| `events.kt` | what changes it (`PickerEvent` from the user, `Answer` from the disk) and what it asks for (`Effect`) |
+| `model.kt` | the state: `BrowserState` and everything it holds |
+| `events.kt` | what changes it (`BrowserEvent` from the user, `Answer` from the disk) and what it asks for (`Effect`) |
 | `step.kt` | the reducer, `step(state, input): Step`, and every rule of what the picker does |
 | `session.kt` | `Session`: the reducer run over every input in turn, the effects carried out |
 | `source.kt` | `Disk`, and `JvmDisk`: a folder read into rows, a typed path looked up, a change made, results read for their sizes and dates; the rows' text worked out |
@@ -68,14 +68,14 @@ part of it.
 | `menuview.kt` | `MenuPopup`, `ContextMenus`, `Modifier.contextMenu`, `MenuButton`: any menu drawn and opened |
 | `menus.kt` | the picker's own menus: each target's context menu, and the filter menu, from the state |
 | `elements.kt` | the controls: a button, a tool button, a text field, a drop-down choice, the keyboard's ring |
-| `view.kt` | `FilePicker(state, onEvent)`: the picker drawn from a state, made of those controls |
+| `view.kt` | `FileBrowser(state, onEvent)`: the picker drawn from a state, made of those controls |
 
 The reducer is a pure function: it reads nothing and runs nothing. So every rule can be checked as values, by
 giving a state and an event and looking at what comes back, and that is what `StepTest` does, forty-odd times.
 
 ## What the state holds
 
-`PickerState` is immutable. Each change makes a new one. It holds:
+`BrowserState` is immutable. Each change makes a new one. It holds:
 
 | field | what |
 |---|---|
@@ -126,7 +126,7 @@ What is typed can be a name, several names in quotes, a path (`Documents/2026`),
 or a path from the root (`/etc/hosts`). Before the picker does anything with it, it is looked up on disk:
 
 ```kotlin
-step(state with typed = "~/Documents", PickerEvent.Accepted)
+step(state with typed = "~/Documents", BrowserEvent.Accepted)
 // state.waiting = Lookup.Accepting("~/Documents", [/home/avery/Documents])
 // effects       = [Effect.Look(that lookup)]
 ```
@@ -268,12 +268,12 @@ What makes this easy to grow is that **a menu is data**. Here is the file's menu
 
 ```kotlin
 menu {
-    item("Open", PickerEvent.Picked(row.id), keys = "Enter")
+    item("Open", BrowserEvent.Picked(row.id), keys = "Enter")
     separator()
-    item("Rename", PickerEvent.StartedRenaming(row.id), keys = "F2")
-    item("Copy path", PickerEvent.CopiedPaths(paths), keys = "Ctrl+Shift+C")
+    item("Rename", BrowserEvent.StartedRenaming(row.id), keys = "F2")
+    item("Copy path", BrowserEvent.CopiedPaths(paths), keys = "Ctrl+Shift+C")
     separator()
-    item("Move to trash", PickerEvent.Trashed(ids), keys = "Delete")
+    item("Move to trash", BrowserEvent.Trashed(ids), keys = "Delete")
 }
 ```
 
@@ -285,12 +285,12 @@ several rows) leaves no stray line, and a submenu with nothing in it is left out
 Each item's action is the event choosing it reports, exactly as if the user had pressed its keys: "Rename" reports
 `StartedRenaming`, the same event F2 reports. So choosing from a menu is just another way to do what the picker can
 already do, and the reducer decides what comes of it. The menu knows nothing of what its actions mean: a `Menu<A>` is
-generic in its action, and the picker's menus are `Menu<PickerEvent>`.
+generic in its action, and the picker's menus are `Menu<BrowserEvent>`.
 
 Which menu opens is a pure function of the state and what was pressed, a `Target`:
 
 ```kotlin
-fun contextMenuOf(state: PickerState, target: Target): Menu<PickerEvent>
+fun contextMenuOf(state: BrowserState, target: Target): Menu<BrowserEvent>
 ```
 
 where a target is some rows, or the folder itself. That is where menus vary by what they are of: a file or a folder,
@@ -417,12 +417,12 @@ through every file the index holds, wherever it is. Here is one search, followed
 
 ![The search's window over the picker](picker-search-index.png)
 
-**The window opens.** Ctrl+Shift+F is `PickerEvent.OpenedSearch`. The state's `search` is `Search.Ready` when the
+**The window opens.** Ctrl+Shift+F is `BrowserEvent.OpenedSearch`. The state's `search` is `Search.Ready` when the
 picker was given an index, and `Search.Unavailable(why)` when it was not. Opening sets `open`, and the view draws a
 window over the picker: a field, a Search button, and room for matches under them. Without an index, the window says
 why instead.
 
-**You type `report -ext:pdf`.** Each key is `PickerEvent.SearchTyped(text)`. The reducer keeps the text and asks for a
+**You type `report -ext:pdf`.** Each key is `BrowserEvent.SearchTyped(text)`. The reducer keeps the text and asks for a
 search of it:
 
 ```kotlin
@@ -487,7 +487,7 @@ Sizes and dates are not in the index. They are read on disk (`Effect.Stat`, answ
 - **Up to 10,000 results** (`FEW_RESULTS`): every one is read as soon as they are shown, best first, 256 at a time, and
   they can be ordered by any column at once, as a folder is.
 - **More than that**: the rows in sight are read, with 160 rows ahead and 40 behind, as the view says which are in
-  sight (`PickerEvent.Scrolled`), and rows fill in as their reads arrive. They can be ordered by name or by type, which
+  sight (`BrowserEvent.Scrolled`), and rows fill in as their reads arrive. They can be ordered by name or by type, which
   the index knows; the order is worked out behind the picker (`Effect.Order`), and meanwhile the status line says
   "ordering by name…". Size and date cannot order them, since only reading every one would say, and those headings are
   drawn faint.
@@ -556,14 +556,14 @@ time, the latest only.
 
 ## The view and its controls
 
-`FilePicker(state, onEvent)` draws a state and reports events. It changes nothing itself.
+`FileBrowser(state, onEvent)` draws a state and reports events. It changes nothing itself.
 
 It is made of the controls in `elements.kt`. Each draws its own looks (hovered, pressed, focused, disabled) from the
 palette, takes the keys a desktop's controls take, and reports only what it is for:
 
 | control | what it is | keys |
 |---|---|---|
-| `PickerButton` | a button with words: Open, Cancel, Replace, Move to trash | Enter, Space |
+| `PushButton` | a button with words: Open, Cancel, Replace, Move to trash | Enter, Space |
 | `ToolButton` | a button with a glyph: Back, Forward, Up, the list and the gallery (one of a set shown as selected) | none: they have shortcuts of their own, so Tab passes over them |
 | `MenuButton` | a tool button with a menu under it: the filters | |
 | `Field` | a line of text: the path, the search, the name, a name being renamed | as any text field; it selects all its text when the keyboard arrives (saving and renaming, the name without its extension, so typing replaces only the name) |
@@ -658,7 +658,7 @@ list by one row, not a page, and a row far away is scrolled to directly (never b
   with the search filling with "2"s. These are what found that a Shift-click was being read as a double click, and that the
   listing scrolled before it had been laid out.
 - **The drawing** (`PickerTest`): every kind of picker drawn headless, in both palettes, with a notice up, a path
-  being typed, a search and an unreadable folder; `-Ppicker.screenshots=DIR` keeps the pictures.
+  being typed, a search and an unreadable folder; `-Pbrowser.screenshots=DIR` keeps the pictures.
 - **The search of the index** (`FindTest`): over a real index of a folder made for each test, as `--index` searches
   one. The window's matches, best first, kept when it is closed, an answer for an older text dropped, and the arrows;
   a match gone to as each kind of picker goes to it; a folder picker finding only folders; every match in the listing,

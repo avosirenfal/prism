@@ -1,12 +1,5 @@
 package prism.daemon
 
-import prism.index.FileId
-import prism.index.Indexer
-import prism.index.Name
-import prism.index.Where
-import prism.probe.Change
-import prism.watcher.Observed
-import prism.watcher.Watcher
 import java.nio.file.Path
 import java.util.concurrent.Executors
 import java.util.concurrent.LinkedBlockingQueue
@@ -16,6 +9,13 @@ import kotlin.io.path.Path
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
+import prism.index.FileId
+import prism.index.Indexer
+import prism.index.Name
+import prism.index.Where
+import prism.probe.Change
+import prism.watcher.Observed
+import prism.watcher.Watcher
 
 /** Where a daemon's changes come from: the kernel, through the watcher; or, for a test, whatever it gives. */
 fun interface Feed {

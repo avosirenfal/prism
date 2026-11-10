@@ -1,9 +1,5 @@
 package prism.app
 
-import prism.cli.ParamType
-import prism.picker.Palette
-import prism.portal.ColorScheme
-import prism.portal.sessionColorScheme
 import kotlin.time.Duration.Companion.milliseconds
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -16,6 +12,10 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeoutOrNull
+import prism.browser.Palette
+import prism.cli.ParamType
+import prism.portal.ColorScheme
+import prism.portal.sessionColorScheme
 
 /*
  * Which palette the picker is drawn in. By default, the one the desktop's colour scheme asks for, as the portal

@@ -1,5 +1,11 @@
 package prism.portal
 
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.flow
+import kotlinx.serialization.Serializable
 import prism.dbus.BusName
 import prism.dbus.Code
 import prism.dbus.Connection
@@ -10,12 +16,6 @@ import prism.dbus.Reply
 import prism.dbus.Variant
 import prism.dbus.method
 import prism.dbus.signal
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.catch
-import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.emitAll
-import kotlinx.coroutines.flow.flow
-import kotlinx.serialization.Serializable
 
 /*
  * The desktop's appearance, as the portal reports it: the colour scheme the user prefers (`org.freedesktop.appearance`

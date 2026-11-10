@@ -46,7 +46,10 @@ include(
 	":index",
 	":watcher",
 	":daemon",
-	":picker",
+	":preferences",
+	":desktop",
+	":browser",
+	":explorer",
 	":app",
 	":ktlint-rules",
 )

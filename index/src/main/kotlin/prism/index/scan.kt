@@ -1,16 +1,5 @@
 package prism.index
 
-import prism.linux.AtFlags
-import prism.linux.Dev
-import prism.linux.DirentBuffer
-import prism.linux.Fd
-import prism.linux.FileKind
-import prism.linux.OpenFlags
-import prism.linux.Stat
-import prism.linux.Sys
-import prism.linux.close
-import prism.linux.openat
-import prism.linux.statx
 import java.io.IOException
 import java.lang.foreign.Arena
 import java.lang.foreign.MemorySegment
@@ -22,6 +11,17 @@ import java.util.concurrent.ForkJoinPool
 import java.util.concurrent.RecursiveTask
 import kotlin.time.Duration
 import kotlin.time.measureTimedValue
+import prism.linux.AtFlags
+import prism.linux.Dev
+import prism.linux.DirentBuffer
+import prism.linux.Fd
+import prism.linux.FileKind
+import prism.linux.OpenFlags
+import prism.linux.Stat
+import prism.linux.Sys
+import prism.linux.close
+import prism.linux.openat
+import prism.linux.statx
 
 /*
  * A scan: a directory tree read into an immutable tree of what it holds. How a directory is read is a [Backend]; the

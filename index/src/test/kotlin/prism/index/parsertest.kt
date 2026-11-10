@@ -1,5 +1,12 @@
 package prism.index
 
+import java.time.DayOfWeek
+import kotlin.time.Duration.Companion.days
+import kotlin.time.Duration.Companion.hours
+import kotlin.time.Duration.Companion.minutes
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Test
 import prism.index.query.Case
 import prism.index.query.Depth
 import prism.index.query.Flag
@@ -12,13 +19,6 @@ import prism.index.query.RegexOn
 import prism.index.query.Since
 import prism.index.query.Span
 import prism.index.query.query
-import java.time.DayOfWeek
-import kotlin.time.Duration.Companion.days
-import kotlin.time.Duration.Companion.hours
-import kotlin.time.Duration.Companion.minutes
-import org.junit.jupiter.api.Assertions.assertEquals
-import org.junit.jupiter.api.Assertions.assertTrue
-import org.junit.jupiter.api.Test
 
 /**
  * The search language's text, read: every example of it reads to the query the DSL builds for it; every text it can

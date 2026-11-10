@@ -1,17 +1,5 @@
 package prism.app
 
-import prism.dbus.Answer
-import prism.dbus.PrivateBus
-import prism.dbus.Variant
-import prism.dbus.method
-import prism.dbus.orThrow
-import prism.picker.Choosing
-import prism.picker.Palette
-import prism.picker.pickerOf
-import prism.picker.renderedPng
-import prism.portal.ColorScheme
-import prism.portal.SettingChanged
-import prism.portal.Settings
 import java.io.ByteArrayInputStream
 import java.nio.file.Path
 import javax.imageio.ImageIO
@@ -23,6 +11,18 @@ import kotlinx.serialization.Serializable
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
+import prism.browser.Choosing
+import prism.browser.Palette
+import prism.browser.pickerOf
+import prism.browser.renderedPng
+import prism.dbus.Answer
+import prism.dbus.PrivateBus
+import prism.dbus.Variant
+import prism.dbus.method
+import prism.dbus.orThrow
+import prism.portal.ColorScheme
+import prism.portal.SettingChanged
+import prism.portal.Settings
 
 @Serializable
 data class NameRequest(

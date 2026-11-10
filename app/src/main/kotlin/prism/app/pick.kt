@@ -9,6 +9,30 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
+import java.nio.file.Path
+import kotlin.io.path.Path
+import kotlin.io.path.isDirectory
+import kotlin.io.path.writeBytes
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import prism.browser.BrowserEvent
+import prism.browser.BrowserState
+import prism.browser.BrowserTheme
+import prism.browser.Choosing
+import prism.browser.Finder
+import prism.browser.JvmDisk
+import prism.browser.KeepsKeyboard
+import prism.browser.Search
+import prism.browser.Session
+import prism.browser.SessionBrowser
+import prism.browser.SideButtons
+import prism.browser.StaticFinder
+import prism.browser.Step
+import prism.browser.TitleBarTone
+import prism.browser.opened
+import prism.browser.pickerOf
+import prism.browser.renderedPng
+import prism.browser.sidebarOf
 import prism.cli.Args
 import prism.cli.Command
 import prism.cli.Given
@@ -21,31 +45,7 @@ import prism.index.IndexFile
 import prism.index.IndexRead
 import prism.index.UsageFile
 import prism.index.UsageRead
-import prism.picker.Choosing
-import prism.picker.Finder
-import prism.picker.JvmDisk
-import prism.picker.KeepsKeyboard
-import prism.picker.PickerEvent
-import prism.picker.PickerState
-import prism.picker.PickerTheme
-import prism.picker.Search
-import prism.picker.Session
-import prism.picker.SessionPicker
-import prism.picker.SideButtons
-import prism.picker.StaticFinder
-import prism.picker.Step
-import prism.picker.TitleBarTone
-import prism.picker.opened
-import prism.picker.pickerOf
-import prism.picker.renderedPng
-import prism.picker.sidebarOf
-import java.nio.file.Path
-import kotlin.io.path.Path
-import kotlin.io.path.isDirectory
-import kotlin.io.path.writeBytes
-import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.ExperimentalCoroutinesApi
-import prism.picker.Outcome as Ended
+import prism.browser.Outcome as Ended
 
 /*
  * The picker from the command line: in a window (`prism pick`), or drawn into a picture (`prism snapshot`), each
@@ -106,7 +106,7 @@ private class Picking(
 	fun folder(args: Args): Path = args[folder]
 
 	/** The picker over its folder, read: what a snapshot draws. */
-	fun state(args: Args): PickerState = pickerOf(folder(args), choosing(args))
+	fun state(args: Args): BrowserState = pickerOf(folder(args), choosing(args))
 
 	fun theme(args: Args): Theme = args[theme]
 }
@@ -186,7 +186,7 @@ object PickCommand : Command(
 		val file =
 			when (given) {
 				null -> return Search.Unavailable(
-					"${PickerState.NO_INDEX} prism pick --index searches one.",
+					"${BrowserState.NO_INDEX} prism pick --index searches one.",
 				) to
 					null
 				Given.Alone -> defaultIndexFile()
@@ -247,7 +247,7 @@ object PickCommand : Command(
 				val palette = paletteOf(theme, scheme)
 
 				Window(
-					onCloseRequest = { session.send(PickerEvent.Cancelled) },
+					onCloseRequest = { session.send(BrowserEvent.Cancelled) },
 					title = state.title,
 					state = rememberWindowState(width = 1100.dp, height = 680.dp),
 					undecorated = !decorated,
@@ -255,7 +255,7 @@ object PickCommand : Command(
 					SideButtons(window, session::send)
 					KeepsKeyboard(window)
 					TitleBarTone(window, palette.isDark)
-					PickerTheme(palette) { SessionPicker(session) }
+					BrowserTheme(palette) { SessionBrowser(session) }
 				}
 			}
 		}

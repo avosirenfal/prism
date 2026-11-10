@@ -1,5 +1,9 @@
 package prism.index
 
+import java.lang.foreign.Arena
+import java.lang.foreign.MemorySegment
+import java.lang.foreign.ValueLayout.JAVA_BYTE
+import java.nio.file.Path
 import prism.linux.AtFlags
 import prism.linux.Dev
 import prism.linux.Fd
@@ -7,10 +11,6 @@ import prism.linux.FileKind
 import prism.linux.Stat
 import prism.linux.Sys
 import prism.linux.statx
-import java.lang.foreign.Arena
-import java.lang.foreign.MemorySegment
-import java.lang.foreign.ValueLayout.JAVA_BYTE
-import java.nio.file.Path
 
 /**
  * Reads the disk into [Change]s: a folder indexed, with everything under it the rules let in, or one entry read

@@ -1,7 +1,5 @@
 package prism.index
 
-import prism.index.query.QueryBuilder
-import prism.index.query.query
 import java.nio.file.Path
 import java.time.Clock
 import java.time.Duration
@@ -16,6 +14,8 @@ import org.junit.jupiter.api.Assertions.assertInstanceOf
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
+import prism.index.query.QueryBuilder
+import prism.index.query.query
 
 /**
  * The order a search gives its results in, best first: by how each word matches the name, by how much the user has

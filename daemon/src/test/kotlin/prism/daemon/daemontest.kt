@@ -1,16 +1,5 @@
 package prism.daemon
 
-import prism.index.FileId
-import prism.index.Index
-import prism.index.Indexer
-import prism.index.Name
-import prism.linux.Dev
-import prism.linux.Fd
-import prism.linux.FileKind
-import prism.linux.orThrow
-import prism.linux.statx
-import prism.probe.Change
-import prism.watcher.Observed
 import java.nio.file.Path
 import java.util.Collections
 import java.util.concurrent.CountDownLatch
@@ -23,6 +12,17 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
+import prism.index.FileId
+import prism.index.Index
+import prism.index.Indexer
+import prism.index.Name
+import prism.linux.Dev
+import prism.linux.Fd
+import prism.linux.FileKind
+import prism.linux.orThrow
+import prism.linux.statx
+import prism.probe.Change
+import prism.watcher.Observed
 
 /**
  * The daemon: its feed started before its index is read, so a change made while the index is read is not missed;

@@ -1,5 +1,9 @@
 package prism.ebpfloader
 
+import java.lang.foreign.Arena
+import java.lang.foreign.MemorySegment
+import java.lang.foreign.ValueLayout.JAVA_INT
+import java.lang.foreign.ValueLayout.JAVA_LONG
 import prism.ebpf.Btf
 import prism.ebpf.Counters
 import prism.ebpf.Hook
@@ -11,10 +15,6 @@ import prism.ebpf.Table
 import prism.ebpf.kernelMismatches
 import prism.linux.Fd
 import prism.linux.Sys
-import java.lang.foreign.Arena
-import java.lang.foreign.MemorySegment
-import java.lang.foreign.ValueLayout.JAVA_INT
-import java.lang.foreign.ValueLayout.JAVA_LONG
 
 /*
  * A program declared in the DSL, loaded from the object clang compiled of it. The Kotlin declaration is the one

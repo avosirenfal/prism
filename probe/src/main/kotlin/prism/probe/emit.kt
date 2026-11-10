@@ -1,12 +1,12 @@
 package prism.probe
 
-import prism.ebpf.emittedOrThrow
-import prism.ebpf.fileName
 import kotlin.io.path.Path
 import kotlin.io.path.createDirectories
 import kotlin.io.path.deleteRecursively
 import kotlin.io.path.div
 import kotlin.io.path.writeText
+import prism.ebpf.emittedOrThrow
+import prism.ebpf.fileName
 
 /** Every program the probe module declares: what the build emits and compiles. */
 val PROGRAMS = listOf(FsWatch.program)

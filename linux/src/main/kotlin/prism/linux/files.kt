@@ -135,6 +135,8 @@ data class Stat(
 	val links: Int,
 	/** The mount it was reached through (`STATX_MNT_ID`), 0 where the kernel did not say. */
 	val mountId: Long,
+	/** When it was made (`STATX_BTIME`); null where the file system does not keep it. */
+	val born: Instant? = null,
 )
 
 private val openatHandle =
@@ -201,8 +203,11 @@ inline fun <T> withOpened(
 /** The `struct statx` statx(2) fills: 256 bytes, whatever the kernel. */
 private const val STATX_SIZE = 256L
 
-/** `STATX_BASIC_STATS | STATX_MNT_ID`: what [Stat] holds. */
-private const val STATX_MASK = 0x7FF or 0x1000
+/** `STATX_BASIC_STATS | STATX_BTIME | STATX_MNT_ID`: what [Stat] holds. */
+private const val STATX_MASK = 0x7FF or 0x800 or 0x1000
+
+/** `STATX_BTIME`, in the mask the kernel gives back: the birth time is there. */
+private const val STATX_BTIME = 0x800
 
 /** `statx(2)` of [path] (a C string) relative to [dir], into [scratch] (at least 256 bytes), as a [Stat]. */
 fun statx(
@@ -239,6 +244,10 @@ fun statx(
 				),
 			links = scratch.get(JAVA_INT, 16),
 			mountId = scratch.get(JAVA_LONG, 144),
+			born =
+				Instant
+					.ofEpochSecond(scratch.get(JAVA_LONG, 80), scratch.get(JAVA_INT, 88).toLong())
+					.takeIf { scratch.get(JAVA_INT, 0) and STATX_BTIME != 0 },
 		)
 	}
 }

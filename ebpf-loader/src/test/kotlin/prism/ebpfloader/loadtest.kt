@@ -1,12 +1,5 @@
 package prism.ebpfloader
 
-import prism.ebpf.Clang
-import prism.ebpf.HookKind
-import prism.linux.Errno
-import prism.linux.Fd
-import prism.linux.Wait
-import prism.linux.close
-import prism.linux.orThrow
 import java.nio.file.Path
 import kotlin.io.path.readBytes
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -16,6 +9,13 @@ import org.junit.jupiter.api.Assertions.fail
 import org.junit.jupiter.api.Assumptions.assumeTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
+import prism.ebpf.Clang
+import prism.ebpf.HookKind
+import prism.linux.Errno
+import prism.linux.Fd
+import prism.linux.Wait
+import prism.linux.close
+import prism.linux.orThrow
 
 /**
  * A program from the DSL, through clang and libbpf, into the kernel this test runs on and back: the host writes a

@@ -1,14 +1,14 @@
 package prism.probe
 
-import prism.ebpf.Btf
-import prism.ebpf.Clang
-import prism.ebpf.kernelMismatches
 import java.nio.file.Path
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Assumptions.assumeTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
+import prism.ebpf.Btf
+import prism.ebpf.Clang
+import prism.ebpf.kernelMismatches
 
 /**
  * The watcher as declared: free of errors, compiled by clang as the build compiles it, and in agreement with the

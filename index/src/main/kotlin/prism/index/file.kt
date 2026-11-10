@@ -1,6 +1,5 @@
 package prism.index
 
-import prism.linux.Dev
 import com.github.luben.zstd.Zstd
 import java.io.IOException
 import java.nio.ByteBuffer
@@ -13,6 +12,7 @@ import java.nio.file.Path
 import java.nio.file.StandardCopyOption
 import java.nio.file.StandardOpenOption
 import java.util.zip.CRC32C
+import prism.linux.Dev
 
 /*
  * The index's file (docs/format.md says it byte by byte): a header, then frames. The first frame is a snapshot of the

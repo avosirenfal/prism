@@ -1,5 +1,14 @@
 package prism.index
 
+import java.nio.file.Path
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
+import java.time.temporal.TemporalAdjusters
+import java.util.BitSet
+import java.util.regex.Pattern
+import java.util.stream.IntStream
+import kotlin.io.path.Path
 import prism.index.query.Anchors
 import prism.index.query.Case
 import prism.index.query.DirTarget
@@ -16,15 +25,6 @@ import prism.index.query.Since
 import prism.index.query.Term
 import prism.index.query.Test
 import prism.index.query.TextPattern
-import java.nio.file.Path
-import java.time.Instant
-import java.time.LocalDate
-import java.time.ZoneId
-import java.time.temporal.TemporalAdjusters
-import java.util.BitSet
-import java.util.regex.Pattern
-import java.util.stream.IntStream
-import kotlin.io.path.Path
 
 /*
  * Running a query over the index's columns.

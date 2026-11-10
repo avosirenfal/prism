@@ -1,5 +1,10 @@
 package prism.ebpfloader
 
+import java.lang.foreign.Arena
+import java.lang.foreign.MemorySegment
+import java.lang.foreign.ValueLayout.JAVA_INT
+import java.lang.foreign.ValueLayout.JAVA_LONG
+import java.lang.invoke.VarHandle
 import prism.ebpf.Record
 import prism.ebpf.RingBuffer
 import prism.linux.Epoll
@@ -12,11 +17,6 @@ import prism.linux.map
 import prism.linux.pageSize
 import prism.linux.then
 import prism.linux.unmap
-import java.lang.foreign.Arena
-import java.lang.foreign.MemorySegment
-import java.lang.foreign.ValueLayout.JAVA_INT
-import java.lang.foreign.ValueLayout.JAVA_LONG
-import java.lang.invoke.VarHandle
 
 /*
  * A BPF ring buffer, read by the host in place. The kernel lays a ring out as three mappings of its descriptor: a

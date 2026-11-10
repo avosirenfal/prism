@@ -156,8 +156,8 @@ capability, and will be looked at when distributions enable them.
 
 ## The picker
 
-The picker (docs/picker.md) is a loop of three parts. The view draws an immutable `PickerState` and reports what the
-user does as `PickerEvent`s; a pure reducer makes the next state from the last and an event, with the effects it
+The picker (docs/picker.md) is a loop of three parts. The view draws an immutable `BrowserState` and reports what the
+user does as `BrowserEvent`s; a pure reducer makes the next state from the last and an event, with the effects it
 wants (a folder read, a typed path looked up, the picker finished); and a session carries those out against a `Disk`
 and sends the answers back in. What it is choosing is a sealed type, so a picker for one file cannot hold two and one
 that saves always has a name; the button that accepts is worked out from that, never stored beside it. Everything a
@@ -200,7 +200,7 @@ searched for while the rest is still being typed.
 prism becomes a portal backend by implementing `org.freedesktop.impl.portal.FileChooser` (`OpenFile`, `SaveFile`,
 `SaveFiles`) on the session bus, with a `prism.portal` file in xdg-desktop-portal's portals directory that says so,
 and the user choosing it in `portals.conf` (`org.freedesktop.impl.portal.FileChooser=prism`). Each request becomes a
-`PickerState` (its title, whether it chooses one file or many or a folder, its filters, its current folder and name),
+`BrowserState` (its title, whether it chooses one file or many or a folder, its filters, its current folder and name),
 and the chosen files go back as URIs.
 
 D-Bus is prism's own (the `dbus` module, docs/dbus.md): serving `FileChooser` is declaring its methods and answering

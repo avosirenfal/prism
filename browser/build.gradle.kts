@@ -1,0 +1,26 @@
+// Browsing files, as the file picker and the explorer both do: an immutable model of what is shown, a pure reducer
+// from one state to the next, a composable view of it, and a session that runs the effects the reducer asks for
+// against a disk (browser.source), an index, and the desktop.
+plugins {
+	id("prism.compose")
+}
+
+tasks.test {
+	// `-Pbrowser.screenshots=DIR` has the screenshot tests write their renders there.
+	providers.gradleProperty("browser.screenshots").orNull?.let {
+		systemProperty("browser.screenshots", it)
+	}
+}
+
+dependencies {
+	// The index the picker searches (Ctrl+Shift+F), and its search language.
+	api(project(":index"))
+	// A session's states and outcome are coroutines' flows and deferreds.
+	api(libs.kotlinx.coroutines.core)
+	// AWT's event thread as a dispatcher, which headless drawing draws on, as a window does.
+	implementation(libs.kotlinx.coroutines.swing)
+
+	// Compose's own test harness: the picker composed headless, and pressed and typed at as a user would.
+	@OptIn(org.jetbrains.compose.ExperimentalComposeLibrary::class)
+	testImplementation(compose.uiTest)
+}

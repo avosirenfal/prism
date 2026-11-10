@@ -1,5 +1,9 @@
 package prism.app
 
+import java.nio.file.Path
+import kotlin.io.path.Path
+import kotlin.time.Duration
+import kotlin.time.DurationUnit
 import prism.cli.Args
 import prism.cli.Command
 import prism.cli.Outcome
@@ -9,10 +13,6 @@ import prism.index.IgnoreRules
 import prism.index.Ignored
 import prism.index.Scanned
 import prism.index.Scanner
-import java.nio.file.Path
-import kotlin.io.path.Path
-import kotlin.time.Duration
-import kotlin.time.DurationUnit
 
 /**
  * `prism scan`: a directory tree read by each backend, several times, with what each found and how fast. The

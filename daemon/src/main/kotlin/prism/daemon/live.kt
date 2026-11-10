@@ -1,5 +1,17 @@
 package prism.daemon
 
+import java.nio.file.Files
+import java.nio.file.Path
+import java.time.Instant
+import java.util.concurrent.CompletableFuture
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
+import java.util.concurrent.ThreadFactory
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.minutes
+import kotlin.time.toJavaDuration
 import prism.index.Change
 import prism.index.FileId
 import prism.index.Index
@@ -13,18 +25,6 @@ import prism.index.Where
 import prism.index.places
 import prism.index.query.Query
 import prism.index.search
-import java.nio.file.Files
-import java.nio.file.Path
-import java.time.Instant
-import java.util.concurrent.CompletableFuture
-import java.util.concurrent.ExecutorService
-import java.util.concurrent.Executors
-import java.util.concurrent.ThreadFactory
-import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicInteger
-import kotlin.time.Duration
-import kotlin.time.Duration.Companion.minutes
-import kotlin.time.toJavaDuration
 
 /**
  * A change something saw on the disk, as a live index takes it: the [folder] it happened in, by the kernel's device and

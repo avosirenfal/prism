@@ -1,8 +1,5 @@
 package prism.ebpfloader
 
-import prism.linux.CallState
-import prism.linux.NativeLibrary
-import prism.linux.Sys
 import java.lang.foreign.Arena
 import java.lang.foreign.FunctionDescriptor
 import java.lang.foreign.MemorySegment
@@ -10,6 +7,9 @@ import java.lang.foreign.ValueLayout.ADDRESS
 import java.lang.foreign.ValueLayout.JAVA_BOOLEAN
 import java.lang.foreign.ValueLayout.JAVA_INT
 import java.lang.foreign.ValueLayout.JAVA_LONG
+import prism.linux.CallState
+import prism.linux.NativeLibrary
+import prism.linux.Sys
 
 /*
  * libbpf through the FFM API: what prism needs of it and nothing more. libbpf opens an object clang compiled,

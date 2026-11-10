@@ -1,12 +1,5 @@
 package prism.portal
 
-import prism.dbus.Answer
-import prism.dbus.Connection
-import prism.dbus.PrivateBus
-import prism.dbus.Variant
-import prism.dbus.method
-import prism.dbus.orThrow
-import prism.dbus.signal
 import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -21,6 +14,13 @@ import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import prism.dbus.Answer
+import prism.dbus.Connection
+import prism.dbus.PrivateBus
+import prism.dbus.Variant
+import prism.dbus.method
+import prism.dbus.orThrow
+import prism.dbus.signal
 
 @Serializable
 data class NameRequest(

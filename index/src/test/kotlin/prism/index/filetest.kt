@@ -1,6 +1,5 @@
 package prism.index
 
-import prism.index.query.query
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.file.Files
@@ -20,6 +19,7 @@ import org.junit.jupiter.api.Assertions.assertInstanceOf
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
+import prism.index.query.query
 
 /**
  * The index's file: written and read back to the same index; changes appended and read back as they were made; a

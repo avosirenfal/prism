@@ -1,6 +1,5 @@
 package prism.index
 
-import prism.linux.FileKind
 import java.nio.file.Path
 import kotlin.io.path.createDirectories
 import kotlin.io.path.createSymbolicLinkPointingTo
@@ -10,6 +9,7 @@ import org.junit.jupiter.api.Assertions.assertInstanceOf
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
+import prism.linux.FileKind
 
 /**
  * The scanner over a tree made here: what it finds, what it leaves out, and that its two backends find the same

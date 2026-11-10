@@ -1,13 +1,13 @@
 package prism.app
 
-import prism.cli.Category
-import prism.cli.Group
-import prism.cli.execute
 import java.io.BufferedOutputStream
 import java.io.FileDescriptor
 import java.io.FileOutputStream
 import java.io.PrintStream
 import kotlin.system.exitProcess
+import prism.cli.Category
+import prism.cli.Group
+import prism.cli.execute
 
 /** The command line: every command, in its category, in the order `prism --help` lists them. */
 val PRISM =

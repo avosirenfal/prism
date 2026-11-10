@@ -1,8 +1,5 @@
 package prism.index
 
-import prism.index.query.Depth
-import prism.index.query.query
-import prism.linux.Dev
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
@@ -15,6 +12,9 @@ import kotlin.io.path.writeText
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
+import prism.index.query.Depth
+import prism.index.query.query
+import prism.linux.Dev
 
 /**
  * What keeping the index current rests on: a folder made to agree with the disk one level deep, whatever happened in

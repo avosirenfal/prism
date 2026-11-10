@@ -1,12 +1,5 @@
 package prism.index
 
-import prism.index.query.Depth
-import prism.index.query.Flag
-import prism.index.query.Group
-import prism.index.query.QueryBuilder
-import prism.index.query.RegexOn
-import prism.index.query.query
-import prism.linux.Dev
 import java.nio.file.Path
 import kotlin.io.path.fileSize
 import kotlin.random.Random
@@ -14,6 +7,13 @@ import kotlin.time.measureTimedValue
 import org.junit.jupiter.api.Assumptions.assumeTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
+import prism.index.query.Depth
+import prism.index.query.Flag
+import prism.index.query.Group
+import prism.index.query.QueryBuilder
+import prism.index.query.RegexOn
+import prism.index.query.query
+import prism.linux.Dev
 
 /**
  * How fast the index is at the size of a whole desktop: a made-up tree of `-Pindex.benchmark=N` entries (folders of

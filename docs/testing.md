@@ -83,7 +83,7 @@ The picker's tests draw it headless (skiko's software renderer) in both palettes
 keep the pictures:
 
 ```bash
-./gradlew :picker:test -Ppicker.screenshots=build/shots
+./gradlew :picker:test -Pbrowser.screenshots=build/shots
 ```
 
 To draw it over a real folder:

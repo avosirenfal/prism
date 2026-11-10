@@ -1,10 +1,5 @@
 package prism.index
 
-import prism.index.query.QueryBuilder
-import prism.index.query.query
-import prism.linux.Fd
-import prism.linux.orThrow
-import prism.linux.statx
 import java.net.StandardProtocolFamily
 import java.net.UnixDomainSocketAddress
 import java.nio.channels.ServerSocketChannel
@@ -22,6 +17,11 @@ import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
+import prism.index.query.QueryBuilder
+import prism.index.query.query
+import prism.linux.Fd
+import prism.linux.orThrow
+import prism.linux.statx
 
 /**
  * The index as changes are made to it: each change says what is so now, so making one twice is making it once; a

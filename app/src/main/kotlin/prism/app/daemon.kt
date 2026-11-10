@@ -1,5 +1,9 @@
 package prism.app
 
+import java.util.concurrent.CountDownLatch
+import kotlin.io.path.Path
+import kotlin.time.Duration
+import kotlin.time.measureTime
 import prism.cli.Args
 import prism.cli.Command
 import prism.cli.Outcome
@@ -10,10 +14,6 @@ import prism.daemon.LiveIndex
 import prism.daemon.LiveSearch
 import prism.index.Indexer
 import prism.index.query.QueryText
-import java.util.concurrent.CountDownLatch
-import kotlin.io.path.Path
-import kotlin.time.Duration
-import kotlin.time.measureTime
 
 /**
  * `prism daemon`: the index kept current. The watcher is started first, then the index read from its file (and its

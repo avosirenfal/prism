@@ -1,5 +1,11 @@
 package prism.ebpfloader
 
+import java.lang.foreign.Arena
+import java.lang.foreign.MemorySegment
+import java.lang.foreign.ValueLayout.JAVA_BYTE
+import java.lang.foreign.ValueLayout.JAVA_INT
+import java.lang.foreign.ValueLayout.JAVA_LONG
+import java.lang.foreign.ValueLayout.JAVA_SHORT
 import prism.ebpf.Chars
 import prism.ebpf.Field
 import prism.ebpf.Integral
@@ -10,12 +16,6 @@ import prism.ebpf.U16
 import prism.ebpf.U32
 import prism.ebpf.U64
 import prism.ebpf.U8
-import java.lang.foreign.Arena
-import java.lang.foreign.MemorySegment
-import java.lang.foreign.ValueLayout.JAVA_BYTE
-import java.lang.foreign.ValueLayout.JAVA_INT
-import java.lang.foreign.ValueLayout.JAVA_LONG
-import java.lang.foreign.ValueLayout.JAVA_SHORT
 
 /*
  * A record as the host reads and writes it: in place, by the layout the DSL worked out from the record's own

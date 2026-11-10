@@ -1,5 +1,11 @@
 package prism.app
 
+import java.nio.file.Files
+import java.nio.file.Path
+import kotlin.io.path.Path
+import kotlin.io.path.fileSize
+import kotlin.time.Duration
+import kotlin.time.measureTimedValue
 import prism.cli.Args
 import prism.cli.Command
 import prism.cli.Outcome
@@ -12,12 +18,6 @@ import prism.index.Indexer
 import prism.index.Searched
 import prism.index.query.QueryText
 import prism.index.search
-import java.nio.file.Files
-import java.nio.file.Path
-import kotlin.io.path.Path
-import kotlin.io.path.fileSize
-import kotlin.time.Duration
-import kotlin.time.measureTimedValue
 
 /**
  * `prism index`: folders indexed into the index's file (or the file read, where there is one), with what it holds,

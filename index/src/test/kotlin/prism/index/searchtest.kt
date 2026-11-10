@@ -1,16 +1,5 @@
 package prism.index
 
-import prism.index.query.Case
-import prism.index.query.Depth
-import prism.index.query.Flag
-import prism.index.query.Group
-import prism.index.query.QueryBuilder
-import prism.index.query.RegexOn
-import prism.index.query.Since
-import prism.index.query.query
-import prism.linux.Fd
-import prism.linux.orThrow
-import prism.linux.statx
 import java.nio.file.Path
 import java.time.DayOfWeek
 import java.time.Instant
@@ -26,6 +15,17 @@ import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.TestInstance
 import org.junit.jupiter.api.io.TempDir
+import prism.index.query.Case
+import prism.index.query.Depth
+import prism.index.query.Flag
+import prism.index.query.Group
+import prism.index.query.QueryBuilder
+import prism.index.query.RegexOn
+import prism.index.query.Since
+import prism.index.query.query
+import prism.linux.Fd
+import prism.linux.orThrow
+import prism.linux.statx
 
 /**
  * Every example of the search language (docs/search.md), written in the DSL and run against a tree made here and
