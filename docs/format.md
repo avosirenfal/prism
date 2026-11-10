@@ -1,8 +1,8 @@
 # The index's file
 
-The index lives in one file, `$XDG_CACHE_HOME/barion/index.barion` by default (`~/.cache/barion/index.barion`): a
+The index lives in one file, `$XDG_CACHE_HOME/prism/index.prism` by default (`~/.cache/prism/index.prism`): a
 cache, since it can always be made again by indexing, and in a folder the index itself leaves out. This document says
-what is in it, byte by byte, and why it is laid out so. The code is `barion.index.IndexFile`.
+what is in it, byte by byte, and why it is laid out so. The code is `prism.index.IndexFile`.
 
 ## The idea
 
@@ -17,7 +17,7 @@ what is so now rather than what happened (an entry and everything under it is as
 one twice is the same as making it once, so a batch read twice does no harm.
 
 Now and then, once the changes are a quarter of the size of the snapshot, the file is **compacted**: the index is
-written anew as one snapshot, into `index.barion.new` beside the file, flushed to the disk, and renamed over the old
+written anew as one snapshot, into `index.prism.new` beside the file, flushed to the disk, and renamed over the old
 one. A reader sees the old file or the new one, never half of either.
 
 Every frame is compressed with zstd (through zstd-jni, which carries the native library for each platform in its jar;
@@ -36,7 +36,7 @@ byte, the low bits first, the top bit set on every byte but the last), and signe
 
 | offset | size | what |
 |---|---|---|
-| 0 | 8 | `BARIONIX` in ASCII |
+| 0 | 8 | `PRISMIDX` in ASCII |
 | 8 | 2 | the version: 4 (version 3 had no first sightings, and kept what the picker gave, which is now kept on its own; version 2 had each device's number as a stat gives it alone; version 1 was compressed with DEFLATE and had no inodes; a file of another version is not read, and the index is made again) |
 | 10 | 6 | zeros |
 
@@ -114,7 +114,7 @@ on 4 cores. (Compressed with DEFLATE, and without inodes, those were 683 KB, and
 
 ## The usage, kept on its own
 
-What the picker gave, and from where, is kept in `$XDG_STATE_HOME/barion/usage.barion` (`barion.index.UsageFile`):
+What the picker gave, and from where, is kept in `$XDG_STATE_HOME/prism/usage.prism` (`prism.index.UsageFile`):
 not in the index's file, nor beside it, since the index can be made again from the disk, and this cannot (docs/search.md, "Which results
 come first"). It is small (a place for each thing picked lately, and each folder picked from), so it is written whole
 each time, beside itself and renamed over, as a snapshot is. Numbers are big-endian, as Java's `DataOutputStream`
@@ -122,7 +122,7 @@ writes them.
 
 | what | how |
 |---|---|
-| `BARIONUS` | 8 bytes of ASCII |
+| `PRISMUSE` | 8 bytes of ASCII |
 | the version: 1 | 2 bytes |
 | how many places | 4 bytes |
 | each place, in the order of their paths' bytes | its path's length (2 bytes) and bytes; its weight, as of when it was last used (an 8-byte double); when it was last used, and when it was last picked itself (the milliseconds since 1970, 8 bytes each; the least 64-bit number for never) |

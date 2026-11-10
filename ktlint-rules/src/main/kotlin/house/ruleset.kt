@@ -25,9 +25,9 @@ class HouseRuleSetProvider : RuleSetProviderV3(ID) {
 
 		val ABOUT =
 			Rule.About(
-				maintainer = "barion",
-				repositoryUrl = "https://github.com/avosirenfal/barion",
-				issueTrackerUrl = "https://github.com/avosirenfal/barion/issues",
+				maintainer = "prism",
+				repositoryUrl = "https://github.com/avosirenfal/prism",
+				issueTrackerUrl = "https://github.com/avosirenfal/prism/issues",
 			)
 
 		fun ruleId(name: String) = RuleId("${ID.value}:$name")

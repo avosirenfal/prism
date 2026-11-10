@@ -1,7 +1,7 @@
-// The desktop portal as barion speaks to it, declared over the dbus module: the appearance settings for now (the
-// colour scheme, and its changes), and the file chooser barion will serve.
+// The desktop portal as prism speaks to it, declared over the dbus module: the appearance settings for now (the
+// colour scheme, and its changes), and the file chooser prism will serve.
 plugins {
-	id("barion.kotlin-jvm")
+	id("prism.kotlin-jvm")
 	id("org.jetbrains.kotlin.plugin.serialization")
 }
 

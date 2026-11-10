@@ -1,6 +1,6 @@
 # D-Bus
 
-barion talks to the desktop over D-Bus: to the portal today (to follow the user's colour scheme), and as a portal
+prism talks to the desktop over D-Bus: to the portal today (to follow the user's colour scheme), and as a portal
 backend later (to be the file chooser applications ask for). It does so through a library of its own, the `dbus`
 module, rather than one of the JVM's existing ones. This page explains D-Bus from the ground up, using one call as
 the running example, and then how the library maps it onto Kotlin.
@@ -229,7 +229,7 @@ a connection it has not named, so that is not used as a test.)
 ## The colour scheme
 
 The `portal` module declares the portal's Settings methods and signal, and `Connection.colorScheme()` follows the
-colour scheme as a flow. The app (`barion pick`) asks for the first value before its window opens, so the window
+colour scheme as a flow. The app (`prism pick`) asks for the first value before its window opens, so the window
 opens in the right palette, then switches palette whenever the user changes their preference. Where there is no
 session bus or no portal, the preference is "none", and the picker is light. `--theme light` or `--theme dark`
 overrides it.

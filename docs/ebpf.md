@@ -1,6 +1,6 @@
 # The eBPF DSL
 
-barion's kernel-side programs are written in Kotlin, in the DSL in the `ebpf` module, and compiled to C for
+prism's kernel-side programs are written in Kotlin, in the DSL in the `ebpf` module, and compiled to C for
 clang's BPF target. The point of writing them in Kotlin rather than in C is not brevity: it is that **a program
 the verifier would refuse is, wherever a type can say so, a program that does not compile**, and that the
 declarations a program is written against are checked against the running kernel before anything is loaded.
@@ -55,15 +55,15 @@ and the kernel's own offsets are used at load time.
 ## The emitted C
 
 The emitted C **includes nothing**: it declares the widths it uses, the kernel structures as the subsets the
-program reads (with `preserve_access_index`), the records as the layout barion computed, and the helpers as
+program reads (with `preserve_access_index`), the records as the layout prism computed, and the helpers as
 pointers at the numbers the kernel's ABI gives them. So the build needs no kernel headers and no `vmlinux.h`,
 only a clang with the BPF target.
 
 Each record's layout is asserted where it is declared:
 
 ```c
-_Static_assert(sizeof(struct changed) == 104, "changed: the size barion computed");
-_Static_assert(__builtin_offsetof(struct changed, dev) == 8, "changed.dev: the offset barion computed");
+_Static_assert(sizeof(struct changed) == 104, "changed: the size prism computed");
+_Static_assert(__builtin_offsetof(struct changed, dev) == 8, "changed.dev: the offset prism computed");
 ```
 
 Three sides have to agree about a record: the program that writes it, the C that declares it, and the host that

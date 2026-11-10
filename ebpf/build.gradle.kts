@@ -4,7 +4,7 @@
 // kernel it will run on. Pure Kotlin: nothing here loads or runs anything (ebpf-loader does). Its test fixtures
 // compile a program with clang, for this module's tests and the loader's.
 plugins {
-	id("barion.kotlin-jvm")
+	id("prism.kotlin-jvm")
 	`java-test-fixtures`
 }
 

@@ -2,7 +2,7 @@
 // places a search asks after that the rules leave out, in memory alone), and the glue that starts the watcher before
 // the index is read, so that no change is missed, and makes what it sees in the index.
 plugins {
-	id("barion.kotlin-jvm")
+	id("prism.kotlin-jvm")
 }
 
 dependencies {

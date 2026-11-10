@@ -1,4 +1,4 @@
-# barion
+# prism
 
 A file picker for Linux desktops on Wayland, over an index of every file on the machine that the kernel keeps
 current. It is meant to stand in for the open and save dialogs applications get through the desktop portal: a
@@ -8,7 +8,7 @@ light or dark preference through the portal, over a D-Bus library of its own.
 
 ![The picker, light](docs/picker-light.png)
 
-It is early: the parts exist and are tested, and are not yet joined into the daemon. docs/plan.md says what barion is
+It is early: the parts exist and are tested, and are not yet joined into the daemon. docs/plan.md says what prism is
 for and how it is meant to work; docs/inprogress.md says where it stands.
 
 ```bash
@@ -36,7 +36,7 @@ for and how it is meant to work; docs/inprogress.md says where it stands.
 | `probe check` | every hook of the watcher against the running kernel's own description of its types |
 | `probe watch` | the watcher loaded, and the changes it sees printed (needs `CAP_BPF` and `CAP_PERFMON`) |
 
-`barion --help` and `barion COMMAND --help` say more.
+`prism --help` and `prism COMMAND --help` say more.
 
 ## Layout
 
@@ -51,7 +51,7 @@ for and how it is meant to work; docs/inprogress.md says where it stands.
 | `watcher` | probe, ebpf-loader, linux | the watcher: the probe's program compiled into the module, loaded, attached, and its ring read on a thread of its own |
 | `daemon` | index, watcher | the index kept current: a live index that reads places again when told, makes the changes it is told of (again, once a scan they happened during lands), and reads places the rules leave out for searches alone, in memory; and the daemon, which starts the watcher before the index is read |
 | `dbus` | kotlinx.serialization, coroutines | D-Bus: the bus's socket, its handshake and `Hello` as a connection opens; messages as data; bodies by kotlinx.serialization, their signatures worked out from the Kotlin types; calls, signals as flows, served methods |
-| `portal` | dbus | the desktop portal as barion speaks to it: the appearance settings (the colour scheme, and its changes) |
+| `portal` | dbus | the desktop portal as prism speaks to it: the appearance settings (the colour scheme, and its changes) |
 | `picker` | index, Compose, coroutines | the picker: an immutable state, a pure reducer from one state to the next, a session that reads folders and searches the index for it, and a view made of controls of its own, worked by the pointer and the keyboard alike; a filter menu of kinds, a gallery with thumbnails, zoom, context menus (menus as data, one component to draw them) that rename, trash and make folders, with undo; and Ctrl+Shift+F's search of the index, its results shown as a folder holding them all |
 | `app` | everything | the command line and the window |
 
@@ -84,20 +84,20 @@ fexit(VfsMkdir) {
 
 The build needs a JDK to run Gradle (the toolchain resolver fetches JDK 25 for the modules), a clang with the BPF
 target (the `index` module compiles the watcher), and libbpf at run time to load it. With Nix, `nix develop` (or
-direnv) gives all of them; the flake points `BARION_CLANG` at an unwrapped clang, since the wrapped one adds hardening
+direnv) gives all of them; the flake points `PRISM_CLANG` at an unwrapped clang, since the wrapped one adds hardening
 flags the BPF target refuses. Without Nix, on Debian or Ubuntu:
 
 ```bash
 sudo apt-get install clang libbpf1
 ```
 
-A clang other than the one on the PATH is named with `-Pbarion.clang=PATH` or `$BARION_CLANG`.
+A clang other than the one on the PATH is named with `-Pprism.clang=PATH` or `$PRISM_CLANG`.
 
 ## Docs
 
 | doc | what |
 |---|---|
-| docs/plan.md | what barion is for, how it is put together, and how what is not built yet is meant to work |
+| docs/plan.md | what prism is for, how it is put together, and how what is not built yet is meant to work |
 | docs/picker.md | the picker: one example followed through, then its state, its rules, its filters, its gallery, its session, its controls and its keys |
 | docs/inprogress.md | where the work stands, what is not verified, what is next |
 | docs/ebpf.md | the eBPF DSL: what its types refuse, what it reports, what it checks against the kernel, the C it emits |

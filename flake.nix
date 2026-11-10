@@ -1,5 +1,5 @@
 {
-  description = "barion: a file picker for Wayland's portals, over an eBPF-kept index";
+  description = "prism: a file picker for Wayland's portals, over an eBPF-kept index";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
@@ -37,7 +37,7 @@
         ];
 
         JAVA_HOME = pkgs.jdk25.home;
-        BARION_CLANG = "${pkgs.llvmPackages.clang-unwrapped}/bin/clang";
+        PRISM_CLANG = "${pkgs.llvmPackages.clang-unwrapped}/bin/clang";
         LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath runtimeLibs;
       };
     };

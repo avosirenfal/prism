@@ -1,7 +1,7 @@
 // The file picker: an immutable model of what it shows, a pure reducer from one state to the next, a composable view
 // of it, and a session that runs the effects the reducer asks for against a disk (picker.source) and an index.
 plugins {
-	id("barion.compose")
+	id("prism.compose")
 }
 
 tasks.test {

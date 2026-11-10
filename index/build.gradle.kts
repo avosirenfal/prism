@@ -2,7 +2,7 @@
 // memory and on disk, and how it is searched. Nothing here watches the disk: the watcher is a module of its own, and
 // the daemon module runs the two together.
 plugins {
-	id("barion.kotlin-jvm")
+	id("prism.kotlin-jvm")
 }
 
 dependencies {

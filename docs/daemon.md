@@ -34,7 +34,7 @@ sends only changes the kernel made. Each change is sent through a ring buffer as
 system, the folder's inode (and for a move, the inode of the folder it went to), the entry's name (after a move, its new
 name), its inode and mode, the process, and what happened.
 
-`barion.watcher.Watcher` loads it, attaches it, and reads the ring on a thread of its own, handing each batch it reads
+`prism.watcher.Watcher` loads it, attaches it, and reads the ring on a thread of its own, handing each batch it reads
 to whoever started it. It reads on however long its listener takes, so the daemon's listener only queues. It counts
 what it could not send because the ring was full (`lost`), and says why it stopped, if it does.
 
@@ -68,7 +68,7 @@ is made once, and two changes to one entry in either order leave it as the disk 
 
 ## The live index
 
-`barion.daemon.LiveIndex` is an index open and kept current: an `IndexStore` (written to its file, or in memory
+`prism.daemon.LiveIndex` is an index open and kept current: an `IndexStore` (written to its file, or in memory
 alone) and the `Indexer` that reads the disk for it. It needs no watcher; what it is told, it makes:
 
 - `LiveIndex.open(file, roots)` opens at once, with what the file holds (or nothing), and reads its roots behind:
@@ -109,12 +109,12 @@ But a search that names such a place by an absolute path (`/nix/store/` and a gl
    index (the watcher's changes are made in it too), and let go once no search has asked for it for ten minutes.
 
 The search does not wait for the place to be read: it gives what the index holds, the places still being read, and a
-future that completes once they are, for the search to be run again. `barion daemon --find '~/.gradle/ ext:jar'`
+future that completes once they are, for the search to be run again. `prism daemon --find '~/.gradle/ ext:jar'`
 shows it: the place is read for that search (in this container, in under a second), and found in.
 
 ## The daemon
 
-`barion.daemon.Daemon` runs a feed of changes (the watcher) and a live index together:
+`prism.daemon.Daemon` runs a feed of changes (the watcher) and a live index together:
 
 1. **The feed starts first.** From that moment every change is seen, and waits in a queue.
 2. The live index opens, and reads its roots in the background.
@@ -125,7 +125,7 @@ shows it: the place is read for that search (in this container, in under a secon
    cannot be known.
 
 Without a watcher (the kernel would not load it, or there was no build of it), the daemon runs all the same, and reads
-its roots again every half hour. `barion daemon` runs one in the foreground, saying which it is doing.
+its roots again every half hour. `prism daemon` runs one in the foreground, saying which it is doing.
 
 ## Not yet
 
@@ -140,4 +140,4 @@ its roots again every half hour. `barion daemon` runs one in the foreground, say
   "Where a search comes from"), and the daemon's is a few lines over `LiveIndex.search`, which gives its results ranked
   (docs/search.md, "Which results come first"), its own and those of places read for a search alone ranked together;
   it comes with the portal, which is what opens them. With it, the usage file is written as things are
-  picked, which `barion pick --index` only reads.
+  picked, which `prism pick --index` only reads.

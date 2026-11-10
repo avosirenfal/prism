@@ -64,13 +64,13 @@ Then build the app and run the watcher with the privileges it needs, for thirty 
 ```
 
 ```bash
-sudo app/build/compose/binaries/main/app/barion/bin/barion probe watch --for 30
+sudo app/build/compose/binaries/main/app/prism/bin/prism probe watch --for 30
 ```
 
 and, in another terminal, make changes for it to see:
 
 ```bash
-mkdir /tmp/barion-test && touch /tmp/barion-test/a && mv /tmp/barion-test/a /tmp/barion-test/b && rm -r /tmp/barion-test
+mkdir /tmp/prism-test && touch /tmp/prism-test/a && mv /tmp/prism-test/a /tmp/prism-test/b && rm -r /tmp/prism-test
 ```
 
 Each line it prints is a change: what happened, the device, the directory's inode, the name, and the process that
@@ -94,7 +94,7 @@ To draw it over a real folder:
 
 ## The picker in a real window, without a display
 
-`barion pick` can be run in a real window on a virtual X display, and driven from the command line. With Xvfb and
+`prism pick` can be run in a real window on a virtual X display, and driven from the command line. With Xvfb and
 xdotool installed (`sudo apt-get install xvfb xdotool`), build the app and start a display:
 
 ```bash
@@ -108,7 +108,7 @@ Xvfb :99 -screen 0 1280x800x24 &
 then open the picker on it, with what it prints kept:
 
 ```bash
-DISPLAY=:99 app/build/compose/binaries/main/app/barion/bin/barion pick ~ > picked.txt &
+DISPLAY=:99 app/build/compose/binaries/main/app/prism/bin/prism pick ~ > picked.txt &
 ```
 
 With no window manager, the window has the keyboard only once it has been clicked, so click a row first, then use the
@@ -155,11 +155,11 @@ the trash is then `$XDG_DATA_HOME/Trash`.
 To try the search of the index, index a folder into a file of its own and give the picker that file:
 
 ```bash
-app/build/compose/binaries/main/app/barion/bin/barion index --file /tmp/idx/index.barion ~/Documents
+app/build/compose/binaries/main/app/prism/bin/prism index --file /tmp/idx/index.prism ~/Documents
 ```
 
 ```bash
-DISPLAY=:99 app/build/compose/binaries/main/app/barion/bin/barion pick --index /tmp/idx/index.barion ~ > picked.txt &
+DISPLAY=:99 app/build/compose/binaries/main/app/prism/bin/prism pick --index /tmp/idx/index.prism ~ > picked.txt &
 ```
 
 Then, once a click has given the window the keyboard, Ctrl+Shift+F, a query typed as fast as a person types, Enter to

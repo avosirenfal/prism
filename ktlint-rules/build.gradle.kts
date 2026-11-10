@@ -2,7 +2,7 @@ import org.jetbrains.kotlin.gradle.dsl.KotlinVersion
 
 // House-style ktlint rules. Packaged as a plain jar (no ktlint classes bundled) so the ktlint CLI can load it with `-R`.
 plugins {
-	id("barion.kotlin-jvm")
+	id("prism.kotlin-jvm")
 }
 
 kotlin {

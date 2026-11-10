@@ -1,8 +1,8 @@
 # The plan
 
-barion is a file picker for Linux desktops on Wayland. It replaces the open and save dialogs that applications get
+prism is a file picker for Linux desktops on Wayland. It replaces the open and save dialogs that applications get
 through the desktop portal with one that is fast, that can find any file on the machine by a few typed words, and
-that is never out of date. This page says what barion is for, how it is put together, and how the parts that do not
+that is never out of date. This page says what prism is for, how it is put together, and how the parts that do not
 exist yet are meant to work. docs/inprogress.md says where the work stands today.
 
 ## What it is for
@@ -12,7 +12,7 @@ portal (`xdg-desktop-portal`) over D-Bus, and the portal hands the request to a 
 answers with the chosen file. Today those backends are GNOME's and KDE's, and they are folder browsers: to open a
 file, you walk to its folder.
 
-barion is a backend of its own. Its dialog is a familiar one (the layout of a Windows file dialog, which most people
+prism is a backend of its own. Its dialog is a familiar one (the layout of a Windows file dialog, which most people
 already know how to use), but behind it is an index of every file and folder on the machine, kept current as the
 kernel changes them, so that a few typed words find a file wherever it is. The goals, in no particular order:
 
@@ -25,7 +25,7 @@ kernel changes them, so that a few typed words find a file wherever it is. The g
   index does not go stale between scans.
 - **Not authoritative.** The index is a cache of the file system, not a replacement for it. Whenever what the picker
   shows disagrees with what is on disk (a folder the index has not seen, an entry it does not know, one it holds that
-  is gone), barion reads that one folder again and puts the index right.
+  is gone), prism reads that one folder again and puts the index right.
 - **Idempotent.** Every change to the index can be applied twice with the same result, so a change seen twice (by the
   watcher and by a rescan) is harmless, and recovering from anything is reading the folder again.
 - **Leaving out what nobody picks from.** `.git`, `node_modules`, `.cache`, `.zfs` and their like are skipped by the
@@ -33,11 +33,11 @@ kernel changes them, so that a few typed words find a file wherever it is. The g
 - **A search language.** Something short to type that says what is wanted: named aliases for places, and a search
   under one (`@work report pdf`).
 - **Performance everywhere.** The scan, the index's file, the watcher and the view are each written to be fast.
-- **Linux only.** barion uses Linux's own interfaces (getdents64, statx, eBPF, the portal) directly.
+- **Linux only.** prism uses Linux's own interfaces (getdents64, statx, eBPF, the portal) directly.
 
 ## How it is put together
 
-barion is a Kotlin program on the JVM, built with Gradle the way kotlin-engine-test is: convention plugins in an
+prism is a Kotlin program on the JVM, built with Gradle the way kotlin-engine-test is: convention plugins in an
 included `build-logic`, one version catalog, the house ktlint rules, JDK 25 provisioned by the toolchain resolver. It
 runs as a daemon in the user's session, which opens a picker window whenever the portal asks for one.
 
@@ -49,10 +49,10 @@ runs as a daemon in the user's session, which opens a picker window whenever the
 | `ebpf-loader` | ebpf, linux | a program's compiled object loaded and attached through libbpf, and its ring buffer read in place |
 | `probe` | ebpf | the watcher, declared in the DSL: hooks on the exits of the VFS functions that change a directory |
 | `index` | probe, ebpf-loader, linux | the scanner and its backends, the ignore rules, and the watcher as the index runs it; the build compiles the probe into this module's resources |
-| `dbus` | kotlinx.serialization, coroutines | D-Bus of barion's own: a connection over the bus's Unix socket that makes the handshake and `Hello` as it opens, messages as data, bodies by kotlinx.serialization with their signatures worked out from the Kotlin types, signals as flows, served methods (docs/dbus.md) |
-| `portal` | dbus | the desktop portal as barion speaks to it: the colour scheme now, the file chooser it will serve |
+| `dbus` | kotlinx.serialization, coroutines | D-Bus of prism's own: a connection over the bus's Unix socket that makes the handshake and `Hello` as it opens, messages as data, bodies by kotlinx.serialization with their signatures worked out from the Kotlin types, signals as flows, served methods (docs/dbus.md) |
+| `portal` | dbus | the desktop portal as prism speaks to it: the colour scheme now, the file chooser it will serve |
 | `picker` | Compose, coroutines | the picker: an immutable state, a pure reducer, a session that carries out what the reducer asks for against a disk, and a view made of controls of its own (docs/picker.md) |
-| `app` | everything | the command line and the window: `barion pick`, `snapshot`, `scan`, `probe` |
+| `app` | everything | the command line and the window: `prism pick`, `snapshot`, `scan`, `probe` |
 
 The index module could ship without the picker: it knows nothing of windows or portals. The picker knows nothing of
 the index yet; the app joins them.
@@ -61,10 +61,10 @@ the index yet; the app joins them.
 
 ### Reading the tree
 
-A scan reads a directory tree into an immutable tree of what it holds (`barion.index.Scanner`). How a directory is
+A scan reads a directory tree into an immutable tree of what it holds (`prism.index.Scanner`). How a directory is
 read is a backend; the traversal (one fork-join task per directory) is the same for all of them.
 
-The first backend reads `getdents64` through barion's own bindings, which gives each entry's kind and inode with its
+The first backend reads `getdents64` through prism's own bindings, which gives each entry's kind and inode with its
 name, so nothing is stat'ed that does not have to be. Measured against the JVM's own directory stream, which must
 stat every entry to learn its kind, it takes under a quarter of the JVM's time on one thread and about 40% on four,
 and it reads names that are not UTF-8, which the JVM cannot (docs/scanning.md).
@@ -88,11 +88,11 @@ File systems are left out by type wherever they are mounted (`proc`, `sysfs`, `t
 in a set that each directory is looked up in as it is met. The index holds only folders, files and links: devices,
 pipes and sockets are left out. A scan keeps a left-out directory in its tree by name, marked skipped, for the
 benchmark's counts; the index holds nothing of it. The rules will come from a configuration file
-(`$XDG_CONFIG_HOME/barion/barion.toml`), with the defaults for anything it does not say.
+(`$XDG_CONFIG_HOME/prism/prism.toml`), with the defaults for anything it does not say.
 
 ### In memory, and on disk
 
-The index holds its entries as columns (`barion.index.Block`), in preorder, so everything under a folder is the
+The index holds its entries as columns (`prism.index.Block`), in preorder, so everything under a folder is the
 slice of every column that follows it:
 
 - per entry: its parent, its name (one byte array of every name, back to back, and where each starts), its kind
@@ -191,19 +191,19 @@ regex is `r/.../flags`; modifiers say the rest (`dir:`, `ext:`, `type:`, `is:`, 
 Aliases (`~reports`) are named folders, declared in the configuration file and offered in the sidebar.
 
 docs/search.md says it all, with every example and how a search runs. A query is an immutable tree
-(`barion.index.query`), built in Kotlin with a DSL, or read from text by a parser of combinators that reads any text at
+(`prism.index.query`), built in Kotlin with a DSL, or read from text by a parser of combinators that reads any text at
 all: into a tree of what each part is (to colour it), what is wrong where, and a query that searches for what can be
 searched for while the rest is still being typed.
 
 ## The portal
 
-barion becomes a portal backend by implementing `org.freedesktop.impl.portal.FileChooser` (`OpenFile`, `SaveFile`,
-`SaveFiles`) on the session bus, with a `barion.portal` file in xdg-desktop-portal's portals directory that says so,
-and the user choosing it in `portals.conf` (`org.freedesktop.impl.portal.FileChooser=barion`). Each request becomes a
+prism becomes a portal backend by implementing `org.freedesktop.impl.portal.FileChooser` (`OpenFile`, `SaveFile`,
+`SaveFiles`) on the session bus, with a `prism.portal` file in xdg-desktop-portal's portals directory that says so,
+and the user choosing it in `portals.conf` (`org.freedesktop.impl.portal.FileChooser=prism`). Each request becomes a
 `PickerState` (its title, whether it chooses one file or many or a folder, its filters, its current folder and name),
 and the chosen files go back as URIs.
 
-D-Bus is barion's own (the `dbus` module, docs/dbus.md): serving `FileChooser` is declaring its methods and answering
+D-Bus is prism's own (the `dbus` module, docs/dbus.md): serving `FileChooser` is declaring its methods and answering
 them with `Connection.serve`, as the colour scheme is already read and followed through it. What is open is the
 window: on Wayland the dialog should be shown over the application that asked (the request's `parent_window`, through the `xdg-foreign` protocol), which AWT under XWayland cannot do; the
 JetBrains Runtime's native Wayland toolkit is the way to look at first.

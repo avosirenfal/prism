@@ -33,7 +33,7 @@ dependencyResolutionManagement {
 	}
 }
 
-rootProject.name = "barion"
+rootProject.name = "prism"
 
 include(
 	":cli",

@@ -1,6 +1,6 @@
 # Scanning
 
-The index is first built by reading every directory on the machine. This page says how barion reads one, why it
+The index is first built by reading every directory on the machine. This page says how prism reads one, why it
 reads it through its own bindings to `getdents64` rather than through the JVM, and what the difference measured.
 
 ## The question
@@ -15,8 +15,8 @@ for. It is.
 
 ## What was measured
 
-`barion scan PATH` reads a tree with each backend, several times, and prints the best run of each. Both backends are
-driven by the same traversal (`barion.index.Scanner`, one fork-join task per directory, as fd-find does), produce the
+`prism scan PATH` reads a tree with each backend, several times, and prints the best run of each. Both backends are
+driven by the same traversal (`prism.index.Scanner`, one fork-join task per directory, as fd-find does), produce the
 same immutable tree, and leave out the same ignored directories; the only difference is how each asks the kernel
 what a directory holds. The runs after the first read the kernel's dentry and inode caches, which is the case the
 daemon is in once it has run before, so the best run is the one compared.
@@ -39,7 +39,7 @@ second, every time the index is built from nothing.
 
 These numbers are from a small container with warm caches. A cold scan is bound by the disk, where the JVM's extra
 `lstat` per entry costs a seek or a page read of its own, so the gap is expected to be wider there; that wants
-measuring on real hardware (`barion scan ~ --runs 5`, with a cold first run).
+measuring on real hardware (`prism scan ~ --runs 5`, with a cold first run).
 
 ## The second reason: names that are not UTF-8
 
@@ -47,7 +47,7 @@ A Linux file name is bytes, and need not be valid in any encoding. The JVM names
 its file name encoding (`sun.jnu.encoding`), so a name that is not valid there cannot be represented, reached or
 opened through `java.nio.file` at all: the JVM throws `InvalidPathException` for it.
 
-barion's index holds names as bytes (`barion.index.Name`), and the getdents64 backend reads and opens directories by
+prism's index holds names as bytes (`prism.index.Name`), and the getdents64 backend reads and opens directories by
 their bytes, so such a name is indexed and reachable like any other. The test `aNameThatIsNotUtf8IsReadAsItsBytes`
 makes a directory named `n\xFFm` and finds it. The JVM backend reports such a directory as one it cannot name.
 
@@ -55,7 +55,7 @@ makes a directory named `n\xFFm` and finds it. The JVM backend reports such a di
 
 1. `openat(AT_FDCWD, path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)`, with the path's bytes as given.
 2. `statx(fd, "", AT_EMPTY_PATH)` for the directory's own device and inode: one per directory, never per entry.
-3. `getdents64` into a 64 KiB buffer per thread, read in place (`barion.linux.DirentBuffer`): each entry's inode,
+3. `getdents64` into a 64 KiB buffer per thread, read in place (`prism.linux.DirentBuffer`): each entry's inode,
    kind and name are where the kernel wrote them, so reading a directory allocates nothing per entry until the
    entry is kept.
 4. Only an entry whose file system does not report its kind (`DT_UNKNOWN`, which some network and FUSE file systems
@@ -67,7 +67,7 @@ Symlinks are never followed into. Directories the ignore rules leave out (`.git`
 systems that are the kernel's views of itself or memory (`proc`, `sysfs`, `tmpfs`, `cgroup2`, ...) are found from
 `/proc/self/mountinfo`, read once, and skipped where they are mounted.
 
-What a scan makes of each directory is its caller's (`Gathering`): `barion scan` keeps a tree of objects, for its
+What a scan makes of each directory is its caller's (`Gathering`): `prism scan` keeps a tree of objects, for its
 counts, and the indexer packs each directory into arrays as it is read and lays the whole tree out as columns
 (docs/plan.md, "In memory, and on disk"), so indexing a disk never holds an object per entry.
 

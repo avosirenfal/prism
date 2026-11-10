@@ -1,7 +1,7 @@
-// Convention plugins for the modules of the main build (src/main/kotlin/barion.*.gradle.kts), and the typed tasks
-// and helpers they and the module scripts use (src/main/kotlin/barion/). The main build includes this one from
+// Convention plugins for the modules of the main build (src/main/kotlin/prism.*.gradle.kts), and the typed tasks
+// and helpers they and the module scripts use (src/main/kotlin/prism/). The main build includes this one from
 // its settings (pluginManagement { includeBuild("build-logic") }), so a module applies a convention with
-// `id("barion.kotlin-jvm")`.
+// `id("prism.kotlin-jvm")`.
 plugins {
 	`kotlin-dsl`
 }

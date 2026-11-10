@@ -121,7 +121,7 @@ slashes, which must match the whole of an extension (`ext:/jpe?g/i`). A dot befo
 it, so `ext:.pdf` is `ext:pdf`; quoted, it takes `c` and `i` as a name term does (`ext:c"PDF"`).
 
 **`type:GROUP`** is any extension of a group: `archive`, `audio`, `code`, `document`, `font`, `image`, `text`,
-`video` (the lists are in `barion.index.query.Group`).
+`video` (the lists are in `prism.index.query.Group`).
 
 **`is:FLAG`** is one of:
 
@@ -147,7 +147,7 @@ A `-` before any term negates it, and each negated term excludes on its own: `-e
 
 ## Every example, as a test
 
-`index/src/test/kotlin/barion/index/searchtest.kt` holds every example above and in the original brief, written in
+`index/src/test/kotlin/prism/index/searchtest.kt` holds every example above and in the original brief, written in
 the DSL, run against a tree made for them and indexed by the real indexer, each checked entry for entry against what it
 should find. Each one's text form is the comment above it. `parsertest.kt` reads each of those texts and checks that
 it reads, with nothing wrong, to the very query the DSL builds.
@@ -166,7 +166,7 @@ Take `-ext:{jpg,pn`, typed that far.
 1. **The grammar** reads the text into a tree, and never fails: a quote not closed runs to the end of the text, a
    character no rule expects is a term's junk, so there is always a tree. Here the tree is one term: a negation at
    0..1, then a modifier whose name `ext` is at 1..4, its colon at 4..5, and its value, the bare words `{jpg,pn`, at
-   5..12. Every node has its span (`barion.index.query.TermSyntax`, `BodySyntax`, `TextSyntax`, ...).
+   5..12. Every node has its span (`prism.index.query.TermSyntax`, `BodySyntax`, `TextSyntax`, ...).
 2. **The meaning** of each term is made from its part of the tree, with what is wrong with it. Here the value is a glob
    whose `{` is not closed. That runs to the end of the text, so it is *unfinished*: the glob is closed at the end, as
    `{jpg,pn}`, and the term means "not an extension of jpg or pn". Results show at once, and change as `g}` is typed.
@@ -196,7 +196,7 @@ a `~name` that is not one of them is invalid too; otherwise it is left for the s
 
 ### The grammar
 
-The grammar is built from parser combinators of barion's own (`combinators.kt`): a parser is a function from a text
+The grammar is built from parser combinators of prism's own (`combinators.kt`): a parser is a function from a text
 and a position to a value and the position after it, or to nothing, and bigger parsers are made from smaller ones
 (`and`, `firstOf`, `many`, `optional`, `spanned`, `not`, `ahead`, ...). Choice is ordered and backtracks, as in a PEG,
 which a query's few dozen characters make free. In outline (`syntax.kt` has it rule by rule):
@@ -224,7 +224,7 @@ reads others).
 
 ## Queries in Kotlin
 
-A query is an immutable tree (`barion.index.query`): a `Query` is a list of `Term`s, and a term is a `Test`, negated
+A query is an immutable tree (`prism.index.query`): a `Query` is a list of `Term`s, and a term is a `Test`, negated
 or not. Each kind of term is a case of `Test` (`Name`, `InPath`, `Regex`, `Dir`, `Ext`, `Type`, `Is`, `Recent`,
 `Mount`), and what the language rules out cannot be built: a term's case is `Default`, `Sensitive` or `Insensitive`,
 never two of them; a regex is over the `Name`, the `Stem` or the `Path`, never two of them; a glob is held as it was
@@ -283,7 +283,7 @@ first; every one must pass, so the order changes nothing but the time. A block o
 slices walked on every core, each slice starting its stack from the ancestors of its first entry.
 
 Measured on this project's development machine (4 cores), over a made-up tree of 3,000,000 entries
-(`./gradlew :index:test --tests barion.index.SearchBenchmark -Pindex.benchmark=3000000`), the best of seven runs of
+(`./gradlew :index:test --tests prism.index.SearchBenchmark -Pindex.benchmark=3000000`), the best of seven runs of
 each, results ranked and ordered:
 
 | query | found | time |
@@ -348,7 +348,7 @@ halves every 14 days (a "frecency"): a file picked every day this week outweighs
 no list of every pick is kept. A place used once some months ago, and not picked in 90 days, is let go.
 
 The usage is not what is on the disk, so it is not the index's. The index can be thrown away and built again from the
-disk; the usage cannot. So it is kept in its own file, `$XDG_STATE_HOME/barion/usage.barion` (docs/format.md), where
+disk; the usage cannot. So it is kept in its own file, `$XDG_STATE_HOME/prism/usage.prism` (docs/format.md), where
 programs keep state worth keeping (the index, a cache, is in `$XDG_CACHE_HOME`), read with
 it, and given to a search in its context (`SearchContext.usage`). `recent:` asks it too.
 

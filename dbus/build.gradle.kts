@@ -3,7 +3,7 @@
 // Kotlin types so none is written by hand. It declares no messages of its own beyond the bus's plumbing: what to
 // call and what to listen for is the user's to declare.
 plugins {
-	id("barion.kotlin-jvm")
+	id("prism.kotlin-jvm")
 	id("org.jetbrains.kotlin.plugin.serialization")
 	`java-test-fixtures`
 }

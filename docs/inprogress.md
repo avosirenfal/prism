@@ -10,21 +10,21 @@ The project is set up and every part named in the first brief exists, builds, an
 
 | part | state |
 |---|---|
-| the build | Gradle as kotlin-engine-test's: build-logic conventions (`barion.kotlin-jvm`, `barion.compose`, `barion.ktlint`), one catalog, JDK 25 by the toolchain resolver, configuration and build caches, the house ktlint rules; a flake for the dev shell and a CI workflow |
-| the command line | metis's, in `cli`, its reader returning `Parsed` values instead of throwing for control flow; `barion pick`, `snapshot`, `scan`, `probe c / check / watch` |
+| the build | Gradle as kotlin-engine-test's: build-logic conventions (`prism.kotlin-jvm`, `prism.compose`, `prism.ktlint`), one catalog, JDK 25 by the toolchain resolver, configuration and build caches, the house ktlint rules; a flake for the dev shell and a CI workflow |
+| the command line | metis's, in `cli`, its reader returning `Parsed` values instead of throwing for control flow; `prism pick`, `snapshot`, `scan`, `probe c / check / watch` |
 | libc through FFM | `linux`: openat, getdents64 read in place, statx, mmap, epoll, errno captured at the call; shared with libbpf's bindings as `NativeLibrary` and `CallState` |
 | the eBPF DSL | `ebpf`: typed programs emitted as header-free CO-RE C; the verifier's rules as types where a type can say them, and what it cannot as reported `ProgramError`s; a BTF reader and a check of every declaration against the running kernel (docs/ebpf.md) |
 | the loader | `ebpf-loader`: libbpf through FFM, each hook checked against BTF and left out if it moved, per-hook verifier logs, the ring buffer read in place with acquire/release ordering |
 | the watcher | `probe`: hooks on the exits of `vfs_mkdir`, `vfs_rmdir`, `vfs_unlink`, `vfs_create`, `vfs_symlink`, `vfs_link`, `vfs_mknod`, `vfs_rename` and `do_filp_open`; compiled by the build into `index`'s resources |
 | the scanner | `index`: one traversal, two backends (getdents64 through FFM, and the JVM's own), names as bytes, what each directory is gathered into the caller's to say; the ignore rules (names and path endings anywhere, absolute paths), pseudo file systems skipped from mountinfo, read once |
-| the index | `index`: entries as columns in preorder (`Block`), inodes among them, a folder found by device and inode as the watcher names it; an immutable `Index` that changes by hiding and grafting and compacts back to a block a root, changes that say what is so and so can be made twice; its file a zstd-compressed snapshot and appended frames of changes, a torn frame dropped, compacted by rename (docs/format.md); `IndexStore` keeps an index and its file in step; `barion index` builds or reads one and searches it |
-| the daemon | `watcher`: the eBPF watcher, its program compiled into the module, read on a thread of its own; `daemon`: a `LiveIndex` that opens at once and reads its roots behind, reads places again when told (`rescan`), makes changes it is told of and makes them again once a scan they happened during lands, and reads places the rules leave out for searches alone, in memory, never written; and a `Daemon` that starts the watcher before the index is read, queues what it sees onto a thread of its own, writes every few seconds, and reads the roots again where changes were lost or there is no watcher (docs/daemon.md); `barion daemon` runs one |
+| the index | `index`: entries as columns in preorder (`Block`), inodes among them, a folder found by device and inode as the watcher names it; an immutable `Index` that changes by hiding and grafting and compacts back to a block a root, changes that say what is so and so can be made twice; its file a zstd-compressed snapshot and appended frames of changes, a torn frame dropped, compacted by rename (docs/format.md); `IndexStore` keeps an index and its file in step; `prism index` builds or reads one and searches it |
+| the daemon | `watcher`: the eBPF watcher, its program compiled into the module, read on a thread of its own; `daemon`: a `LiveIndex` that opens at once and reads its roots behind, reads places again when told (`rescan`), makes changes it is told of and makes them again once a scan they happened during lands, and reads places the rules leave out for searches alone, in memory, never written; and a `Daemon` that starts the watcher before the index is read, queues what it sees onto a thread of its own, writes every few seconds, and reads the roots again where changes were lost or there is no watcher (docs/daemon.md); `prism daemon` runs one |
 | search | `index`: queries as an immutable tree, for every term of the language (names, globs, quoted and raw terms, paths, regexes, `dir:`, `ext:`, `type:`, `is:`, `recent:`, `mount:`, negation), built with a Kotlin DSL or read from text by parser combinators that read any text at all into a tree with spans, problems (unfinished, and searched for as far as it goes; or invalid, and left out) and marks to colour it by; run over the columns as bytes, with ancestors' states kept per level, on every core; each result scored as it is found (how the words match the name, how much it and its folder have been picked, how new it is, where it is) and the results given best first; what was picked kept in a file of its own, in `$XDG_STATE_HOME` (docs/search.md) |
-| the picker | `picker`: an immutable `PickerState`, a pure reducer, a session that reads folders, looks up typed paths and makes changes on a background thread, and a view made of its own controls; it browses (back, forward, up, the mouse's side buttons, places, a typed path), chooses (click, Ctrl, Shift, the arrows, type-ahead), searches, sorts, filters by kind from a menu (one, or several with Ctrl; hidden files shown and hidden folders not until the user says), zooms with Ctrl and the wheel (the gallery up to one picture at a time, fitted to the window), and saves (asking before replacing), as a list or a gallery with thumbnails of images; context menus (menus as data, one component for any menu) rename, trash (the desktop's own; the Delete key asks first) and make folders, each undone and redone with Ctrl+Z and Ctrl+Shift+Z; Ctrl+Shift+F searches the index, its first matches listed as the query is typed (coloured as it is read), a match gone to as the kind of picker says, every match shown in the listing as a folder holding them would show them (filtered, ordered best first or by a column, read on disk as they come into sight, millions without making millions of rows), Back returning to them; `barion pick` prints what is chosen, and `--index [FILE]` gives it an index to search (docs/picker.md) |
+| the picker | `picker`: an immutable `PickerState`, a pure reducer, a session that reads folders, looks up typed paths and makes changes on a background thread, and a view made of its own controls; it browses (back, forward, up, the mouse's side buttons, places, a typed path), chooses (click, Ctrl, Shift, the arrows, type-ahead), searches, sorts, filters by kind from a menu (one, or several with Ctrl; hidden files shown and hidden folders not until the user says), zooms with Ctrl and the wheel (the gallery up to one picture at a time, fitted to the window), and saves (asking before replacing), as a list or a gallery with thumbnails of images; context menus (menus as data, one component for any menu) rename, trash (the desktop's own; the Delete key asks first) and make folders, each undone and redone with Ctrl+Z and Ctrl+Shift+Z; Ctrl+Shift+F searches the index, its first matches listed as the query is typed (coloured as it is read), a match gone to as the kind of picker says, every match shown in the listing as a folder holding them would show them (filtered, ordered best first or by a column, read on disk as they come into sight, millions without making millions of rows), Back returning to them; `prism pick` prints what is chosen, and `--index [FILE]` gives it an index to search (docs/picker.md) |
 | D-Bus | `dbus`: the connection (handshake and `Hello` as it opens), messages as data, kotlinx.serialization for bodies with signatures worked out from the types and checked before decoding, calls with replies as values, signals as flows, `watch`, served methods (docs/dbus.md) |
-| the colour scheme | `portal`: the portal's Settings declared; `barion pick` opens in the desktop's palette and follows its changes; light where there is no bus or portal; `--theme` overrides |
+| the colour scheme | `portal`: the portal's Settings declared; `prism pick` opens in the desktop's palette and follows its changes; light where there is no bus or portal; `--theme` overrides |
 
-317 tests (302 of barion's own, 15 of the house formatting rules), all passing in the development container; one
+317 tests (302 of prism's own, 15 of the house formatting rules), all passing in the development container; one
 skipped there, the search benchmark, which runs only when asked for (`-Pindex.benchmark=N`). The D-Bus ones run against a real dbus-daemon each test starts, and against gdbus, dbus-send and busctl.
 
 ## Measured
@@ -40,7 +40,7 @@ in 1.2 s and read in 0.28 s (docs/search.md has every query's time). Reading a q
 **0.23x** the JVM's time on one thread (48.5 ms against 214.8 ms) and **0.44x** on four (32.4 ms against 73.4 ms);
 `/root`, 38,272 entries, four threads: 0.40x. Both read identical trees. The FFM backend is the one the index uses.
 
-Not measured yet: a cold scan on real hardware, and a home directory of millions of entries. `barion scan ~ --runs 5`
+Not measured yet: a cold scan on real hardware, and a home directory of millions of entries. `prism scan ~ --runs 5`
 does both; the first run is the cold one.
 
 ## Not verified yet
@@ -49,9 +49,9 @@ does both; the first run is the cold one.
   even to root, before the verifier runs (a policy of the sandbox: tracepoints, BTF tracepoints, kprobes and ring
   buffers all load). So the watcher's nine hooks are verified as far as they can be without loading them: the C
   compiles under `-Wall -Werror`, and every hook's signature and every field it reads matches this kernel's BTF
-  (`barion probe check`). The loading path itself is verified end to end with a BTF tracepoint program
-  (`LoadTest`). What remains is to run `barion probe watch` on a real machine (docs/testing.md).
-- **The window has not been opened under Wayland.** It has been opened under X: `barion pick` ran on a virtual X
+  (`prism probe check`). The loading path itself is verified end to end with a BTF tracepoint program
+  (`LoadTest`). What remains is to run `prism probe watch` on a real machine (docs/testing.md).
+- **The window has not been opened under Wayland.** It has been opened under X: `prism pick` ran on a virtual X
   display (Xvfb, no window manager) and was driven by xdotool through opening a file from the keyboard, several with
   Ctrl-click, saving under a typed name, choosing a folder, and cancelling, each printing what it should
   (docs/testing.md says how). Under Wayland it runs through XWayland, as any AWT window does; that, and how it sits
@@ -63,7 +63,7 @@ In the order they unblock each other:
 
 1. **Run the watcher on a real machine**, with the privileges it needs, and read what it sends for a `mkdir`, a
    `touch`, a `mv`, an `rm -r`, a `git checkout` and an `npm install`. Fix what the verifier says about any hook.
-   Then `barion daemon` there, and the same changes seen made in its index.
+   Then `prism daemon` there, and the same changes seen made in its index.
 2. **The portal backend**: `org.freedesktop.impl.portal.FileChooser` served on the session bus with
    `Connection.serve`, each request a `PickerState`, the daemon opening a window per request and handing it a `Finder`
    over its live index (the picker's search already takes one), and writing the usage as things are picked; and a
@@ -126,6 +126,6 @@ In the order they unblock each other:
 - The house formatter (`./gradlew ktlintFormat`) breaks a comparison inside an `if` condition across lines when the
   `if` is the value of an assignment; name the condition first (`val allMatch = moved == 0`) and it leaves it alone.
 - The `index` module's build needs a clang with the BPF target. A Nix shell's wrapped `clang` adds hardening flags
-  the BPF target refuses; the flake points `BARION_CLANG` at the unwrapped one.
+  the BPF target refuses; the flake points `PRISM_CLANG` at the unwrapped one.
 - The JVM names files in the locale's encoding. Under a POSIX locale it cannot make a `Path` of a non-ASCII name; the
-  tests run under `C.UTF-8` (the `barion.kotlin-jvm` convention), and the getdents64 backend never needs a `Path`.
+  tests run under `C.UTF-8` (the `prism.kotlin-jvm` convention), and the getdents64 backend never needs a `Path`.

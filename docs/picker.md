@@ -10,7 +10,7 @@ works, starting with one example followed from start to finish, and then each pa
 Say the picker opens on your home folder to choose one file, and you press the Down arrow once and then Enter.
 Here is everything that happens, in order.
 
-**It opens.** `barion pick` calls `opened`, which makes the picker's first state and says what it needs:
+**It opens.** `prism pick` calls `opened`, which makes the picker's first state and says what it needs:
 
 ```kotlin
 val first: Step = opened(Choosing.OneFile(), folder = home, home = home, sidebar = sidebarOf(home))
@@ -46,7 +46,7 @@ is chosen.
 **You press Enter.** That is `PickerEvent.Accepted`. If the row is a folder, accepting goes into it: the reducer
 answers with a new state reading that folder, and an `Effect.Read` for it. If it is a file, the reducer answers with
 `Effect.Finish(Outcome.Chosen([that file]))`. The session completes its outcome with that, the window closes, and
-`barion pick` prints the path.
+`prism pick` prints the path.
 
 That is the whole loop: **the view reports what the user did, the reducer decides the next state and what to ask
 for, the session carries out what was asked and sends the answers back.** Everything below is a closer look at one
@@ -376,7 +376,7 @@ the FFM API). What it checks is a state rather than an event: whether the X inpu
 window itself, a frame around it, or AWT's proxy) while AWT does not think the window has the keyboard. If so, it asks
 AWT for the keyboard, which AWT then takes to its proxy as it does for a click, and so it asks once. It checks whenever
 focus changes on the window and four times a second besides, so focus given before the watch began, or in whatever
-order a compositor's events come in, is found too. `BARION_FOCUS_LOG=1` has it say on standard error what it sees and
+order a compositor's events come in, is found too. `PRISM_FOCUS_LOG=1` has it say on standard error what it sees and
 does.
 
 A control draws its focus ring only while the window has the keyboard: Compose keeps its focused control while the
@@ -385,7 +385,7 @@ window is in the background, which drew the ring of a field that could not be ty
 ## The title bar
 
 On X11 an application draws only inside its window; the bar with the title and the close button is the window
-manager's (under niri, xwayland-satellite's or niri's). So `barion pick` opens with none by default: the window asks for
+manager's (under niri, xwayland-satellite's or niri's). So `prism pick` opens with none by default: the window asks for
 no decorations (`_MOTIF_WM_HINTS`), and Escape or Cancel closes it. `--decorated` asks for the window manager's bar, and
 the picker asks for it in its own palette with GTK's way of asking, the window's `_GTK_THEME_VARIANT` property (`dark`
 or `light`), set again as the palette follows the desktop's (`TitleBarTone`, `x11title.kt`). A window manager that does
@@ -507,13 +507,13 @@ interface Finder {
 ```
 
 The session asks it for each search, and tells it what was picked when the picker finishes, which is what ranks those
-higher next time. Run on its own, `barion pick --index` reads an index once from its file, with the usage (kept in
-`$XDG_STATE_HOME/barion/usage.barion`), into a `StaticFinder`: searched as it was read and never updated, which is
+higher next time. Run on its own, `prism pick --index` reads an index once from its file, with the usage (kept in
+`$XDG_STATE_HOME/prism/usage.prism`), into a `StaticFinder`: searched as it was read and never updated, which is
 what developing against a copy of the index wants. What is picked ranks higher for as long as it runs, and is not
 written. The daemon will give each picker it opens a finder over its live index (docs/daemon.md); nothing in the
 picker changes for that.
 
-`--index` alone reads the usual file, `$XDG_CACHE_HOME/barion/index.barion`; `--index FILE` reads that one. A folder
+`--index` alone reads the usual file, `$XDG_CACHE_HOME/prism/index.prism`; `--index FILE` reads that one. A folder
 after `--index` is the folder to open, not the index. Where there is no index, or it cannot be read, the picker says so
 on standard error and opens without a search, and Ctrl+Shift+F's window says why.
 
@@ -668,7 +668,7 @@ list by one row, not a page, and a row far away is scrolled to directly (never b
   the window and the results drawn, in both palettes. `InteractionTest` has Ctrl+Shift+F, typing, Enter and the arrows
   as a user presses them.
 
-`barion pick` itself has been run in a real window on a virtual X display (Xvfb), driven by xdotool: opening a file
+`prism pick` itself has been run in a real window on a virtual X display (Xvfb), driven by xdotool: opening a file
 from the keyboard, several with Ctrl-click and the Open button, saving under a typed name, choosing a folder, and
 cancelling with Escape, each printing what it should; the gallery over real pictures; the mouse's side buttons,
 which only a real window can test, since they come from AWT; and, in the dark palette, no ring left on a control once
@@ -680,7 +680,7 @@ made smaller (the picture shrinking to fit) and larger again (the size chosen co
 Enter, Ctrl+Z, Ctrl+Shift+Z and Shift+Delete on real files, with the trash in a temporary folder. docs/testing.md
 says how to do the same.
 
-The search of the index has been run the same way, over an index `barion index` made of a small home: a missing index
+The search of the index has been run the same way, over an index `prism index` made of a small home: a missing index
 warned of and the picker opening without search; Ctrl+Shift+F with a query typed by real keys; Enter showing every
 match in the listing; a folder among them gone into, and Alt+Left back to them; the window opened again with what was
 typed, the arrows down to a file, Enter going to its folder with it chosen and named, and Enter again printing its
