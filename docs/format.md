@@ -37,7 +37,7 @@ byte, the low bits first, the top bit set on every byte but the last), and signe
 | offset | size | what |
 |---|---|---|
 | 0 | 8 | `BARIONIX` in ASCII |
-| 8 | 2 | the version: 4 (version 3 had no first sightings, and kept what the picker gave, which is now kept beside the index; version 2 had each device's number as a stat gives it alone; version 1 was compressed with DEFLATE and had no inodes; a file of another version is not read, and the index is made again) |
+| 8 | 2 | the version: 4 (version 3 had no first sightings, and kept what the picker gave, which is now kept on its own; version 2 had each device's number as a stat gives it alone; version 1 was compressed with DEFLATE and had no inodes; a file of another version is not read, and the index is made again) |
 | 10 | 6 | zeros |
 
 ### A frame: 16 bytes, then the stored payload
@@ -112,10 +112,10 @@ The index of this development container's `/` (185,359 entries, its caches and b
 reads back in 57 ms. A made-up tree of 3,000,000 entries writes a file of 8.4 MB in 1.1 s and reads back in 0.29 s,
 on 4 cores. (Compressed with DEFLATE, and without inodes, those were 683 KB, and 9.4 MB in 1.3 s, read in 0.33 s.)
 
-## The usage beside it
+## The usage, kept on its own
 
-What the picker gave, and from where, is kept beside the index in `usage.barion` (`barion.index.UsageFile`): not in
-the index's file, since the index can be made again from the disk, and this cannot (docs/search.md, "Which results
+What the picker gave, and from where, is kept in `$XDG_STATE_HOME/barion/usage.barion` (`barion.index.UsageFile`):
+not in the index's file, nor beside it, since the index can be made again from the disk, and this cannot (docs/search.md, "Which results
 come first"). It is small (a place for each thing picked lately, and each folder picked from), so it is written whole
 each time, beside itself and renamed over, as a snapshot is. Numbers are big-endian, as Java's `DataOutputStream`
 writes them.

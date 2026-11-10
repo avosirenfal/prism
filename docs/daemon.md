@@ -139,5 +139,5 @@ its roots again every half hour. `barion daemon` runs one in the foreground, say
 - Handing a live index to the pickers the daemon opens: the picker searches through a `Finder` (docs/picker.md,
   "Where a search comes from"), and the daemon's is a few lines over `LiveIndex.search`, which gives its results ranked
   (docs/search.md, "Which results come first"), its own and those of places read for a search alone ranked together;
-  it comes with the portal, which is what opens them. With it, the usage file beside the index is written as things are
+  it comes with the portal, which is what opens them. With it, the usage file is written as things are
   picked, which `barion pick --index` only reads.

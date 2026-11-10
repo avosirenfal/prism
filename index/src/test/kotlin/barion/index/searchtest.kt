@@ -122,7 +122,7 @@ class SearchTest {
 	/** Thursday, 12 November 2026, at ten in the morning, in UTC. */
 	private val now = Instant.parse("2026-11-12T10:00:00Z")
 
-	/** What the picker gave when: what `recent:` asks about, which is kept beside the index rather than in it. */
+	/** What the picker gave when: what `recent:` asks about, which is kept on its own rather than in the index. */
 	private val usage: Usage by lazy {
 		listOf(
 			"report.pdf" to "2026-11-12T08:00:00Z",

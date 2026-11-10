@@ -361,6 +361,25 @@ An undo never loses anything. A folder is removed only if it is still empty, and
 only if nothing of its name has appeared where it was meanwhile. Otherwise the undo fails, says why ("Couldn't undo
 the new folder: “New folder” isn't empty any more"), and leaves the disk as it is.
 
+## The keyboard given back to the window
+
+AWT on X11 keeps the keyboard in a small window of its own inside each of its windows (its focus proxy), and takes it
+there itself when the window manager offers it (ICCCM's `WM_TAKE_FOCUS`). A compositor that instead sets the X input
+focus on the window itself, as niri does through xwayland-satellite (and as `xdotool windowfocus` does), gives AWT no
+event it reads as the window gaining focus: AWT goes on thinking the window is in the background and drops every key,
+so a picker switched away from and back to took no typing, Tab did nothing, and Ctrl+Shift+F on a picker just opened
+did nothing, until a click made AWT take the keyboard itself. This is a known way for AWT to fail under XWayland
+(it has been reported against mutter, Weston and others).
+
+So the picker watches its own window from an X connection of its own (`KeepsKeyboard`, `x11focus.kt`, libX11 through
+the FFM API) for focus arriving at the window itself, and when it does and AWT has not noticed, asks AWT for the
+keyboard, which AWT then takes to its proxy as it does for a click. Focus passing on to a window inside (which is AWT
+taking the keyboard itself) is not counted, so the watch never answers AWT's own doing. Focus already on the window
+when the watch begins is taken at once. Where the window is not on X11, there is nothing to watch.
+
+A control draws its focus ring only while the window has the keyboard: Compose keeps its focused control while the
+window is in the background, which drew the ring of a field that could not be typed into.
+
 ## The mouse's side buttons
 
 Most mice have two buttons at the side, back and forward. They go back and forward in the picker as in a browser,
@@ -477,8 +496,8 @@ interface Finder {
 ```
 
 The session asks it for each search, and tells it what was picked when the picker finishes, which is what ranks those
-higher next time. Run on its own, `barion pick --index` reads an index once from its file, with the usage kept beside
-it, into a `StaticFinder`: searched as it was read and never updated, which is what developing against a copy of the
+higher next time. Run on its own, `barion pick --index` reads an index once from its file, with the usage (kept in
+`$XDG_STATE_HOME/barion/usage.barion`), into a `StaticFinder`: searched as it was read and never updated, which is what developing against a copy of the
 index wants. What is picked ranks higher for as long as it runs, and is not written. The daemon will give each picker
 it opens a finder over its live index (docs/daemon.md); nothing in the picker changes for that.
 

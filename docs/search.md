@@ -135,7 +135,7 @@ it, so `ext:.pdf` is `ext:pdf`; quoted, it takes `c` and `i` as a name term does
 So `is:file -is:symlink` is regular files only, and `is:dir is:symlink` is links to folders. Braces give
 alternatives: `is:{file,symlink}`. A file picker implies `is:file`, and a folder picker `is:dir`.
 
-**`recent:WHEN`** is an entry given by the picker since `WHEN` (as the usage kept beside the index says: "Which
+**`recent:WHEN`** is an entry given by the picker since `WHEN` (as the usage says: "Which
 results come first", below): `today` and `yesterday` (from the start of the day),
 a weekday such as `wednesday` (from the start of the latest one, today if today is that day), or a duration: a number
 and `s`, `m` (minutes), `h`, `d` or `w`: `5m`, `24h`, `2d`, `1w`.
@@ -348,7 +348,8 @@ halves every 14 days (a "frecency"): a file picked every day this week outweighs
 no list of every pick is kept. A place used once some months ago, and not picked in 90 days, is let go.
 
 The usage is not what is on the disk, so it is not the index's. The index can be thrown away and built again from the
-disk; the usage cannot. So it is kept in its own file beside the index's, `usage.barion` (docs/format.md), read with
+disk; the usage cannot. So it is kept in its own file, `$XDG_STATE_HOME/barion/usage.barion` (docs/format.md), where
+programs keep state worth keeping (the index, a cache, is in `$XDG_CACHE_HOME`), read with
 it, and given to a search in its context (`SearchContext.usage`). `recent:` asks it too.
 
 ### How new something is: first sightings

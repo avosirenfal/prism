@@ -24,6 +24,7 @@ import barion.index.UsageRead
 import barion.picker.Choosing
 import barion.picker.Finder
 import barion.picker.JvmDisk
+import barion.picker.KeepsKeyboard
 import barion.picker.PickerEvent
 import barion.picker.PickerState
 import barion.picker.PickerTheme
@@ -168,7 +169,7 @@ object PickCommand : Command(
 
 	/**
 	 * The search [given] asks for, and what it searches: none without `--index`; with it, the index in its file, with
-	 * the usage kept beside it, or, where there is no index there or it cannot be read, a warning and no search.
+	 * the usage (`$XDG_STATE_HOME/barion/usage.barion`), or, where there is no index there or it cannot be read, a warning and no search.
 	 */
 	private fun searchOf(given: Given<Path>?, home: Path): Pair<Search, Finder?> {
 		val file =
@@ -183,11 +184,11 @@ object PickCommand : Command(
 
 		return when (val read = IndexFile.read(file)) {
 			is IndexRead.Read -> {
-				val usage = UsageFile.read(UsageFile.beside(file))
+				val usage = UsageFile.read(UsageFile.default())
 
 				if (usage is UsageRead.Unreadable)
 					warn(
-						"the usage beside the index can't be read (${usage.why}); results are ranked without it",
+						"the usage can't be read (${usage.why}); results are ranked without it",
 					)
 
 				Search.Ready() to StaticFinder(read.index, usage.usage, home)
@@ -233,6 +234,7 @@ object PickCommand : Command(
 					state = rememberWindowState(width = 1100.dp, height = 680.dp),
 				) {
 					SideButtons(window, session::send)
+					KeepsKeyboard(window)
 					PickerTheme(paletteOf(theme, scheme)) { SessionPicker(session) }
 				}
 			}

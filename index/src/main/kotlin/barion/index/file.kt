@@ -53,7 +53,7 @@ object IndexFile {
 	private val MAGIC = "BARIONIX".encodeToByteArray()
 
 	/**
-	 * 4: when each entry was first seen, and nothing of what was picked, which is kept beside the index ([UsageFile]).
+	 * 4: when each entry was first seen, and nothing of what was picked, which is kept on its own ([UsageFile]).
 	 * (3 had no first sightings, and kept picks; 2 had a stat's device numbers alone; 1 was compressed with DEFLATE,
 	 * and had no inodes.)
 	 */

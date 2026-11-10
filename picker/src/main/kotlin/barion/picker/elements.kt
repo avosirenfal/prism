@@ -54,6 +54,7 @@ import androidx.compose.ui.input.key.isAltPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.selected
@@ -89,14 +90,17 @@ class KeyboardUse {
 val LocalKeyboardUse = staticCompositionLocalOf { KeyboardUse() }
 
 /**
- * What the pointer and the keyboard are doing to a control at the moment, read from its interactions: [ringed] is
- * whether it has the keyboard and the keyboard was used last, which is when its ring is drawn.
+ * What the pointer and the keyboard are doing to a control at the moment, read from its interactions. [focused] is
+ * whether it is the window's focused control, which it stays while the window is in the background; [active] is
+ * whether it has the keyboard now, which is that and the window having it too; [ringed] is whether it is active and
+ * the keyboard was used last, which is when its ring is drawn.
  */
 @Immutable
 data class Felt(
 	val hovered: Boolean,
 	val pressed: Boolean,
 	val focused: Boolean,
+	val active: Boolean,
 	val ringed: Boolean,
 )
 
@@ -106,8 +110,9 @@ fun MutableInteractionSource.felt(): Felt {
 	val pressed by collectIsPressedAsState()
 	val focused by collectIsFocusedAsState()
 	val keyboard = LocalKeyboardUse.current
+	val active = focused && LocalWindowInfo.current.isWindowFocused
 
-	return Felt(hovered, pressed, focused, focused && keyboard.lately)
+	return Felt(hovered, pressed, focused, active, active && keyboard.lately)
 }
 
 /**
@@ -315,7 +320,7 @@ fun Field(
 
 	Row(
 		modifier
-			.ring(felt.focused, palette.accent, outset = 0.dp, width = 1.5.dp)
+			.ring(felt.active, palette.accent, outset = 0.dp, width = 1.5.dp)
 			.height(height)
 			.background(palette.field, shape)
 			.border(1.dp, palette.fieldEdge, shape)

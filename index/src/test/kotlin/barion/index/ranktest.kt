@@ -226,7 +226,7 @@ class RankTest {
 
 	@Test
 	fun usageWrittenIsUsageReadAndAFileDamagedIsSaidToBe() {
-		val file = UsageFile.beside(state.resolve("index.barion"))
+		val file = state.resolve("usage.barion")
 
 		assertEquals(UsageRead.Missing, UsageFile.read(file))
 

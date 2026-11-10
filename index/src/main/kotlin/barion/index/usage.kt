@@ -18,7 +18,8 @@ import kotlin.math.pow
 /*
  * What the user has done with the picker, which a search ranks by and `recent:` asks about. It is not what is on the
  * disk, so it is not the index's: the index can be thrown away and built again from the disk, and this cannot. It is
- * kept in a file of its own beside the index's ([UsageFile]), and read with it.
+ * kept in a file of its own ([UsageFile]), with what the user's programs keep of their state
+ * (`$XDG_STATE_HOME/barion/usage.barion`), and read with the index.
  *
  * Every pick is a use of what was picked and of the folder it was picked from. A place's uses are kept as one weight
  * that halves every [Usage.HALF_LIFE] (a "frecency"): a file picked every day outweighs one picked ten times last year,
@@ -155,8 +156,18 @@ object UsageFile {
 	/** A pick never made, as the file writes it. */
 	private const val NEVER = Long.MIN_VALUE
 
-	/** Where the usage of the index kept in [index] is kept: beside it. */
-	fun beside(index: Path): Path = index.resolveSibling("usage.barion")
+	/**
+	 * Where the usage is kept: `$XDG_STATE_HOME/barion/usage.barion` (`~/.local/state/barion/usage.barion`), with the
+	 * state programs keep that is worth keeping but is not the user's documents, where the index (a cache, made again
+	 * at will) is not.
+	 */
+	fun default(): Path {
+		val state =
+			System.getenv("XDG_STATE_HOME")?.takeIf { it.startsWith("/") }?.let { Path.of(it) }
+				?: Path.of(System.getProperty("user.home"), ".local", "state")
+
+		return state.resolve("barion/usage.barion")
+	}
 
 	fun read(file: Path): UsageRead {
 		val bytes =
