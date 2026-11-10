@@ -19,6 +19,12 @@ a device, so a test that ran and a test that could not run are never confused.
 | the picker clicked and typed at, headless, around a running session (`InteractionTest`) | the JDK | never |
 | the gallery's thumbnails (`ThumbnailTest`) | the JDK | never |
 | the picker's menus, as values (`MenuTest`) | the JDK | never |
+| the browser exploring: files opened, or offered to an application; copied, cut and pasted, with undo; made; pinned (`ExploreTest`) | Linux | never |
+| chords read and written, where each action acts, the user's bindings, and clashes (`BindingsTest`) | the JDK | never |
+| the preferences in memory and in a watched file, written by another process, unreadable and kept aside (`preferences`) | Linux | never |
+| file types, desktop entries, `Exec` lines, defaults in `mimeapps.list`, places, and a real launch left detached (`desktop`) | Linux, `setsid` | never |
+| the explorer's windows around real sessions, properties, the application chooser, the preferences' edits merged on saving (`ExplorerTest`, `PropertiesTest`, `OpenWithTest`, `SettingsTest`) | the JDK | never |
+| the bindings window clicked, typed and mouse-pressed at, headless (`SettingsViewTest`) | the JDK | never |
 | renaming, making and removing folders, and the trash both ways, on real files (`DiskTest`) | Linux | never |
 | every example of the search language, against a tree indexed from disk (`SearchTest`) | Linux | never |
 | the search language's text read: every example to the DSL's query, every prefix of one with nothing invalid, recovery, marks, and random text (`ParserTest`) | the JDK | never |
@@ -83,7 +89,7 @@ The picker's tests draw it headless (skiko's software renderer) in both palettes
 keep the pictures:
 
 ```bash
-./gradlew :picker:test -Pbrowser.screenshots=build/shots
+./gradlew :browser:test -Pbrowser.screenshots=build/shots
 ```
 
 To draw it over a real folder:

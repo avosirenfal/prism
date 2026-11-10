@@ -20,11 +20,14 @@ The project is set up and every part named in the first brief exists, builds, an
 | the index | `index`: entries as columns in preorder (`Block`), inodes among them, a folder found by device and inode as the watcher names it; an immutable `Index` that changes by hiding and grafting and compacts back to a block a root, changes that say what is so and so can be made twice; its file a zstd-compressed snapshot and appended frames of changes, a torn frame dropped, compacted by rename (docs/format.md); `IndexStore` keeps an index and its file in step; `prism index` builds or reads one and searches it |
 | the daemon | `watcher`: the eBPF watcher, its program compiled into the module, read on a thread of its own; `daemon`: a `LiveIndex` that opens at once and reads its roots behind, reads places again when told (`rescan`), makes changes it is told of and makes them again once a scan they happened during lands, and reads places the rules leave out for searches alone, in memory, never written; and a `Daemon` that starts the watcher before the index is read, queues what it sees onto a thread of its own, writes every few seconds, and reads the roots again where changes were lost or there is no watcher (docs/daemon.md); `prism daemon` runs one |
 | search | `index`: queries as an immutable tree, for every term of the language (names, globs, quoted and raw terms, paths, regexes, `dir:`, `ext:`, `type:`, `is:`, `recent:`, `mount:`, negation), built with a Kotlin DSL or read from text by parser combinators that read any text at all into a tree with spans, problems (unfinished, and searched for as far as it goes; or invalid, and left out) and marks to colour it by; run over the columns as bytes, with ancestors' states kept per level, on every core; each result scored as it is found (how the words match the name, how much it and its folder have been picked, how new it is, where it is) and the results given best first; what was picked kept in a file of its own, in `$XDG_STATE_HOME` (docs/search.md) |
-| the picker | `picker`: an immutable `BrowserState`, a pure reducer, a session that reads folders, looks up typed paths and makes changes on a background thread, and a view made of its own controls; it browses (back, forward, up, the mouse's side buttons, places, a typed path), chooses (click, Ctrl, Shift, the arrows, type-ahead), searches, sorts, filters by kind from a menu (one, or several with Ctrl; hidden files shown and hidden folders not until the user says), zooms with Ctrl and the wheel (the gallery up to one picture at a time, fitted to the window), and saves (asking before replacing), as a list or a gallery with thumbnails of images; context menus (menus as data, one component for any menu) rename, trash (the desktop's own; the Delete key asks first) and make folders, each undone and redone with Ctrl+Z and Ctrl+Shift+Z; Ctrl+Shift+F searches the index, its first matches listed as the query is typed (coloured as it is read), a match gone to as the kind of picker says, every match shown in the listing as a folder holding them would show them (filtered, ordered best first or by a column, read on disk as they come into sight, millions without making millions of rows), Back returning to them; `prism pick` prints what is chosen, and `--index [FILE]` gives it an index to search (docs/picker.md) |
+| the picker | `browser`: an immutable `BrowserState`, a pure reducer, a session that reads folders, looks up typed paths and makes changes on a background thread, and a view made of its own controls; it browses (back, forward, up, the mouse's side buttons, places, a typed path), chooses (click, Ctrl, Shift, the arrows, type-ahead), searches, sorts, filters by kind from a menu (one, or several with Ctrl; hidden files shown and hidden folders not until the user says), zooms with Ctrl and the wheel (the gallery up to one picture at a time, fitted to the window), and saves (asking before replacing), as a list or a gallery with thumbnails of images; context menus (menus as data, one component for any menu) rename, trash (the desktop's own; the Delete key asks first) and make folders, each undone and redone with Ctrl+Z and Ctrl+Shift+Z; Ctrl+Shift+F searches the index, its first matches listed as the query is typed (coloured as it is read), a match gone to as the kind of picker says, every match shown in the listing as a folder holding them would show them (filtered, ordered best first or by a column, read on disk as they come into sight, millions without making millions of rows), Back returning to them; `prism pick` prints what is chosen, and `--index [FILE]` gives it an index to search; the same browser is the explorer's, below (docs/picker.md) |
+| the explorer | `explorer`: `prism explore`, the browser as a file manager in as many windows as it is asked for, kept as one immutable list; a file accepted opened with the desktop's application, started detached (its own session, and a systemd scope where there is one); copy, cut and paste through the desktop's clipboard, with undo; new files; properties (type, size counted, times, what opens it, permissions changed as ticked); "Open with", setting a type's default in `mimeapps.list`; a preferences window for pins, the terminal, and every key and mouse binding, rebound as a game's are (docs/explorer.md); a plan for configurable context menus (docs/menus.md) |
+| the desktop | `desktop`: file types, applications and defaults, launching, places and a file's facts as interfaces; freedesktop.org's implementation (shared-mime-info's globs, desktop entries and `Exec` lines, `mimeapps.list` in the specification's order, `setsid` and `systemd-run`, the XDG user directories, statx for when a file was made) |
+| the preferences | `preferences`: pins, bindings and the terminal as one immutable value, a JSON file in `$XDG_CONFIG_HOME/prism` watched across processes, so a change reaches every window; one that does not read is kept aside, not overwritten |
 | D-Bus | `dbus`: the connection (handshake and `Hello` as it opens), messages as data, kotlinx.serialization for bodies with signatures worked out from the types and checked before decoding, calls with replies as values, signals as flows, `watch`, served methods (docs/dbus.md) |
 | the colour scheme | `portal`: the portal's Settings declared; `prism pick` opens in the desktop's palette and follows its changes; light where there is no bus or portal; `--theme` overrides |
 
-317 tests (302 of prism's own, 15 of the house formatting rules), all passing in the development container; one
+370 tests (355 of prism's own, 15 of the house formatting rules), all passing in the development container; one
 skipped there, the search benchmark, which runs only when asked for (`-Pindex.benchmark=N`). The D-Bus ones run against a real dbus-daemon each test starts, and against gdbus, dbus-send and busctl.
 
 ## Measured
@@ -56,6 +59,12 @@ does both; the first run is the cold one.
   Ctrl-click, saving under a typed name, choosing a folder, and cancelling, each printing what it should
   (docs/testing.md says how). Under Wayland it runs through XWayland, as any AWT window does; that, and how it sits
   with a real window manager (focus on opening, the title bar), is untried.
+- **The explorer has been opened under X too**, on the same virtual display, and driven by xdotool: a file's menu,
+  its properties and a folder's (contents counted, a permission ticked and unticked on disk), "Open with" filtered,
+  confirmed with "always" (Vim started in a terminal, its parent init and its session its own, and the default
+  written to `mimeapps.list`), a folder pinned (written to the preferences and shown in the sidebar at once), and a
+  key and a mouse button rebound and saved, the explorer following them at once. Not tried: a real desktop's
+  applications under Wayland, and several processes sharing the preferences file while a person uses them.
 
 ## Next
 
@@ -71,7 +80,10 @@ In the order they unblock each other:
 3. **The picker reading its folders from the index** (an index-backed `Disk`), with the picker's kinds and `type:`
    from one table of extensions; and a search that asks for a place the rules leave out waiting for it to be read.
 4. **A Graal native command line** that talks to the running daemon: queries in a terminal, jumping to places.
-5. **Filtering in the kernel**: a bounded loop in the DSL, so the watcher drops a change under an ignored directory
+5. **The daemon hosting the explorer**, as it will the picker, and answering `org.freedesktop.FileManager1`
+   (`ShowFolders`, `ShowItems`) so applications can ask it to show a file; then context menus the user configures,
+   in the steps docs/menus.md gives.
+6. **Filtering in the kernel**: a bounded loop in the DSL, so the watcher drops a change under an ignored directory
    before it is sent; and the privileged loader service that hands the ring to the user's daemon.
 
 ## Notes for whoever picks this up
@@ -110,12 +122,13 @@ In the order they unblock each other:
   mouse is: move it over what is to be scrolled first.
 - The mouse's side buttons cannot be had from Compose on Linux: X numbers them 8 and 9, the JDK passes them on as
   AWT's 6 and 7, and Compose drops them, while reporting a sideways scroll (X's 6 and 7, AWT's 4 and 5) as back and
-  forward. They are read from AWT itself (`picker/sidebuttons.kt`); nothing should use Compose's `PointerButton.Back`.
+  forward. They are read from AWT itself (`browser/mousebuttons.kt`); nothing should use Compose's `PointerButton.Back`.
 - Headless drawing (`renderedPng`) draws two frames and returns, so it never shows a thumbnail: those arrive from an
   IO thread after. The gallery's pictures are checked by the interaction tests, and seen in a real window.
 
 - A path is a list of its own names in Kotlin (`Path` is `Iterable<Path>`), so `paths + path` adds the path's names,
-  not the path. Use `paths.plusElement(path)`. The picker's history had this bug until a test caught it.
+  not the path. Use `paths.plusElement(path)`. The picker's history had this bug until a test caught it, and so,
+  later, did pinning a folder and moving a pin in the preferences window.
 - Compose's `application { }` ends the process when its last window closes unless given `exitProcessOnExit = false`;
   anything after it (printing what was picked) needs that.
 - A `LazyListState` knows nothing of what is in sight until the list has been laid out once. An effect that scrolls

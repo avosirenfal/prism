@@ -51,8 +51,11 @@ runs as a daemon in the user's session, which opens a picker window whenever the
 | `index` | probe, ebpf-loader, linux | the scanner and its backends, the ignore rules, and the watcher as the index runs it; the build compiles the probe into this module's resources |
 | `dbus` | kotlinx.serialization, coroutines | D-Bus of prism's own: a connection over the bus's Unix socket that makes the handshake and `Hello` as it opens, messages as data, bodies by kotlinx.serialization with their signatures worked out from the Kotlin types, signals as flows, served methods (docs/dbus.md) |
 | `portal` | dbus | the desktop portal as prism speaks to it: the colour scheme now, the file chooser it will serve |
-| `picker` | Compose, coroutines | the picker: an immutable state, a pure reducer, a session that carries out what the reducer asks for against a disk, and a view made of controls of its own (docs/picker.md) |
-| `app` | everything | the command line and the window: `prism pick`, `snapshot`, `scan`, `probe` |
+| `preferences` | kotlinx.serialization | what the user has set, in a file every window of every process watches |
+| `desktop` | linux | the desktop as interfaces (file types, applications, launching, places, a file's facts), and freedesktop.org's implementation of them |
+| `browser` | index, desktop, preferences, Compose, coroutines | browsing, the picker's and the explorer's: an immutable state, a pure reducer, a session that carries out what the reducer asks for against a disk and the desktop, and a view made of controls of its own (docs/picker.md) |
+| `explorer` | browser | the file explorer's windows: properties, "Open with", and the preferences (docs/explorer.md) |
+| `app` | everything | the command line and the windows: `prism pick`, `explore`, `snapshot`, `scan`, `probe` |
 
 The index module could ship without the picker: it knows nothing of windows or portals. The picker knows nothing of
 the index yet; the app joins them.
@@ -181,6 +184,18 @@ Features to come, roughly in order: type filters from the portal's request (MIME
 folders read from the index; a details pane with a preview;
 thumbnails of videos and documents, and the desktop's own thumbnail cache; the list's column widths and order kept per
 user; drag and drop out of the picker.
+
+## The explorer
+
+The browser the picker is made of is also a file manager (docs/explorer.md): a browser choosing `Exploring` gives
+nothing back, and opens what is accepted with the desktop's applications instead, through a `Desktop` that says what
+type a file is, which application opens it, and starts that application detached from prism. Around the browser, the
+explorer keeps its windows as one immutable list, and adds properties, "Open with", and a preferences window in which
+the places pinned, the terminal and every key binding are set, the keys as a game's controls are. The preferences are
+one file every window of every process watches, so what is pinned in one is pinned in all, pickers included.
+
+The daemon is meant to host the explorer as it will host the picker, and to answer `org.freedesktop.FileManager1` so
+applications can ask it to show a folder or a file. Context menus the user configures are planned in docs/menus.md.
 
 ## The search language
 
