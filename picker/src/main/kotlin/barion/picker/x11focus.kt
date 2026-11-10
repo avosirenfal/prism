@@ -255,10 +255,12 @@ private class X11(
 		const val NOTIFY_NORMAL = 0
 
 		/**
-		 * The details of focus set on a window itself: from an ancestor of it (`NotifyAncestor`), or from elsewhere
-		 * (`NotifyNonlinear`). Focus passing through it to a window inside is `NotifyVirtual` or
-		 * `NotifyNonlinearVirtual`, and focus that was inside it is `NotifyInferior`: none of those.
+		 * The details of focus set on a window itself: from an ancestor of it (`NotifyAncestor`), from a window inside
+		 * it (`NotifyInferior`: AWT's proxy had it, as AWT gives it to itself as a window is shown, and the compositor
+		 * then set it on the window, taking it from the proxy), or from elsewhere (`NotifyNonlinear`). Focus passing
+		 * through it to a window inside (`NotifyVirtual`, `NotifyNonlinearVirtual`) is not one of them: that is AWT
+		 * taking the keyboard itself, which the watch asking for it does, so it never answers its own asking.
 		 */
-		val ARRIVING = setOf(0, 3)
+		val ARRIVING = setOf(0, 2, 3)
 	}
 }
