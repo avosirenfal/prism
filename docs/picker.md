@@ -497,9 +497,10 @@ interface Finder {
 
 The session asks it for each search, and tells it what was picked when the picker finishes, which is what ranks those
 higher next time. Run on its own, `barion pick --index` reads an index once from its file, with the usage (kept in
-`$XDG_STATE_HOME/barion/usage.barion`), into a `StaticFinder`: searched as it was read and never updated, which is what developing against a copy of the
-index wants. What is picked ranks higher for as long as it runs, and is not written. The daemon will give each picker
-it opens a finder over its live index (docs/daemon.md); nothing in the picker changes for that.
+`$XDG_STATE_HOME/barion/usage.barion`), into a `StaticFinder`: searched as it was read and never updated, which is
+what developing against a copy of the index wants. What is picked ranks higher for as long as it runs, and is not
+written. The daemon will give each picker it opens a finder over its live index (docs/daemon.md); nothing in the
+picker changes for that.
 
 `--index` alone reads the usual file, `$XDG_CACHE_HOME/barion/index.barion`; `--index FILE` reads that one. A folder
 after `--index` is the folder to open, not the index. Where there is no index, or it cannot be read, the picker says so
