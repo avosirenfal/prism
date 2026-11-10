@@ -112,7 +112,12 @@ private class FocusWatch private constructor(
 
 	/** Whether the X input focus is in the window while AWT does not know it; if so, the keyboard asked of AWT. */
 	private fun check() {
-		if (watched.isEmpty() || window.isFocused) {
+		if (watched.isEmpty()) {
+			said("the window has no native handle yet")
+
+			return
+		}
+		if (window.isFocused) {
 			said("AWT has the keyboard")
 
 			return
@@ -120,9 +125,10 @@ private class FocusWatch private constructor(
 
 		val focus = x.inputFocus(display)
 		val inside = focus > 1 && x.ancestry(display, focus).any { it in watched }
+		val where = if (inside) "in" else "not in"
 
 		said(
-			"X focus on $focus, ${if (inside) "in" else "not in"} the window; AWT does not have the keyboard",
+			"X focus on $focus, $where the window; AWT does not have the keyboard",
 		)
 		if (inside)
 			EventQueue.invokeLater(::takeKeyboard)
@@ -158,15 +164,14 @@ private class FocusWatch private constructor(
 
 		/** A watch of [window], where it is on X11 and libX11 is there to watch it with; null otherwise. */
 		fun of(window: ComposeWindow): FocusWatch? {
-			val onX11 =
-				!GraphicsEnvironment.isHeadless() &&
-					Toolkit.getDefaultToolkit().javaClass.name == "sun.awt.X11.XToolkit"
+			val toolkit = Toolkit.getDefaultToolkit().javaClass.name
+			val onX11 = !GraphicsEnvironment.isHeadless() && toolkit == "sun.awt.X11.XToolkit"
 			val x = X11.instance
 			val display = x?.takeIf { onX11 }?.openDisplay()
 
 			log(
 				when {
-					!onX11 -> "not on X11 (${Toolkit.getDefaultToolkit().javaClass.name}): nothing to watch"
+					!onX11 -> "not on X11 ($toolkit): nothing to watch"
 					x == null -> "no libX11: nothing to watch"
 					display == null -> "the X display cannot be opened: nothing to watch"
 					else -> "watching for the window's handle"
