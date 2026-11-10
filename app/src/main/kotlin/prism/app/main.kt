@@ -15,7 +15,7 @@ val PRISM =
 		"prism",
 		"a file picker for Wayland's portals, over an index of every file on the machine that the kernel keeps current",
 		listOf(
-			Category("picking", listOf(PickCommand, SnapshotCommand)),
+			Category("picking", listOf(PickCommand, ExploreCommand, SnapshotCommand)),
 			Category("indexing", listOf(DaemonCommand, IndexCommand, ScanCommand)),
 			Category("watching", listOf(ProbeGroup)),
 		),

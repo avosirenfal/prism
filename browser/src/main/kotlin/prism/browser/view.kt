@@ -301,6 +301,8 @@ private fun windowAction(
 					BrowserEvent.Cancelled
 			Action.Undo -> BrowserEvent.Undone
 			Action.Redo -> BrowserEvent.Redone
+			// An explorer's window ends as a picker does, and whoever opened it closes it.
+			Action.CloseWindow -> BrowserEvent.Cancelled
 			Action.SearchFolder -> {
 				stops.search.requestFocus()
 

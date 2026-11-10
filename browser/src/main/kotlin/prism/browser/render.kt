@@ -1,5 +1,6 @@
 package prism.browser
 
+import androidx.compose.runtime.Composable
 import androidx.compose.ui.ImageComposeScene
 import androidx.compose.ui.unit.Density
 import java.awt.EventQueue
@@ -22,18 +23,27 @@ fun renderedPng(
 	height: Int,
 	palette: Palette = Palette.Light,
 	scale: Float = 1f,
+): ByteArray = renderedPng(width, height, palette, scale) { FileBrowser(state) }
+
+/** [content] drawn headless, as [renderedPng] draws a browser: what the explorer's windows are looked at by. */
+fun renderedPng(
+	width: Int,
+	height: Int,
+	palette: Palette = Palette.Light,
+	scale: Float = 1f,
+	content: @Composable () -> Unit,
 ): ByteArray =
 	if (EventQueue.isDispatchThread())
-		drawn(state, width, height, palette, scale)
+		drawn(width, height, palette, scale, content)
 	else
-		runBlocking(Dispatchers.Swing) { drawn(state, width, height, palette, scale) }
+		runBlocking(Dispatchers.Swing) { drawn(width, height, palette, scale, content) }
 
 private fun drawn(
-	state: BrowserState,
 	width: Int,
 	height: Int,
 	palette: Palette,
 	scale: Float,
+	content: @Composable () -> Unit,
 ): ByteArray {
 	val scene =
 		ImageComposeScene(
@@ -42,7 +52,7 @@ private fun drawn(
 			Density(scale),
 			coroutineContext = Dispatchers.Swing,
 		) {
-			BrowserTheme(palette) { FileBrowser(state) }
+			BrowserTheme(palette, content)
 		}
 
 	try {

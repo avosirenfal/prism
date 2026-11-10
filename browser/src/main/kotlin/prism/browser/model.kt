@@ -937,7 +937,7 @@ data class BrowserState(
 
 	companion object {
 		/** Why a picker opened without an index has no search. */
-		const val NO_INDEX = "This picker was opened without an index to search."
+		const val NO_INDEX = "This window was opened without an index to search."
 	}
 }
 

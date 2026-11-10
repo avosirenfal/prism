@@ -444,3 +444,62 @@ fun <T> Select(
 		}
 	}
 }
+
+/** A box ticked or not, with [label] beside it: toggled by the pointer, or by Space when the keyboard is on it. */
+@Composable
+fun CheckBox(
+	label: String,
+	checked: Boolean,
+	modifier: Modifier = Modifier,
+	enabled: Boolean = true,
+	onChange: (Boolean) -> Unit,
+) {
+	val palette = LocalPalette.current
+	val type = LocalType.current
+	val source = remember { MutableInteractionSource() }
+	val felt = source.felt()
+	val shape = RoundedCornerShape(4.dp)
+
+	Row(
+		modifier
+			.alpha(if (enabled) 1f else 0.45f)
+			.toggleable(
+				checked,
+				source,
+				indication = null,
+				enabled = enabled,
+				role = Role.Checkbox,
+				onValueChange = onChange,
+			).padding(vertical = Dims.gapSmall),
+		verticalAlignment = Alignment.CenterVertically,
+	) {
+		Box(
+			Modifier
+				.ring(felt.ringed, palette.focus, corner = 4.dp)
+				.size(18.dp)
+				.background(
+					when {
+						checked -> palette.accent
+						felt.hovered && enabled -> palette.hover
+						else -> palette.field
+					},
+					shape,
+				).border(
+					1.dp,
+					if (checked)
+						palette.accent
+					else
+						palette.fieldEdge,
+					shape,
+				),
+			contentAlignment = Alignment.Center,
+		) {
+			if (checked)
+				GlyphIcon(Glyph.Check, palette.onAccent, 14.dp)
+		}
+		if (label.isNotEmpty()) {
+			Spacer(Modifier.width(Dims.gap))
+			Text(label, style = type.body)
+		}
+	}
+}

@@ -11,10 +11,25 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import prism.preferences.PreferenceStore
 
 /**
- * A browser [session] (a picker's, or an explorer's) in its [window], as every window of prism hosts one: the mouse's
- * buttons read from AWT and bound as keys are; the keyboard taken back from a compositor that gives it to the window as
- * AWT does not expect (x11focus.kt); the title bar, where there is one, asked for in [palette]'s tone; and every key
- * bound as the user's [preferences] say, changing as they change.
+ * [content] in its [window], as every window of prism hosts what it shows: the keyboard taken back from a compositor
+ * that gives it to the window as AWT does not expect (x11focus.kt); the title bar, where there is one, asked for in
+ * [palette]'s tone; and [palette] itself.
+ */
+@Composable
+fun HostedWindow(
+	window: ComposeWindow,
+	palette: Palette,
+	content: @Composable () -> Unit,
+) {
+	KeepsKeyboard(window)
+	TitleBarTone(window, palette.isDark)
+	BrowserTheme(palette, content)
+}
+
+/**
+ * A browser [session] (a picker's, or an explorer's) in its [window]: hosted as every window is ([HostedWindow]), with
+ * the mouse's buttons read from AWT and bound as keys are, and every key bound as the user's [preferences] say,
+ * changing as they change.
  */
 @Composable
 fun HostedBrowser(
@@ -35,9 +50,7 @@ fun HostedBrowser(
 	val bindings = remember(set) { Bindings.of(set) }
 
 	MouseChords(window) { chords.tryEmit(it) }
-	KeepsKeyboard(window)
-	TitleBarTone(window, palette.isDark)
-	BrowserTheme(palette) {
+	HostedWindow(window, palette) {
 		CompositionLocalProvider(LocalBindings provides bindings) {
 			SessionBrowser(session, mouseChords = chords)
 		}

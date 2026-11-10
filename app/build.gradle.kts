@@ -1,6 +1,6 @@
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
 
-// prism itself: the command line (prism.app), the picker's window, the index and its watcher. Compose Desktop's
+// prism itself: the command line (prism.app), the picker's and the explorer's windows, the index and its watcher. Compose Desktop's
 // application packaging, not Gradle's `application` plugin: Compose ships two different jars of one file name
 // (androidx's runtime-saveable-desktop and JetBrains' shim of it), which Gradle's distribution cannot hold side by
 // side and Compose's renames apart. `./gradlew :app:run --args="..."` runs it; `createDistributable` makes the
@@ -14,6 +14,7 @@ plugins {
 dependencies {
 	implementation(project(":cli"))
 	implementation(project(":browser"))
+	implementation(project(":explorer"))
 	implementation(project(":index"))
 	implementation(project(":daemon"))
 	implementation(project(":portal"))

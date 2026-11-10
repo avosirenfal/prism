@@ -352,8 +352,13 @@ class ExploreTest {
 		assertTrue("New file" in labels(contextMenuOf(explorer, Target.Folder)))
 		assertTrue("Paste" in labels(contextMenuOf(explorer, Target.Folder)))
 		assertEquals(
-			listOf("New window", "Open terminal here", "—", "Preferences…"),
+			listOf("New window", "Open terminal here", "—", "Preferences…", "Close window"),
 			labels(appMenuOf(explorer)),
+		)
+		// Closing the window ends the explorer's session, as cancelling ends a picker's.
+		assertEquals(
+			listOf(Effect.Finish(Outcome.Cancelled)),
+			step(explorer, BrowserEvent.Cancelled).effects,
 		)
 	}
 

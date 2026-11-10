@@ -74,14 +74,7 @@ private class Picking(
 		)
 	private val many = command.flag("--multiple", help = "a picker that opens several files")
 	private val folders = command.flag("--folder", help = "a picker that chooses a folder")
-	private val theme =
-		command.option(
-			"--theme",
-			type = Theme.TYPE,
-			default = Theme.Auto,
-			help = "the palette: the desktop's colour scheme (light where there is none), or light or dark",
-			shown = "auto",
-		)
+	private val theme = command.themeOption()
 
 	fun choosing(args: Args): Choosing {
 		val asked =
@@ -112,15 +105,6 @@ private class Picking(
 	fun theme(args: Args): Theme = args[theme]
 }
 
-/** A file that is not a folder: what `--index` reads, told apart so from the folder that may follow it. */
-private val INDEX_FILE =
-	ParamType("FILE") { word ->
-		if (Path(word).isDirectory())
-			Parsed.Invalid("$word is a folder, not an index")
-		else
-			Parsed.Value(Path(word))
-	}
-
 /**
  * `prism pick`: the picker in a window. With `--index`, Ctrl+Shift+F searches an index read once from its file (and
  * the usage beside it), as it was read: what the daemon will hand a picker it opens, kept current, for now a copy to
@@ -132,32 +116,17 @@ object PickCommand : Command(
 ) {
 	private val picking = Picking(this)
 
-	private val index =
-		optionalValue(
-			"--index",
-			type = INDEX_FILE,
-			help =
-				"search an index with Ctrl+Shift+F: the one in FILE, or without FILE the usual one " +
-					"(\$XDG_CACHE_HOME/prism/index.prism); read once, and never updated",
-		)
-
-	private val decorated =
-		flag(
-			"--decorated",
-			help =
-				"give the window the title bar the window manager draws (in the picker's palette " +
-					"where it heeds _GTK_THEME_VARIANT); without it, the window has none, " +
-					"and Escape or Cancel closes it",
-		)
+	private val indexing = Indexing(this)
+	private val decorated = decoratedFlag("Escape or Cancel closes it")
 
 	override fun run(args: Args): Outcome {
 		val home = Path(System.getProperty("user.home"))
-		val (search, finder) = searchOf(args[index], home)
+		val (search, finder) = indexing.searchOf(args, home)
 		val desktop = currentDesktop()
 		val preferences = PreferenceFile.open()
 
 		preferences.problem?.let {
-			warn("the preferences can't be read ($it); every default is used meanwhile")
+			warn(this, "the preferences can't be read ($it); every default is used meanwhile")
 		}
 
 		val first =
@@ -186,45 +155,6 @@ object PickCommand : Command(
 			Ended.Cancelled -> Outcome("", status = 1)
 		}
 	}
-
-	/**
-	 * The search [given] asks for, and what it searches: none without `--index`; with it, the index in its file, with
-	 * the usage (`$XDG_STATE_HOME/prism/usage.prism`), or, where there is no index there or it cannot be read, a warning and no search.
-	 */
-	private fun searchOf(given: Given<Path>?, home: Path): Pair<Search, Finder?> {
-		val file =
-			when (given) {
-				null -> return Search.Unavailable(
-					"${BrowserState.NO_INDEX} prism pick --index searches one.",
-				) to
-					null
-				Given.Alone -> defaultIndexFile()
-				is Given.With -> given.value
-			}
-
-		return when (val read = IndexFile.read(file)) {
-			is IndexRead.Read -> {
-				val usage = UsageFile.read(UsageFile.default())
-
-				if (usage is UsageRead.Unreadable)
-					warn(
-						"the usage can't be read (${usage.why}); results are ranked without it",
-					)
-
-				Search.Ready() to StaticFinder(read.index, usage.usage, home)
-			}
-			IndexRead.Missing -> {
-				warn("there is no index at $file, so there is no search; prism index makes one")
-				Search.Unavailable("There is no index at $file. prism index makes one.") to null
-			}
-			is IndexRead.Unreadable -> {
-				warn("the index at $file can't be read (${read.why}), so there is no search")
-				Search.Unavailable("The index at $file can't be read: ${read.why}") to null
-			}
-		}
-	}
-
-	private fun warn(line: String) = System.err.println("prism pick: warning: $line")
 
 	/**
 	 * The picker [first] opens in a window, run until it ends. The desktop's colour scheme is asked for before the

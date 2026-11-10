@@ -199,7 +199,10 @@ private fun folderMenuOf(state: BrowserState, bindings: Bindings): Menu<BrowserE
 	}
 }
 
-/** An explorer's own menu, behind its toolbar's button: another window, a terminal here, the preferences. */
+/**
+ * An explorer's own menu, behind its toolbar's button: another window, a terminal here, the preferences, and closing
+ * the window, which a window with no title bar has no other button for.
+ */
 fun appMenuOf(
 	state: BrowserState,
 	bindings: Bindings = Bindings.DEFAULT,
@@ -223,6 +226,7 @@ fun appMenuOf(
 			BrowserEvent.Requested(Request.Preferences),
 			keys = bindings.keys(Action.Preferences),
 		)
+		item("Close window", BrowserEvent.Cancelled, keys = bindings.keys(Action.CloseWindow))
 	}
 
 /** A sidebar place's menu: open it, here or in a window of its own, and unpin it where it is pinned. */

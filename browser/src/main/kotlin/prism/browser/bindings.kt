@@ -66,6 +66,7 @@ enum class Action(
 	OpenTerminal("Open a terminal here", Scope.Window, "Shift+F4"),
 	NewWindow("New window", Scope.Window, "Ctrl+N"),
 	Preferences("Preferences", Scope.Window, "Ctrl+Comma"),
+	CloseWindow("Close the window (a picker: cancel)", Scope.Window, "Ctrl+W"),
 	Cancel("Cancel, or let go of what is chosen", Scope.Leftover, "Escape"),
 	Undo("Undo", Scope.Leftover, "Ctrl+Z"),
 	Redo("Redo", Scope.Leftover, "Ctrl+Shift+Z", "Ctrl+Y"),
@@ -300,15 +301,51 @@ class Bindings(
 	fun clashes(action: Action, chord: Chord): List<Action> =
 		chords.entries
 			.filter { (other, its) ->
-				other != action &&
-					its.any {
-						it == chord ||
-							(
-								(other.scope == Scope.Movement || action.scope == Scope.Movement) &&
-									it.bare == chord.bare
-							)
-					}
+				other != action && its.any { same(action, chord, other, it) }
 			}.map { it.key }
+
+	/**
+	 * These, with [chord] as [action]'s chord at [index] (or after its last, for an index past them), and taken from
+	 * every action it [clashes] with. A move of the cursor is bound to its key alone, Shift and Ctrl aside.
+	 */
+	fun bound(action: Action, index: Int, chord: Chord): Bindings {
+		val given =
+			if (action.scope == Scope.Movement)
+				chord.bare
+			else
+				chord
+
+		val freed =
+			chords.mapValues { (other, its) ->
+				if (other == action)
+					its
+				else
+					its.filterNot { same(action, given, other, it) }
+			}
+		val mine = freed[action].orEmpty()
+		val placed =
+			if (index < mine.size)
+				mine.mapIndexed { at, it -> if (at == index) given else it }
+			else
+				mine.plusElement(given)
+
+		return Bindings(freed + (action to placed.distinct()))
+	}
+
+	/** These, without [action]'s chord at [index]. */
+	fun unbound(action: Action, index: Int): Bindings =
+		with(action, of(action).filterIndexed { at, _ -> at != index })
+
+	/** These, with [action]'s chords its defaults again. */
+	fun reset(action: Action): Bindings = with(action, action.defaults)
+
+	/** Whether [its], one of [other]'s chords, is [chord] of [action]'s: the same, or, for a move, the same key. */
+	private fun same(action: Action, chord: Chord, other: Action, its: Chord): Boolean =
+		its == chord ||
+			(
+				(other.scope == Scope.Movement || action.scope == Scope.Movement) &&
+					its.bare == chord.bare
+			)
 
 	/** What the preferences say of these: each action whose chords are not its defaults. */
 	fun differences(): Map<String, List<String>> =
