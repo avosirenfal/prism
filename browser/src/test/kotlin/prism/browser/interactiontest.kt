@@ -843,6 +843,48 @@ class InteractionTest {
 	}
 
 	@Test
+	fun aSearchsTilesShowTheirOwnPicturesNotThoseOfTheSearchBefore() {
+		// A search's rows are known by their places among its results, so the first result of one search and the first of
+		// the next are the same tile to the gallery. Here the first search finds only pictures, and the next only
+		// folders: the tiles that showed pictures now show folders, and must not go on showing the pictures.
+		val folder = home().resolve("shots").createDirectories()
+
+		ThumbnailTest.picture(folder, "a1.png", 400, 300)
+		ThumbnailTest.picture(folder, "a2.png", 400, 300)
+		folder.resolve("album").createDirectories()
+		folder.resolve("art").createDirectories()
+
+		picking(folder = folder, finder = finderOf(folder)) { session ->
+			fun search(text: String, shown: (List<Row>) -> Boolean) {
+				session.send(BrowserEvent.OpenedSearch)
+				session.send(BrowserEvent.SearchTyped(text))
+				waitUntil(timeoutMillis = TIMEOUT) {
+					(session.state.value.search as? Search.Ready)?.found is Finding.Matched
+				}
+				session.send(BrowserEvent.ShowedResults)
+				waitUntil(timeoutMillis = TIMEOUT) {
+					session.state.value.let { it.results != null && shown(it.rows.list) }
+				}
+			}
+
+			fun pictured(name: String) =
+				onAllNodes(hasTestTag("picture:$name")).fetchSemanticsNodes().isNotEmpty()
+
+			session.send(BrowserEvent.Viewed(Layout.Gallery))
+			search("ext:png") { rows -> rows.map { it.name }.toSet() == setOf("a1.png", "a2.png") }
+			waitUntil(timeoutMillis = TIMEOUT) { pictured("a1.png") && pictured("a2.png") }
+
+			search(
+				"is:dir",
+			) { rows -> rows.any { it.name == "album" } && rows.all { it.isFolder } }
+			waitForIdle()
+
+			assertFalse(pictured("album"), "the folder album shows a picture")
+			assertFalse(pictured("art"), "the folder art shows a picture")
+		}
+	}
+
+	@Test
 	fun theGalleryShowsEachEntryAsATileWithAPicture() =
 		picking(folder = media()) { session ->
 			onNodeWithTag("layout:Gallery").performClick()

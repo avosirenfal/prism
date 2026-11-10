@@ -43,6 +43,7 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -1723,14 +1724,17 @@ private fun Picture(row: Row, path: Path, zoom: Float) {
 		// Made for the longer side of its room, so that it is as sharp as it is drawn.
 		val side = maxOf(constraints.maxWidth, constraints.maxHeight)
 
-		val picture by produceState<ImageBitmap?>(
-			null,
-			path,
-			row.modified,
-			Thumbnails.sideFor(side),
-		) {
-			if (drawable)
-				value = thumbnails.of(path, row.modified?.value, side)
+		// The picture is its file's: a tile shown for another file (a row of another listing known by the same identity,
+		// as a search's first result and the next search's are) starts without one, rather than keeping the last file's.
+		// For the same file, the last picture stays while one for a new size or a new version of it is made.
+		val picture by key(path) {
+			produceState<ImageBitmap?>(null, row.modified, Thumbnails.sideFor(side)) {
+				value =
+					if (drawable)
+						thumbnails.of(path, row.modified?.value, side)
+					else
+						null
+			}
 		}
 
 		when (val shown = picture) {
