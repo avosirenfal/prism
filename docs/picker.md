@@ -382,6 +382,15 @@ does.
 A control draws its focus ring only while the window has the keyboard: Compose keeps its focused control while the
 window is in the background, which drew the ring of a field that could not be typed into.
 
+## The title bar
+
+On X11 an application draws only inside its window; the bar with the title and the close button is the window
+manager's (under niri, xwayland-satellite's or niri's). So `barion pick` opens with none by default: the window asks for
+no decorations (`_MOTIF_WM_HINTS`), and Escape or Cancel closes it. `--decorated` asks for the window manager's bar, and
+the picker asks for it in its own palette with GTK's way of asking, the window's `_GTK_THEME_VARIANT` property (`dark`
+or `light`), set again as the palette follows the desktop's (`TitleBarTone`, `x11title.kt`). A window manager that does
+not read that property draws what it draws.
+
 ## The mouse's side buttons
 
 Most mice have two buttons at the side, back and forward. They go back and forward in the picker as in a browser,

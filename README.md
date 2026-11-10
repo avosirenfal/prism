@@ -27,7 +27,7 @@ for and how it is meant to work; docs/inprogress.md says where it stands.
 
 | command | what it does |
 |---|---|
-| `pick [FOLDER]` | the picker in a window over a folder (your home folder by default), in the desktop's light or dark palette as it changes; prints each path chosen on a line of its own, or nothing and exit status 1 when cancelled; `--save NAME`, `--multiple`, `--folder`, `--theme auto\|light\|dark`; `--index [FILE]` searches an index with Ctrl+Shift+F (the usual one, or FILE's), read once and never updated |
+| `pick [FOLDER]` | the picker in a window over a folder (your home folder by default), in the desktop's light or dark palette as it changes; prints each path chosen on a line of its own, or nothing and exit status 1 when cancelled; `--save NAME`, `--multiple`, `--folder`, `--theme auto\|light\|dark`; `--decorated` for the window manager's title bar (none by default); `--index [FILE]` searches an index with Ctrl+Shift+F (the usual one, or FILE's), read once and never updated |
 | `snapshot [FOLDER] --out FILE` | the picker drawn headless into a PNG |
 | `daemon [PATH...]` | the index kept current: the watcher started first (or why it could not be), then the index read or built, every change made as it is seen; `--find QUERY` searches once the roots are read, reading places the rules leave out for the search alone; `--in-memory`, `--for N` |
 | `index [PATH...]` | folders indexed into the index's file (`/` by default), or the file read where there is one, with what it holds and how long that took; `--find QUERY` searches it, in the search language, with what is wrong with the query underlined and how long each search took; `--fresh` indexes anew |

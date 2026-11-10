@@ -34,6 +34,7 @@ import barion.picker.SessionPicker
 import barion.picker.SideButtons
 import barion.picker.StaticFinder
 import barion.picker.Step
+import barion.picker.TitleBarTone
 import barion.picker.opened
 import barion.picker.pickerOf
 import barion.picker.renderedPng
@@ -139,6 +140,15 @@ object PickCommand : Command(
 					"(\$XDG_CACHE_HOME/barion/index.barion); read once, and never updated",
 		)
 
+	private val decorated =
+		flag(
+			"--decorated",
+			help =
+				"give the window the title bar the window manager draws (in the picker's palette " +
+					"where it heeds _GTK_THEME_VARIANT); without it, the window has none, " +
+					"and Escape or Cancel closes it",
+		)
+
 	override fun run(args: Args): Outcome {
 		val home = Path(System.getProperty("user.home"))
 		val (search, finder) = searchOf(args[index], home)
@@ -159,6 +169,7 @@ object PickCommand : Command(
 						first,
 						finder,
 						picking.theme(args),
+						args[decorated],
 					)
 				}
 		) {
@@ -213,7 +224,12 @@ object PickCommand : Command(
 	 * so that what was chosen can be printed after it; a window closed is a picker cancelled.
 	 */
 	@OptIn(ExperimentalCoroutinesApi::class)
-	private fun picked(first: Step, finder: Finder?, theme: Theme): Ended {
+	private fun picked(
+		first: Step,
+		finder: Finder?,
+		theme: Theme,
+		decorated: Boolean,
+	): Ended {
 		val ended = CompletableDeferred<Ended>()
 
 		Appearance.follow(theme).use { appearance ->
@@ -228,14 +244,18 @@ object PickCommand : Command(
 					exitApplication()
 				}
 
+				val palette = paletteOf(theme, scheme)
+
 				Window(
 					onCloseRequest = { session.send(PickerEvent.Cancelled) },
 					title = state.title,
 					state = rememberWindowState(width = 1100.dp, height = 680.dp),
+					undecorated = !decorated,
 				) {
 					SideButtons(window, session::send)
 					KeepsKeyboard(window)
-					PickerTheme(paletteOf(theme, scheme)) { SessionPicker(session) }
+					TitleBarTone(window, palette.isDark)
+					PickerTheme(palette) { SessionPicker(session) }
 				}
 			}
 		}
