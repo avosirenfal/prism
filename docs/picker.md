@@ -372,13 +372,12 @@ did nothing, until a click made AWT take the keyboard itself. This is a known wa
 (it has been reported against mutter, Weston and others).
 
 So the picker watches its own window from an X connection of its own (`KeepsKeyboard`, `x11focus.kt`, libX11 through
-the FFM API) for focus arriving at the window itself, and when it does and AWT has not noticed, asks AWT for the
-keyboard, which AWT then takes to its proxy as it does for a click. That counts focus set on the window from
-outside, and focus taken from inside it: as a window is shown, AWT gives the keyboard to its proxy itself, and then the
-compositor sets it on the window, which is the proxy losing it, and was why a picker just opened took no keys until
-clicked. Focus passing on to a window inside (which is AWT taking the keyboard, as the watch asks it to) is not
-counted, so the watch never answers its own asking. Focus already on the window when the watch begins is taken at
-once. Where the window is not on X11, there is nothing to watch.
+the FFM API). What it checks is a state rather than an event: whether the X input focus is anywhere in the window (the
+window itself, a frame around it, or AWT's proxy) while AWT does not think the window has the keyboard. If so, it asks
+AWT for the keyboard, which AWT then takes to its proxy as it does for a click, and so it asks once. It checks whenever
+focus changes on the window and four times a second besides, so focus given before the watch began, or in whatever
+order a compositor's events come in, is found too. `BARION_FOCUS_LOG=1` has it say on standard error what it sees and
+does.
 
 A control draws its focus ring only while the window has the keyboard: Compose keeps its focused control while the
 window is in the background, which drew the ring of a field that could not be typed into.

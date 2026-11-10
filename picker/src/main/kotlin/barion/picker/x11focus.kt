@@ -28,13 +28,15 @@ import java.lang.foreign.ValueLayout.JAVA_LONG
  * event has the line that would pass it to the proxy commented out. So AWT goes on thinking the window is in the
  * background, and drops every key, until a click makes it take the keyboard itself.
  *
- * So the picker watches its own window from a connection to the X server of its own, for focus arriving at the window
- * itself (never focus passing on to something inside it, which is what AWT's own taking of the keyboard looks like),
- * and when it does and AWT has not noticed, asks AWT for the keyboard, which AWT then takes to its proxy as it would
- * have for a click.
+ * The same happens as a window is shown: AWT gives its proxy the keyboard, and the compositor then sets it on the
+ * window, taking it from the proxy, in whatever order its events say.
+ *
+ * So the picker watches its own window from a connection to the X server of its own, and whenever the X input focus is
+ * anywhere in the window while AWT does not think the window has the keyboard, asks AWT for it, which AWT then takes
+ * to its proxy as it would have for a click. `BARION_FOCUS_LOG=1` has it say what it sees.
  */
 
-/** For as long as this is composed, [window] takes the keyboard whenever the X server gives it to the window itself. */
+/** For as long as this is composed, [window] takes the keyboard whenever the X server gives it to the window. */
 @Composable
 fun KeepsKeyboard(window: ComposeWindow) {
 	DisposableEffect(window) {
@@ -44,7 +46,13 @@ fun KeepsKeyboard(window: ComposeWindow) {
 	}
 }
 
-/** A thread watching [window] (and the windows above it) on an X connection of its own, until closed. */
+/**
+ * A thread watching [window] on an X connection of its own, until closed. What it checks is a state, not an event:
+ * whether the X input focus is anywhere in the window (the window itself, a window above it such as a frame, or one
+ * inside it) while AWT does not think the window has the keyboard. It checks whenever focus changes on the window and
+ * four times a second besides, so focus given before the watch began, or in an order no event says, is found too; and
+ * the keyboard asked of AWT makes AWT think the window has it, so it asks once.
+ */
 private class FocusWatch private constructor(
 	private val x: X11,
 	private val display: MemorySegment,
@@ -52,6 +60,12 @@ private class FocusWatch private constructor(
 ) : AutoCloseable {
 	@Volatile
 	private var open = true
+
+	/** The window and the windows above it but the root, once the window has a native handle to find them by. */
+	private var watched: List<Long> = emptyList()
+
+	/** What the last check found, so the log says only what changed. */
+	private var last: String? = null
 
 	private val thread =
 		Thread({ watch() }, "barion-x11-focus").apply {
@@ -67,28 +81,65 @@ private class FocusWatch private constructor(
 			epoll.use {
 				it.watchInput(Fd(x.connectionNumber(display)), 0)
 				while (open) {
+					if (watched.isEmpty())
+						watched = watching()
+					check()
 					it.await(Wait.AtMost(250))
-					while (open && x.pending(display) > 0) {
+					while (open && x.pending(display) > 0)
 						x.nextEvent(display, event)
-						if (arrived(event))
-							EventQueue.invokeLater(::takeKeyboard)
-					}
 				}
 			}
 		}
 		x.closeDisplay(display)
 	}
 
-	/** Whether [event] is the X input focus set on a watched window itself, not passing on to a window inside it. */
-	private fun arrived(event: MemorySegment): Boolean =
-		event.get(JAVA_INT, 0) == X11.FOCUS_IN &&
-			event.get(JAVA_INT, X11.MODE) == X11.NOTIFY_NORMAL &&
-			event.get(JAVA_INT, X11.DETAIL) in X11.ARRIVING
+	/** The windows to watch, selected for focus changes; none while the window has no native handle yet. */
+	private fun watching(): List<Long> {
+		val handle = window.windowHandle
+
+		if (handle == 0L)
+			return emptyList()
+
+		val windows = x.ancestry(display, handle)
+
+		for (each in windows)
+			x.selectInput(display, each, X11.FOCUS_CHANGE_MASK)
+		x.flush(display)
+		log("watching $windows")
+
+		return windows
+	}
+
+	/** Whether the X input focus is in the window while AWT does not know it; if so, the keyboard asked of AWT. */
+	private fun check() {
+		if (watched.isEmpty() || window.isFocused) {
+			said("AWT has the keyboard")
+
+			return
+		}
+
+		val focus = x.inputFocus(display)
+		val inside = focus > 1 && x.ancestry(display, focus).any { it in watched }
+
+		said(
+			"X focus on $focus, ${if (inside) "in" else "not in"} the window; AWT does not have the keyboard",
+		)
+		if (inside)
+			EventQueue.invokeLater(::takeKeyboard)
+	}
 
 	/** The keyboard asked of AWT, for the control that last had it, where AWT does not think the window has it. */
-	fun takeKeyboard() {
-		if (open && window.isShowing && !window.isFocused)
+	private fun takeKeyboard() {
+		if (open && window.isShowing && !window.isFocused) {
+			log("asking AWT for the keyboard")
 			(window.mostRecentFocusOwner ?: window).requestFocus()
+		}
+	}
+
+	private fun said(state: String) {
+		if (state != last)
+			log(state)
+		last = state
 	}
 
 	override fun close() {
@@ -97,34 +148,32 @@ private class FocusWatch private constructor(
 	}
 
 	companion object {
+		/** `BARION_FOCUS_LOG=1` has the watch say on standard error what it sees and does. */
+		private val logging = System.getenv("BARION_FOCUS_LOG") != null
+
+		private fun log(line: String) {
+			if (logging)
+				System.err.println("barion focus: $line")
+		}
+
 		/** A watch of [window], where it is on X11 and libX11 is there to watch it with; null otherwise. */
 		fun of(window: ComposeWindow): FocusWatch? {
 			val onX11 =
 				!GraphicsEnvironment.isHeadless() &&
 					Toolkit.getDefaultToolkit().javaClass.name == "sun.awt.X11.XToolkit"
-			val handle = window.windowHandle
 			val x = X11.instance
+			val display = x?.takeIf { onX11 }?.openDisplay()
 
-			if (!onX11 || handle == 0L || x == null)
-				return null
+			log(
+				when {
+					!onX11 -> "not on X11 (${Toolkit.getDefaultToolkit().javaClass.name}): nothing to watch"
+					x == null -> "no libX11: nothing to watch"
+					display == null -> "the X display cannot be opened: nothing to watch"
+					else -> "watching for the window's handle"
+				},
+			)
 
-			val display = x.openDisplay() ?: return null
-
-			// The window and every window above it but the root: whichever of them the focus is set on (a window
-			// manager that reparents sets it on its frame, or on the window inside it).
-			val watched = x.ancestry(display, handle)
-
-			for (each in watched)
-				x.selectInput(display, each, X11.FOCUS_CHANGE_MASK)
-			x.flush(display)
-
-			// Focus given before the watch began (as the window was first shown) is not an event it will see.
-			val already = x.inputFocus(display) in watched
-
-			return FocusWatch(x, display, window).also {
-				if (already)
-					EventQueue.invokeLater(it::takeKeyboard)
-			}
+			return display?.let { FocusWatch(x, it, window) }
 		}
 	}
 }
@@ -244,23 +293,8 @@ private class X11(
 
 		/** `sizeof(XEvent)` on 64 bits: a union padded to 24 longs. */
 		const val EVENT_SIZE = 192L
-		const val FOCUS_IN = 9
 
 		/** `FocusChangeMask`. */
 		const val FOCUS_CHANGE_MASK = 1L shl 21
-
-		/** Where `XFocusChangeEvent`'s mode and detail are: after its type, serial, send_event, display and window. */
-		const val MODE = 40L
-		const val DETAIL = 44L
-		const val NOTIFY_NORMAL = 0
-
-		/**
-		 * The details of focus set on a window itself: from an ancestor of it (`NotifyAncestor`), from a window inside
-		 * it (`NotifyInferior`: AWT's proxy had it, as AWT gives it to itself as a window is shown, and the compositor
-		 * then set it on the window, taking it from the proxy), or from elsewhere (`NotifyNonlinear`). Focus passing
-		 * through it to a window inside (`NotifyVirtual`, `NotifyNonlinearVirtual`) is not one of them: that is AWT
-		 * taking the keyboard itself, which the watch asking for it does, so it never answers its own asking.
-		 */
-		val ARRIVING = setOf(0, 2, 3)
 	}
 }
