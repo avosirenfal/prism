@@ -182,7 +182,7 @@ said of a watched command, since prism knows nothing of how the others ended.
 
 **When it fails.** A watched command that ends with anything but success is said to have failed, in a notice over the
 browser: how it ended, and the last of what it wrote, to standard error where it wrote any there and otherwise to its
-output, in a box that scrolls. A place whose listing fails says the same where its entries would be. Nothing fails
+output, in a box that scrolls. The words can be selected and copied, and "Copy" copies all of it. A place whose listing fails says the same where its entries would be. Nothing fails
 without saying so.
 
 ### Several ways, and the programs there are
@@ -440,6 +440,17 @@ the format is learnt from:
   or `tar` with the program that compresses), each asking for a name.
 - **Open containing folder**, here or in a new window, for a file shown elsewhere than its folder.
 - **Changed files (git)**, on a folder in a repository: a place of real files, opened here as a search's results are.
+
+Names are names, whatever is in them. Several of these programs read `[`, `]`, `*` and `?` in what they are given
+as patterns, so the commands escape them (`unzip`, `zip`, `bsdtar`), or tell the program not to (7-Zip's `-spd`, GNU
+tar's `--no-wildcards`). `unrar` and `rar` cannot be told: extracting is still right, since only the entries named are
+brought out of what was extracted, but `rar` refuses to remove an entry whose name holds `*` or `?`, and says why,
+rather than risk removing more than was asked. A folder is named as `folder/*` to `unzip` and `zip`, which is right
+whether or not the archive has an entry for the folder itself (a zip made on macOS has none).
+
+`EntriesTest` brings out every shape (a file at the top, a folder at the top, a file in a folder, a file and a folder
+several folders down, an empty folder, several at once, names with brackets, `*` and `?`) of every kind, made with and
+without folder entries, by every program that reads it, and removes them from every kind that can be changed.
 
 Every one of these was run in the tests against a real archive, with each program in turn made the only one there
 (`ArchivesTest`), but for `.dmg`, for which there was no image to hand: it is declared as `.iso` is, and 7-Zip reads

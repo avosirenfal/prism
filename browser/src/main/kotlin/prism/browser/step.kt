@@ -315,6 +315,7 @@ private fun did(state: BrowserState, event: BrowserEvent): Step =
 			state.carrying(event.entries)?.let { state.droppedCarried(it, event.spot) }
 				?: Step(state)
 		is BrowserEvent.Stopped -> state.stopping(event.task)
+		is BrowserEvent.CopiedText -> Step(state, listOf(Effect.Copy(event.text)))
 		is BrowserEvent.Banded ->
 			Step(
 				if (state.choosing.many) {
@@ -369,6 +370,8 @@ private fun noticed(state: BrowserState, notice: Notice, event: BrowserEvent): S
 			)
 		BrowserEvent.Cancelled -> Step(state, listOf(Effect.Finish(Outcome.Cancelled)))
 		is BrowserEvent.Stopped -> state.stopping(event.task)
+		// Copying what the notice says leaves it shown.
+		is BrowserEvent.CopiedText -> Step(state, listOf(Effect.Copy(event.text)))
 		else -> Step(state)
 	}
 
@@ -1080,8 +1083,16 @@ private fun BrowserState.openedSearch(): Step =
 				copy(search = Search.Ready(open = true)).previewing()
 			else
 				Step(copy(search = search.copy(open = true)))
+		// Asked for again while it is open, it starts again: what was typed is let go, for something else to be.
 		is Search.Ready ->
-			copy(search = search.copy(open = true, highlighted = null)).previewing()
+			if (search.open)
+				Step(
+					copy(
+						search = search.copy(text = "", found = null, highlighted = null, showing = false),
+					),
+				)
+			else
+				copy(search = search.copy(open = true, highlighted = null)).previewing()
 	}
 
 /** The search's text searched for, for the window's matches; nothing, for no text. */

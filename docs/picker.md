@@ -465,6 +465,10 @@ of `Location.Folder`, and the folder left goes into the history, so Back returns
 "Search results" and what was searched for; clicking it opens the window again. The window closes, and keeps what was
 typed for the next Ctrl+Shift+F.
 
+**Pressed again while the window is open,** Ctrl+Shift+F (or whatever it is bound to) empties the field and leaves the
+keyboard in it, for something else to be searched for at once. The window holds the keyboard while it is open, so it
+reads the binding itself.
+
 ![A search's results in the listing](picker-results.png)
 
 ### Results, as a folder holding them all

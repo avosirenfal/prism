@@ -447,7 +447,7 @@
 					"run": [
 						"sh",
 						"-c",
-						"t=$1; shift; for e; do set -- \"$@\" \"${e%/}\"; shift; done; bsdtar -xf \"$archive\" -C \"$t\" -- \"$@\"",
+						"t=$1; shift; esc() { printf '%s' \"$1\" | sed 's/[][*?\\\\]/\\\\&/g'; }; for e; do set -- \"$@\" \"$(esc \"${e%/}\")\"; shift; done; bsdtar -xf \"$archive\" -C \"$t\" -- \"$@\"",
 						"sh",
 						"{temp}",
 						"{entries}"
@@ -460,7 +460,7 @@
 					"run": [
 						"sh",
 						"-c",
-						"t=$1; shift; for e; do set -- \"$@\" \"${e%/}\"; shift; done; tar -xf \"$archive\" -C \"$t\" -- \"$@\"",
+						"t=$1; shift; for e; do set -- \"$@\" \"${e%/}\"; shift; done; tar --no-wildcards -xf \"$archive\" -C \"$t\" -- \"$@\"",
 						"sh",
 						"{temp}",
 						"{entries}"
@@ -555,11 +555,10 @@
 						"tar"
 					],
 					"run": [
-						"tar",
-						"--delete",
-						"-f",
-						"{archive}",
-						"--",
+						"sh",
+						"-c",
+						"for e; do set -- \"$@\" \"${e%/}\"; shift; done; tar --no-wildcards --delete -f \"$archive\" -- \"$@\"",
+						"sh",
 						"{entries}"
 					]
 				}
@@ -812,7 +811,7 @@
 					"run": [
 						"sh",
 						"-c",
-						"t=$1; shift; for e; do case \"$e\" in */) set -- \"$@\" \"$e\" \"$e*\";; *) set -- \"$@\" \"$e\";; esac; shift; done; unzip -q \"$archive\" \"$@\" -d \"$t\"",
+						"t=$1; shift; esc() { printf '%s' \"$1\" | sed 's/[][*?\\\\]/\\\\&/g'; }; for e; do case \"$e\" in */) set -- \"$@\" \"$(esc \"$e\")*\";; *) set -- \"$@\" \"$(esc \"$e\")\";; esac; shift; done; unzip -q \"$archive\" \"$@\" -d \"$t\"",
 						"sh",
 						"{temp}",
 						"{entries}"
@@ -826,6 +825,7 @@
 						"{which:7zz|7z|7za|7zr}",
 						"x",
 						"-y",
+						"-spd",
 						"-bso0",
 						"-bsp0",
 						"-o{temp}",
@@ -841,7 +841,7 @@
 					"run": [
 						"sh",
 						"-c",
-						"t=$1; shift; for e; do set -- \"$@\" \"${e%/}\"; shift; done; bsdtar -xf \"$archive\" -C \"$t\" -- \"$@\"",
+						"t=$1; shift; esc() { printf '%s' \"$1\" | sed 's/[][*?\\\\]/\\\\&/g'; }; for e; do set -- \"$@\" \"$(esc \"${e%/}\")\"; shift; done; bsdtar -xf \"$archive\" -C \"$t\" -- \"$@\"",
 						"sh",
 						"{temp}",
 						"{entries}"
@@ -949,7 +949,7 @@
 					"run": [
 						"sh",
 						"-c",
-						"for e; do case \"$e\" in */) set -- \"$@\" \"$e\" \"$e*\";; *) set -- \"$@\" \"$e\";; esac; shift; done; zip -q -d \"$archive\" \"$@\"",
+						"esc() { printf '%s' \"$1\" | sed 's/[][*?\\\\]/\\\\&/g'; }; for e; do case \"$e\" in */) set -- \"$@\" \"$(esc \"$e\")*\";; *) set -- \"$@\" \"$(esc \"$e\")\";; esac; shift; done; zip -q -d \"$archive\" \"$@\"",
 						"sh",
 						"{entries}"
 					]
@@ -961,6 +961,7 @@
 					"run": [
 						"{which:7zz|7z|7za|7zr}",
 						"d",
+						"-spd",
 						"-bso0",
 						"-bsp0",
 						"{archive}",
@@ -1151,6 +1152,7 @@
 						"{which:7zz|7z|7za|7zr}",
 						"x",
 						"-y",
+						"-spd",
 						"-bso0",
 						"-bsp0",
 						"-o{temp}",
@@ -1166,7 +1168,7 @@
 					"run": [
 						"sh",
 						"-c",
-						"t=$1; shift; for e; do set -- \"$@\" \"${e%/}\"; shift; done; bsdtar -xf \"$archive\" -C \"$t\" -- \"$@\"",
+						"t=$1; shift; esc() { printf '%s' \"$1\" | sed 's/[][*?\\\\]/\\\\&/g'; }; for e; do set -- \"$@\" \"$(esc \"${e%/}\")\"; shift; done; bsdtar -xf \"$archive\" -C \"$t\" -- \"$@\"",
 						"sh",
 						"{temp}",
 						"{entries}"
@@ -1261,6 +1263,7 @@
 					"run": [
 						"{which:7zz|7z|7za|7zr}",
 						"d",
+						"-spd",
 						"-bso0",
 						"-bsp0",
 						"{archive}",
@@ -1463,6 +1466,7 @@
 						"{which:7zz|7z|7za|7zr}",
 						"x",
 						"-y",
+						"-spd",
 						"-bso0",
 						"-bsp0",
 						"-o{temp}",
@@ -1478,7 +1482,7 @@
 					"run": [
 						"sh",
 						"-c",
-						"t=$1; shift; for e; do set -- \"$@\" \"${e%/}\"; shift; done; bsdtar -xf \"$archive\" -C \"$t\" -- \"$@\"",
+						"t=$1; shift; esc() { printf '%s' \"$1\" | sed 's/[][*?\\\\]/\\\\&/g'; }; for e; do set -- \"$@\" \"$(esc \"${e%/}\")\"; shift; done; bsdtar -xf \"$archive\" -C \"$t\" -- \"$@\"",
 						"sh",
 						"{temp}",
 						"{entries}"
@@ -1585,7 +1589,7 @@
 					"run": [
 						"sh",
 						"-c",
-						"for e; do set -- \"$@\" \"${e%/}\"; shift; done; rar d -idq \"$archive\" \"$@\"",
+						"for e; do case \"$e\" in *[*?]*) echo \"rar cannot be told to take “$e” as a name and not a pattern, so it is not removed: nothing was.\" >&2; exit 2;; esac; set -- \"$@\" \"${e%/}\"; shift; done; rar d -idq \"$archive\" \"$@\"",
 						"sh",
 						"{entries}"
 					]
@@ -1760,6 +1764,7 @@
 						"{which:7zz|7z|7za|7zr}",
 						"x",
 						"-y",
+						"-spd",
 						"-bso0",
 						"-bsp0",
 						"-o{temp}",
@@ -1775,7 +1780,7 @@
 					"run": [
 						"sh",
 						"-c",
-						"t=$1; shift; for e; do set -- \"$@\" \"${e%/}\"; shift; done; bsdtar -xf \"$archive\" -C \"$t\" -- \"$@\"",
+						"t=$1; shift; esc() { printf '%s' \"$1\" | sed 's/[][*?\\\\]/\\\\&/g'; }; for e; do set -- \"$@\" \"$(esc \"${e%/}\")\"; shift; done; bsdtar -xf \"$archive\" -C \"$t\" -- \"$@\"",
 						"sh",
 						"{temp}",
 						"{entries}"

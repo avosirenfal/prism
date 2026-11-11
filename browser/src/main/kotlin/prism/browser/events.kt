@@ -197,6 +197,11 @@ sealed interface BrowserEvent : Input {
 	/** A folder made in the folder shown, its name then typed over (Ctrl+Shift+N). */
 	data object MadeFolder : BrowserEvent
 
+	/** [text] put on the clipboard: what a notice says, copied from it. */
+	data class CopiedText(
+		val text: String,
+	) : BrowserEvent
+
 	/** Paths put on the clipboard as text, one to a line. */
 	data class CopiedPaths(
 		val paths: List<Path>,

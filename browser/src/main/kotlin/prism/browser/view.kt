@@ -39,6 +39,7 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -2124,14 +2125,19 @@ private fun Message(title: String, detail: String?) {
 		horizontalAlignment = Alignment.CenterHorizontally,
 		verticalArrangement = Arrangement.Center,
 	) {
-		Text(title, style = type.title)
-		detail?.let {
-			Text(
-				it,
-				style = type.muted,
-				textAlign = TextAlign.Center,
-				modifier = Modifier.padding(top = Dims.gapSmall),
-			)
+		// Why a folder or a place cannot be shown can be selected and copied.
+		SelectionContainer {
+			Column(horizontalAlignment = Alignment.CenterHorizontally) {
+				Text(title, style = type.title)
+				detail?.let {
+					Text(
+						it,
+						style = type.muted,
+						textAlign = TextAlign.Center,
+						modifier = Modifier.padding(top = Dims.gapSmall).testTag("message-detail"),
+					)
+				}
+			}
 		}
 	}
 }
@@ -2496,27 +2502,38 @@ private fun NoticeLayer(notice: Notice, onEvent: (BrowserEvent) -> Unit) {
 					.border(1.dp, palette.border, shape)
 					.padding(20.dp),
 			) {
-				Text(words.title, style = type.title)
+				// What a notice says can be selected and copied: what failed, above all, is for pasting elsewhere.
+				SelectionContainer {
+					Text(words.title, style = type.title)
+				}
 				// Why something failed can be all a command wrote: in a box of its own, which scrolls, the end in sight.
 				if (notice is Notice.Failed && words.detail.lines().size > 2) {
 					val scroll = rememberScrollState()
 
 					LaunchedEffect(words.detail) { scroll.scrollTo(scroll.maxValue) }
-					Text(
-						words.detail,
-						style = type.muted,
-						modifier =
-							Modifier
-								.fillMaxWidth()
-								.padding(top = Dims.gap)
-								.heightIn(max = 280.dp)
-								.background(palette.field, RoundedCornerShape(Dims.radius))
-								.verticalScroll(scroll)
-								.padding(Dims.gap)
-								.testTag("failure"),
-					)
+					SelectionContainer {
+						Text(
+							words.detail,
+							style = type.muted,
+							modifier =
+								Modifier
+									.fillMaxWidth()
+									.padding(top = Dims.gap)
+									.heightIn(max = 280.dp)
+									.background(palette.field, RoundedCornerShape(Dims.radius))
+									.verticalScroll(scroll)
+									.padding(Dims.gap)
+									.testTag("failure"),
+						)
+					}
 				} else if (words.detail.isNotEmpty())
-					Text(words.detail, style = type.body, modifier = Modifier.padding(top = Dims.gap))
+					SelectionContainer {
+						Text(
+							words.detail,
+							style = type.body,
+							modifier = Modifier.padding(top = Dims.gap).testTag("notice-detail"),
+						)
+					}
 				// A line an action asks for: typed here, Enter giving it as the button does.
 				if (notice is Notice.Asking)
 					Field(
@@ -2536,6 +2553,12 @@ private fun NoticeLayer(notice: Notice, onEvent: (BrowserEvent) -> Unit) {
 					horizontalArrangement = Arrangement.spacedBy(Dims.gap, Alignment.End),
 				) {
 					val asks = words.no != null
+
+					// What failed, and why, copied whole, to be pasted where it is wanted.
+					if (notice is Notice.Failed)
+						PushButton("Copy", Emphasis.Secondary, enabled = true, Modifier.testTag("copy")) {
+							onEvent(BrowserEvent.CopiedText("${notice.doing}\n\n${notice.why}"))
+						}
 
 					PushButton(
 						words.yes,

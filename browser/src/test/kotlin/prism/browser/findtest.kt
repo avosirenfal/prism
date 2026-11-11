@@ -455,4 +455,26 @@ class FindTest {
 
 		assertTrue(shown.search.open.not() && shown.results != null)
 	}
+
+	@Test
+	fun askedForAgainWhileOpenTheSearchStartsAgain() {
+		made("docs/report.pdf", "notes.md")
+
+		val typed = searched(picker(), "report")
+
+		assertTrue(typed.ready.open)
+		assertEquals("report", typed.ready.text)
+
+		val again = after(typed, BrowserEvent.OpenedSearch)
+
+		assertTrue(again.ready.open)
+		assertEquals("", again.ready.text)
+		assertEquals(null, again.ready.found)
+		assertEquals(null, again.ready.highlighted)
+
+		// Closed, it keeps what was typed, and opening it again brings it back.
+		val closed = after(typed, BrowserEvent.ClosedSearch, BrowserEvent.OpenedSearch)
+
+		assertEquals("report", closed.ready.text)
+	}
 }

@@ -897,6 +897,65 @@ class InteractionTest {
 		}
 
 	@Test
+	fun theSearchsChordPressedAgainEmptiesItsFieldAndKeepsTheKeyboardThere() =
+		picking(
+			Choosing.Exploring(),
+			finder = StaticFinder(prism.index.Index.EMPTY, home = work),
+		) { session ->
+			ctrlShift(Key.F)
+			waitUntil(timeoutMillis = TIMEOUT) { session.state.value.search.open }
+			field("search-query").performTextReplacement("report")
+			waitUntil(timeoutMillis = TIMEOUT) {
+				(session.state.value.search as Search.Ready).text ==
+					"report"
+			}
+
+			ctrlShift(Key.F)
+			waitUntil(timeoutMillis = TIMEOUT) {
+				(session.state.value.search as Search.Ready).text.isEmpty()
+			}
+			field("search-query").assertTextEquals("")
+			assertTrue(session.state.value.search.open)
+			focusIsIn("search-query")
+		}
+
+	@Test
+	fun whatFailedCanBeSelectedAndCopied() =
+		picking(Choosing.Exploring()) { session ->
+			val why = (1..12).joinToString("\n") { "line $it of what the command wrote" }
+
+			// A failure as a command's is said: how it ended, and many lines of what it wrote.
+			session.send(
+				BrowserEvent.Did(failing(why), session.state.value.subjectOf(Target.Folder)),
+			)
+			waitUntil(timeoutMillis = TIMEOUT) { session.state.value.notice is Notice.Failed }
+			onNodeWithTag("failure").assertExists()
+
+			// Copy takes all of it, and leaves the notice where it is.
+			onNodeWithTag("copy").performClick()
+			waitUntil(timeoutMillis = TIMEOUT) { copied.isNotEmpty() }
+			assertTrue(copied.last().startsWith("“Fails” failed"), copied.last())
+			assertTrue("line 12 of what the command wrote" in copied.last(), copied.last())
+			assertTrue(session.state.value.notice is Notice.Failed)
+		}
+
+	/** An action whose command writes [why] to standard error, line by line, and fails. */
+	private fun failing(why: String): UserAction =
+		Actions
+			.read(
+				listOf(
+					prism.preferences.ActionsFile.parse(
+						"""{"actions": [{"id": "fails", "label": "Fails", "when": {"target": "folder"},
+						"run": ["sh", "-c", "printf '%s\\n' \"$1\" >&2; exit 3", "sh", ${kotlinx.serialization.json.JsonPrimitive(
+							why,
+						)}],
+						"how": {"watched": true}}]}""",
+					),
+				),
+			).actions
+			.single()
+
+	@Test
 	fun aSubmenuClosesWhenThePointerMovesToAnotherEntry() =
 		picking {
 			rightClickNowhere()

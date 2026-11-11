@@ -68,6 +68,7 @@ internal fun SearchLayer(search: Search, home: Path, onEvent: (BrowserEvent) -> 
 	val palette = LocalPalette.current
 	val field = remember { FocusRequester() }
 	val shape = RoundedCornerShape(10.dp)
+	val bindings = LocalBindings.current
 
 	Popup(
 		alignment = Alignment.TopCenter,
@@ -91,14 +92,23 @@ internal fun SearchLayer(search: Search, home: Path, onEvent: (BrowserEvent) -> 
 					.border(1.dp, palette.border, shape)
 					// A tap inside is not a tap outside.
 					.pointerInput(Unit) { detectTapGestures { } }
-					// Escape puts the window away, whatever in it has the keyboard.
+					// Escape puts the window away, whatever in it has the keyboard. The chord that opens it, pressed
+					// while it is open (the window holds the keyboard, so the browser behind it is not told), starts
+					// the search again: the field emptied, and the keyboard in it.
 					.onPreviewKeyEvent {
-						val escape = it.type == KeyEventType.KeyDown && it.key == Key.Escape
+						val down = it.type == KeyEventType.KeyDown
+						val escape = down && it.key == Key.Escape
+						val again = down && Chord.of(it)?.let(bindings::window) == Action.SearchIndex
 
-						if (escape)
-							onEvent(BrowserEvent.ClosedSearch)
+						when {
+							escape -> onEvent(BrowserEvent.ClosedSearch)
+							again -> {
+								onEvent(BrowserEvent.OpenedSearch)
+								field.requestFocus()
+							}
+						}
 
-						escape
+						escape || again
 					}.padding(12.dp),
 				verticalArrangement = Arrangement.spacedBy(Dims.gap),
 			) {
