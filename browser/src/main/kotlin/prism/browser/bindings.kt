@@ -42,12 +42,40 @@ enum class Scope {
 	Leftover,
 }
 
+/**
+ * Something a chord can be bound to: one of the browser's own actions ([Action]), or one of the user's ([Custom]).
+ * The bindings, and the window they are rebound in, know them alike.
+ */
+sealed interface Bindable {
+	/** What the preferences call it, where its chords are not its defaults. */
+	val key: String
+	val label: String
+	val scope: Scope
+
+	/** The chords that do it until the user says otherwise. */
+	val defaults: List<Chord>
+}
+
+/**
+ * One of the user's own actions, as something bound: done from the listing, to the rows chosen (or, where none is, to
+ * the folder shown), by the chord its action names until the user binds another.
+ */
+@Immutable
+data class Custom(
+	val action: UserAction,
+) : Bindable {
+	override val key: String get() = "action:${action.id}"
+	override val label: String get() = action.label
+	override val scope: Scope get() = Scope.Listing
+	override val defaults: List<Chord> get() = listOfNotNull(action.key)
+}
+
 /** Everything the browser does from the keyboard or a mouse button, with the chords that do it by default. */
 enum class Action(
-	val label: String,
-	val scope: Scope,
+	override val label: String,
+	override val scope: Scope,
 	vararg defaults: String,
-) {
+) : Bindable {
 	Back("Back", Scope.Window, "Alt+Left", "Mouse Back"),
 	Forward("Forward", Scope.Window, "Alt+Right", "Mouse Forward"),
 	Up("Folder above", Scope.Window, "Alt+Up", "Backspace"),
@@ -92,8 +120,9 @@ enum class Action(
 	Last("The last row", Scope.Movement, "End"),
 	;
 
-	/** The chords that do it until the user says otherwise. */
-	val defaults: List<Chord> =
+	override val key: String get() = name
+
+	override val defaults: List<Chord> =
 		defaults.map {
 			Chord.parse(it)
 				?: error("$name's default “$it” is not a chord")
@@ -261,44 +290,57 @@ object Keys {
 /** Every action's chords, as the user has them: the defaults, but where the preferences say otherwise. */
 @Immutable
 class Bindings(
-	val chords: Map<Action, List<Chord>>,
+	val chords: Map<Bindable, List<Chord>>,
 ) {
-	fun of(action: Action): List<Chord> = chords[action].orEmpty()
+	fun of(action: Bindable): List<Chord> = chords[action].orEmpty()
 
-	private val byChord: Map<Chord, List<Action>> by lazy {
+	/** Everything that can be bound here: the browser's own actions, then the user's. */
+	val actions: List<Bindable> get() = chords.keys.toList()
+
+	private val byChord: Map<Chord, List<Bindable>> by lazy {
 		chords.entries
 			.flatMap { (action, its) ->
 				its.map { it to action }
 			}.groupBy({ it.first }, { it.second })
 	}
 
-	private fun find(chord: Chord, where: (Action) -> Boolean): Action? =
+	private fun find(chord: Chord, where: (Bindable) -> Boolean): Bindable? =
 		byChord[chord]?.firstOrNull(where)
 
 	/** The window's action [chord] does from anywhere: one bound to a chord no text field types. */
 	fun window(chord: Chord): Action? =
-		find(chord) { it.scope == Scope.Window }.takeIf { chord.typesNothing }
+		(find(chord) { it.scope == Scope.Window } as? Action).takeIf { chord.typesNothing }
 
 	/** What [chord] does from the listing: a row's action, or a window's, or one left to whatever has the keyboard. */
-	fun listing(chord: Chord): Action? =
-		find(chord) { it.scope == Scope.Listing }
-			?: find(chord) { it.scope == Scope.Window || it.scope == Scope.Leftover }
+	fun listing(chord: Chord): Bindable? = listings(chord).firstOrNull()
+
+	/**
+	 * Everything [chord] could do from the listing, what is tried first first: the rows' actions (the browser's own,
+	 * then the user's), then the window's. A chord does one thing wherever it is pressed, but which thing can depend
+	 * on what it is pressed on: Delete moves files to the trash, and removes entries from an archive, where an action
+	 * of the user's says so; each is tried in turn until one has something to do.
+	 */
+	fun listings(chord: Chord): List<Bindable> =
+		byChord[chord].orEmpty().let { bound ->
+			bound.filter { it.scope == Scope.Listing } +
+				bound.filter { it.scope == Scope.Window || it.scope == Scope.Leftover }
+		}
 
 	/** The cursor's move [chord] makes, Shift and Ctrl aside. */
-	fun movement(chord: Chord): Action? = find(chord.bare) { it.scope == Scope.Movement }
+	fun movement(chord: Chord): Action? = find(chord.bare) { it.scope == Scope.Movement } as? Action
 
 	/** What [chord] does where whatever had the keyboard did not use it. */
-	fun leftover(chord: Chord): Action? = find(chord) { it.scope == Scope.Leftover }
+	fun leftover(chord: Chord): Action? = find(chord) { it.scope == Scope.Leftover } as? Action
 
 	/** These, with [action]'s chords [chords]. */
-	fun with(action: Action, chords: List<Chord>): Bindings =
+	fun with(action: Bindable, chords: List<Chord>): Bindings =
 		Bindings(this.chords + (action to chords))
 
 	/**
 	 * The actions other than [action] that [chord] would also do: a chord does one thing. A move of the cursor claims its
 	 * key with Shift and Ctrl too, since those say how it chooses as it moves.
 	 */
-	fun clashes(action: Action, chord: Chord): List<Action> =
+	fun clashes(action: Bindable, chord: Chord): List<Bindable> =
 		chords.entries
 			.filter { (other, its) ->
 				other != action && its.any { same(action, chord, other, it) }
@@ -308,7 +350,7 @@ class Bindings(
 	 * These, with [chord] as [action]'s chord at [index] (or after its last, for an index past them), and taken from
 	 * every action it [clashes] with. A move of the cursor is bound to its key alone, Shift and Ctrl aside.
 	 */
-	fun bound(action: Action, index: Int, chord: Chord): Bindings {
+	fun bound(action: Bindable, index: Int, chord: Chord): Bindings {
 		val given =
 			if (action.scope == Scope.Movement)
 				chord.bare
@@ -333,14 +375,17 @@ class Bindings(
 	}
 
 	/** These, without [action]'s chord at [index]. */
-	fun unbound(action: Action, index: Int): Bindings =
+	fun unbound(action: Bindable, index: Int): Bindings =
 		with(action, of(action).filterIndexed { at, _ -> at != index })
 
 	/** These, with [action]'s chords its defaults again. */
-	fun reset(action: Action): Bindings = with(action, action.defaults)
+	fun reset(action: Bindable): Bindings = with(action, action.defaults)
+
+	/** These, with every action's chords its defaults again. */
+	fun defaults(): Bindings = Bindings(chords.keys.associateWith { it.defaults })
 
 	/** Whether [its], one of [other]'s chords, is [chord] of [action]'s: the same, or, for a move, the same key. */
-	private fun same(action: Action, chord: Chord, other: Action, its: Chord): Boolean =
+	private fun same(action: Bindable, chord: Chord, other: Bindable, its: Chord): Boolean =
 		its == chord ||
 			(
 				(other.scope == Scope.Movement || action.scope == Scope.Movement) &&
@@ -349,22 +394,25 @@ class Bindings(
 
 	/** What the preferences say of these: each action whose chords are not its defaults. */
 	fun differences(): Map<String, List<String>> =
-		Action.entries
+		chords.keys
 			.filter { of(it) != it.defaults }
-			.associate { action -> action.name to of(action).map { it.toString() } }
+			.associate { action -> action.key to of(action).map { it.toString() } }
 
 	override fun equals(other: Any?): Boolean = other is Bindings && chords == other.chords
 
 	override fun hashCode(): Int = chords.hashCode()
 
 	companion object {
-		val DEFAULT = Bindings(Action.entries.associateWith { it.defaults })
+		val DEFAULT = Bindings(Action.entries.associateWith<Bindable, List<Chord>> { it.defaults })
 
-		/** The bindings [preferences] make: an action named there has the chords written there that read as chords. */
-		fun of(preferences: Preferences): Bindings =
+		/**
+		 * The bindings [preferences] make, of the browser's own actions and of [actions], the user's: an action named
+		 * there has the chords written there that read as chords.
+		 */
+		fun of(preferences: Preferences, actions: Actions = Actions.of(preferences)): Bindings =
 			Bindings(
-				Action.entries.associateWith { action ->
-					preferences.bindings[action.name]?.mapNotNull(Chord::parse) ?: action.defaults
+				(Action.entries + actions.actions.map(::Custom)).associateWith { action ->
+					preferences.bindings[action.key]?.mapNotNull(Chord::parse) ?: action.defaults
 				},
 			)
 	}

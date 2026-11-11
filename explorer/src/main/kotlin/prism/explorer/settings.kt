@@ -1,7 +1,7 @@
 package prism.explorer
 
 import java.nio.file.Path
-import prism.browser.Action
+import prism.browser.Bindable
 import prism.browser.Bindings
 import prism.browser.Chord
 import prism.desktop.Place
@@ -25,14 +25,14 @@ enum class Page(
 
 /** A chord's place in the bindings table: [action]'s chord at [index], or, past its last, a chord to add. */
 data class Slot(
-	val action: Action,
+	val action: Bindable,
 	val index: Int,
 )
 
 /** That [chord] was given to one action, and taken from [from], which had it. */
 data class Took(
 	val chord: Chord,
-	val from: List<Action>,
+	val from: List<Bindable>,
 )
 
 /**
@@ -66,7 +66,7 @@ data class Rebinding(
 	fun removed(slot: Slot): Rebinding = Rebinding(bindings.unbound(slot.action, slot.index))
 
 	/** These, with [action]'s defaults back. Its default chords are taken from whatever has them meanwhile. */
-	fun reset(action: Action): Rebinding =
+	fun reset(action: Bindable): Rebinding =
 		action.defaults
 			.foldIndexed(
 				Rebinding(bindings.with(action, emptyList())),
@@ -75,7 +75,7 @@ data class Rebinding(
 			}.copy(took = null)
 
 	/** Every default back. */
-	fun resetAll(): Rebinding = Rebinding(Bindings.DEFAULT)
+	fun resetAll(): Rebinding = Rebinding(bindings.defaults())
 }
 
 /**

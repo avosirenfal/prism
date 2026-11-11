@@ -151,6 +151,10 @@ interface Launcher {
 
 	/** A terminal started in [folder]: [preferred] (its words; `{folder}` is the folder) or the desktop's own. */
 	fun terminal(folder: Path, preferred: List<String>?): Launched
+
+	/** [command] started in a terminal, in [folder]; a launcher that knows no terminal to run one in says so. */
+	fun inTerminal(command: List<String>, folder: Path): Launched =
+		Launched.Failed(command.firstOrNull() ?: "nothing", "there is no terminal to run it in")
 }
 
 /** A place the sidebar offers. */

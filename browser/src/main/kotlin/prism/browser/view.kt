@@ -439,9 +439,10 @@ private fun AddressBar(
 
 	when (val address = state.address) {
 		Address.Crumbs ->
-			when (val results = state.results) {
-				null -> Crumbs(state.crumbs, modifier, onEvent)
-				else -> ResultsBar(results, modifier, onEvent)
+			when (val at = state.at) {
+				is Location.Folder -> Crumbs(state.crumbs, modifier, onEvent)
+				is Location.Results -> ResultsBar(at.finding, modifier, onEvent)
+				is Location.Place -> PlaceBar(at, modifier, onEvent)
 			}
 		is Address.Editing -> {
 			Field(
@@ -576,6 +577,54 @@ private fun ResultsBar(
 			overflow = TextOverflow.Ellipsis,
 			modifier = Modifier.weight(1f, fill = false),
 		)
+	}
+}
+
+/**
+ * In place of the path, where in a place the window is: what the place is called, then each folder of it gone into, as
+ * steps to click, as a path's are.
+ */
+@Composable
+private fun PlaceBar(
+	place: Location.Place,
+	modifier: Modifier,
+	onEvent: (BrowserEvent) -> Unit,
+) {
+	val palette = LocalPalette.current
+	val shape = RoundedCornerShape(Dims.radius)
+	val scroll = rememberScrollState()
+	val steps = listOf(place.placed.title) + place.within
+
+	LaunchedEffect(steps) {
+		snapshotFlow { scroll.maxValue }.collect { scroll.scrollTo(it) }
+	}
+
+	Row(
+		modifier
+			.height(Dims.control)
+			.background(palette.field, shape)
+			.border(1.dp, palette.fieldEdge, shape)
+			.testTag("place")
+			.padding(horizontal = Dims.gap),
+		verticalAlignment = Alignment.CenterVertically,
+	) {
+		GlyphIcon(Glyph.Folder, palette.text, 16.dp)
+		Spacer(Modifier.width(Dims.gap))
+		Row(
+			Modifier.weight(1f, fill = false).horizontalScroll(scroll),
+			verticalAlignment = Alignment.CenterVertically,
+		) {
+			steps.forEachIndexed { index, step ->
+				val last = index == steps.lastIndex
+
+				// The steps are only names here: the path each stands for is the place's own, and not one on disk.
+				CrumbStep(Crumb(step, Path.of("/")), last, Modifier) {
+					onEvent(BrowserEvent.WentWithin(place.within.take(index)))
+				}
+				if (!last)
+					GlyphIcon(Glyph.Chevron, palette.textFaint, 12.dp)
+			}
+		}
 	}
 }
 
@@ -812,7 +861,7 @@ private fun ListingPane(
 	val list = remember(state.at) { LazyListState() }
 	val grid = remember(state.at) { LazyGridState() }
 	val menus = rememberContextMenus<BrowserEvent>()
-	val area = remember { Placed() }
+	val area = remember { InWindow() }
 	val rows = state.rows
 	val cursor = state.cursor?.at
 	val cursorAt = cursor?.let(rows::indexOf)
@@ -828,6 +877,32 @@ private fun ListingPane(
 	var deferred by remember { mutableStateOf<RowId?>(null) }
 	val hint = LocalDropHint.current
 	val exploring = state.choosing is Choosing.Exploring
+	val world = LocalWorld.current
+
+	/** What the user's action bound to a chord, or done by a double click, is done to: the rows, or the folder shown. */
+	fun subjectOf(rows: List<Row>): Subject =
+		state.subjectOf(
+			if (rows.isEmpty())
+				Target.Folder
+			else
+				Target.Rows(rows),
+		)
+
+	/** [row] opened by a double click: by the user's action for that, where one is offered for it; or as ever. */
+	fun activate(row: RowId) {
+		val subject = rows[row]?.let { subjectOf(listOf(it)) }
+		val own =
+			subject
+				?.takeIf { exploring }
+				?.let { state.actions.offered(it, world).firstOrNull { action -> action.default } }
+
+		onEvent(
+			if (own != null)
+				BrowserEvent.Did(own, subject)
+			else
+				BrowserEvent.Activated(row),
+		)
+	}
 
 	// Gone elsewhere, nothing dragged here is over anything of it any more.
 	LaunchedEffect(state.at) { hint.clear() }
@@ -867,7 +942,7 @@ private fun ListingPane(
 		if (pressed?.doubledBy(row, press) == true) {
 			pressed = null
 			deferred = null
-			onEvent(BrowserEvent.Activated(row))
+			activate(row)
 		} else {
 			pressed = Pressed(row, press)
 			deferred = row.takeIf { press.click == Click.Only && it in chosen && chosen.size > 1 }
@@ -883,12 +958,16 @@ private fun ListingPane(
 		deferred = null
 	}
 
-	/** What dragging [row] drags: every row chosen, where it is one; or it alone. */
-	fun dragged(row: Row): List<java.nio.file.Path> =
+	/** The rows dragging [row] drags: every row chosen, where it is one; or it alone. */
+	fun draggedWith(row: Row): List<Row> =
 		if (row.id in chosen)
-			state.chosenRows.map { it.path }
+			state.chosenRows
 		else
-			listOf(row.path)
+			listOf(row)
+
+	/** What dragging [row] drags, as files: none where any of it is not one on disk. */
+	fun dragged(row: Row): List<java.nio.file.Path> =
+		draggedWith(row).let { all -> all.mapNotNull { it.path }.takeIf { it.size == all.size }.orEmpty() }
 
 	/**
 	 * [row] as something dragged, and, for a folder, as somewhere to drop: a drag of it is a drag of what it drags, and
@@ -904,11 +983,13 @@ private fun ListingPane(
 					if (it == Transfer.Move)
 						onEvent(BrowserEvent.Refreshed)
 				},
+				// Entries of a place are dragged as what brings them out of it, where its place says what does.
+				carried = { state.carrying(draggedWith(row)) },
 			).then(
-				if (row.isFolder)
-					Modifier.folderDrop(row.path, { onEvent(BrowserEvent.Activated(row.id)) }, onEvent)
-				else
-					Modifier,
+				// Only a folder on disk takes what is dropped: a place's own folders are not there to put files in.
+				row.path?.takeIf { row.isFolder }?.let {
+					Modifier.folderDrop(it, { onEvent(BrowserEvent.Activated(row.id)) }, onEvent)
+				} ?: Modifier,
 			)
 
 	/** The rows a key acts on: those chosen, or the cursor's where none is. */
@@ -935,13 +1016,14 @@ private fun ListingPane(
 					listOf(row),
 			),
 			bindings,
+			world,
 		)
 	}
 
 	fun folderMenu(): Menu<BrowserEvent> {
 		stops.listing.requestFocus()
 
-		return contextMenuOf(state, Target.Folder, bindings)
+		return contextMenuOf(state, Target.Folder, bindings, world)
 	}
 
 	/** The menu of what is chosen (or of the folder, where nothing is), opened from the keyboard at the cursor's row. */
@@ -949,9 +1031,9 @@ private fun ListingPane(
 		val shown = state.chosenRows
 		val menu =
 			if (shown.isEmpty())
-				contextMenuOf(state, Target.Folder, bindings)
+				contextMenuOf(state, Target.Folder, bindings, world)
 			else
-				contextMenuOf(state, Target.Rows(shown), bindings)
+				contextMenuOf(state, Target.Rows(shown), bindings, world)
 
 		val inside =
 			cursorAt
@@ -978,8 +1060,12 @@ private fun ListingPane(
 
 	/** What a row's action does, on the rows chosen (or the cursor's); false where there are none to act on. */
 	fun rowAction(action: Action): Boolean {
-		val ids = targets().map { it.id }
 		val exploring = state.choosing is Choosing.Exploring
+		// What the browser does itself to rows, it does to files on disk: entries of a place are not its to rename or
+		// trash, so their keys are left for an action of the place's.
+		val real = targets().all { it.path != null }
+		val ids = targets().map { it.id }.takeIf { real }.orEmpty()
+		val copied = targets().map { it.id }
 
 		val event =
 			when (action) {
@@ -993,14 +1079,14 @@ private fun ListingPane(
 				Action.CopyPaths ->
 					BrowserEvent.CopiedPaths(
 						targets()
-							.map {
+							.mapNotNull {
 								it.path
 							}.ifEmpty { listOfNotNull(state.folder) },
 					)
 				Action.CopyFiles ->
-					ids
+					copied
 						.takeIf {
-							it.isNotEmpty() && exploring
+							it.isNotEmpty() && exploring && (real || state.carrying(targets()) != null)
 						}?.let { BrowserEvent.CopiedFiles(it) }
 				Action.CutFiles ->
 					ids
@@ -1009,12 +1095,11 @@ private fun ListingPane(
 						}?.let { BrowserEvent.CutFiles(it) }
 				Action.Paste -> BrowserEvent.Pasted().takeIf { exploring }
 				Action.Properties ->
-					BrowserEvent
-						.Requested(
-							Request.Properties(
-								targets().map { it.path }.ifEmpty { listOfNotNull(state.folder) },
-							),
-						).takeIf { exploring }
+					targets()
+						.mapNotNull { it.path }
+						.ifEmpty { listOfNotNull(state.folder) }
+						.takeIf { it.isNotEmpty() && exploring }
+						?.let { BrowserEvent.Requested(Request.Properties(it)) }
 				Action.ContextMenu -> {
 					openMenuByKey()
 
@@ -1035,10 +1120,27 @@ private fun ListingPane(
 
 		val chord = Chord.of(key) ?: return false
 
-		bindings.listing(chord)?.let { action ->
-			if (rowAction(action) || act(action))
-				return true
-		}
+		for (action in bindings.listings(chord))
+			when (action) {
+				is Action ->
+					// Enter on one row is a double click of it, which an action of the user's may be the doing of.
+					if (action == Action.Open && exploring && targets().size == 1) {
+						activate(targets().single().id)
+
+						return true
+					} else if (rowAction(action) || act(action))
+						return true
+				// One of the user's own, done to the rows chosen (or the folder shown), where it is offered for them.
+				is Custom -> {
+					val subject = subjectOf(targets())
+
+					if (exploring && action.action.offered(subject, world)) {
+						onEvent(BrowserEvent.Did(action.action, subject))
+
+						return true
+					}
+				}
+			}
 
 		// A line is a row in the list, and as many tiles as fit across in the gallery.
 		val line =
@@ -1126,6 +1228,8 @@ private fun ListingPane(
 					DropSpot.Here,
 					state.folder,
 					onHover = { hint.over(DropSpot.Here, it) },
+					onCarried = { carried: Carried -> onEvent(BrowserEvent.DroppedCarried(carried, DropSpot.Here)) }
+						.takeIf { state.folder != null },
 					onDrop = {
 						paths,
 						transfer,
@@ -1137,7 +1241,11 @@ private fun ListingPane(
 			when (val listing = state.listing) {
 				// A folder that reads quickly would only flash a message, so a folder being read shows nothing yet.
 				Listing.Reading -> Box(Modifier.fillMaxSize())
-				is Listing.Unreadable -> Message("This folder can't be opened", listing.why)
+				is Listing.Unreadable ->
+					Message(
+						state.place?.let { "“${it.placed.title}” can't be listed" } ?: "This folder can't be opened",
+						listing.why,
+					)
 				is Listing.Shown, is Listing.Found ->
 					when {
 						rows.isEmpty() -> {
@@ -1147,6 +1255,7 @@ private fun ListingPane(
 								when {
 									query.isNotBlank() -> "Nothing here matches “$query”"
 									none && listing is Listing.Found -> "Nothing matches “${listing.finding.text}”"
+									none && state.place != null -> "Nothing is here"
 									none -> "This folder is empty"
 									else -> "Nothing here is shown"
 								},
@@ -1642,11 +1751,11 @@ private fun HeaderCell(
 
 /** Where [row] is, as a search's results say it; nothing in a folder, where every row is in the folder shown. */
 private fun whereOf(row: Row, state: BrowserState): String? =
-	state.results?.let { folderOf(row, state.home) }
+	row.path?.takeIf { state.results != null }?.let { folderOf(it, state.home) }
 
-/** The folder [row] is in, from `~` where it is under [home]. */
-internal fun folderOf(row: Row, home: Path): String {
-	val folder = row.path.parent ?: return "/"
+/** The folder [path] is in, from `~` where it is under [home]. */
+internal fun folderOf(path: Path, home: Path): String {
+	val folder = path.parent ?: return "/"
 
 	return if (folder.startsWith(home))
 		"~" + folder.toString().removePrefix(home.toString())
@@ -1750,7 +1859,7 @@ private fun EntryRow(
 @Composable
 private fun Tile(
 	row: Row,
-	path: Path,
+	path: Path?,
 	chosen: Boolean,
 	cursor: Boolean,
 	zoom: Float,
@@ -1821,10 +1930,11 @@ private fun Tile(
  * at a size for how large it is drawn, or the icon alone for anything else.
  */
 @Composable
-private fun Picture(row: Row, path: Path, zoom: Float) {
+private fun Picture(row: Row, path: Path?, zoom: Float) {
 	val palette = LocalPalette.current
 	val thumbnails = LocalThumbnails.current
-	val drawable = !row.isFolder && Thumbnails.drawable(row.name)
+	// An entry of a place is nowhere on disk to be drawn from: its icon alone.
+	val drawable = path != null && !row.isFolder && Thumbnails.drawable(row.name)
 
 	BoxWithConstraints(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
 		// Made for the longer side of its room, so that it is as sharp as it is drawn.
@@ -2016,17 +2126,20 @@ private fun statusOf(state: BrowserState): String {
 		else
 			"$shown of $items"
 
-	return when {
-		state.listing is Listing.Reading -> "Reading…"
-		else ->
-			listOfNotNull(
-				counted,
-				"$chosen selected".takeIf {
-					chosen > 0
-				},
-				ordering,
-			).joinToString("  ·  ")
-	}
+	// The watched commands under way, by what each is called: "Extract here…".
+	val running = state.running.takeIf { it.isNotEmpty() }?.joinToString(", ", postfix = "…")
+
+	return listOfNotNull(
+		if (state.listing is Listing.Reading)
+			"Reading…"
+		else
+			counted,
+		"$chosen selected".takeIf {
+			chosen > 0 && state.listing !is Listing.Reading
+		},
+		ordering.takeIf { state.listing !is Listing.Reading },
+		running,
+	).joinToString("  ·  ")
 }
 
 // ---- notices -------------------------------------------------------------------------------------------------
@@ -2078,6 +2191,8 @@ private fun wordsOf(notice: Notice): Words =
 				"OK",
 				null,
 			)
+		is Notice.Asking -> Words(notice.prompt, "", "OK", "Cancel")
+		is Notice.ConfirmAction -> Words(notice.label, notice.question, notice.label, "Cancel")
 	}
 
 /**
@@ -2109,19 +2224,34 @@ private fun NoticeLayer(notice: Notice, onEvent: (BrowserEvent) -> Unit) {
 					.padding(20.dp),
 			) {
 				Text(words.title, style = type.title)
-				Text(words.detail, style = type.body, modifier = Modifier.padding(top = Dims.gap))
+				if (words.detail.isNotEmpty())
+					Text(words.detail, style = type.body, modifier = Modifier.padding(top = Dims.gap))
+				// A line an action asks for: typed here, Enter giving it as the button does.
+				if (notice is Notice.Asking)
+					Field(
+						notice.text,
+						{ onEvent(BrowserEvent.AnswerTyped(it)) },
+						Modifier.fillMaxWidth().padding(top = Dims.gap).testTag("answer"),
+						focus = first,
+						onKey = {
+							(it.type == KeyEventType.KeyDown && it.isEnter).also { entered ->
+								if (entered)
+									onEvent(BrowserEvent.Confirmed)
+							}
+						},
+					)
 				Row(
 					Modifier.fillMaxWidth().padding(top = 20.dp),
 					horizontalArrangement = Arrangement.spacedBy(Dims.gap, Alignment.End),
 				) {
-					val asks = notice is Notice.Replace || notice is Notice.ConfirmTrash
+					val asks = words.no != null
 
 					PushButton(
 						words.yes,
 						Emphasis.Primary,
 						enabled = true,
 						Modifier.testTag("yes"),
-						first,
+						if (notice is Notice.Asking) remember { FocusRequester() } else first,
 					) {
 						onEvent(
 							if (asks)

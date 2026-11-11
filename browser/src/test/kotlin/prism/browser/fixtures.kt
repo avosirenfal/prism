@@ -30,7 +30,7 @@ object Fixtures {
 
 		return Row(
 			RowId(name),
-			folder.resolve(name),
+			Item.OnDisk(folder.resolve(name)),
 			name,
 			category,
 			if (isFolder)
@@ -112,7 +112,7 @@ object Fixtures {
 	object Memory : Disk {
 		override fun read(folder: Path): Listing.Read =
 			tree[folder]?.let { rows ->
-				Listing.Shown(rows.map { it.copy(path = folder.resolve(it.name)) })
+				Listing.Shown(rows.map { it.copy(item = Item.OnDisk(folder.resolve(it.name))) })
 			}
 				?: Listing.Unreadable("No such file or directory")
 

@@ -70,6 +70,10 @@ class DetachedLauncher(
 		return run(command, folder)
 	}
 
+	override fun inTerminal(command: List<String>, folder: Path): Launched =
+		inTerminal(command)?.let { run(it, folder) }
+			?: Launched.Failed(command.firstOrNull() ?: "nothing", "no terminal to run it in was found")
+
 	/** [command] run in a terminal: `xdg-terminal-exec` where there is one, or the terminal found, with `-e`. */
 	private fun inTerminal(command: List<String>): List<String>? =
 		when {

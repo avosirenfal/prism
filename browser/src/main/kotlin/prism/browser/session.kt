@@ -21,6 +21,7 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.receiveAsFlow
@@ -96,6 +97,18 @@ class Session(
 				}
 			}
 
+		// The user's actions and places, with prism's own: read again whenever what the preferences say of them changes.
+		scope.launch(io) {
+			services.preferences.preferences
+				.map { it.written to it.menu }
+				.distinctUntilChanged()
+				.collect { (written, menu) ->
+					inputs.send(
+						Answer.Configured(Actions.read(listOf(Actions.SHIPPED, written), menu.hidden.toSet())),
+					)
+				}
+		}
+
 		scope.launch(io) {
 			previews.collectLatest { search ->
 				val answer = answerOf(search)
@@ -106,6 +119,9 @@ class Session(
 			}
 		}
 	}
+
+	/** What the conditions of the user's actions are decided by. */
+	val world: World get() = services.world
 
 	/** Whether [a] and [b] are on one volume, as the disk says: what a drop with no key held is told by. */
 	fun sameVolume(a: java.nio.file.Path, b: java.nio.file.Path): Boolean =
@@ -125,7 +141,12 @@ class Session(
 					scope.launch(io) { inputs.send(answerOf(effect)) }
 			is Effect.Asking -> scope.launch(io) { inputs.send(answerOf(effect)) }
 			is Effect.Copy -> clipboard(effect.text)
-			is Effect.Clip -> scope.launch(io) { services.clipboard.put(effect.clip) }
+			is Effect.Clip ->
+				scope.launch(io) {
+					services.carried.set(null)
+					services.clipboard.put(effect.clip)
+				}
+			is Effect.Carry -> services.carried.set(effect.carried)
 			is Effect.Pin ->
 				scope.launch(io) {
 					services.preferences.update { it.pinning(effect.paths) }
@@ -172,6 +193,11 @@ class Session(
 					)
 				is Effect.Terminal -> Answer.Started(Launched.Failed("a terminal", why))
 				is Effect.ReadClip -> Answer.Clipped(asking.into, null)
+				is Effect.ListPlace -> Answer.Listed(asking.placed, PlaceListing.Failed(why))
+				is Effect.Run -> Answer.Ran(asking.job, why)
+				is Effect.Launch -> Answer.Started(Launched.Failed(asking.job.label, why))
+				// With no folder to bring them out into, nothing is opened: the action is let go.
+				is Effect.Temp -> Answer.Ran(Job(asking.carried.pending.action.label, emptyList()), why)
 			}
 		}
 }
@@ -199,7 +225,7 @@ fun SessionBrowser(
 ) {
 	val state by session.state.collectAsState()
 
-	CompositionLocalProvider(LocalVolumes provides session::sameVolume) {
+	CompositionLocalProvider(LocalVolumes provides session::sameVolume, LocalWorld provides session.world) {
 		FileBrowser(state, modifier, mouseChords, session::send)
 	}
 }

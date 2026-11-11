@@ -252,6 +252,39 @@ sealed interface BrowserEvent : Input {
 		val request: Request,
 	) : BrowserEvent
 
+	// ---- the user's own actions, and places ----
+
+	/**
+	 * [action] chosen for [subject]: from a menu, by its key, or, with [answers] to some of what it asks, by something
+	 * dropped or pasted, which answers where to.
+	 */
+	data class Did(
+		val action: UserAction,
+		val subject: Subject,
+		val answers: Map<String, String> = emptyMap(),
+	) : BrowserEvent
+
+	/** The line an action asked for typed into. */
+	data class AnswerTyped(
+		val text: String,
+	) : BrowserEvent
+
+	/** The folder an action asked for, chosen in a picker; null where the picker was cancelled. */
+	data class Answered(
+		val folder: Path?,
+	) : BrowserEvent
+
+	/** The folder of the place shown at [within] gone to: a step of its path, clicked. */
+	data class WentWithin(
+		val within: List<String>,
+	) : BrowserEvent
+
+	/** Entries of a place, [carried] from it, dropped on [spot]: brought out into the folder there. */
+	data class DroppedCarried(
+		val carried: Carried,
+		val spot: DropSpot,
+	) : BrowserEvent
+
 	// ---- the fields ----
 
 	data class Searched(
@@ -376,10 +409,37 @@ sealed interface Answer : Input {
 		val launched: Launched,
 	) : Answer
 
-	/** The files on the clipboard, read to be pasted into [into]; null where it holds none. */
+	/**
+	 * What was copied, read to be pasted into [into] (the place shown, where null): the files on the clipboard, or the
+	 * entries of a place copied in this process since, which are what a paste then means.
+	 */
 	data class Clipped(
-		val into: Path,
+		val into: Path?,
 		val clip: FileClip?,
+		val carried: Carried? = null,
+	) : Answer
+
+	/** What listing [placed] gave. */
+	data class Listed(
+		val placed: prism.browser.Placed,
+		val listing: PlaceListing,
+	) : Answer
+
+	/** What [job]'s commands came to: nothing where they all worked, or why the first that did not, did not. */
+	data class Ran(
+		val job: Job,
+		val failure: String?,
+	) : Answer
+
+	/** A folder made for [carried]'s entries to be brought out into, to be opened from. */
+	data class TempMade(
+		val folder: Path,
+		val carried: Carried,
+	) : Answer
+
+	/** The actions and places, as the preferences (which another window may have changed) now make them. */
+	data class Configured(
+		val actions: Actions,
 	) : Answer
 
 	/** The sidebar, as the places pinned (which another window may have changed) and the drives now make it. */
@@ -436,13 +496,85 @@ sealed interface Request {
 		val paths: List<Path>,
 	) : Request
 
-	/** Another explorer, on [folder]. */
+	/** Another explorer, on [start]. */
 	data class NewWindow(
-		val folder: Path,
+		val start: Start,
+	) : Request {
+		constructor(folder: Path) : this(Start.Folder(folder))
+	}
+
+	/** A folder chosen in a picker titled [title] that opens on [start]: answered with [BrowserEvent.Answered]. */
+	data class PickFolder(
+		val title: String,
+		val start: Path,
 	) : Request
 
 	/** The preferences: pinned places, the terminal, and every binding. */
 	data object Preferences : Request
+}
+
+/** Where a window starts: in a folder, or in a place. */
+@Immutable
+sealed interface Start {
+	data class Folder(
+		val path: Path,
+	) : Start
+
+	data class Place(
+		val placed: Placed,
+	) : Start
+}
+
+/** What follows a job's commands, once they have all worked. */
+@Immutable
+sealed interface After {
+	data object None : After
+
+	/** What is shown read again, the cursor on the entry named [choose] where it is said. */
+	data class Reread(
+		val choose: String?,
+	) : After
+
+	/** [paths] opened with their applications: what a place's entries, brought out, were brought out for. */
+	data class Open(
+		val paths: List<Path>,
+	) : After
+}
+
+/** Commands to run for an action called [label], and what follows them. */
+@Immutable
+data class Job(
+	val label: String,
+	val invocations: List<Invocation>,
+	val after: After = After.None,
+)
+
+/**
+ * An action begun for [subject] and not yet done: [answers] are what has been answered of what it asks. It is done
+ * once every question is answered and, where it asks to be confirmed, the user has said yes ([confirmed]). [after],
+ * where it is said, follows its command in place of what the action says does.
+ */
+@Immutable
+data class Pending(
+	val action: UserAction,
+	val subject: Subject,
+	val answers: Map<String, String> = emptyMap(),
+	val confirmed: Boolean = false,
+	val after: After? = null,
+)
+
+/**
+ * Entries of a place on their way out of it: the action that brings them out, begun, with only where to still to
+ * answer ([question]). Dragged, a drop on a folder answers it; copied, a paste into one does.
+ */
+@Immutable
+data class Carried(
+	val pending: Pending,
+	val question: String,
+) {
+	/** These, brought out into [folder]. */
+	fun into(folder: Path): Pending =
+		pending.copy(answers = pending.answers + (question to folder.toString()))
 }
 
 /**
@@ -637,10 +769,36 @@ sealed interface Effect {
 		val folder: Path,
 	) : Asking
 
-	/** The files on the clipboard read, to be pasted into [into], sent back as [Answer.Clipped]. */
+	/** What was copied read, to be pasted into [into] (the place shown, where null), sent back as [Answer.Clipped]. */
 	data class ReadClip(
-		val into: Path,
+		val into: Path?,
 	) : Asking
+
+	/** [placed] listed by its command, sent back as [Answer.Listed]. */
+	data class ListPlace(
+		val placed: Placed,
+	) : Asking
+
+	/** [job]'s commands run, each waited for, and what came of them sent back as [Answer.Ran]. */
+	data class Run(
+		val job: Job,
+	) : Asking
+
+	/** [job]'s commands started detached, or in a terminal, and forgotten; a failure to start is sent back. */
+	data class Launch(
+		val job: Job,
+		val terminal: Boolean,
+	) : Asking
+
+	/** A folder made that nothing else uses, for [carried], sent back as [Answer.TempMade]. */
+	data class Temp(
+		val carried: Carried,
+	) : Asking
+
+	/** [carried] kept as what was copied last, for a paste in any window; null lets go of what was. */
+	data class Carry(
+		val carried: Carried?,
+	) : Effect
 
 	/** [clip] put on the clipboard. */
 	data class Clip(

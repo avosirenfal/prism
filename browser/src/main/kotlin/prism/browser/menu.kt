@@ -32,6 +32,23 @@ data class Menu<out A>(
 	val marked: Boolean get() = entries.any { it is MenuEntry.Item && it.mark != Mark.None }
 
 	fun isEmpty(): Boolean = entries.isEmpty()
+
+	/** This without the entries known by any of [hidden], at any level; a submenu left empty goes with them. */
+	fun without(hidden: Set<String>): Menu<A> =
+		if (hidden.isEmpty())
+			this
+		else
+			menu {
+				for (entry in entries)
+					when (entry) {
+						is MenuEntry.Item -> if (entry.id !in hidden) add(entry)
+						is MenuEntry.Submenu ->
+							entry.menu.without(hidden).takeUnless { it.isEmpty() }?.let {
+								add(MenuEntry.Submenu(entry.label, it))
+							}
+						MenuEntry.Separator -> separator()
+					}
+			}
 }
 
 /** One entry of a menu. */
@@ -50,6 +67,8 @@ sealed interface MenuEntry<out A> {
 		val mark: Mark = Mark.None,
 		/** The keys that do the same without the menu, shown beside the label: "F2", "Ctrl+Shift+N". */
 		val keys: String? = null,
+		/** What the entry is known by, where it can be hidden: `builtin.copy-path`, or an action's id. */
+		val id: String? = null,
 	) : MenuEntry<A>
 
 	/** Entries a level down, opened beside this one. */
@@ -95,9 +114,15 @@ class MenuBuilder<A> internal constructor() {
 		keys: String? = null,
 		enabled: Boolean = true,
 		alternate: A? = null,
+		id: String? = null,
 	) {
 		entries +=
-			MenuEntry.Item(label, action, alternate, enabled, Mark.None, keys)
+			MenuEntry.Item(label, action, alternate, enabled, Mark.None, keys, id)
+	}
+
+	/** [entry] as it is: one made elsewhere. */
+	fun add(entry: MenuEntry<A>) {
+		entries += entry
 	}
 
 	/** An item that is on or off, ticked when on. */

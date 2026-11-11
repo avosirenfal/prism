@@ -7,6 +7,7 @@ import kotlinx.serialization.descriptors.PrimitiveKind
 import kotlinx.serialization.descriptors.PrimitiveSerialDescriptor
 import kotlinx.serialization.encoding.Decoder
 import kotlinx.serialization.encoding.Encoder
+import kotlinx.serialization.json.JsonElement
 
 /*
  * What the user has set, as one immutable value. Every window reads the same one, and a change to it is a new value
@@ -36,7 +37,19 @@ data class Preferences(
 	 * terminal, as the platform finds it.
 	 */
 	val terminal: List<String>? = null,
+	/**
+	 * The user's own actions, each as it is written (actions.kt): what the context menus offer beyond prism's own. Each
+	 * is read on its own, so that one written wrong does not lose the rest.
+	 */
+	val actions: List<JsonElement> = emptyList(),
+	/** The user's own places: what a window shows that is not a folder, as a command lists it. */
+	val places: List<JsonElement> = emptyList(),
+	/** What of the menus is left out. */
+	val menu: MenuSpec = MenuSpec(),
 ) {
+	/** The actions and places written here. */
+	val written: ActionsFile get() = ActionsFile(actions, places)
+
 	/** These, with [pinned] in place of the places pinned. */
 	fun pinning(pinned: List<Path>): Preferences = copy(pinned = pinned)
 

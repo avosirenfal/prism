@@ -30,6 +30,11 @@ sealed interface RowId {
 	data class Found(
 		val at: Int,
 	) : RowId
+
+	/** An entry of the place shown, by what the place's command called it. */
+	data class Entry(
+		val key: String,
+	) : RowId
 }
 
 /** The entry of the folder shown named [name]: how the folder's rows are known. */
@@ -66,8 +71,8 @@ data class Shown<T : Comparable<T>>(
 @Immutable
 data class Row(
 	val id: RowId,
-	/** Where it is: absolute, its last name [name]. */
-	val path: Path,
+	/** What it is: a file or a folder on disk, or an entry of the place shown, which only that place knows. */
+	val item: Item,
 	val name: String,
 	val category: Category,
 	/** What the type column says: "Folder", "PNG image", "Kotlin source". */
@@ -79,6 +84,9 @@ data class Row(
 	val hidden: Boolean,
 ) {
 	val isFolder: Boolean get() = category == Category.Folder
+
+	/** Where it is on disk, absolute; null for an entry of a place that is nowhere on disk. */
+	val path: Path? get() = (item as? Item.OnDisk)?.path
 }
 
 /** Which column the listing is ordered by, and which way. Folders come first whatever it is. */
@@ -130,7 +138,7 @@ data class TypeFilter(
  * A shell pattern as a regular expression: `*` any run of characters, `?` any one, `[...]` one of those (`[!...]`
  * one not of those), and anything else itself.
  */
-private fun globOf(pattern: String): Regex {
+internal fun globOf(pattern: String): Regex {
 	val parts =
 		Regex("""\[!?[^\]]+]|[*?]|[^*?\[]+|\[""").findAll(pattern).map {
 			val part = it.value
@@ -597,6 +605,17 @@ sealed interface Location {
 	data class Results(
 		val finding: Finding.Matched,
 	) : Location
+
+	/**
+	 * A place, as a command listed it: [placed] says which, [within] the folder of it shown (the names of the folders
+	 * gone into, outermost first), and [tree] what the listing gave, kept so that going about the place, and coming
+	 * back to it, does not list it again; null until the first listing arrives.
+	 */
+	data class Place(
+		val placed: Placed,
+		val within: List<String> = emptyList(),
+		val tree: PlaceTree? = null,
+	) : Location
 }
 
 /** Where the keyboard's cursor goes when the next read of the folder shown arrives. */
@@ -736,6 +755,18 @@ sealed interface Notice {
 	data class NoFolder(
 		val text: String,
 	) : Notice
+
+	/** A line of text an action asks for before it is done: [prompt], and what is typed so far. */
+	data class Asking(
+		val prompt: String,
+		val text: String,
+	) : Notice
+
+	/** An action to be done once the user says yes: what it is called, and what it asks. */
+	data class ConfirmAction(
+		val label: String,
+		val question: String,
+	) : Notice
 }
 
 /** The button that accepts: what it says, and whether what has been chosen is enough to press it. */
@@ -813,9 +844,27 @@ data class BrowserState(
 	val renaming: Renaming? = null,
 	/** The search of the index, as Ctrl+Shift+F opens it; unavailable where there is no index. */
 	val search: Search = Search.Unavailable(NO_INDEX),
+	/** The user's actions and places, with prism's own: what the menus offer beyond what the browser does itself. */
+	val actions: Actions = Actions.NONE,
+	/** An action begun and waiting for an answer (a folder being chosen in another window, a line being typed). */
+	val pending: Pending? = null,
+	/** The watched commands under way, by what each is called: what the status line says is being done. */
+	val running: List<String> = emptyList(),
 ) {
 	/** The folder shown; none among a search's results. */
 	val folder: Path? get() = (at as? Location.Folder)?.path
+
+	/** The place shown, where one is. */
+	val place: Location.Place? get() = at as? Location.Place
+
+	/** Where the window is, as an action's conditions name it. */
+	val where: Where
+		get() =
+			when (val at = at) {
+				is Location.Folder -> Where.Folder(at.path)
+				is Location.Results -> Where.Results
+				is Location.Place -> Where.Place(at.placed)
+			}
 
 	/** The search whose results are shown, where they are. */
 	val results: Finding.Matched? get() = (at as? Location.Results)?.finding
@@ -856,6 +905,7 @@ data class BrowserState(
 			when (val at = at) {
 				is Location.Folder -> crumbs.last().label
 				is Location.Results -> "results for “${at.finding.text}”"
+				is Location.Place -> at.within.lastOrNull() ?: at.placed.title
 			}
 
 	/** The rows chosen, in the order they are shown. */

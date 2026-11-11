@@ -14,6 +14,8 @@ import java.nio.file.attribute.BasicFileAttributes
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicReference
 import java.util.Locale
 import kotlin.io.path.Path
 import kotlin.io.path.exists
@@ -21,7 +23,9 @@ import kotlin.io.path.isDirectory
 import kotlin.io.path.name
 import kotlin.io.path.readLines
 import prism.desktop.Desktop
+import prism.desktop.FileTypes
 import prism.desktop.Launched
+import prism.desktop.MimeType
 import prism.desktop.Opening
 import prism.desktop.Place
 import prism.desktop.Places
@@ -68,7 +72,53 @@ data class Services(
 	val desktop: Desktop? = null,
 	val clipboard: FileClipboard = MemoryFileClipboard(),
 	val preferences: PreferenceStore = MemoryPreferences(),
-)
+	/** What runs the commands that are waited for: a place's listing, an action's watched command. */
+	val commands: Commands = ProcessCommands,
+	/** The home folder, which a command is run in where nothing says where. */
+	val home: Path = Path(System.getProperty("user.home")),
+	/**
+	 * The entries of a place copied last, in any window these services are given to: what a paste then brings out. Let
+	 * go of when files are copied instead.
+	 */
+	val carried: AtomicReference<Carried?> = AtomicReference(null),
+) {
+	/** What conditions are decided by: the desktop's types, the `PATH`, and the disk. */
+	val world: World by lazy { SystemWorld(home, desktop?.types) }
+}
+
+/** The world as this machine has it: types as the desktop names them, programs on the `PATH`, and what is on disk. */
+class SystemWorld(
+	override val home: Path,
+	private val types: FileTypes?,
+	private val path: String = System.getenv("PATH").orEmpty(),
+) : World {
+	private val found = ConcurrentHashMap<String, Boolean>()
+
+	override fun lineage(thing: Thing): List<String> =
+		when {
+			thing.kind == ThingKind.Folder -> listOf(MimeType.FOLDER.name)
+			types == null -> emptyList()
+			else ->
+				try {
+					// An entry of a place has only its name to tell its type by.
+					types.lineage(types.of(thing.path ?: Path("/nowhere").resolve(thing.name))).map { it.name }
+				} catch (failed: RuntimeException) {
+					emptyList()
+				}
+		}
+
+	override fun installed(program: String): Boolean =
+		found.getOrPut(program) {
+			if ('/' in program)
+				Files.isExecutable(Path(program))
+			else
+				path.split(':').filter { it.isNotEmpty() }.any {
+					Path(it, program).let { at -> Files.isExecutable(at) && !Files.isDirectory(at) }
+				}
+		}
+
+	override fun exists(path: Path): Boolean = Files.exists(path)
+}
 
 /** The answer to [asking], from these. */
 fun Services.answer(asking: Effect.Asking): Answer =
@@ -95,8 +145,44 @@ fun Services.answer(asking: Effect.Asking): Answer =
 				desktop?.launcher?.terminal(asking.folder, preferences.preferences.value.terminal)
 					?: Launched.Failed("a terminal", "there is no desktop to start one on"),
 			)
-		is Effect.ReadClip -> Answer.Clipped(asking.into, clipboard.read())
+		is Effect.ReadClip -> Answer.Clipped(asking.into, clipboard.read(), carried.get())
+		is Effect.ListPlace -> Answer.Listed(asking.placed, listingOf(asking.placed, commands, home))
+		// Each command waited for in turn; the first that fails ends them, and is why.
+		is Effect.Run ->
+			Answer.Ran(
+				asking.job,
+				asking.job.invocations.firstNotNullOfOrNull { invocation ->
+					commands.run(invocation).takeUnless { it.worked }?.why
+				},
+			)
+		is Effect.Launch -> Answer.Started(launched(asking.job, asking.terminal))
+		is Effect.Temp -> Answer.TempMade(Files.createTempDirectory("prism-"), asking.carried)
 	}
+
+/** [job]'s commands started on the desktop, each a process of its own, or in a terminal: the first that fails, or the last. */
+private fun Services.launched(job: Job, terminal: Boolean): Launched {
+	val launcher =
+		desktop?.launcher
+			?: return Launched.Failed(job.label, "there is no desktop to start it on")
+
+	val started =
+		job.invocations.map { invocation ->
+			// A process started detached is not prism's to give an environment: `env` gives it its values.
+			val words =
+				if (invocation.environment.isEmpty())
+					invocation.words
+				else
+					listOf("env") + invocation.environment.map { (name, value) -> "$name=$value" } + invocation.words
+
+			if (terminal)
+				launcher.inTerminal(words, invocation.folder)
+			else
+				launcher.run(words, invocation.folder)
+		}
+
+	return started.firstOrNull { it is Launched.Failed } ?: started.lastOrNull()
+		?: Launched.Failed(job.label, "there is nothing to run")
+}
 
 /** The answer to [asking], from this disk, and from [finder] for a search. */
 fun Disk.answer(asking: Effect.Asking, finder: Finder? = null): Answer =
@@ -286,7 +372,11 @@ fun Step.settled(disk: Disk, finder: Finder? = null): BrowserState =
 
 /** As [settled], with everything asked answered by [services]: a clip and a pin are made there too, at once. */
 tailrec fun Step.settled(services: Services): BrowserState {
-	effects.filterIsInstance<Effect.Clip>().forEach { services.clipboard.put(it.clip) }
+	effects.filterIsInstance<Effect.Clip>().forEach {
+		services.carried.set(null)
+		services.clipboard.put(it.clip)
+	}
+	effects.filterIsInstance<Effect.Carry>().forEach { services.carried.set(it.carried) }
 	effects.filterIsInstance<Effect.Pin>().forEach { pin ->
 		services.preferences.update { it.pinning(pin.paths) }
 	}
@@ -363,7 +453,7 @@ private fun rowOf(entry: Path, zone: ZoneId): Row? {
 
 	return Row(
 		id = RowId(name),
-		path = entry,
+		item = Item.OnDisk(entry),
 		name = name,
 		category = category,
 		type =

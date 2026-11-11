@@ -46,7 +46,7 @@ import kotlin.io.path.Path
 import kotlin.io.path.isDirectory
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
-import prism.browser.Action
+import prism.browser.Bindable
 import prism.browser.Bindings
 import prism.browser.Chord
 import prism.browser.Dims
@@ -341,7 +341,7 @@ private fun BindingsPage(rebinding: Rebinding, onChange: (Rebinding) -> Unit) {
 							),
 					)
 				}
-				items(Action.entries.filter { it.scope == scope }, key = { it }) { action ->
+				items(rebinding.bindings.actions.filter { it.scope == scope }, key = { it.key }) { action ->
 					BindingRow(action, rebinding, onChange)
 				}
 			}
@@ -351,7 +351,7 @@ private fun BindingsPage(rebinding: Rebinding, onChange: (Rebinding) -> Unit) {
 			"Reset all",
 			Emphasis.Secondary,
 			enabled =
-				rebinding.bindings != Bindings.DEFAULT,
+				rebinding.bindings != rebinding.bindings.defaults(),
 		) {
 			onChange(rebinding.resetAll())
 		}
@@ -361,7 +361,7 @@ private fun BindingsPage(rebinding: Rebinding, onChange: (Rebinding) -> Unit) {
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 private fun BindingRow(
-	action: Action,
+	action: Bindable,
 	rebinding: Rebinding,
 	onChange: (Rebinding) -> Unit,
 ) {
@@ -458,5 +458,5 @@ private fun ChordChip(
 }
 
 /** “Back” and “Forward”: actions named as the bindings page names them. */
-private fun namesOf(actions: List<Action>): String =
+private fun namesOf(actions: List<Bindable>): String =
 	actions.joinToString(" and ") { "“${it.label}”" }

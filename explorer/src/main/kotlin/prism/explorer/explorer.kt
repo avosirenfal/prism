@@ -2,7 +2,9 @@ package prism.explorer
 
 import java.nio.file.Path
 import java.util.concurrent.atomic.AtomicInteger
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
@@ -11,15 +13,19 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import prism.browser.BrowserEvent
 import prism.browser.Choosing
 import prism.browser.Disk
 import prism.browser.FileClipboard
 import prism.browser.Finder
+import prism.browser.Outcome
 import prism.browser.Request
 import prism.browser.Search
 import prism.browser.Services
 import prism.browser.Session
+import prism.browser.Start
 import prism.browser.opened
+import prism.browser.openedIn
 import prism.browser.sidebarOf
 import prism.desktop.Application
 import prism.desktop.Desktop
@@ -41,6 +47,17 @@ sealed interface ExplorerWindow {
 	/** Files browsed: a browser's [session], whose work is done in [scope], which ends with the window. */
 	class Browsing internal constructor(
 		override val id: Int,
+		val session: Session,
+		internal val scope: CoroutineScope,
+	) : ExplorerWindow
+
+	/**
+	 * A folder chosen for an action that asked for one: a picker's [session], titled [title], whose outcome is the
+	 * answer, given to the window that asked.
+	 */
+	class Picking internal constructor(
+		override val id: Int,
+		val title: String,
 		val session: Session,
 		internal val scope: CoroutineScope,
 	) : ExplorerWindow
@@ -84,6 +101,7 @@ sealed interface Choice {
  * on the thread the windows are drawn on, as a composition's does; a new window opens on [search], the state a
  * search's window starts in (one ready to search, or one that says why there is none).
  */
+@OptIn(ExperimentalCoroutinesApi::class)
 class Explorer(
 	disk: Disk,
 	finder: Finder?,
@@ -106,24 +124,31 @@ class Explorer(
 	val defaults: StateFlow<Int> = defaultsSet.asStateFlow()
 
 	/** A window browsing [folder]. */
-	fun browse(folder: Path) {
+	fun browse(folder: Path) = browse(Start.Folder(folder))
+
+	/** A window browsing from [start]: a folder, or a place. */
+	fun browse(start: Start) {
 		val window = scope.child()
+		val sidebar = sidebarOf(desktop.places, home, preferences.preferences.value.pinned)
 
 		val first =
-			opened(
-				Choosing.Exploring(),
-				folder,
-				home,
-				sidebarOf(desktop.places, home, preferences.preferences.value.pinned),
-				search = search,
-			)
+			when (start) {
+				is Start.Folder -> opened(Choosing.Exploring(), start.path, home, sidebar, search = search)
+				is Start.Place -> openedIn(start.placed, home, sidebar, search)
+			}
+
+		// What the window asks for is answered to it: the session is made after what it asks through, so it is found
+		// through this once it is.
+		val asking = CompletableDeferred<Session>()
 
 		val browsing =
 			ExplorerWindow.Browsing(
 				ids.incrementAndGet(),
-				Session(first, services, window, requests = ::ask),
+				Session(first, services, window, requests = { ask(it) { event -> asking.getCompleted().send(event) } }),
 				window,
 			)
+
+		asking.complete(browsing.session)
 
 		open.update { it.plusElement(browsing) }
 		// A browser ends as a picker is cancelled: closed (Ctrl+W, or its menu), it is closed here.
@@ -133,10 +158,14 @@ class Explorer(
 		}
 	}
 
-	/** What a window asked for, opened. */
-	fun ask(request: Request) {
+	/**
+	 * What a window asked for, opened. What is asked for an answer (a folder to choose) is answered through [reply],
+	 * to the window that asked.
+	 */
+	fun ask(request: Request, reply: (BrowserEvent) -> Unit = {}) {
 		when (request) {
-			is Request.NewWindow -> browse(request.folder)
+			is Request.NewWindow -> browse(request.start)
+			is Request.PickFolder -> pick(request, reply)
 			is Request.Properties -> opening { ExplorerWindow.Properties(it, request.paths) }
 			is Request.OpenWith ->
 				opening {
@@ -163,6 +192,38 @@ class Explorer(
 		}
 	}
 
+	/** A picker of folders opened for [request]: what it chooses, or that it was cancelled, is the answer. */
+	private fun pick(request: Request.PickFolder, reply: (BrowserEvent) -> Unit) {
+		val window = scope.child()
+
+		val picking =
+			ExplorerWindow.Picking(
+				ids.incrementAndGet(),
+				request.title,
+				Session(
+					opened(
+						Choosing.Folder(),
+						request.start,
+						home,
+						sidebarOf(desktop.places, home, preferences.preferences.value.pinned),
+						title = request.title,
+						search = search,
+					),
+					services,
+					window,
+				),
+				window,
+			)
+
+		open.update { it.plusElement(picking) }
+		window.launch {
+			val outcome = picking.session.outcome.await()
+
+			reply(BrowserEvent.Answered((outcome as? Outcome.Chosen)?.paths?.firstOrNull()))
+			close(picking)
+		}
+	}
+
 	/** The application for [type] chosen anew, from its properties. */
 	fun chooseDefault(type: MimeType) =
 		opening { ExplorerWindow.OpenWith(it, Choice.Default(type)) }
@@ -177,8 +238,11 @@ class Explorer(
 	fun close(window: ExplorerWindow) {
 		open.update { windows -> windows.filterNot { it.id == window.id } }
 
-		if (window is ExplorerWindow.Browsing)
-			window.scope.cancel()
+		when (window) {
+			is ExplorerWindow.Browsing -> window.scope.cancel()
+			is ExplorerWindow.Picking -> window.scope.cancel()
+			else -> Unit
+		}
 	}
 
 	private fun opening(window: (Int) -> ExplorerWindow) =

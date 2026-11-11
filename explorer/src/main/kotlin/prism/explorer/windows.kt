@@ -34,10 +34,12 @@ import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.rememberWindowState
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
+import prism.browser.BrowserEvent
 import prism.browser.Chord
 import prism.browser.Dims
 import prism.browser.HostedBrowser
 import prism.browser.HostedWindow
+import prism.browser.Location
 import prism.browser.LocalPalette
 import prism.browser.LocalType
 import prism.browser.MouseChords
@@ -62,13 +64,28 @@ fun ExplorerWindows(explorer: Explorer, palette: Palette, decorated: Boolean) {
 
 					Window(
 						onCloseRequest = { explorer.close(window) },
-						title = state.folder?.let { (it.fileName ?: it).toString() } ?: "Search",
+						title =
+							when (val at = state.at) {
+								is Location.Folder -> (at.path.fileName ?: at.path).toString()
+								is Location.Results -> "Search"
+								is Location.Place -> at.placed.title
+							},
 						state = rememberWindowState(width = 1100.dp, height = 680.dp),
 						undecorated = !decorated,
 					) {
 						HostedBrowser(this.window, window.session, explorer.preferences, palette)
 					}
 				}
+				// A folder chosen for an action: a picker, as any application's, closed as one is cancelled.
+				is ExplorerWindow.Picking ->
+					Window(
+						onCloseRequest = { window.session.send(BrowserEvent.Cancelled) },
+						title = window.title,
+						state = rememberWindowState(width = 900.dp, height = 600.dp),
+						undecorated = !decorated,
+					) {
+						HostedBrowser(this.window, window.session, explorer.preferences, palette)
+					}
 				is ExplorerWindow.Properties ->
 					Dialog(propertiesTitleOf(window.paths), DpSize(560.dp, 520.dp), palette, decorated, {
 						explorer.close(window)

@@ -195,7 +195,7 @@ class Matches(
 
 		return Row(
 			id = RowId.Found(at),
-			path = pathOf(at),
+			item = Item.OnDisk(pathOf(at)),
 			name = nameOf(at),
 			category = category,
 			type = typeOf(at),

@@ -604,7 +604,7 @@ fun <A> ContextMenuHost(menus: ContextMenus<A>, onAction: (A) -> Unit) {
 }
 
 /** Where a layout is in the window, kept as it is placed, for a point in it to be a point of the window. */
-internal class Placed {
+internal class InWindow {
 	var coordinates: LayoutCoordinates? = null
 }
 
@@ -615,7 +615,7 @@ internal class Placed {
  */
 fun <A> Modifier.contextMenu(menus: ContextMenus<A>, menu: () -> Menu<A>?): Modifier =
 	composed {
-		val placed = remember { Placed() }
+		val placed = remember { InWindow() }
 		val latest by rememberUpdatedState(menu)
 
 		onGloballyPositioned { placed.coordinates = it }

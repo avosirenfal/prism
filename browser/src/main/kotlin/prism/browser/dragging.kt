@@ -136,6 +136,38 @@ private fun transferOf(action: DragAndDropTransferAction?): Transfer? =
 		else -> null
 	}
 
+/**
+ * Entries of a place being dragged: what they are is kept here, in this process, while the drag lasts, and the drag
+ * itself carries only a mark that says so ([CARRIED]). They are nowhere on disk, so there are no files for another
+ * application to be given; a window of this process, which the mark tells, reads them from here.
+ */
+internal object CarriedDrag {
+	@Volatile
+	var current: Carried? = null
+}
+
+/** What marks a drag as one of a place's entries, to this process alone. */
+private val CARRIED = DataFlavor(DataFlavor.javaJVMLocalObjectMimeType + ";class=prism.browser.Carried", "entries of a place")
+
+/** The entries of a place [transferable] is a drag of, where it is one of this process's. */
+private fun carriedOf(transferable: Transferable): Carried? =
+	CarriedDrag.current.takeIf { transferable.isDataFlavorSupported(CARRIED) }
+
+/** A drag of a place's entries: the mark alone, and no files. */
+private class DraggedEntries(
+	private val carried: Carried,
+) : Transferable {
+	override fun getTransferDataFlavors(): Array<DataFlavor> = arrayOf(CARRIED)
+
+	override fun isDataFlavorSupported(flavor: DataFlavor): Boolean = flavor == CARRIED
+
+	override fun getTransferData(flavor: DataFlavor): Any =
+		if (flavor == CARRIED)
+			carried
+		else
+			throw UnsupportedFlavorException(flavor)
+}
+
 /** A URI list, as X11 and Wayland name files: where a toolkit does not make it a list of files itself. */
 private val URI_LIST = DataFlavor("text/uri-list;class=java.lang.String")
 
@@ -208,14 +240,32 @@ val LocalVolumes = staticCompositionLocalOf<(Path, Path) -> Boolean> { { _, _ ->
  * This dragged as files: those [paths] gives when the drag starts (none: no drag), as the browser's own drag. [onStart]
  * is told as it starts, and [onEnd] what the target made of it, once it is over: a move made by another application is
  * the files gone from where they were.
+ *
+ * Where there are no files to drag, [carried] may give entries of a place instead: dragged as themselves, to be
+ * brought out into the folder they are dropped on, in any window of this process.
  */
 fun Modifier.filesDragged(
 	paths: () -> List<Path>,
 	onStart: () -> Unit,
 	onEnd: (Transfer?) -> Unit,
+	carried: () -> Carried? = { null },
 ): Modifier =
 	dragAndDropSource { offset ->
-		paths().takeIf { it.isNotEmpty() }?.let { dragged ->
+		val files = paths()
+
+		if (files.isEmpty())
+			return@dragAndDropSource carried()?.let { entries ->
+				onStart()
+				CarriedDrag.current = entries
+				DragAndDropTransferData(
+					DragAndDropTransferable(DraggedEntries(entries)),
+					listOf(DragAndDropTransferAction.Copy),
+					offset,
+					onTransferCompleted = { CarriedDrag.current = null },
+				)
+			}
+
+		files.let { dragged ->
 			onStart()
 			OwnDrag.started()
 			DragAndDropTransferData(
@@ -249,11 +299,13 @@ fun Modifier.filesDropped(
 	spot: DropSpot,
 	into: Path?,
 	onHover: (Dropping?) -> Unit,
+	onCarried: ((Carried) -> Unit)? = null,
 	onDrop: (List<Path>, Transfer) -> Unit,
 ): Modifier {
 	val volumes = LocalVolumes.current
 	val hover by rememberUpdatedState(onHover)
 	val drop by rememberUpdatedState(onDrop)
+	val bring by rememberUpdatedState(onCarried)
 	val folder by rememberUpdatedState(into)
 
 	val target =
@@ -273,6 +325,11 @@ fun Modifier.filesDropped(
 					}
 
 				fun dropping(event: DragAndDropEvent): Dropping? {
+					// Entries of a place are brought out, which leaves them where they were: a copy, whatever is held.
+					carriedOf(event.awtTransferable)?.let {
+						return Dropping(it.pending.subject.things.size, Transfer.Copy, folder)
+					}
+
 					val action = transferOf(event.action) ?: return null
 					val (dragged, same) = readOf(event)
 
@@ -294,6 +351,12 @@ fun Modifier.filesDropped(
 				}
 
 				override fun onDrop(event: DragAndDropEvent): Boolean {
+					carriedOf(event.awtTransferable)?.let { carried ->
+						hover(null)
+
+						return bring?.let { it(carried) } != null
+					}
+
 					val made = dropping(event)
 					val dragged = readOf(event).first
 
@@ -307,7 +370,10 @@ fun Modifier.filesDropped(
 			}
 		}
 
-	return dragAndDropTarget({ carriesFiles(it.awtTransferable) }, target)
+	return dragAndDropTarget(
+		{ carriesFiles(it.awtTransferable) || (onCarried != null && carriedOf(it.awtTransferable) != null) },
+		target,
+	)
 }
 
 /** What a drop on [spot] would be, while files are over it. */
@@ -403,6 +469,7 @@ fun Modifier.folderDrop(
 			over = it != null
 			hint.over(spot, it)
 		},
+		onCarried = { onEvent(BrowserEvent.DroppedCarried(it, spot)) },
 		onDrop = { paths, transfer -> onEvent(BrowserEvent.Dropped(paths, spot, transfer)) },
 	).then(
 		if (over)

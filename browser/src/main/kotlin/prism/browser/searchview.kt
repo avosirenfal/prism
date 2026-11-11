@@ -265,7 +265,7 @@ private fun Match(row: Row, home: Path, highlighted: Boolean, onClick: () -> Uni
 		Text(row.name, style = type.body, maxLines = 1, overflow = TextOverflow.Ellipsis)
 		Spacer(Modifier.width(Dims.gap * 2))
 		Text(
-			folderOf(row, home),
+			row.path?.let { folderOf(it, home) }.orEmpty(),
 			style = type.muted,
 			maxLines = 1,
 			overflow = TextOverflow.Ellipsis,

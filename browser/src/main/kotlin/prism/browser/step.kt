@@ -68,6 +68,17 @@ fun opened(
 	return Step(state, listOf(Effect.Read(shown)))
 }
 
+/** An explorer opened on [placed]: its first state, and the listing of the place that it waits for. */
+fun openedIn(
+	placed: Placed,
+	home: Path,
+	sidebar: Sidebar,
+	search: Search = Search.Unavailable(BrowserState.NO_INDEX),
+): Step =
+	opened(Choosing.Exploring(), home, home, sidebar, search = search).let {
+		Step(it.state.copy(at = Location.Place(placed)), listOf(Effect.ListPlace(placed)))
+	}
+
 fun titleOf(choosing: Choosing): String =
 	when (choosing) {
 		is Choosing.OneFile -> "Open"
@@ -95,7 +106,7 @@ private fun did(state: BrowserState, event: BrowserEvent): Step =
 		is BrowserEvent.Opened -> state.went(event.path)
 		BrowserEvent.Back -> state.back()
 		BrowserEvent.Forward -> state.forward()
-		BrowserEvent.Up -> state.folder?.parent?.let { state.went(it) } ?: Step(state)
+		BrowserEvent.Up -> state.folder?.parent?.let { state.went(it) } ?: state.upWithin()
 		BrowserEvent.Refreshed -> state.reread()
 		is BrowserEvent.Clicked -> Step(state.clicked(event.row, event.click))
 		BrowserEvent.ClickedNowhere -> Step(state.copy(choosing = state.choosing.unchosen()))
@@ -263,7 +274,7 @@ private fun did(state: BrowserState, event: BrowserEvent): Step =
 		is BrowserEvent.CutFiles -> state.clipping(event.rows, cut = true)
 		is BrowserEvent.Pasted ->
 			(event.into ?: state.folder)?.let { Step(state, listOf(Effect.ReadClip(it))) }
-				?: Step(state)
+				?: state.pastingIn()
 		is BrowserEvent.Dropped -> state.dropped(event.paths, event.spot, event.transfer)
 		is BrowserEvent.Pinned ->
 			if (state.sidebar.pins(event.path))
@@ -296,6 +307,12 @@ private fun did(state: BrowserState, event: BrowserEvent): Step =
 			(event.folder ?: state.folder)?.let { Step(state, listOf(Effect.Terminal(it))) }
 				?: Step(state)
 		is BrowserEvent.Requested -> Step(state, listOf(Effect.Ask(event.request)))
+		is BrowserEvent.Did -> state.doing(Pending(event.action, event.subject, event.answers))
+		is BrowserEvent.Answered -> state.answered(event.folder)
+		is BrowserEvent.WentWithin -> state.wentWithin(event.within)
+		is BrowserEvent.DroppedCarried -> state.droppedCarried(event.carried, event.spot)
+		// A line typed with nothing asking for one.
+		is BrowserEvent.AnswerTyped -> Step(state)
 	}
 
 /** While a notice is shown, it is all the picker answers to: the rest of it is behind the notice. */
@@ -309,8 +326,26 @@ private fun noticed(state: BrowserState, notice: Notice, event: BrowserEvent): S
 					Step(
 						state.copy(notice = null),
 					)
+				is Notice.Asking -> state.copy(notice = null).typed(notice.text)
+				is Notice.ConfirmAction ->
+					state.pending?.let { state.copy(notice = null).doing(it.copy(confirmed = true)) }
+						?: Step(state.copy(notice = null))
 			}
-		BrowserEvent.Dismissed -> Step(state.copy(notice = null))
+		// An action that was asking is let go with its question.
+		BrowserEvent.Dismissed ->
+			Step(
+				state.copy(
+					notice = null,
+					pending = state.pending.takeUnless { notice is Notice.Asking || notice is Notice.ConfirmAction },
+				),
+			)
+		is BrowserEvent.AnswerTyped ->
+			Step(
+				if (notice is Notice.Asking)
+					state.copy(notice = notice.copy(text = event.text))
+				else
+					state,
+			)
 		BrowserEvent.Cancelled -> Step(state, listOf(Effect.Finish(Outcome.Cancelled)))
 		else -> Step(state)
 	}
@@ -321,7 +356,7 @@ private fun noticed(state: BrowserState, notice: Notice, event: BrowserEvent): S
  * [to] gone to: the place left goes behind it in the history, and nothing is ahead. Going to the folder shown reads
  * it again, and lands where [landing] says when that read arrives.
  */
-private fun BrowserState.went(to: Path, landing: Landing? = landingFrom(to)): Step {
+internal fun BrowserState.went(to: Path, landing: Landing? = landingFrom(to)): Step {
 	val target = to.toAbsolutePath().normalize()
 
 	return if (target == folder)
@@ -334,7 +369,7 @@ private fun BrowserState.went(to: Path, landing: Landing? = landingFrom(to)): St
  * The place shown read again, the cursor to land where [landing] says (if anywhere) when the read arrives: a folder
  * read, or a search's results searched for again, shown in their place when they are found.
  */
-private fun BrowserState.reread(landing: Landing? = null): Step =
+internal fun BrowserState.reread(landing: Landing? = null): Step =
 	when (val at = at) {
 		is Location.Folder ->
 			Step(
@@ -349,6 +384,8 @@ private fun BrowserState.reread(landing: Landing? = null): Step =
 				listOf(Effect.Search(text, queryOf(QueryText.read(text), choosing), Purpose.Refresh)),
 			)
 		}
+		// A place is listed again, what it shows staying until the new listing arrives.
+		is Location.Place -> Step(copy(landing = landing ?: this.landing), listOf(Effect.ListPlace(at.placed)))
 	}
 
 private fun BrowserState.back(): Step =
@@ -383,7 +420,7 @@ private fun BrowserState.landingFrom(to: Path): Landing? =
  * [to] shown in place of what is shown, with nothing chosen and nothing searched for in the listing: a folder,
  * waiting for its read; a search's results, at once, and their sizes and dates read as [rows] in sight need them.
  */
-private fun BrowserState.shown(to: Location, history: History, landing: Landing?): Step {
+internal fun BrowserState.shown(to: Location, history: History, landing: Landing?): Step {
 	val left =
 		copy(
 			at = to,
@@ -401,6 +438,10 @@ private fun BrowserState.shown(to: Location, history: History, landing: Landing?
 	return when (to) {
 		is Location.Folder -> Step(left, listOf(Effect.Read(to.path)))
 		is Location.Results -> left.showingResults(to.finding)
+		// A place listed already is shown from what its listing gave; one that is not, once it is listed.
+		is Location.Place ->
+			to.tree?.let { Step(left.arrived(Listing.Shown(it.rows(to.within)))) }
+				?: Step(left, listOf(Effect.ListPlace(to.placed)))
 	}
 }
 
@@ -477,7 +518,7 @@ private const val BEHIND = 40
 private const val AHEAD = 160
 
 /** The cursor where [landing] says, if that row is shown. */
-private fun BrowserState.landed(landing: Landing): BrowserState =
+internal fun BrowserState.landed(landing: Landing): BrowserState =
 	if (landing.row !in rows)
 		this
 	else
@@ -626,23 +667,25 @@ private fun BrowserState.jumped(prefix: String): BrowserState {
 	)
 }
 
-private fun BrowserState.activated(id: RowId): Step {
+internal fun BrowserState.activated(id: RowId): Step {
 	val row = rows[id] ?: return Step(this)
 
+	val path = row.path ?: return activatedInPlace(row)
+
 	return when {
-		row.isFolder -> went(row.path)
-		choosing is Choosing.Exploring -> Step(this, listOf(Effect.Open(listOf(row.path))))
+		row.isFolder -> went(path)
+		choosing is Choosing.Exploring -> Step(this, listOf(Effect.Open(listOf(path))))
 		choosing is Choosing.SaveAs ->
 			copy(
 				choosing = choosing.chose(setOf(id), rows),
 			).accepted()
-		else -> finished(listOf(row.path))
+		else -> finished(listOf(path))
 	}
 }
 
 // ---- accepting ---------------------------------------------------------------------------------------------------
 
-private fun BrowserState.accepted(): Step {
+internal fun BrowserState.accepted(): Step {
 	if (waiting != null)
 		return Step(this)
 
@@ -653,8 +696,10 @@ private fun BrowserState.accepted(): Step {
 		// What is chosen opened: the files with their applications; a folder alone, gone into.
 		is Choosing.Exploring ->
 			when {
-				files.isNotEmpty() -> Step(this, listOf(Effect.Open(files.map { it.path })))
-				else -> chosen.singleOrNull()?.let { went(it.path) } ?: Step(this)
+				// An entry of a place is opened as a double click opens it; several are not opened together.
+				chosen.any { it.path == null } -> chosen.singleOrNull()?.let { activated(it.id) } ?: Step(this)
+				files.isNotEmpty() -> Step(this, listOf(Effect.Open(files.mapNotNull { it.path })))
+				else -> chosen.singleOrNull()?.let { activated(it.id) } ?: Step(this)
 			}
 		is Choosing.OneFile ->
 			when {
@@ -664,7 +709,7 @@ private fun BrowserState.accepted(): Step {
 		is Choosing.Files ->
 			when {
 				choosing.typed != null -> looking(choosing.typed)
-				files.isNotEmpty() -> finished(files.map { it.path })
+				files.isNotEmpty() -> finished(files.mapNotNull { it.path })
 				else -> chosen.singleOrNull()?.let { opening(it) } ?: Step(this)
 			}
 		is Choosing.SaveAs ->
@@ -685,11 +730,14 @@ private fun BrowserState.accepted(): Step {
 	}
 }
 
-private fun BrowserState.opening(row: Row): Step =
-	if (row.isFolder)
-		went(row.path)
+private fun BrowserState.opening(row: Row): Step {
+	val path = row.path ?: return activated(row.id)
+
+	return if (row.isFolder)
+		went(path)
 	else
-		finished(listOf(row.path))
+		finished(listOf(path))
+}
 
 /** What [text] names, looked up on disk before anything is done with it. */
 private fun BrowserState.looking(text: String): Step {
@@ -764,7 +812,7 @@ private fun BrowserState.dropped(
 			when {
 				choosing is Choosing.Exploring ->
 					folder?.let { transferring(paths, it, transfer) }
-						?: Step(this)
+						?: givingIn(paths)
 				else -> paths.firstOrNull()?.let { goingTo(it.toString(), it) } ?: Step(this)
 			}
 	}
@@ -773,7 +821,7 @@ private fun BrowserState.dropped(
  * [sources] given to [into] as [transfer] says, as a paste or a drop gives them. Nothing is done for what would be no
  * change at all: a folder given to itself, or files moved to the folder they are in.
  */
-private fun BrowserState.transferring(
+internal fun BrowserState.transferring(
 	sources: List<Path>,
 	into: Path,
 	transfer: Transfer,
@@ -792,7 +840,7 @@ private fun BrowserState.transferring(
 private fun BrowserState.finished(paths: List<Path>): Step =
 	Step(this, listOf(Effect.Finish(Outcome.Chosen(paths))))
 
-private fun BrowserState.notice(notice: Notice): Step = Step(copy(notice = notice))
+internal fun BrowserState.notice(notice: Notice): Step = Step(copy(notice = notice))
 
 // ---- what the disk said -------------------------------------------------------------------------------------------
 
@@ -823,14 +871,11 @@ private fun answered(state: BrowserState, answer: Answer): Step =
 						Notice.Failed("Couldn't open ${launched.what}", launched.why),
 					)
 			}
-		is Answer.Clipped ->
-			answer.clip?.let {
-				state.transferring(
-					it.paths,
-					answer.into,
-					if (it.cut) Transfer.Move else Transfer.Copy,
-				)
-			} ?: Step(state)
+		is Answer.Clipped -> state.pasted(answer.into, answer.clip, answer.carried)
+		is Answer.Listed -> state.listed(answer.placed, answer.listing)
+		is Answer.Ran -> state.ran(answer.job, answer.failure)
+		is Answer.TempMade -> state.openingOut(answer.folder, answer.carried)
+		is Answer.Configured -> Step(state.copy(actions = answer.actions))
 		is Answer.Placed -> Step(state.copy(sidebar = answer.sidebar))
 		// A read of a folder no longer shown is too late to matter.
 		is Answer.Arrived ->
@@ -888,7 +933,7 @@ private fun answered(state: BrowserState, answer: Answer): Step =
  * [read] shown: what was chosen kept where it is still there (nothing was, in a folder just gone to), and the cursor
  * landed where the state says it should. A folder picker's listing holds only folders.
  */
-private fun BrowserState.arrived(read: Listing.Read): BrowserState {
+internal fun BrowserState.arrived(read: Listing.Read): BrowserState {
 	val listing =
 		when {
 			read is Listing.Shown && choosing is Choosing.Folder ->
@@ -1175,7 +1220,7 @@ private fun BrowserState.renamed(): Step {
 		else ->
 			copy(
 				renaming = null,
-			).making(Change.Rename(row.path, row.path.resolveSibling(name)))
+			).let { state -> row.path?.let { state.making(Change.Rename(it, it.resolveSibling(name))) } ?: Step(state) }
 	}
 }
 
@@ -1317,16 +1362,23 @@ fun refusalOf(name: String): String? =
 	}
 
 /** The rows [ids] put on the clipboard as files, to be moved where they are pasted where [cut]. */
-private fun BrowserState.clipping(ids: List<RowId>, cut: Boolean): Step =
-	pathsOf(ids)
-		.takeIf {
-			it.isNotEmpty()
-		}?.let { Step(this, listOf(Effect.Clip(FileClip(it, cut)))) }
+private fun BrowserState.clipping(ids: List<RowId>, cut: Boolean): Step {
+	val chosen = rows.inOrder(ids.toSet())
+
+	// Entries of a place are copied as what brings them out of it, where its place says what does: never cut.
+	if (chosen.any { it.path == null })
+		return carrying(chosen)?.let { Step(this, listOf(Effect.Carry(it))) } ?: Step(this)
+
+	return chosen
+		.mapNotNull { it.path }
+		.takeIf { it.isNotEmpty() }
+		?.let { Step(this, listOf(Effect.Clip(FileClip(it, cut)))) }
 		?: Step(this)
+}
 
 /** The paths of [ids] that the listing shows, in the order they are shown. */
 private fun BrowserState.pathsOf(ids: List<RowId>): List<Path> =
-	rows.inOrder(ids.toSet()).map { it.path }
+	rows.inOrder(ids.toSet()).mapNotNull { it.path }
 
 /** [wanted], or, if the folder holds an entry of that name, the first of "[wanted] 2", "[wanted] 3", ... it does not. */
 private fun BrowserState.freeName(wanted: String): String {
@@ -1348,7 +1400,7 @@ private fun BrowserState.freeName(wanted: String): String {
  * [ids] chosen in place of what was: all of them where several can be, and otherwise the one (callers give one).
  * Choosing a row puts the name field back to showing what is chosen; saving, a file chosen gives its name.
  */
-private fun Choosing.chose(ids: Set<RowId>, rows: Rows): Choosing {
+internal fun Choosing.chose(ids: Set<RowId>, rows: Rows): Choosing {
 	val one = ids.lastOrNull()
 
 	return when (this) {
@@ -1385,7 +1437,7 @@ private fun Choosing.toggled(id: RowId, rows: Rows): Choosing =
 	}
 
 /** Nothing chosen; what was typed stays. */
-private fun Choosing.unchosen(): Choosing =
+internal fun Choosing.unchosen(): Choosing =
 	when (this) {
 		is Choosing.OneFile -> copy(chosen = null)
 		is Choosing.Files -> copy(chosen = emptySet())
