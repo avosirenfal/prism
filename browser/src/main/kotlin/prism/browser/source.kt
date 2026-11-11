@@ -280,7 +280,9 @@ fun Services.answer(
 							.run(invocation, watching(Task.Running(asking.job)))
 							.takeUnless { it.worked }
 							?.why
-					},
+					}
+						// What they made is brought to where it is wanted, once they have all worked.
+						?: asking.job.bring?.let(::delivered),
 				)
 			} finally {
 				asking.job.scratch?.let(temps::remove)

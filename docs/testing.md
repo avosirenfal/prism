@@ -24,6 +24,7 @@ a device, so a test that ran and a test that could not run are never confused.
 | places: what a command prints read into a tree, files told from entries, and the archive tool listed, gone about, extracted from (by the menu, a drop, a paste, and to open), added to and removed from, on real archives (`PlacesTest`) | Linux | without `tar`, `zip`, `unzip` or `git`, the tests that run them |
 | a drag between two real windows, made by the pointer: an archive's entry dropped on a folder's window, as this process's own drag and as another's would be read (`DragTest`) | a display, and `-Pbrowser.display`: `xvfb-run ./gradlew :browser:test --tests prism.browser.DragTest -Pbrowser.display` | unless asked for |
 | an index of a tree that was given, held and searched as one read from disk (`GivenTest`) | the JDK | never |
+| the archives that ship: each kind listed, extracted whole and by entry, searched, and changed, by each program that can, made the only one installed in turn; archives made; single files decompressed; and a kind none of whose programs is there (`ArchivesTest`) | Linux | each case, without the programs it is of |
 | chords read and written, where each action acts, the user's bindings, and clashes (`BindingsTest`) | the JDK | never |
 | the preferences in memory and in a watched file, written by another process, unreadable and kept aside (`preferences`) | Linux | never |
 | file types, desktop entries, `Exec` lines, defaults in `mimeapps.list`, places, and a real launch left detached (`desktop`) | Linux, `setsid` | never |

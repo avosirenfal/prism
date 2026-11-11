@@ -13,7 +13,7 @@ are declarations in one file (`browser/src/main/resources/prism/browser/actions.
 ## One action, followed through
 
 Say the explorer shows `~/Downloads`, and the user right-clicks `photos.zip` and chooses "Extract to…". This is the
-action, as it ships (with fewer extensions shown):
+action, written out with one program (as it ships, it names several, and is read as the first that is installed):
 
 ```json
 {
@@ -94,7 +94,7 @@ Every condition named must hold, and each is optional.
 | `count` | the things chosen are `one`, `some` (one or more), or `many` (two or more) |
 | `under` | each is under one of these folders (`~/Projects`) |
 | `inside` | each is, or is under, a folder that holds one of these names (`.git`, `Cargo.toml`) |
-| `programs` | every one of these is on the `PATH` |
+| `programs` | every one of these is on the `PATH`; `7zz|7z` is either |
 | `target` | the menu is of rows (`files`, unless said), of the folder shown itself (`folder`), or of a sidebar place (`place`) |
 | `in` | the window is in a `folder`, in a search's `results`, or in the place with one of these ids |
 | `elsewhere` | each is a file on disk shown somewhere other than the folder it is in (a search's results, a place) |
@@ -173,11 +173,41 @@ that nothing fills.
 |---|---|
 | (nothing said) | started detached, as opening a file is, and forgotten |
 | `"terminal": true` | started in the user's terminal |
-| `"watched": true` | prism runs it and waits, shown as running (below); if it fails, what it wrote to standard error is shown |
+| `"watched": true` | prism runs it and waits, shown as running (below); if it fails, how it ended and what it wrote are shown |
 | `"confirm": "…"` | this question is asked first, with the action's label on the button |
 
-`then` follows a watched command: `"reread": true` reads again what is shown, and `"choose": "{stem}.zip"` puts the
-cursor on what was made. It can only be said of a watched command, since prism knows nothing of how the others ended.
+`then` follows a watched command: `"reread": true` reads again what is shown, `"choose": "{stem}.zip"` puts the
+cursor on what was made, and `"bring"` (below, with places) brings what it made to where it is wanted. It can only be
+said of a watched command, since prism knows nothing of how the others ended.
+
+**When it fails.** A watched command that ends with anything but success is said to have failed, in a notice over the
+browser: how it ended, and the last of what it wrote, to standard error where it wrote any there and otherwise to its
+output, in a box that scrolls. A place whose listing fails says the same where its entries would be. Nothing fails
+without saying so.
+
+### Several ways, and the programs there are
+
+The same thing is done by different programs on different machines: a zip is read by `unzip`, by 7-Zip, by `bsdtar`.
+An action can say several ways of doing what it does, the one to be preferred first:
+
+```json
+{ "id": "compress.zip", "label": "As a .zip…", "submenu": "Compress",
+  "ask": { "to": { "text": "Name of the archive", "start": "{stem}" } },
+  "ways": [
+    { "programs": ["zip"], "run": ["zip", "-q", "-r", "{to}.zip", "--", "{names}"] },
+    { "programs": ["7zz|7z|7za"], "run": ["{which:7zz|7z|7za}", "a", "-tzip", "{to}.zip", "--", "{names}"] }
+  ],
+  "how": { "watched": true }, "then": { "reread": true } }
+```
+
+It is read as the first of its ways whose programs are all on the `PATH`. `a|b` in `programs` is either, and a word
+of a command that is `{which:a|b|c}` is the first of those that is installed, for a program that goes by several
+names. A place's listing has `ways` too, each with its `list`.
+
+An action none of whose ways can be run here is left out: it is not offered, has no key, and is not said to be wrong,
+since it is written rightly for a machine that has one of the programs. A place that cannot be listed here is left
+out with the actions that show it. So what a machine's menus offer is what its programs can do, with nothing written
+about it but the ways.
 
 ### While it runs
 
@@ -210,8 +240,8 @@ An action runs a command or shows somewhere, never both. Showing is going to a f
   "when": { "count": "one", "elsewhere": true },
   "show": { "folder": "{parent}", "choose": "{name}" } }
 
-{ "id": "archive.zip.view", "label": "View contents",
-  "when": { "ext": ["zip"], "count": "one" },
+{ "id": "archive.zip.open", "label": "Open", "default": true,
+  "when": { "ext": ["zip"], "kind": "file", "count": "one" },
   "show": { "place": "archive.zip", "with": { "archive": "{path}" } } }
 ```
 
@@ -229,7 +259,12 @@ A chord can be bound to one of prism's actions and one of the user's when they a
 files to the trash; inside an archive, where there are no files to trash, it is "Remove from archive". Each action
 bound to the chord is tried in turn until one has something to do.
 
-`"default": true` makes a double click (or Enter) on what the action is offered for do it, in place of opening.
+`"default": true` makes the action what opening is, for what it is offered for: a double click does it, Enter does
+it, and the menu's "Open" is it, in place of the file's application; it is not offered a second time under its own
+label. That is how an archive opens in prism's own window. "Open with…" is still there, to open it with an
+application this once, but the application chosen cannot be made the default for the type from there: the default is
+the action. Where the action cannot be run (none of its programs is installed) it is not there, and the file opens
+with its application, as any file does.
 
 `menu.hidden` hides entries by id: an action's, or one of prism's own. Prism's ids are `builtin.open`,
 `builtin.open-in-new-window`, `builtin.open-with`, `builtin.cut`, `builtin.copy`, `builtin.paste`,
@@ -345,9 +380,19 @@ one question can then be answered four ways, all running the same command:
 So "Extract to…", dragging out of an archive, copy and paste, and looking at a file without extracting the archive,
 are one declaration.
 
-**Entries are brought out as they are shown.** An entry dragged from `src/` in an archive arrives as itself, and not
-under a new `src/`: the folders above the one shown are left behind. That is what `{within}` and `{depth}` are for:
-`tar` is given `--strip-components={depth}`.
+**Entries are brought out as themselves.** A file dragged from `src/` in an archive arrives as that file, and not
+under a new `src/`; a folder arrives as that folder, with what is in it. No archive program does that by itself, and
+each would do it differently, so prism does it, once, for all of them. The way out extracts into a folder prism makes
+for it (`{temp}`), under the folders the entries sit in, and says where they are wanted:
+
+```json
+"run": ["7z", "x", "-o{temp}", "{archive}", "--", "{entries}"],
+"then": { "bring": { "from": "{temp}", "to": "{dest}" } }
+```
+
+Once the command has worked, each entry is moved from where it was put to `to`, by its own name. A folder already
+there is added to; a file already there is left as it is, so nothing is written over. An action that names no entries
+brings everything in `from`.
 
 **A drag says what it carries.** Dragged, entries go as a description (`EntriesOut`): which place, what it was opened
 with, the folder dragged from, and what each entry is called. It names no command. The window dropped on brings them
@@ -369,18 +414,36 @@ Only a folder on disk takes a drop of entries. A place's own folders are not tar
 `browser/src/main/resources/prism/browser/actions.json` holds prism's own actions and places, which are the examples
 the format is learnt from:
 
-- **Archives**, tar (`.tar`, `.tar.gz`, `.tar.xz`, `.tar.zst`, …) and zip (`.zip`, `.jar`, `.epub`, …), each with the
-  tool for it. From the folder an archive is in: "View contents", "Extract here", "Extract into a folder", "Extract
-  to…". In its window: "Extract to…" and "Extract beside the archive" on entries, "Extract all to…" on the place,
-  "Remove from archive" (Delete), entries dragged or copied out, files dropped or pasted in. Removing and adding are
-  offered where the tool can do it: any zip, and a tar that is not compressed.
-- **Compress** ▸ as a `.zip`, `.tar.gz`, `.tar.xz`, `.tar.zst` or `.tar`, each asking for a name, and each offered
-  where its program is installed.
+- **Archives**, each kind read by the first program installed that can:
+
+  | kind | names | read by, the preferred first | changed by |
+  |---|---|---|---|
+  | tar, compressed or not | `.tar`, `.tar.gz` `.tgz`, `.tar.bz2` `.tbz2`, `.tar.xz` `.txz`, `.tar.zst` `.tzst`, `.tar.lz`, `.tar.lzma`, `.tar.lz4`, `.tar.Z`, … | `bsdtar`, `tar` | `tar`, a `.tar` that is not compressed |
+  | zip | `.zip`, `.jar`, `.apk`, `.epub`, `.cbz`, office documents, … | `unzip`, 7-Zip, `bsdtar` | `zip`, 7-Zip |
+  | 7z | `.7z`, `.cb7` | 7-Zip, `bsdtar` | 7-Zip |
+  | rar | `.rar`, `.cbr` | `unrar`, 7-Zip, `bsdtar` | `rar` |
+  | disk images | `.iso`, `.dmg` | 7-Zip, `bsdtar` | never |
+
+  7-Zip is `7zz`, `7z`, `7za` or `7zr`, whichever is there. `tar` is GNU's on most of Linux and `bsdtar` on macOS, and
+  the commands ask which. `bsdtar` comes first for tars because it decompresses by itself, where GNU's runs `gzip`,
+  `zstd` and the rest.
+
+  Opening an archive (a double click, Enter, "Open") opens its window. From the folder it is in: "Extract here",
+  "Extract into a folder", "Extract to…", none of which writes over what is there. In its window: "Extract to…" and
+  "Extract beside the archive" on entries, "Extract all to…" on the place, "Remove from archive" (Delete), entries
+  dragged or copied out, files dropped or pasted in. Removing and adding are offered for the kinds, and with the
+  programs, in the last column.
+- **Decompress**, for one file compressed by itself and not a tar (`.gz`, `.zst` `.zstd`, `.xz` `.lzma`, `.bz2`,
+  `.lz4`, `.lz`, `.br`, `.Z`), with the program for each, or 7-Zip for those it reads: what it was, beside it, and
+  the compressed file left. These are not archives, and are not looked into.
+- **Compress** ▸ as a `.zip` (`zip`, or 7-Zip), `.7z`, `.rar` (`rar`), `.tar.gz`, `.tar.zst` or `.tar.xz` (`bsdtar`,
+  or `tar` with the program that compresses), each asking for a name.
 - **Open containing folder**, here or in a new window, for a file shown elsewhere than its folder.
 - **Changed files (git)**, on a folder in a repository: a place of real files, opened here as a search's results are.
 
-Another archive tool is another pair of declarations: a place whose `list` runs `7z l`, and actions that run `7z x`
-and `7z d`.
+Every one of these was run in the tests against a real archive, with each program in turn made the only one there
+(`ArchivesTest`), but for `.dmg`, for which there was no image to hand: it is declared as `.iso` is, and 7-Zip reads
+both.
 
 ## Where it is
 

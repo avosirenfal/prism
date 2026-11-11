@@ -309,7 +309,35 @@ data class Command(
 	}
 
 	companion object {
-		fun read(words: List<String>, named: Set<String>): Reading<Command> {
+		private val WHICH = Regex("""\{which:([^{}]+)\}""")
+
+		/**
+		 * [words] read. A word that is `{which:a|b|c}` is the first of those programs that is [installed]; where none
+		 * is, the command is [missing][Reading.Wrong.missing] rather than wrong: it is written rightly, for a machine
+		 * that has one of them.
+		 */
+		fun read(
+			words: List<String>,
+			named: Set<String>,
+			installed: (String) -> Boolean = { true },
+		): Reading<Command> {
+			val chosen =
+				words.map { word ->
+					WHICH.matchEntire(word)?.let { which ->
+						val programs = which.groupValues[1].split('|').map { it.trim() }
+
+						programs.firstOrNull(installed)
+							?: return Reading.Wrong(
+								"none of ${programs.joinToString()} is installed",
+								missing = true,
+							)
+					} ?: word
+				}
+
+			return read(chosen, named)
+		}
+
+		private fun read(words: List<String>, named: Set<String>): Reading<Command> {
 			if (words.isEmpty() || words.first().isBlank())
 				return Reading.Wrong("a command needs a program to run")
 
@@ -358,8 +386,10 @@ sealed interface Reading<out T> {
 		val value: T,
 	) : Reading<T>
 
+	/** Not read: [why]. [missing] where it is written rightly and only needs a program this machine has not got. */
 	data class Wrong(
 		val why: String,
+		val missing: Boolean = false,
 	) : Reading<Nothing>
 
 	fun <R> map(change: (T) -> R): Reading<R> =
@@ -467,7 +497,10 @@ data class Conditions(
 						} ?: false
 					}
 			},
-			{ programs == null || programs.all(world::installed) },
+			{
+				programs == null ||
+					programs.all { any -> any.split('|').any { world.installed(it.trim()) } }
+			},
 			{ within == null || subject.where.word in within },
 			{
 				elsewhere == null ||
@@ -698,6 +731,14 @@ sealed interface Question {
 data class Then(
 	val reread: Boolean = false,
 	val choose: Phrase? = null,
+	val bring: Bring? = null,
+)
+
+/** What a command put in [from] brought into [to], by name and over nothing: see [prism.preferences.BringSpec]. */
+@Immutable
+data class Bring(
+	val from: Phrase,
+	val to: Phrase,
 )
 
 /** How a command is run. */
@@ -774,7 +815,10 @@ data class UserAction(
 				}
 			} +
 			when (deed) {
-				is Deed.Run -> listOfNotNull((deed.how as? How.Watched)?.then?.choose)
+				is Deed.Run ->
+					(deed.how as? How.Watched)?.then.let {
+						listOfNotNull(it?.choose, it?.bring?.from, it?.bring?.to)
+					}
 				is Deed.Show ->
 					when (val what = deed.what) {
 						is Showing.Folder -> listOfNotNull(what.path, what.choose)
@@ -811,9 +855,12 @@ data class UserAction(
 
 	/** Whether its command names `{temp}`: a folder made for it to work in, and removed when it ends. */
 	val scratch: Boolean get() =
-		(deed as? Deed.Run)?.command?.words.orEmpty().any { word ->
-			word is Word.One && word.phrase.holes.any { it is Hole.Value && it.name == TEMP }
-		}
+		(
+			(deed as? Deed.Run)?.command?.words.orEmpty().filterIsInstance<Word.One>().map {
+				it.phrase
+			} +
+				phrases
+		).any { phrase -> phrase.holes.any { it is Hole.Value && it.name == TEMP } }
 
 	/** The one question a drop, or a paste, answers with its folder; null where there is not exactly one. */
 	val destination: Question.Folder? get() =
@@ -891,6 +938,8 @@ data class Actions(
 	val broken: List<Broken>,
 	/** The ids of menu entries the user has hidden, prism's own among them. */
 	val hidden: Set<String> = emptySet(),
+	/** The ids of actions and places written rightly that cannot be run here: none of the programs they need is installed. */
+	val unavailable: Set<String> = emptySet(),
 ) {
 	private val byId: Map<String, UserAction> by lazy { actions.associateBy { it.id } }
 
@@ -923,12 +972,22 @@ data class Actions(
 		}
 
 		/** Prism's own and [preferences]' together. */
-		fun of(preferences: Preferences): Actions =
-			read(listOf(SHIPPED, preferences.written), preferences.menu.hidden.toSet())
+		fun of(preferences: Preferences, installed: (String) -> Boolean = { true }): Actions =
+			read(listOf(SHIPPED, preferences.written), preferences.menu.hidden.toSet(), installed)
 
-		/** Every action and place in [files], a later file's replacing an earlier one's of the same id. */
-		fun read(files: List<ActionsFile>, hidden: Set<String> = emptySet()): Actions {
+		/**
+		 * Every action and place in [files], a later file's replacing an earlier one's of the same id. Where one has
+		 * several ways, it is read as the first whose programs are [installed]; one none of whose ways can be run here
+		 * is left out, without being said to be wrong ([Actions.unavailable]). Unless told, every program is taken to
+		 * be installed, which reads everything, as its first way.
+		 */
+		fun read(
+			files: List<ActionsFile>,
+			hidden: Set<String> = emptySet(),
+			installed: (String) -> Boolean = { true },
+		): Actions {
 			val broken = ArrayList<Broken>()
+			val unavailable = LinkedHashSet<String>()
 
 			fun <T> written(
 				specs: List<Spec<T>>,
@@ -955,13 +1014,26 @@ data class Actions(
 					.mapNotNull { (id, spec) ->
 						when (val reading = read(spec)) {
 							is Reading.Right -> id to reading.value
-							is Reading.Wrong -> null.also { broken += Broken(what, id, reading.why) }
+							is Reading.Wrong ->
+								null.also {
+									if (reading.missing)
+										unavailable += id
+									else
+										broken += Broken(what, id, reading.why)
+								}
 						}
 					}.toMap()
 
-			val places = meant(placeSpecs, "place", ::placeOf)
+			val places = meant(placeSpecs, "place") { placeOf(it, installed) }
+			val taken = placeSpecs.mapValues { it.value.takes }
 			val plain =
-				meant(actionSpecs.filterValues { it.like == null }, "action") { actionOf(it, places) }
+				meant(actionSpecs.filterValues { it.like == null }, "action") {
+					// A place that cannot be listed here is not one to show, which is nothing wrong with the action.
+					if (it.show?.place in unavailable)
+						Reading.Wrong("the place it shows cannot be listed here", missing = true)
+					else
+						actionOf(it, places, taken, installed)
+				}
 
 			val alike =
 				meant(
@@ -969,43 +1041,98 @@ data class Actions(
 						it.like != null
 					},
 					"action",
-				) { likeOf(it, plain, places) }
+				) {
+					if (it.like in unavailable)
+						Reading.Wrong("what it is like cannot be run here", missing = true)
+					else
+						likeOf(it, plain, taken)
+				}
 
 			val all = actionSpecs.keys.mapNotNull { plain[it] ?: alike[it] }
 
 			// A place's way out and way in are actions that are there, and that a drop can be the doing of.
 			val sound =
-				places.filterValues { place ->
-					val wrong =
-						listOfNotNull(
-							place.out?.let { id ->
-								val out = all.firstOrNull { it.id == id }
+				places
+					// A way out or in that cannot be run here is no way: the place is still one to look at.
+					.mapValues { (_, place) ->
+						place.copy(
+							out = place.out.takeUnless { it in unavailable },
+							into = place.into.takeUnless { it in unavailable },
+						)
+					}.filterValues { place ->
+						val wrong =
+							listOfNotNull(
+								place.out?.let { id ->
+									val out = all.firstOrNull { it.id == id }
 
-								when {
-									out == null -> "its way out, “$id”, is not an action"
-									out.destination == null ->
-										"its way out, “$id”, must ask for exactly one folder, which a drop gives"
-									(out.deed as? Deed.Run)?.how !is How.Watched ->
-										"its way out, “$id”, must be a command that is watched"
-									else -> null
-								}
-							},
-							place.into?.let { id ->
-								"its way in, “$id”, is not an action".takeIf { all.none { it.id == id } }
-							},
-						).firstOrNull()
+									when {
+										out == null -> "its way out, “$id”, is not an action"
+										out.destination == null ->
+											"its way out, “$id”, must ask for exactly one folder, which a drop gives"
+										(out.deed as? Deed.Run)?.how !is How.Watched ->
+											"its way out, “$id”, must be a command that is watched"
+										else -> null
+									}
+								},
+								place.into?.let { id ->
+									"its way in, “$id”, is not an action".takeIf { all.none { it.id == id } }
+								},
+							).firstOrNull()
 
-					wrong?.let { broken += Broken("place", place.id, it) }
-					wrong == null
-				}
+						wrong?.let { broken += Broken("place", place.id, it) }
+						wrong == null
+					}
 
-			return Actions(all, sound, broken, hidden)
+			return Actions(all, sound, broken, hidden, unavailable)
 		}
 
-		private fun placeOf(spec: PlaceSpec): Reading<PlaceType> {
+		/**
+		 * The command among [ways] to run here: the first whose programs are [installed]. Every way is read, so that
+		 * one written wrong is said to be on any machine; with none that can be run here, it is missing.
+		 */
+		private fun wayOf(
+			ways: List<Pair<List<String>, List<String>>>,
+			named: Set<String>,
+			installed: (String) -> Boolean,
+		): Reading<Command> {
+			ways.forEach { (_, words) ->
+				(Command.read(words, named) as? Reading.Wrong)?.let { return it }
+			}
+
+			val runnable =
+				ways.firstOrNull { (programs, words) ->
+					programs.all { any -> any.split('|').any { installed(it.trim()) } } &&
+						Command.read(words, named, installed) is Reading.Right
+				}
+
+			return runnable?.let { Command.read(it.second, named, installed) }
+				?: Reading.Wrong("none of the programs its ways need is installed", missing = true)
+		}
+
+		private fun placeOf(
+			spec: PlaceSpec,
+			installed: (String) -> Boolean,
+		): Reading<PlaceType> {
 			val named = spec.takes.toSet()
 
-			return Command.read(spec.list, named).then { list ->
+			val listing =
+				when {
+					spec.list != null && spec.ways.isNotEmpty() ->
+						Reading.Wrong("it says both “list” and “ways”: one or the other")
+					spec.list != null -> Command.read(spec.list!!, named, installed)
+					spec.ways.any { it.list == null } -> Reading.Wrong("each of its ways needs a “list”")
+					spec.ways.isNotEmpty() ->
+						wayOf(
+							spec.ways.map {
+								it.programs to it.list!!
+							},
+							named,
+							installed,
+						)
+					else -> Reading.Wrong("it has no “list”: there is no command to list it by")
+				}
+
+			return listing.then { list ->
 				if (list.named)
 					Reading.Wrong("a place is listed whatever is chosen: its command cannot name files")
 				else
@@ -1042,27 +1169,37 @@ data class Actions(
 		/** The values with names in an action that says it is only [within] these places: those every one takes. */
 		private fun namedIn(
 			within: List<String>?,
-			places: Map<String, PlaceType>,
+			taken: Map<String, List<String>>,
 		): Set<String> =
 			within
-				?.map { places[it]?.let { place -> place.takes.toSet() + IN_PLACE }.orEmpty() }
+				?.map { taken[it]?.let { takes -> takes.toSet() + IN_PLACE }.orEmpty() }
 				?.reduceOrNull { all, its -> all intersect its }
 				.orEmpty()
 
 		private fun actionOf(
 			spec: ActionSpec,
 			places: Map<String, PlaceType>,
+			/** What each place written takes, whether or not it can be listed here: what its actions may name. */
+			taken: Map<String, List<String>>,
+			installed: (String) -> Boolean,
 		): Reading<UserAction> {
-			val named = namedIn(spec.conditions.within, places) + spec.ask.keys + TEMP
+			val named = namedIn(spec.conditions.within, taken) + spec.ask.keys + TEMP
+			val runs = spec.run != null || spec.ways.isNotEmpty()
 
 			val deed: Reading<Deed> =
 				when {
-					spec.run != null && spec.show != null ->
+					runs && spec.show != null ->
 						Reading.Wrong(
 							"it says both “run” and “show”: one or the other",
 						)
-					spec.run != null ->
-						Command.read(spec.run!!, named).then { command ->
+					spec.run != null && spec.ways.isNotEmpty() ->
+						Reading.Wrong("it says both “run” and “ways”: one or the other")
+					spec.ways.any { it.run == null } -> Reading.Wrong("each of its ways needs a “run”")
+					runs ->
+						(
+							spec.run?.let { Command.read(it, named, installed) }
+								?: wayOf(spec.ways.map { it.programs to it.run!! }, named, installed)
+						).then { command ->
 							howOf(spec, named).map { Deed.Run(command, it) }
 						}
 					spec.show != null ->
@@ -1109,7 +1246,7 @@ data class Actions(
 		private fun likeOf(
 			spec: ActionSpec,
 			plain: Map<String, UserAction>,
-			places: Map<String, PlaceType>,
+			taken: Map<String, List<String>>,
 		): Reading<UserAction> {
 			val base =
 				plain[spec.like]
@@ -1117,7 +1254,9 @@ data class Actions(
 						"it is like “${spec.like}”, which is not an action (or is itself like another)",
 					)
 
-			if (spec.run != null || spec.show != null || spec.ask.isNotEmpty())
+			if (spec.run != null || spec.ways.isNotEmpty() || spec.show != null ||
+				spec.ask.isNotEmpty()
+			)
 				return Reading.Wrong(
 					"it is like “${spec.like}”, so what it runs, shows and asks is that action's to say",
 				)
@@ -1129,7 +1268,7 @@ data class Actions(
 					"“${spec.like}” does not ask for ${unasked.joinToString { "“$it”" }}",
 				)
 
-			val named = namedIn(spec.conditions.within, places)
+			val named = namedIn(spec.conditions.within, taken)
 			val given = spec.given.mapValues { (_, text) -> Phrase.read(text, named) }
 
 			given.values
@@ -1137,9 +1276,28 @@ data class Actions(
 				.firstOrNull()
 				?.let { return it }
 
+			val choose =
+				when (val read = phrase(spec.then.choose, named)) {
+					is Reading.Right -> read.value
+					is Reading.Wrong -> return read
+				}
+
 			return Conditions.read(spec.conditions).then { conditions ->
 				keyOf(spec).map { key ->
-					base.copy(
+					// What it is like says what follows; where the cursor lands can be this one's own to say.
+					(
+						choose?.let { landing ->
+							val run = base.deed as? Deed.Run
+							val watched = run?.how as? How.Watched
+
+							if (run == null || watched == null)
+								base
+							else
+								base.copy(
+									deed = run.copy(how = watched.copy(then = watched.then.copy(choose = landing))),
+								)
+						} ?: base
+					).copy(
 						id = spec.id,
 						label = spec.label,
 						conditions = conditions,
@@ -1154,7 +1312,7 @@ data class Actions(
 		}
 
 		private fun howOf(spec: ActionSpec, named: Set<String>): Reading<How> {
-			val follows = spec.then.reread || spec.then.choose != null
+			val follows = spec.then.reread || spec.then.choose != null || spec.then.bring != null
 
 			return when {
 				spec.how.terminal && spec.how.watched ->
@@ -1162,7 +1320,22 @@ data class Actions(
 				follows && !spec.how.watched ->
 					Reading.Wrong("“then” follows a command prism watches: say “how”: {“watched”: true}")
 				spec.how.watched ->
-					phrase(spec.then.choose, named).map { How.Watched(Then(spec.then.reread, it)) }
+					phrase(spec.then.choose, named).then { choose ->
+						phrase(spec.then.bring?.from, named).then { from ->
+							phrase(spec.then.bring?.to, named).map { to ->
+								How.Watched(
+									Then(
+										spec.then.reread,
+										choose,
+										if (from != null && to != null)
+											Bring(from, to)
+										else
+											null,
+									),
+								)
+							}
+						}
+					}
 				spec.how.terminal -> Reading.Right(How.Terminal)
 				else -> Reading.Right(How.Detached)
 			}

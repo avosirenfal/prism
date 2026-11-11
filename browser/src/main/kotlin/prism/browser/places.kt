@@ -4,6 +4,7 @@ import androidx.compose.runtime.Immutable
 import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.InvalidPathException
+import java.nio.file.LinkOption
 import java.nio.file.Path
 import java.nio.file.attribute.BasicFileAttributes
 import java.time.Instant
@@ -110,10 +111,13 @@ class PlaceTree(
 				}
 			}
 
-		for (entry in entries.filter { !it.folder && it.at.isNotEmpty() }) {
+		// Every folder something sits under, before the files: a tool that lists a folder with nothing to say it is
+		// one lists what looks like a file where a folder is, which is that folder and is not shown twice.
+		for (entry in entries)
 			group(entry.at.dropLast(1))?.grouping = true
+
+		for (entry in entries.filter { !it.folder && it.at.isNotEmpty() && it.at !in groups })
 			under.getOrPut(entry.at.dropLast(1), ::LinkedHashMap)[entry.key] = Node(entry)
-		}
 
 		// A folder implied by what is under it is a grouping; so is one above another.
 		for ((at, node) in groups)
@@ -204,17 +208,86 @@ data class Ran(
 	val status: Int?,
 	val output: String,
 	val errors: String,
+	/** Everything it wrote, to its output and to standard error, in the order it was written. */
+	val said: String = errors,
 ) {
 	val worked: Boolean get() = status == 0
 
-	/** Why it did not work, in a line or a few: what it wrote to standard error, or that it wrote nothing. */
-	val why: String get() =
-		errors
-			.trim()
-			.lines()
-			.takeLast(6)
-			.joinToString("\n")
-			.ifBlank { "It ended with status $status and said nothing." }
+	/**
+	 * Why it did not work, for a person to read: how it ended, and the last of what it wrote. What it wrote to
+	 * standard error where it wrote any there; otherwise everything, since some programs say what went wrong on their
+	 * output.
+	 */
+	val why: String get() {
+		val wrote =
+			errors
+				.ifBlank { said }
+				.trim()
+				.lines()
+				.takeLast(SHOWN)
+				.joinToString("\n")
+
+		val ended =
+			when (status) {
+				null -> null
+				else -> "It ended with status $status."
+			}
+
+		return listOfNotNull(
+			ended.takeIf {
+				wrote.isBlank() || status != null
+			},
+			wrote.ifBlank { null },
+		).joinToString("\n\n")
+			.ifBlank { "It could not be run." }
+	}
+
+	private companion object {
+		/** How many of the last lines a command wrote are kept to be shown when it fails. */
+		const val SHOWN = 40
+	}
+}
+
+/**
+ * What [delivery] says to bring, brought: each entry moved from where the command put it to the folder it is wanted
+ * in, by its own name; a folder there already is added to, and a file there already is left as it is. Why not, where
+ * it could not be.
+ */
+fun delivered(delivery: Delivery): String? =
+	try {
+		Files.createDirectories(delivery.into)
+
+		val sources =
+			delivery.entries?.map { (key, name) ->
+				val made = delivery.from.resolve(key.trim('/')).normalize()
+
+				// Only what is under the folder the command worked in: a name that climbs out of it is not followed.
+				if (!made.startsWith(delivery.from) || !Files.exists(made, LinkOption.NOFOLLOW_LINKS))
+					return "“$name” was not there after the command ran."
+
+				made to name
+			}
+				?: Files.list(delivery.from).use { all ->
+					all.map { it to it.fileName.toString() }.toList()
+				}
+
+		sources.forEach { (made, name) -> merged(made, delivery.into.resolve(name)) }
+		null
+	} catch (failed: IOException) {
+		failed.message ?: failed.toString()
+	}
+
+/** [made] moved to [target]: a folder into the folder there, entry by entry; a file only where nothing is. */
+private fun merged(made: Path, target: Path) {
+	if (Files.isDirectory(made, LinkOption.NOFOLLOW_LINKS)) {
+		Files.createDirectories(target)
+		Files
+			.list(made)
+			.use { all ->
+				all.toList()
+			}.forEach { merged(it, target.resolve(it.fileName.toString())) }
+	} else if (!Files.exists(target, LinkOption.NOFOLLOW_LINKS))
+		Files.move(made, target)
 }
 
 /**
@@ -261,12 +334,15 @@ object ProcessCommands : Commands {
 				process.destroy()
 			}
 
+			val said = StringBuffer()
+
 			fun read(stream: java.io.InputStream, error: Boolean): StringBuilder {
 				val kept = StringBuilder()
 
 				try {
 					stream.bufferedReader().forEachLine { line ->
 						kept.append(line).append('\n')
+						said.append(line).append('\n')
 						watch.said(line, error)
 					}
 				} catch (closed: IOException) {
@@ -291,7 +367,7 @@ object ProcessCommands : Commands {
 			if (stopped.get())
 				Ran(null, output.toString(), STOPPED)
 			else
-				Ran(status, output.toString(), errors.get().toString())
+				Ran(status, output.toString(), errors.get().toString(), said.toString())
 		} catch (failed: IOException) {
 			Ran(null, "", failed.message ?: failed.toString())
 		} catch (stopped: InterruptedException) {

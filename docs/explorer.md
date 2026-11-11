@@ -69,7 +69,7 @@ The explorer's state is one immutable list of `ExplorerWindow`s, each one of:
 | `Settings` | "Preferences…" (Ctrl+Comma) | the preferences window; there is only ever one |
 | `Picking` | an action of the user's that asks for a folder ("Extract to…") | prism's folder picker, whose choice is the answer, given to the window that asked |
 
-A `Browsing` window starts in a folder or in a place (`Start`): "View contents" on an archive opens one on the
+A `Browsing` window starts in a folder or in a place (`Start`): opening an archive opens one on the
 archive's place, which a command lists (docs/menus.md).
 
 `ExplorerWindows(explorer, palette, decorated)` is a composable that draws one window for each entry, keyed by its id.

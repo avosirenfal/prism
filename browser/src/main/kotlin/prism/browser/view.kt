@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -38,6 +39,7 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -1160,9 +1162,11 @@ private fun ListingPane(
 				// One of the user's own, done to the rows chosen (or the folder shown), where it is offered for them.
 				is Custom -> {
 					val subject = subjectOf(targets())
+					// The action as this window has it: read for the programs this machine has.
+					val own = state.actions[action.id]
 
-					if (exploring && action.action.offered(subject, world)) {
-						onEvent(BrowserEvent.Did(action.action, subject))
+					if (exploring && own != null && own.offered(subject, world)) {
+						onEvent(BrowserEvent.Did(own, subject))
 
 						return true
 					}
@@ -2487,13 +2491,31 @@ private fun NoticeLayer(notice: Notice, onEvent: (BrowserEvent) -> Unit) {
 		) {
 			Column(
 				Modifier
-					.width(420.dp)
+					.width(if (notice is Notice.Failed) 560.dp else 420.dp)
 					.background(palette.surface, shape)
 					.border(1.dp, palette.border, shape)
 					.padding(20.dp),
 			) {
 				Text(words.title, style = type.title)
-				if (words.detail.isNotEmpty())
+				// Why something failed can be all a command wrote: in a box of its own, which scrolls, the end in sight.
+				if (notice is Notice.Failed && words.detail.lines().size > 2) {
+					val scroll = rememberScrollState()
+
+					LaunchedEffect(words.detail) { scroll.scrollTo(scroll.maxValue) }
+					Text(
+						words.detail,
+						style = type.muted,
+						modifier =
+							Modifier
+								.fillMaxWidth()
+								.padding(top = Dims.gap)
+								.heightIn(max = 280.dp)
+								.background(palette.field, RoundedCornerShape(Dims.radius))
+								.verticalScroll(scroll)
+								.padding(Dims.gap)
+								.testTag("failure"),
+					)
+				} else if (words.detail.isNotEmpty())
 					Text(words.detail, style = type.body, modifier = Modifier.padding(top = Dims.gap))
 				// A line an action asks for: typed here, Enter giving it as the button does.
 				if (notice is Notice.Asking)

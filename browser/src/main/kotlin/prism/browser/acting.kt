@@ -149,13 +149,31 @@ private fun BrowserState.done(pending: Pending, filling: Filling): Step {
 							else
 								After.None
 
-					Step(
-						copy(
-							running =
-								running + Work(Task.Running(Job(action.label, invocations, after, scratch))),
-						),
-						listOf(Effect.Run(Job(action.label, invocations, after, scratch))),
-					)
+					// What the command makes is brought to where it is wanted: the entries it was for, each by its own
+					// name, whatever folders they sit under in the place; or, where it names none, all it made.
+					val bring =
+						how.then.bring?.let { bring ->
+							val from = bring.from.fill(filling)?.let { pathOf(it, folder, home) }
+							val into = bring.to.fill(filling)?.let { pathOf(it, folder, home) }
+
+							if (from == null || into == null)
+								return failed(
+									action,
+									"Where what it makes is brought from, or to, could not be worked out.",
+								)
+
+							Delivery(
+								from,
+								into,
+								filling.things
+									.mapNotNull { thing -> thing.key?.let { it to thing.name } }
+									.takeIf { it.isNotEmpty() },
+							)
+						}
+
+					val job = Job(action.label, invocations, after, scratch, bring)
+
+					Step(copy(running = running + Work(Task.Running(job))), listOf(Effect.Run(job)))
 				}
 			}
 		}

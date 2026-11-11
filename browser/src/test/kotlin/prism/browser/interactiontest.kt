@@ -749,9 +749,9 @@ class InteractionTest {
 					.isNotEmpty()
 			}
 
-			// The archive's place, in this window: as its menu's "View contents" shows it, but for the window.
+			// The archive's place, in this window: as opening it shows it, but for the window.
 			val state = session.state.value
-			val view = state.actions["archive.zip.view"]!!
+			val view = state.actions["archive.zip.open"]!!
 
 			session.send(
 				BrowserEvent.Did(

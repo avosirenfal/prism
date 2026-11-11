@@ -91,6 +91,18 @@ class ExplorerTest {
 			)
 			assertInstanceOf(ExplorerWindow.Browsing::class.java, opened[3])
 
+			// For files an action of the user's opens, another application can be chosen, and no default set.
+			browsing.session.send(
+				BrowserEvent.Requested(
+					Request.OpenWith(listOf(root.resolve("a.txt")), settable = false),
+				),
+			)
+			assertEquals(
+				ExplorerWindow.OpenWith(5, Choice.Open(listOf(root.resolve("a.txt")), null)),
+				explorer.windows.first { it.size == 5 }.last(),
+			)
+			explorer.close(explorer.windows.value.last())
+
 			// Ctrl+W, or the menu's "Close window": the browser ends, and its window is gone.
 			browsing.session.send(BrowserEvent.Cancelled)
 			explorer.windows.first { windows -> windows.none { it.id == browsing.id } }

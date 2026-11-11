@@ -117,6 +117,17 @@ internal object OwnDrag {
 					}
 				},
 			)
+			// Where the display server cannot say what a drag is over ([StrayDrop]), AWT finds nothing under it and
+			// shows that it cannot be dropped, all the way across. It can: the pointer says what a drop would make.
+			DragSource.getDefaultDragSource().addDragSourceMotionListener { event ->
+				if (StrayDrop.enabled)
+					event.dragSourceContext.cursor =
+						when (StrayDrop.dragging) {
+							is Dragged.Entries -> DragSource.DefaultCopyDrop
+							is Dragged.Files -> DragSource.DefaultMoveDrop
+							null -> null
+						}
+			}
 			true
 		} catch (headless: HeadlessException) {
 			false
@@ -347,6 +358,9 @@ internal object StrayDrop {
 	private var under: Under? = null
 	private var stray: Stray? = null
 	private var offer: Offer? = null
+
+	/** What the drag under way is of; null while none of this process's is. */
+	val dragging: Dragged? get() = under?.dragged
 
 	/** A drag of [dragged] begun in the window [from]. */
 	fun started(dragged: Dragged, from: Any) {

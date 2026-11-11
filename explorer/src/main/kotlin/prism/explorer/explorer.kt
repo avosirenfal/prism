@@ -184,7 +184,11 @@ class Explorer(
 				opening {
 					val types = request.paths.map(desktop.types::of).distinct()
 
-					ExplorerWindow.OpenWith(it, Choice.Open(request.paths, types.singleOrNull()))
+					ExplorerWindow.OpenWith(
+						it,
+						// With no one type to be the default for, the chooser offers no default to set.
+						Choice.Open(request.paths, types.singleOrNull().takeIf { request.settable }),
+					)
 				}
 			Request.Preferences ->
 				open.update { windows ->

@@ -525,6 +525,8 @@ sealed interface Request {
 	/** A window to choose an application to open [paths] with, and to make it the default. */
 	data class OpenWith(
 		val paths: List<Path>,
+		/** Whether the application chosen can be made the default for their type: not where an action opens them. */
+		val settable: Boolean = true,
 	) : Request
 
 	/** A window of [paths]' properties. */
@@ -620,6 +622,20 @@ data class Job(
 	val after: After = After.None,
 	/** A folder made for these commands to work in (their `{temp}`): removed, with all in it, when they end. */
 	val scratch: Path? = null,
+	/** What the commands made, to be brought to where it is wanted once they have all worked. */
+	val bring: Delivery? = null,
+)
+
+/**
+ * What a command put in [from], brought into [into]: each of [entries] (what its command called it, which is where it
+ * was put under [from], and its own name, which is what it is called in [into]); or, with no entries, everything in
+ * [from]. Nothing already in [into] is written over.
+ */
+@Immutable
+data class Delivery(
+	val from: Path,
+	val into: Path,
+	val entries: List<Pair<String, String>>?,
 )
 
 /**

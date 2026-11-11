@@ -38,9 +38,13 @@ class PlacesTest {
 	@TempDir
 	lateinit var bin: Path
 
-	private val shipped = Actions.read(listOf(Actions.SHIPPED))
 	private val services by lazy { Services(JvmDisk(trash = Trash(bin)), home = root) }
 	private val world get() = services.world
+
+	/** What ships, read for this machine: each action as the first of its ways whose programs are installed here. */
+	private val shipped by lazy {
+		Actions.read(listOf(Actions.SHIPPED), installed = world::installed)
+	}
 
 	private fun sh(script: String) {
 		val process =
@@ -129,7 +133,8 @@ class PlacesTest {
 
 	/** The archive named, opened as its place, here. */
 	private fun BrowserState.viewing(name: String): BrowserState {
-		val view = menu(name).event("View contents") as BrowserEvent.Did
+		// Opening an archive is looking into it: what "Open" is, and a double click.
+		val view = menu(name).event("Open") as BrowserEvent.Did
 		// As the action says, a window of its own; here, in this one, which is all a test has.
 		val here = (view.action.deed as Deed.Show).copy(window = false)
 
@@ -271,7 +276,7 @@ class PlacesTest {
 		assertTrue(
 			state.menu("code.tar.gz").labels().containsAll(
 				listOf(
-					"View contents",
+					"Open",
 					"Extract here",
 					"Extract into a folder",
 					"Extract to…",
@@ -280,9 +285,9 @@ class PlacesTest {
 			),
 		)
 		assertTrue(
-			state.menu("code.zip").labels().containsAll(listOf("View contents", "Extract here")),
+			state.menu("code.zip").labels().containsAll(listOf("Open", "Extract here")),
 		)
-		assertFalse("View contents" in state.menu("README.md").labels())
+		assertFalse("Extract here" in state.menu("README.md").labels())
 		assertTrue("Compress ▸ As a .tar.gz…" in state.menu("README.md", "src").labels())
 		// In the folder they are in, files have no containing folder to open.
 		assertFalse("Open containing folder" in state.menu("README.md").labels())
@@ -471,18 +476,27 @@ class PlacesTest {
 		val opening = step(src, BrowserEvent.Activated(src.row("main.c").id))
 		val temp = opening.effects.single() as Effect.Temp
 		val made = Files.createTempDirectory(root, "open")
-		val extracting = step(opening.state, Answer.TempMade(made, temp.carried))
+		// A folder for the command to work in first, which is where it extracts to; then what it made is brought to
+		// the folder the entry is opened from, by its own name, and the folder it worked in is gone.
+		val asked = step(opening.state, Answer.TempMade(made, temp.carried))
+		val scratch = Files.createTempDirectory(root, "scratch")
+
+		val extracting =
+			step(
+				asked.state,
+				Answer.ScratchMade(scratch, (asked.effects.single() as Effect.Scratch).pending),
+			)
+
 		val job = (extracting.effects.single() as Effect.Run).job
 
 		assertEquals(After.Open(listOf(made.resolve("main.c"))), job.after)
+		assertEquals(Delivery(scratch, made, listOf("src/main.c" to "main.c")), job.bring)
 
 		val ran = step(extracting.state, services.answer(Effect.Run(job)))
 
 		assertEquals("int main;", made.resolve("main.c").readText())
-		assertEquals(
-			listOf<Effect>(Effect.Open(listOf(made.resolve("main.c")))),
-			ran.effects,
-		)
+		assertFalse(made.resolve("src").exists())
+		assertEquals(listOf<Effect>(Effect.Open(listOf(made.resolve("main.c")))), ran.effects)
 	}
 
 	@Test
@@ -648,6 +662,54 @@ class PlacesTest {
 			assertEquals(listOf("src", "deep"), into.place?.within)
 			assertEquals(listOf("deep"), into.then(BrowserEvent.Back).names())
 		}
+	}
+
+	@Test
+	fun whatACommandMadeIsMergedIntoWhereItGoesOverNothing() {
+		val from = root.resolve("from")
+		val into = root.resolve("into")
+
+		from.resolve("a/b/deep").createDirectories()
+		from.resolve("a/b/c.txt").writeText("new c")
+		from.resolve("a/b/deep/d.txt").writeText("new d")
+		from.resolve("a/b/deep/e.txt").writeText("new e")
+		into.resolve("deep").createDirectories()
+		into.resolve("deep/d.txt").writeText("old d")
+
+		// The entries by their own names: a file, and a folder added to the folder that is there already.
+		assertNull(
+			delivered(
+				Delivery(
+					from,
+					into,
+					listOf(
+						"a/b/c.txt" to "c.txt",
+						"a/b/deep/" to "deep",
+					),
+				),
+			),
+		)
+		assertEquals("new c", into.resolve("c.txt").readText())
+		assertEquals("new e", into.resolve("deep/e.txt").readText())
+		// What was there is as it was.
+		assertEquals("old d", into.resolve("deep/d.txt").readText())
+		assertFalse(into.resolve("a").exists())
+
+		// With no entries named, everything the command made.
+		val all = root.resolve("all")
+
+		from.resolve("top.txt").writeText("top")
+		assertNull(delivered(Delivery(from, all, null)))
+		assertTrue(all.resolve("top.txt").exists())
+		// What was not made is said, and nothing outside the folder the command worked in is ever taken.
+		assertTrue(
+			"was not there" in delivered(Delivery(from, into, listOf("missing" to "missing")))!!,
+		)
+		root.resolve("secret").writeText("s")
+		assertTrue(
+			"was not there" in delivered(Delivery(from, into, listOf("../secret" to "secret")))!!,
+		)
+		assertFalse(into.resolve("secret").exists())
 	}
 
 	@Test

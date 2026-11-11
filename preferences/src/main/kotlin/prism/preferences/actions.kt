@@ -32,6 +32,11 @@ data class ActionSpec(
 	val given: Map<String, String> = emptyMap(),
 	/** A command, as its words: what the action runs. One of this, [show] and [like]. */
 	val run: List<String>? = null,
+	/**
+	 * Several commands that do the same with different programs, the most to be preferred first: the first whose
+	 * programs are all installed is what the action runs. In place of [run].
+	 */
+	val ways: List<WaySpec> = emptyList(),
 	/** Somewhere gone to: what the action shows. */
 	val show: ShowSpec? = null,
 	/** Another action's id: this one does what that one does, with the answers [given]. */
@@ -120,6 +125,30 @@ data class ThenSpec(
 	val reread: Boolean = false,
 	/** The name the cursor lands on. */
 	val choose: String? = null,
+	/** What the command made in one folder, brought into another, each by its own name and over nothing. */
+	val bring: BringSpec? = null,
+)
+
+/**
+ * What a command put in [from] brought into [to]: each entry the action was for, from where the command put it (under
+ * the folders it sits in) to [to] by its own name; or, where the action names no entries, everything in [from].
+ * Nothing already in [to] is written over.
+ */
+@Serializable
+data class BringSpec(
+	val from: String,
+	val to: String,
+)
+
+/** One way of doing what an action does (or of listing a place): the programs it needs, and its command. */
+@Serializable
+data class WaySpec(
+	/** Programs that must be on the `PATH` for this way; `a|b` is either. */
+	val programs: List<String> = emptyList(),
+	/** The command, for an action. */
+	val run: List<String>? = null,
+	/** The command, for a place's listing. */
+	val list: List<String>? = null,
 )
 
 /** A place as it is written. */
@@ -135,7 +164,9 @@ data class PlaceSpec(
 	/** Whether a window in it shows the sidebar of places on disk: not, for a place that is a tool of its own. */
 	val sidebar: Boolean = true,
 	/** The command that lists it, as its words. */
-	val list: List<String>,
+	val list: List<String>? = null,
+	/** Several commands that list it with different programs, the most to be preferred first. In place of [list]. */
+	val ways: List<WaySpec> = emptyList(),
 	/** The folder [list] is run in, and relative paths it prints are in; the home folder unless said. */
 	val folder: String? = null,
 	/** How what [list] prints is read: `paths` (unless said), `names`, or `entries`. */

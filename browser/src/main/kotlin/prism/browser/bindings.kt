@@ -62,12 +62,19 @@ sealed interface Bindable {
  */
 @Immutable
 data class Custom(
-	val action: UserAction,
+	val id: String,
+	override val label: String,
+	val default: Chord?,
 ) : Bindable {
-	override val key: String get() = "action:${action.id}"
-	override val label: String get() = action.label
+	/**
+	 * [action], as something bound. It is known by its id, and not by what it runs: the same action is read with one
+	 * program's command on one machine and another's on another, and is the same action to bind.
+	 */
+	constructor(action: UserAction) : this(action.id, action.label, action.key)
+
+	override val key: String get() = "action:$id"
 	override val scope: Scope get() = Scope.Listing
-	override val defaults: List<Chord> get() = listOfNotNull(action.key)
+	override val defaults: List<Chord> get() = listOfNotNull(default)
 }
 
 /** Everything the browser does from the keyboard or a mouse button, with the chords that do it by default. */

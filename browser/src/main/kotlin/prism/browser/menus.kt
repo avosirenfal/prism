@@ -44,10 +44,33 @@ fun contextMenuOf(
 	bindings: Bindings = Bindings.DEFAULT,
 	world: World = World.Bare(state.home),
 ): Menu<BrowserEvent> {
-	val own = ownActions(state, state.subjectOf(target), bindings, world)
+	val subject = state.subjectOf(target)
+	// A picker chooses for another application: what the user's actions do to files is an explorer's to offer.
+	val offered =
+		if (state.choosing is Choosing.Exploring)
+			state.actions.offered(subject, world)
+		else
+			emptyList()
+
+	// The action that opens what was pressed, in place of its application: "Open" does it, and it is not offered twice.
+	val opener =
+		offered.firstOrNull { it.default }?.takeIf {
+			(target as? Target.Rows)?.rows?.size ==
+				1
+		}
+	val own = ownActions(offered - setOfNotNull(opener), subject, bindings)
 
 	return when (target) {
-		is Target.Rows -> rowsMenuOf(state, target.rows, bindings, own)
+		is Target.Rows ->
+			rowsMenuOf(
+				state,
+				target.rows,
+				bindings,
+				own,
+				opener?.let {
+					BrowserEvent.Did(it, subject)
+				},
+			)
 		Target.Folder -> folderMenuOf(state, bindings, own)
 		is Target.Place -> placeMenuOf(state, target.place, own)
 	}.without(state.actions.hidden)
@@ -57,17 +80,12 @@ fun contextMenuOf(
 private fun Bindings.keys(action: Bindable): String? =
 	of(action).firstOrNull()?.toString()
 
-/** The user's actions offered for [subject], as a menu's entries: those of no submenu, then each submenu, nested. */
+/** [offered], the user's actions for [subject], as a menu's entries: those of no submenu, then each submenu, nested. */
 private fun ownActions(
-	state: BrowserState,
+	offered: List<UserAction>,
 	subject: Subject,
 	bindings: Bindings,
-	world: World,
 ): List<MenuEntry<BrowserEvent>> {
-	// A picker chooses for another application: what the user's actions do to files is an explorer's to offer.
-	if (state.choosing !is Choosing.Exploring)
-		return emptyList()
-
 	fun entries(actions: List<UserAction>, depth: Int): List<MenuEntry<BrowserEvent>> {
 		val here = actions.filter { it.submenu.size == depth }
 		val below = actions.filter { it.submenu.size > depth }.groupBy { it.submenu[depth] }
@@ -85,7 +103,7 @@ private fun ownActions(
 			}
 	}
 
-	return entries(state.actions.offered(subject, world), 0)
+	return entries(offered, 0)
 }
 
 private fun rowsMenuOf(
@@ -93,6 +111,8 @@ private fun rowsMenuOf(
 	rows: List<Row>,
 	bindings: Bindings,
 	own: List<MenuEntry<BrowserEvent>>,
+	/** What opening the one row does, where an action of the user's opens it in place of its application. */
+	opening: BrowserEvent?,
 ): Menu<BrowserEvent> {
 	val one = rows.singleOrNull()
 	val ids = rows.map { it.id }
@@ -107,7 +127,7 @@ private fun rowsMenuOf(
 				row.isFolder -> {
 					item(
 						"Open",
-						BrowserEvent.Activated(row.id),
+						opening ?: BrowserEvent.Activated(row.id),
 						keys = bindings.keys(Action.Open),
 						id = "builtin.open",
 					)
@@ -127,7 +147,7 @@ private fun rowsMenuOf(
 				else ->
 					item(
 						"Open",
-						BrowserEvent.Picked(row.id),
+						opening ?: BrowserEvent.Picked(row.id),
 						keys = bindings.keys(Action.Open),
 						id = "builtin.open",
 					)
@@ -145,7 +165,9 @@ private fun rowsMenuOf(
 			paths?.let {
 				item(
 					"Open with…",
-					BrowserEvent.Requested(Request.OpenWith(it)),
+					// Another application can still be chosen for what an action opens, this once: it is the action
+					// that is its default, which choosing an application does not change.
+					BrowserEvent.Requested(Request.OpenWith(it, settable = opening == null)),
 					id = "builtin.open-with",
 				)
 			}

@@ -116,7 +116,12 @@ class Session(
 				.collect { (written, menu) ->
 					inputs.send(
 						Answer.Configured(
-							Actions.read(listOf(Actions.SHIPPED, written), menu.hidden.toSet()),
+							// Read for this machine: each action as the first of its ways whose programs are here.
+							Actions.read(
+								listOf(Actions.SHIPPED, written),
+								menu.hidden.toSet(),
+								services.world::installed,
+							),
 						),
 					)
 				}

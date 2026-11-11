@@ -788,4 +788,165 @@ class ActionsTest {
 		assertEquals(home.resolve("scratch"), job.scratch)
 		assertEquals("/home/avery/scratch", job.invocations.single().words[4])
 	}
+
+	// ---- several ways, and programs ---------------------------------------------------------------------------------
+
+	private val packed =
+		"""{"id": "pack", "label": "Pack", "ways": [
+			{"programs": ["zip"], "run": ["zip", "-r", "out.zip", "{names}"]},
+			{"programs": ["7zz|7z"], "run": ["{which:7zz|7z}", "a", "out.zip", "{names}"]}
+		]}"""
+
+	private fun readWith(vararg programs: String): Actions =
+		Actions.read(listOf(file("[$packed]"))) { it in programs }
+
+	private fun wordsOf(actions: Actions): List<String> =
+		((actions["pack"]!!.deed as Deed.Run).command.fill(files("a.txt").filling())!!).single()
+
+	@Test
+	fun anActionIsReadAsTheFirstOfItsWaysWhoseProgramsAreInstalled() {
+		assertEquals(listOf("zip", "-r", "out.zip", "a.txt"), wordsOf(readWith("zip", "7z")))
+		// Without the first way's program, the next; and of the programs that way can use, the first there is.
+		assertEquals(listOf("7z", "a", "out.zip", "a.txt"), wordsOf(readWith("7z")))
+		assertEquals(listOf("7zz", "a", "out.zip", "a.txt"), wordsOf(readWith("7z", "7zz")))
+	}
+
+	@Test
+	fun anActionNoneOfWhoseWaysCanBeRunIsLeftOutAndIsNotWrong() {
+		val none = readWith()
+
+		assertEquals(emptyList<UserAction>(), none.actions)
+		assertEquals(emptyList<Broken>(), none.broken)
+		assertEquals(setOf("pack"), none.unavailable)
+
+		// One written wrong is wrong on every machine, whichever of its ways would be run.
+		val wrong =
+			Actions.read(
+				listOf(
+					file(
+						"""[{"id": "w", "label": "W", "ways": [
+							{"programs": ["zip"], "run": ["zip", "{names}"]},
+							{"programs": ["never"], "run": ["never", "{nowhere}"]}
+						]}]""",
+					),
+				),
+			) { it == "zip" }
+
+		assertEquals(listOf("w"), wrong.broken.map { it.id })
+		assertTrue(
+			"both" in
+				wrong("""{"id": "b", "label": "B", "run": ["x"], "ways": [{"run": ["y"]}]}"""),
+		)
+	}
+
+	@Test
+	fun aConditionOnProgramsTakesEitherOfSeveral() {
+		val either =
+			action(
+				"""{"id": "e", "label": "E", "when": {"programs": ["7zz|7z", "tar"]}, "run": ["x", "{path}"]}""",
+			)
+
+		assertTrue(either.offered(files("a.txt"), Known(setOf("7z", "tar"))))
+		assertTrue(either.offered(files("a.txt"), Known(setOf("7zz", "tar"))))
+		assertFalse(either.offered(files("a.txt"), Known(setOf("tar"))))
+		assertFalse(either.offered(files("a.txt"), Known(setOf("7z"))))
+	}
+
+	@Test
+	fun whatACommandMadeIsBroughtToWhereItIsWantedByName() {
+		val places = """[{"id": "box", "takes": ["box"], "list": ["true"], "read": "names", "out": "out"}]"""
+
+		val out =
+			read(
+				"""[{"id": "out", "label": "Out", "when": {"in": ["box"]}, "ask": {"dest": {"folder": "To"}},
+				"run": ["unbox", "{box}", "{temp}", "{entries}"], "how": {"watched": true},
+				"then": {"bring": {"from": "{temp}", "to": "{dest}"}}}]""",
+				places,
+			)
+
+		val action = out.actions.single()
+		val placed = Placed(out.places.getValue("box"), mapOf("box" to "/b.box"))
+
+		val subject =
+			Subject(
+				On.Files,
+				listOf(
+					Thing(Item.InPlace("a/b/c.txt"), "c.txt", ThingKind.File),
+					Thing(Item.InPlace("a/d/"), "d", ThingKind.Folder),
+				),
+				Where.Place(placed, listOf("a")),
+			)
+
+		assertTrue(action.scratch)
+
+		val asked =
+			step(
+				exploring(out),
+				BrowserEvent.Did(
+					action,
+					subject,
+					mapOf("dest" to "/tmp/dest"),
+				),
+			)
+
+		val made =
+			step(
+				asked.state,
+				Answer.ScratchMade(
+					Path("/tmp/prism/1-x"),
+					(asked.effects.single() as Effect.Scratch).pending,
+				),
+			)
+
+		val job = (made.effects.single() as Effect.Run).job
+
+		assertEquals(
+			listOf("unbox", "/b.box", "/tmp/prism/1-x", "a/b/c.txt", "a/d/"),
+			job.invocations.single().words,
+		)
+		// Each entry from where the command put it, under the folders it sits in, to the folder by its own name.
+		assertEquals(
+			Delivery(
+				Path("/tmp/prism/1-x"),
+				Path("/tmp/dest"),
+				listOf(
+					"a/b/c.txt" to "c.txt",
+					"a/d/" to "d",
+				),
+			),
+			job.bring,
+		)
+		assertEquals(Path("/tmp/prism/1-x"), job.scratch)
+	}
+
+	@Test
+	fun anActionThatIsADefaultIsWhatOpenDoesAndIsNotOfferedTwice() {
+		val opener =
+			"""[{"id": "look", "label": "Look inside", "default": true, "when": {"ext": ["md"], "count": "one"},
+			"run": ["look", "{path}"]}]"""
+		val state = exploring(read(opener))
+		val menu = contextMenuOf(state, rowsOf(state, "notes.md"), world = Known())
+		val open = menu.entries.filterIsInstance<MenuEntry.Item<BrowserEvent>>().first()
+
+		assertEquals("Open", open.label)
+		assertEquals("look", (open.action as BrowserEvent.Did).action.id)
+		assertFalse("Look inside" in menu.labels())
+		// Another application can be chosen for it this once, and not made the default of its type.
+		assertEquals(
+			Request.OpenWith(listOf(home.resolve("notes.md")), settable = false),
+			menu.entries
+				.filterIsInstance<MenuEntry.Item<BrowserEvent>>()
+				.single { it.label == "Open with…" }
+				.let { (it.action as BrowserEvent.Requested).request },
+		)
+		// A file it is not for is opened as ever.
+		assertInstanceOf(
+			BrowserEvent.Picked::class.java,
+			contextMenuOf(state, rowsOf(state, "main.kt"), world = Known())
+				.entries
+				.filterIsInstance<MenuEntry.Item<BrowserEvent>>()
+				.first()
+				.action,
+		)
+	}
 }

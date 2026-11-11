@@ -7,15 +7,34 @@
 				"archive"
 			],
 			"opens": "window",
-			"list": [
-				"sh",
-				"-c",
-				"out=$(tar --quoting-style=literal -tvf \"$archive\") || exit 1; printf '%s\\n' \"$out\" | awk '{ size = $3; time = $4 \" \" $5; name = $0; for (i = 0; i < 5; i++) sub(/^[^ ]+ +/, \"\", name); if (substr($1, 1, 1) == \"l\") sub(/ -> .*$/, \"\", name); if (substr($1, 1, 1) == \"h\") sub(/ link to .*$/, \"\", name); if (name != \"\") printf \"%s\\tsize=%s\\ttime=%s\\n\", name, size, time }'"
+			"sidebar": false,
+			"ways": [
+				{
+					"programs": [
+						"bsdtar"
+					],
+					"list": [
+						"sh",
+						"-c",
+						"out=$(LC_ALL=C bsdtar -tvf \"$archive\") || exit 1; printf '%s\\n' \"$out\" | awk -v now=\"$(date +%Y%m)\" 'BEGIN { split(\"Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec\", names, \" \"); for (i = 1; i <= 12; i++) month[names[i]] = i } { name = $0; for (i = 0; i < 8; i++) sub(/^ *[^ ]+ +/, \"\", name); t = substr($1, 1, 1); if (t == \"l\") sub(/ -> .*$/, \"\", name); if (t == \"h\") sub(/ link to .*$/, \"\", name); sub(/\\/$/, \"\", name); mo = month[$6]; if ($8 ~ /:/) { y = substr(now, 1, 4) + 0; if (mo > substr(now, 5, 2) + 0) y--; clock = $8 } else { y = $8; clock = \"00:00\" } if (name != \"\" && name != \".\") printf \"%s%s\\tsize=%s\\ttime=%04d-%02d-%02d %s\\n\", name, (t == \"d\" ? \"/\" : \"\"), $5, y, mo, $7, clock }'",
+						"sh"
+					]
+				},
+				{
+					"programs": [
+						"tar"
+					],
+					"list": [
+						"sh",
+						"-c",
+						"if tar --version 2>/dev/null | grep -q \"GNU tar\"; then out=$(tar --quoting-style=literal -tvf \"$archive\") || exit 1; printf '%s\\n' \"$out\" | awk '{ size = $3; time = $4 \" \" $5; name = $0; for (i = 0; i < 5; i++) sub(/^[^ ]+ +/, \"\", name); if (substr($1, 1, 1) == \"l\") sub(/ -> .*$/, \"\", name); if (substr($1, 1, 1) == \"h\") sub(/ link to .*$/, \"\", name); if (name != \"\") printf \"%s\\tsize=%s\\ttime=%s\\n\", name, size, time }'; else out=$(LC_ALL=C tar -tvf \"$archive\") || exit 1; printf '%s\\n' \"$out\" | awk -v now=\"$(date +%Y%m)\" 'BEGIN { split(\"Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec\", names, \" \"); for (i = 1; i <= 12; i++) month[names[i]] = i } { name = $0; for (i = 0; i < 8; i++) sub(/^ *[^ ]+ +/, \"\", name); t = substr($1, 1, 1); if (t == \"l\") sub(/ -> .*$/, \"\", name); if (t == \"h\") sub(/ link to .*$/, \"\", name); sub(/\\/$/, \"\", name); mo = month[$6]; if ($8 ~ /:/) { y = substr(now, 1, 4) + 0; if (mo > substr(now, 5, 2) + 0) y--; clock = $8 } else { y = $8; clock = \"00:00\" } if (name != \"\" && name != \".\") printf \"%s%s\\tsize=%s\\ttime=%04d-%02d-%02d %s\\n\", name, (t == \"d\" ? \"/\" : \"\"), $5, y, mo, $7, clock }'; fi",
+						"sh"
+					]
+				}
 			],
 			"read": "names",
 			"out": "archive.tar.extract",
-			"in": "archive.tar.add",
-			"sidebar": false
+			"in": "archive.tar.add"
 		},
 		{
 			"id": "archive.zip",
@@ -24,15 +43,167 @@
 				"archive"
 			],
 			"opens": "window",
-			"list": [
-				"sh",
-				"-c",
-				"out=$(zipinfo -T \"$archive\") || exit 1; printf '%s\\n' \"$out\" | awk '/^[-dl?]/ && NF >= 8 { size = $4; time = $7; name = $0; for (i = 0; i < 7; i++) sub(/^[^ ]+ +/, \"\", name); printf \"%s\\tsize=%s\\ttime=%s\\n\", name, size, time }'"
+			"sidebar": false,
+			"ways": [
+				{
+					"programs": [
+						"zipinfo"
+					],
+					"list": [
+						"sh",
+						"-c",
+						"out=$(zipinfo -T \"$archive\") || exit 1; printf '%s\\n' \"$out\" | awk '/^[-dl?]/ && NF >= 8 { size = $4; time = $7; name = $0; for (i = 0; i < 7; i++) sub(/^[^ ]+ +/, \"\", name); printf \"%s\\tsize=%s\\ttime=%s\\n\", name, size, time }'",
+						"sh"
+					]
+				},
+				{
+					"programs": [
+						"7zz|7z|7za|7zr"
+					],
+					"list": [
+						"sh",
+						"-c",
+						"out=$(\"$1\" l -slt -ba -- \"$archive\") || exit 1; printf '%s\\n' \"$out\" | awk 'function out() { if (p != \"\") printf \"%s%s\\tsize=%s\\ttime=%s\\n\", p, (d ? \"/\" : \"\"), s, m; p = \"\"; d = 0; s = \"\"; m = \"\" } /^Path = / { out(); p = substr($0, 8); next } /^Folder = \\+/ { d = 1 } /^Attributes = D/ { d = 1 } /^Size = / { s = substr($0, 8) } /^Modified = / { m = substr($0, 12, 19) } END { out() }'",
+						"sh",
+						"{which:7zz|7z|7za|7zr}"
+					]
+				},
+				{
+					"programs": [
+						"bsdtar"
+					],
+					"list": [
+						"sh",
+						"-c",
+						"out=$(LC_ALL=C bsdtar -tvf \"$archive\") || exit 1; printf '%s\\n' \"$out\" | awk -v now=\"$(date +%Y%m)\" 'BEGIN { split(\"Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec\", names, \" \"); for (i = 1; i <= 12; i++) month[names[i]] = i } { name = $0; for (i = 0; i < 8; i++) sub(/^ *[^ ]+ +/, \"\", name); t = substr($1, 1, 1); if (t == \"l\") sub(/ -> .*$/, \"\", name); if (t == \"h\") sub(/ link to .*$/, \"\", name); sub(/\\/$/, \"\", name); mo = month[$6]; if ($8 ~ /:/) { y = substr(now, 1, 4) + 0; if (mo > substr(now, 5, 2) + 0) y--; clock = $8 } else { y = $8; clock = \"00:00\" } if (name != \"\" && name != \".\") printf \"%s%s\\tsize=%s\\ttime=%04d-%02d-%02d %s\\n\", name, (t == \"d\" ? \"/\" : \"\"), $5, y, mo, $7, clock }'",
+						"sh"
+					]
+				}
 			],
 			"read": "names",
 			"out": "archive.zip.extract",
-			"in": "archive.zip.add",
-			"sidebar": false
+			"in": "archive.zip.add"
+		},
+		{
+			"id": "archive.7z",
+			"title": "{archive.name}",
+			"takes": [
+				"archive"
+			],
+			"opens": "window",
+			"sidebar": false,
+			"ways": [
+				{
+					"programs": [
+						"7zz|7z|7za|7zr"
+					],
+					"list": [
+						"sh",
+						"-c",
+						"out=$(\"$1\" l -slt -ba -- \"$archive\") || exit 1; printf '%s\\n' \"$out\" | awk 'function out() { if (p != \"\") printf \"%s%s\\tsize=%s\\ttime=%s\\n\", p, (d ? \"/\" : \"\"), s, m; p = \"\"; d = 0; s = \"\"; m = \"\" } /^Path = / { out(); p = substr($0, 8); next } /^Folder = \\+/ { d = 1 } /^Attributes = D/ { d = 1 } /^Size = / { s = substr($0, 8) } /^Modified = / { m = substr($0, 12, 19) } END { out() }'",
+						"sh",
+						"{which:7zz|7z|7za|7zr}"
+					]
+				},
+				{
+					"programs": [
+						"bsdtar"
+					],
+					"list": [
+						"sh",
+						"-c",
+						"out=$(LC_ALL=C bsdtar -tvf \"$archive\") || exit 1; printf '%s\\n' \"$out\" | awk -v now=\"$(date +%Y%m)\" 'BEGIN { split(\"Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec\", names, \" \"); for (i = 1; i <= 12; i++) month[names[i]] = i } { name = $0; for (i = 0; i < 8; i++) sub(/^ *[^ ]+ +/, \"\", name); t = substr($1, 1, 1); if (t == \"l\") sub(/ -> .*$/, \"\", name); if (t == \"h\") sub(/ link to .*$/, \"\", name); sub(/\\/$/, \"\", name); mo = month[$6]; if ($8 ~ /:/) { y = substr(now, 1, 4) + 0; if (mo > substr(now, 5, 2) + 0) y--; clock = $8 } else { y = $8; clock = \"00:00\" } if (name != \"\" && name != \".\") printf \"%s%s\\tsize=%s\\ttime=%04d-%02d-%02d %s\\n\", name, (t == \"d\" ? \"/\" : \"\"), $5, y, mo, $7, clock }'",
+						"sh"
+					]
+				}
+			],
+			"read": "names",
+			"out": "archive.7z.extract",
+			"in": "archive.7z.add"
+		},
+		{
+			"id": "archive.rar",
+			"title": "{archive.name}",
+			"takes": [
+				"archive"
+			],
+			"opens": "window",
+			"sidebar": false,
+			"ways": [
+				{
+					"programs": [
+						"unrar"
+					],
+					"list": [
+						"sh",
+						"-c",
+						"out=$(unrar lt -cfg- -- \"$archive\") || exit 1; printf '%s\\n' \"$out\" | awk 'function out() { if (p != \"\") printf \"%s%s\\tsize=%s\\ttime=%s\\n\", p, (d ? \"/\" : \"\"), s, m; p = \"\"; d = 0; s = \"\"; m = \"\" } /^ *Name: / { out(); sub(/^ *Name: /, \"\"); p = $0; next } /^ *Type: Directory/ { d = 1 } /^ *Size: / { s = $2 } /^ *mtime: / { m = $2 \" \" substr($3, 1, 8) } END { out() }'",
+						"sh"
+					]
+				},
+				{
+					"programs": [
+						"7zz|7z|7za|7zr"
+					],
+					"list": [
+						"sh",
+						"-c",
+						"out=$(\"$1\" l -slt -ba -- \"$archive\") || exit 1; printf '%s\\n' \"$out\" | awk 'function out() { if (p != \"\") printf \"%s%s\\tsize=%s\\ttime=%s\\n\", p, (d ? \"/\" : \"\"), s, m; p = \"\"; d = 0; s = \"\"; m = \"\" } /^Path = / { out(); p = substr($0, 8); next } /^Folder = \\+/ { d = 1 } /^Attributes = D/ { d = 1 } /^Size = / { s = substr($0, 8) } /^Modified = / { m = substr($0, 12, 19) } END { out() }'",
+						"sh",
+						"{which:7zz|7z|7za|7zr}"
+					]
+				},
+				{
+					"programs": [
+						"bsdtar"
+					],
+					"list": [
+						"sh",
+						"-c",
+						"out=$(LC_ALL=C bsdtar -tvf \"$archive\") || exit 1; printf '%s\\n' \"$out\" | awk -v now=\"$(date +%Y%m)\" 'BEGIN { split(\"Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec\", names, \" \"); for (i = 1; i <= 12; i++) month[names[i]] = i } { name = $0; for (i = 0; i < 8; i++) sub(/^ *[^ ]+ +/, \"\", name); t = substr($1, 1, 1); if (t == \"l\") sub(/ -> .*$/, \"\", name); if (t == \"h\") sub(/ link to .*$/, \"\", name); sub(/\\/$/, \"\", name); mo = month[$6]; if ($8 ~ /:/) { y = substr(now, 1, 4) + 0; if (mo > substr(now, 5, 2) + 0) y--; clock = $8 } else { y = $8; clock = \"00:00\" } if (name != \"\" && name != \".\") printf \"%s%s\\tsize=%s\\ttime=%04d-%02d-%02d %s\\n\", name, (t == \"d\" ? \"/\" : \"\"), $5, y, mo, $7, clock }'",
+						"sh"
+					]
+				}
+			],
+			"read": "names",
+			"out": "archive.rar.extract",
+			"in": "archive.rar.add"
+		},
+		{
+			"id": "archive.disk",
+			"title": "{archive.name}",
+			"takes": [
+				"archive"
+			],
+			"opens": "window",
+			"sidebar": false,
+			"ways": [
+				{
+					"programs": [
+						"7zz|7z|7za|7zr"
+					],
+					"list": [
+						"sh",
+						"-c",
+						"out=$(\"$1\" l -slt -ba -- \"$archive\") || exit 1; printf '%s\\n' \"$out\" | awk 'function out() { if (p != \"\") printf \"%s%s\\tsize=%s\\ttime=%s\\n\", p, (d ? \"/\" : \"\"), s, m; p = \"\"; d = 0; s = \"\"; m = \"\" } /^Path = / { out(); p = substr($0, 8); next } /^Folder = \\+/ { d = 1 } /^Attributes = D/ { d = 1 } /^Size = / { s = substr($0, 8) } /^Modified = / { m = substr($0, 12, 19) } END { out() }'",
+						"sh",
+						"{which:7zz|7z|7za|7zr}"
+					]
+				},
+				{
+					"programs": [
+						"bsdtar"
+					],
+					"list": [
+						"sh",
+						"-c",
+						"out=$(LC_ALL=C bsdtar -tvf \"$archive\") || exit 1; printf '%s\\n' \"$out\" | awk -v now=\"$(date +%Y%m)\" 'BEGIN { split(\"Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec\", names, \" \"); for (i = 1; i <= 12; i++) month[names[i]] = i } { name = $0; for (i = 0; i < 8; i++) sub(/^ *[^ ]+ +/, \"\", name); t = substr($1, 1, 1); if (t == \"l\") sub(/ -> .*$/, \"\", name); if (t == \"h\") sub(/ link to .*$/, \"\", name); sub(/\\/$/, \"\", name); mo = month[$6]; if ($8 ~ /:/) { y = substr(now, 1, 4) + 0; if (mo > substr(now, 5, 2) + 0) y--; clock = $8 } else { y = $8; clock = \"00:00\" } if (name != \"\" && name != \".\") printf \"%s%s\\tsize=%s\\ttime=%04d-%02d-%02d %s\\n\", name, (t == \"d\" ? \"/\" : \"\"), $5, y, mo, $7, clock }'",
+						"sh"
+					]
+				}
+			],
+			"read": "names",
+			"out": "archive.disk.extract"
 		},
 		{
 			"id": "git.changes",
@@ -81,25 +252,34 @@
 			}
 		},
 		{
-			"id": "archive.tar.view",
-			"label": "View contents",
+			"id": "archive.tar.open",
+			"label": "Open",
+			"default": true,
 			"when": {
 				"ext": [
 					"tar",
 					"tar.gz",
 					"tgz",
+					"taz",
 					"tar.bz2",
 					"tbz2",
+					"tbz",
+					"tb2",
 					"tar.xz",
 					"txz",
 					"tar.zst",
-					"tzst"
+					"tar.zstd",
+					"tzst",
+					"tar.lz",
+					"tlz",
+					"tar.lzma",
+					"tar.lz4",
+					"tar.lzo",
+					"tzo",
+					"tar.Z"
 				],
 				"kind": "file",
-				"count": "one",
-				"programs": [
-					"tar"
-				]
+				"count": "one"
 			},
 			"show": {
 				"place": "archive.tar",
@@ -109,204 +289,32 @@
 			}
 		},
 		{
-			"id": "archive.zip.view",
-			"label": "View contents",
-			"when": {
-				"ext": [
-					"zip",
-					"jar",
-					"war",
-					"apk",
-					"cbz",
-					"epub",
-					"odt",
-					"ods",
-					"odp",
-					"docx",
-					"xlsx",
-					"pptx"
-				],
-				"kind": "file",
-				"count": "one",
-				"programs": [
-					"zipinfo",
-					"unzip"
-				]
-			},
-			"show": {
-				"place": "archive.zip",
-				"with": {
-					"archive": "{path}"
-				}
-			}
-		},
-		{
-			"id": "archive.tar.extract-here",
-			"label": "Extract here",
-			"when": {
-				"ext": [
-					"tar",
-					"tar.gz",
-					"tgz",
-					"tar.bz2",
-					"tbz2",
-					"tar.xz",
-					"txz",
-					"tar.zst",
-					"tzst"
-				],
-				"kind": "file",
-				"programs": [
-					"tar"
-				]
-			},
-			"run": [
-				"tar",
-				"--skip-old-files",
-				"-xf",
-				"{path}",
-				"-C",
-				"{folder}"
-			],
-			"how": {
-				"watched": true
-			},
-			"then": {
-				"reread": true
-			}
-		},
-		{
-			"id": "archive.zip.extract-here",
-			"label": "Extract here",
-			"when": {
-				"ext": [
-					"zip",
-					"jar",
-					"war",
-					"apk",
-					"cbz",
-					"epub",
-					"odt",
-					"ods",
-					"odp",
-					"docx",
-					"xlsx",
-					"pptx"
-				],
-				"kind": "file",
-				"programs": [
-					"unzip"
-				]
-			},
-			"run": [
-				"unzip",
-				"-n",
-				"-q",
-				"{path}",
-				"-d",
-				"{folder}"
-			],
-			"how": {
-				"watched": true
-			},
-			"then": {
-				"reread": true
-			}
-		},
-		{
-			"id": "archive.tar.extract-folder",
-			"label": "Extract into a folder",
-			"when": {
-				"ext": [
-					"tar",
-					"tar.gz",
-					"tgz",
-					"tar.bz2",
-					"tbz2",
-					"tar.xz",
-					"txz",
-					"tar.zst",
-					"tzst"
-				],
-				"kind": "file",
-				"programs": [
-					"tar"
-				]
-			},
-			"run": [
-				"sh",
-				"-c",
-				"mkdir -p -- \"$1\" && tar --skip-old-files -xf \"$2\" -C \"$1\"",
-				"sh",
-				"{stem}",
-				"{path}"
-			],
-			"how": {
-				"watched": true
-			},
-			"then": {
-				"reread": true,
-				"choose": "{stem}"
-			}
-		},
-		{
-			"id": "archive.zip.extract-folder",
-			"label": "Extract into a folder",
-			"when": {
-				"ext": [
-					"zip",
-					"jar",
-					"war",
-					"apk",
-					"cbz",
-					"epub",
-					"odt",
-					"ods",
-					"odp",
-					"docx",
-					"xlsx",
-					"pptx"
-				],
-				"kind": "file",
-				"programs": [
-					"unzip"
-				]
-			},
-			"run": [
-				"unzip",
-				"-n",
-				"-q",
-				"{path}",
-				"-d",
-				"{stem}"
-			],
-			"how": {
-				"watched": true
-			},
-			"then": {
-				"reread": true,
-				"choose": "{stem}"
-			}
-		},
-		{
-			"id": "archive.tar.extract-to",
+			"id": "archive.tar.unpack",
 			"label": "Extract to…",
 			"when": {
 				"ext": [
 					"tar",
 					"tar.gz",
 					"tgz",
+					"taz",
 					"tar.bz2",
 					"tbz2",
+					"tbz",
+					"tb2",
 					"tar.xz",
 					"txz",
 					"tar.zst",
-					"tzst"
+					"tar.zstd",
+					"tzst",
+					"tar.lz",
+					"tlz",
+					"tar.lzma",
+					"tar.lz4",
+					"tar.lzo",
+					"tzo",
+					"tar.Z"
 				],
-				"kind": "file",
-				"programs": [
-					"tar"
-				]
+				"kind": "file"
 			},
 			"ask": {
 				"dest": {
@@ -314,13 +322,31 @@
 					"start": "{folder}"
 				}
 			},
-			"run": [
-				"tar",
-				"--skip-old-files",
-				"-xf",
-				"{path}",
-				"-C",
-				"{dest}"
+			"ways": [
+				{
+					"programs": [
+						"bsdtar"
+					],
+					"run": [
+						"sh",
+						"-c",
+						"mkdir -p -- \"$dest\" && bsdtar -xkf \"$1\" -C \"$dest\"",
+						"sh",
+						"{path}"
+					]
+				},
+				{
+					"programs": [
+						"tar"
+					],
+					"run": [
+						"sh",
+						"-c",
+						"mkdir -p -- \"$dest\" && if tar --version 2>/dev/null | grep -q \"GNU tar\"; then tar --skip-old-files -xf \"$1\" -C \"$dest\"; else tar -xkf \"$1\" -C \"$dest\"; fi",
+						"sh",
+						"{path}"
+					]
+				}
 			],
 			"how": {
 				"watched": true
@@ -330,227 +356,73 @@
 			}
 		},
 		{
-			"id": "archive.zip.extract-to",
-			"label": "Extract to…",
+			"id": "archive.tar.unpack-here",
+			"label": "Extract here",
 			"when": {
 				"ext": [
-					"zip",
-					"jar",
-					"war",
-					"apk",
-					"cbz",
-					"epub",
-					"odt",
-					"ods",
-					"odp",
-					"docx",
-					"xlsx",
-					"pptx"
+					"tar",
+					"tar.gz",
+					"tgz",
+					"taz",
+					"tar.bz2",
+					"tbz2",
+					"tbz",
+					"tb2",
+					"tar.xz",
+					"txz",
+					"tar.zst",
+					"tar.zstd",
+					"tzst",
+					"tar.lz",
+					"tlz",
+					"tar.lzma",
+					"tar.lz4",
+					"tar.lzo",
+					"tzo",
+					"tar.Z"
+				],
+				"kind": "file"
+			},
+			"like": "archive.tar.unpack",
+			"given": {
+				"dest": "{folder}"
+			}
+		},
+		{
+			"id": "archive.tar.unpack-folder",
+			"label": "Extract into a folder",
+			"when": {
+				"ext": [
+					"tar",
+					"tar.gz",
+					"tgz",
+					"taz",
+					"tar.bz2",
+					"tbz2",
+					"tbz",
+					"tb2",
+					"tar.xz",
+					"txz",
+					"tar.zst",
+					"tar.zstd",
+					"tzst",
+					"tar.lz",
+					"tlz",
+					"tar.lzma",
+					"tar.lz4",
+					"tar.lzo",
+					"tzo",
+					"tar.Z"
 				],
 				"kind": "file",
-				"programs": [
-					"unzip"
-				]
+				"count": "one"
 			},
-			"ask": {
-				"dest": {
-					"folder": "Extract to",
-					"start": "{folder}"
-				}
-			},
-			"run": [
-				"unzip",
-				"-n",
-				"-q",
-				"{path}",
-				"-d",
-				"{dest}"
-			],
-			"how": {
-				"watched": true
+			"like": "archive.tar.unpack",
+			"given": {
+				"dest": "{folder}/{stem}"
 			},
 			"then": {
-				"reread": true
-			}
-		},
-		{
-			"id": "compress.zip",
-			"label": "As a .zip…",
-			"submenu": "Compress",
-			"when": {
-				"count": "some",
-				"real": true,
-				"in": [
-					"folder"
-				],
-				"programs": [
-					"zip"
-				]
-			},
-			"ask": {
-				"to": {
-					"text": "Name of the archive",
-					"start": "{stem}"
-				}
-			},
-			"run": [
-				"zip",
-				"-q",
-				"-r",
-				"{to}.zip",
-				"--",
-				"{names}"
-			],
-			"how": {
-				"watched": true
-			},
-			"then": {
-				"reread": true,
-				"choose": "{to}.zip"
-			}
-		},
-		{
-			"id": "compress.tar-gz",
-			"label": "As a .tar.gz…",
-			"submenu": "Compress",
-			"when": {
-				"count": "some",
-				"real": true,
-				"in": [
-					"folder"
-				],
-				"programs": [
-					"tar",
-					"gzip"
-				]
-			},
-			"ask": {
-				"to": {
-					"text": "Name of the archive",
-					"start": "{stem}"
-				}
-			},
-			"run": [
-				"tar",
-				"-czf",
-				"{to}.tar.gz",
-				"--",
-				"{names}"
-			],
-			"how": {
-				"watched": true
-			},
-			"then": {
-				"reread": true,
-				"choose": "{to}.tar.gz"
-			}
-		},
-		{
-			"id": "compress.tar-xz",
-			"label": "As a .tar.xz…",
-			"submenu": "Compress",
-			"when": {
-				"count": "some",
-				"real": true,
-				"in": [
-					"folder"
-				],
-				"programs": [
-					"tar",
-					"xz"
-				]
-			},
-			"ask": {
-				"to": {
-					"text": "Name of the archive",
-					"start": "{stem}"
-				}
-			},
-			"run": [
-				"tar",
-				"-cJf",
-				"{to}.tar.xz",
-				"--",
-				"{names}"
-			],
-			"how": {
-				"watched": true
-			},
-			"then": {
-				"reread": true,
-				"choose": "{to}.tar.xz"
-			}
-		},
-		{
-			"id": "compress.tar-zst",
-			"label": "As a .tar.zst…",
-			"submenu": "Compress",
-			"when": {
-				"count": "some",
-				"real": true,
-				"in": [
-					"folder"
-				],
-				"programs": [
-					"tar",
-					"zstd"
-				]
-			},
-			"ask": {
-				"to": {
-					"text": "Name of the archive",
-					"start": "{stem}"
-				}
-			},
-			"run": [
-				"tar",
-				"--zstd",
-				"-cf",
-				"{to}.tar.zst",
-				"--",
-				"{names}"
-			],
-			"how": {
-				"watched": true
-			},
-			"then": {
-				"reread": true,
-				"choose": "{to}.tar.zst"
-			}
-		},
-		{
-			"id": "compress.tar",
-			"label": "As a .tar…",
-			"submenu": "Compress",
-			"when": {
-				"count": "some",
-				"real": true,
-				"in": [
-					"folder"
-				],
-				"programs": [
-					"tar"
-				]
-			},
-			"ask": {
-				"to": {
-					"text": "Name of the archive",
-					"start": "{stem}"
-				}
-			},
-			"run": [
-				"tar",
-				"-cf",
-				"{to}.tar",
-				"--",
-				"{names}"
-			],
-			"how": {
-				"watched": true
-			},
-			"then": {
-				"reread": true,
-				"choose": "{to}.tar"
+				"choose": "{stem}"
 			}
 		},
 		{
@@ -567,21 +439,42 @@
 					"start": "{archive.parent}"
 				}
 			},
-			"run": [
-				"tar",
-				"--skip-old-files",
-				"-xf",
-				"{archive}",
-				"-C",
-				"{dest}",
-				"--strip-components={depth}",
-				"--",
-				"{entries}"
+			"ways": [
+				{
+					"programs": [
+						"bsdtar"
+					],
+					"run": [
+						"sh",
+						"-c",
+						"t=$1; shift; for e; do set -- \"$@\" \"${e%/}\"; shift; done; bsdtar -xf \"$archive\" -C \"$t\" -- \"$@\"",
+						"sh",
+						"{temp}",
+						"{entries}"
+					]
+				},
+				{
+					"programs": [
+						"tar"
+					],
+					"run": [
+						"sh",
+						"-c",
+						"t=$1; shift; for e; do set -- \"$@\" \"${e%/}\"; shift; done; tar -xf \"$archive\" -C \"$t\" -- \"$@\"",
+						"sh",
+						"{temp}",
+						"{entries}"
+					]
+				}
 			],
 			"how": {
 				"watched": true
 			},
 			"then": {
+				"bring": {
+					"from": "{temp}",
+					"to": "{dest}"
+				},
 				"reread": true
 			}
 		},
@@ -613,13 +506,31 @@
 					"start": "{archive.parent}"
 				}
 			},
-			"run": [
-				"tar",
-				"--skip-old-files",
-				"-xf",
-				"{archive}",
-				"-C",
-				"{dest}"
+			"ways": [
+				{
+					"programs": [
+						"bsdtar"
+					],
+					"run": [
+						"sh",
+						"-c",
+						"mkdir -p -- \"$dest\" && bsdtar -xkf \"$1\" -C \"$dest\"",
+						"sh",
+						"{archive}"
+					]
+				},
+				{
+					"programs": [
+						"tar"
+					],
+					"run": [
+						"sh",
+						"-c",
+						"mkdir -p -- \"$dest\" && if tar --version 2>/dev/null | grep -q \"GNU tar\"; then tar --skip-old-files -xf \"$1\" -C \"$dest\"; else tar -xkf \"$1\" -C \"$dest\"; fi",
+						"sh",
+						"{archive}"
+					]
+				}
 			],
 			"how": {
 				"watched": true
@@ -638,13 +549,20 @@
 					]
 				}
 			},
-			"run": [
-				"tar",
-				"--delete",
-				"-f",
-				"{archive}",
-				"--",
-				"{entries}"
+			"ways": [
+				{
+					"programs": [
+						"tar"
+					],
+					"run": [
+						"tar",
+						"--delete",
+						"-f",
+						"{archive}",
+						"--",
+						"{entries}"
+					]
+				}
 			],
 			"how": {
 				"watched": true,
@@ -662,27 +580,214 @@
 				"in": [
 					"archive.tar"
 				],
+				"real": true,
 				"with": {
 					"archive": [
 						"*.tar"
 					]
-				},
-				"real": true
+				}
 			},
-			"run": [
-				"tar",
-				"-rf",
-				"{archive}",
-				"-C",
-				"{folder}",
-				"--",
-				"{names}"
+			"ways": [
+				{
+					"programs": [
+						"bsdtar"
+					],
+					"run": [
+						"bsdtar",
+						"-rf",
+						"{archive}",
+						"--",
+						"{names}"
+					]
+				},
+				{
+					"programs": [
+						"tar"
+					],
+					"run": [
+						"tar",
+						"-rf",
+						"{archive}",
+						"--",
+						"{names}"
+					]
+				}
 			],
 			"how": {
 				"watched": true
 			},
 			"then": {
 				"reread": true
+			}
+		},
+		{
+			"id": "archive.zip.open",
+			"label": "Open",
+			"default": true,
+			"when": {
+				"ext": [
+					"zip",
+					"jar",
+					"war",
+					"ear",
+					"apk",
+					"xpi",
+					"whl",
+					"cbz",
+					"epub",
+					"odt",
+					"ods",
+					"odp",
+					"docx",
+					"xlsx",
+					"pptx"
+				],
+				"kind": "file",
+				"count": "one"
+			},
+			"show": {
+				"place": "archive.zip",
+				"with": {
+					"archive": "{path}"
+				}
+			}
+		},
+		{
+			"id": "archive.zip.unpack",
+			"label": "Extract to…",
+			"when": {
+				"ext": [
+					"zip",
+					"jar",
+					"war",
+					"ear",
+					"apk",
+					"xpi",
+					"whl",
+					"cbz",
+					"epub",
+					"odt",
+					"ods",
+					"odp",
+					"docx",
+					"xlsx",
+					"pptx"
+				],
+				"kind": "file"
+			},
+			"ask": {
+				"dest": {
+					"folder": "Extract to",
+					"start": "{folder}"
+				}
+			},
+			"ways": [
+				{
+					"programs": [
+						"unzip"
+					],
+					"run": [
+						"unzip",
+						"-n",
+						"-q",
+						"{path}",
+						"-d",
+						"{dest}"
+					]
+				},
+				{
+					"programs": [
+						"7zz|7z|7za|7zr"
+					],
+					"run": [
+						"{which:7zz|7z|7za|7zr}",
+						"x",
+						"-aos",
+						"-bso0",
+						"-bsp0",
+						"-o{dest}",
+						"--",
+						"{path}"
+					]
+				},
+				{
+					"programs": [
+						"bsdtar"
+					],
+					"run": [
+						"sh",
+						"-c",
+						"mkdir -p -- \"$dest\" && bsdtar -xkf \"$1\" -C \"$dest\"",
+						"sh",
+						"{path}"
+					]
+				}
+			],
+			"how": {
+				"watched": true
+			},
+			"then": {
+				"reread": true
+			}
+		},
+		{
+			"id": "archive.zip.unpack-here",
+			"label": "Extract here",
+			"when": {
+				"ext": [
+					"zip",
+					"jar",
+					"war",
+					"ear",
+					"apk",
+					"xpi",
+					"whl",
+					"cbz",
+					"epub",
+					"odt",
+					"ods",
+					"odp",
+					"docx",
+					"xlsx",
+					"pptx"
+				],
+				"kind": "file"
+			},
+			"like": "archive.zip.unpack",
+			"given": {
+				"dest": "{folder}"
+			}
+		},
+		{
+			"id": "archive.zip.unpack-folder",
+			"label": "Extract into a folder",
+			"when": {
+				"ext": [
+					"zip",
+					"jar",
+					"war",
+					"ear",
+					"apk",
+					"xpi",
+					"whl",
+					"cbz",
+					"epub",
+					"odt",
+					"ods",
+					"odp",
+					"docx",
+					"xlsx",
+					"pptx"
+				],
+				"kind": "file",
+				"count": "one"
+			},
+			"like": "archive.zip.unpack",
+			"given": {
+				"dest": "{folder}/{stem}"
+			},
+			"then": {
+				"choose": "{stem}"
 			}
 		},
 		{
@@ -699,18 +804,58 @@
 					"start": "{archive.parent}"
 				}
 			},
-			"run": [
-				"sh",
-				"-c",
-				"t=$1; shift; for e; do case \"$e\" in */) set -- \"$@\" \"$e\" \"$e*\";; *) set -- \"$@\" \"$e\";; esac; shift; done; unzip -n -q \"$archive\" \"$@\" -d \"$t\" || exit 1; cd \"$t/$within\" && tar -cf - . | tar --skip-old-files -xf - -C \"$dest\"",
-				"sh",
-				"{temp}",
-				"{entries}"
+			"ways": [
+				{
+					"programs": [
+						"unzip"
+					],
+					"run": [
+						"sh",
+						"-c",
+						"t=$1; shift; for e; do case \"$e\" in */) set -- \"$@\" \"$e\" \"$e*\";; *) set -- \"$@\" \"$e\";; esac; shift; done; unzip -q \"$archive\" \"$@\" -d \"$t\"",
+						"sh",
+						"{temp}",
+						"{entries}"
+					]
+				},
+				{
+					"programs": [
+						"7zz|7z|7za|7zr"
+					],
+					"run": [
+						"{which:7zz|7z|7za|7zr}",
+						"x",
+						"-y",
+						"-bso0",
+						"-bsp0",
+						"-o{temp}",
+						"{archive}",
+						"--",
+						"{entries}"
+					]
+				},
+				{
+					"programs": [
+						"bsdtar"
+					],
+					"run": [
+						"sh",
+						"-c",
+						"t=$1; shift; for e; do set -- \"$@\" \"${e%/}\"; shift; done; bsdtar -xf \"$archive\" -C \"$t\" -- \"$@\"",
+						"sh",
+						"{temp}",
+						"{entries}"
+					]
+				}
 			],
 			"how": {
 				"watched": true
 			},
 			"then": {
+				"bring": {
+					"from": "{temp}",
+					"to": "{dest}"
+				},
 				"reread": true
 			}
 		},
@@ -742,13 +887,47 @@
 					"start": "{archive.parent}"
 				}
 			},
-			"run": [
-				"unzip",
-				"-n",
-				"-q",
-				"{archive}",
-				"-d",
-				"{dest}"
+			"ways": [
+				{
+					"programs": [
+						"unzip"
+					],
+					"run": [
+						"unzip",
+						"-n",
+						"-q",
+						"{archive}",
+						"-d",
+						"{dest}"
+					]
+				},
+				{
+					"programs": [
+						"7zz|7z|7za|7zr"
+					],
+					"run": [
+						"{which:7zz|7z|7za|7zr}",
+						"x",
+						"-aos",
+						"-bso0",
+						"-bsp0",
+						"-o{dest}",
+						"--",
+						"{archive}"
+					]
+				},
+				{
+					"programs": [
+						"bsdtar"
+					],
+					"run": [
+						"sh",
+						"-c",
+						"mkdir -p -- \"$dest\" && bsdtar -xkf \"$1\" -C \"$dest\"",
+						"sh",
+						"{archive}"
+					]
+				}
 			],
 			"how": {
 				"watched": true
@@ -760,17 +939,35 @@
 			"when": {
 				"in": [
 					"archive.zip"
-				],
-				"programs": [
-					"zip"
 				]
 			},
-			"run": [
-				"sh",
-				"-c",
-				"for e; do case \"$e\" in */) set -- \"$@\" \"$e\" \"$e*\";; *) set -- \"$@\" \"$e\";; esac; shift; done; zip -q -d \"$archive\" \"$@\"",
-				"sh",
-				"{entries}"
+			"ways": [
+				{
+					"programs": [
+						"zip"
+					],
+					"run": [
+						"sh",
+						"-c",
+						"for e; do case \"$e\" in */) set -- \"$@\" \"$e\" \"$e*\";; *) set -- \"$@\" \"$e\";; esac; shift; done; zip -q -d \"$archive\" \"$@\"",
+						"sh",
+						"{entries}"
+					]
+				},
+				{
+					"programs": [
+						"7zz|7z|7za|7zr"
+					],
+					"run": [
+						"{which:7zz|7z|7za|7zr}",
+						"d",
+						"-bso0",
+						"-bsp0",
+						"{archive}",
+						"--",
+						"{entries}"
+					]
+				}
 			],
 			"how": {
 				"watched": true,
@@ -788,24 +985,1529 @@
 				"in": [
 					"archive.zip"
 				],
-				"programs": [
-					"zip"
-				],
 				"real": true
 			},
-			"run": [
-				"zip",
-				"-q",
-				"-r",
-				"{archive}",
-				"--",
-				"{names}"
+			"ways": [
+				{
+					"programs": [
+						"zip"
+					],
+					"run": [
+						"zip",
+						"-q",
+						"-r",
+						"{archive}",
+						"--",
+						"{names}"
+					]
+				},
+				{
+					"programs": [
+						"7zz|7z|7za|7zr"
+					],
+					"run": [
+						"{which:7zz|7z|7za|7zr}",
+						"a",
+						"-bso0",
+						"-bsp0",
+						"{archive}",
+						"--",
+						"{names}"
+					]
+				}
 			],
 			"how": {
 				"watched": true
 			},
 			"then": {
 				"reread": true
+			}
+		},
+		{
+			"id": "archive.7z.open",
+			"label": "Open",
+			"default": true,
+			"when": {
+				"ext": [
+					"7z",
+					"cb7"
+				],
+				"kind": "file",
+				"count": "one"
+			},
+			"show": {
+				"place": "archive.7z",
+				"with": {
+					"archive": "{path}"
+				}
+			}
+		},
+		{
+			"id": "archive.7z.unpack",
+			"label": "Extract to…",
+			"when": {
+				"ext": [
+					"7z",
+					"cb7"
+				],
+				"kind": "file"
+			},
+			"ask": {
+				"dest": {
+					"folder": "Extract to",
+					"start": "{folder}"
+				}
+			},
+			"ways": [
+				{
+					"programs": [
+						"7zz|7z|7za|7zr"
+					],
+					"run": [
+						"{which:7zz|7z|7za|7zr}",
+						"x",
+						"-aos",
+						"-bso0",
+						"-bsp0",
+						"-o{dest}",
+						"--",
+						"{path}"
+					]
+				},
+				{
+					"programs": [
+						"bsdtar"
+					],
+					"run": [
+						"sh",
+						"-c",
+						"mkdir -p -- \"$dest\" && bsdtar -xkf \"$1\" -C \"$dest\"",
+						"sh",
+						"{path}"
+					]
+				}
+			],
+			"how": {
+				"watched": true
+			},
+			"then": {
+				"reread": true
+			}
+		},
+		{
+			"id": "archive.7z.unpack-here",
+			"label": "Extract here",
+			"when": {
+				"ext": [
+					"7z",
+					"cb7"
+				],
+				"kind": "file"
+			},
+			"like": "archive.7z.unpack",
+			"given": {
+				"dest": "{folder}"
+			}
+		},
+		{
+			"id": "archive.7z.unpack-folder",
+			"label": "Extract into a folder",
+			"when": {
+				"ext": [
+					"7z",
+					"cb7"
+				],
+				"kind": "file",
+				"count": "one"
+			},
+			"like": "archive.7z.unpack",
+			"given": {
+				"dest": "{folder}/{stem}"
+			},
+			"then": {
+				"choose": "{stem}"
+			}
+		},
+		{
+			"id": "archive.7z.extract",
+			"label": "Extract to…",
+			"when": {
+				"in": [
+					"archive.7z"
+				]
+			},
+			"ask": {
+				"dest": {
+					"folder": "Extract to",
+					"start": "{archive.parent}"
+				}
+			},
+			"ways": [
+				{
+					"programs": [
+						"7zz|7z|7za|7zr"
+					],
+					"run": [
+						"{which:7zz|7z|7za|7zr}",
+						"x",
+						"-y",
+						"-bso0",
+						"-bsp0",
+						"-o{temp}",
+						"{archive}",
+						"--",
+						"{entries}"
+					]
+				},
+				{
+					"programs": [
+						"bsdtar"
+					],
+					"run": [
+						"sh",
+						"-c",
+						"t=$1; shift; for e; do set -- \"$@\" \"${e%/}\"; shift; done; bsdtar -xf \"$archive\" -C \"$t\" -- \"$@\"",
+						"sh",
+						"{temp}",
+						"{entries}"
+					]
+				}
+			],
+			"how": {
+				"watched": true
+			},
+			"then": {
+				"bring": {
+					"from": "{temp}",
+					"to": "{dest}"
+				},
+				"reread": true
+			}
+		},
+		{
+			"id": "archive.7z.extract-beside",
+			"label": "Extract beside the archive",
+			"when": {
+				"in": [
+					"archive.7z"
+				]
+			},
+			"like": "archive.7z.extract",
+			"given": {
+				"dest": "{archive.parent}"
+			}
+		},
+		{
+			"id": "archive.7z.extract-all",
+			"label": "Extract all to…",
+			"when": {
+				"target": "folder",
+				"in": [
+					"archive.7z"
+				]
+			},
+			"ask": {
+				"dest": {
+					"folder": "Extract to",
+					"start": "{archive.parent}"
+				}
+			},
+			"ways": [
+				{
+					"programs": [
+						"7zz|7z|7za|7zr"
+					],
+					"run": [
+						"{which:7zz|7z|7za|7zr}",
+						"x",
+						"-aos",
+						"-bso0",
+						"-bsp0",
+						"-o{dest}",
+						"--",
+						"{archive}"
+					]
+				},
+				{
+					"programs": [
+						"bsdtar"
+					],
+					"run": [
+						"sh",
+						"-c",
+						"mkdir -p -- \"$dest\" && bsdtar -xkf \"$1\" -C \"$dest\"",
+						"sh",
+						"{archive}"
+					]
+				}
+			],
+			"how": {
+				"watched": true
+			}
+		},
+		{
+			"id": "archive.7z.remove",
+			"label": "Remove from archive",
+			"when": {
+				"in": [
+					"archive.7z"
+				]
+			},
+			"ways": [
+				{
+					"programs": [
+						"7zz|7z|7za|7zr"
+					],
+					"run": [
+						"{which:7zz|7z|7za|7zr}",
+						"d",
+						"-bso0",
+						"-bsp0",
+						"{archive}",
+						"--",
+						"{entries}"
+					]
+				}
+			],
+			"how": {
+				"watched": true,
+				"confirm": "What is removed from the archive cannot be put back."
+			},
+			"then": {
+				"reread": true
+			},
+			"key": "Delete"
+		},
+		{
+			"id": "archive.7z.add",
+			"label": "Add to archive",
+			"when": {
+				"in": [
+					"archive.7z"
+				],
+				"real": true
+			},
+			"ways": [
+				{
+					"programs": [
+						"7zz|7z|7za|7zr"
+					],
+					"run": [
+						"{which:7zz|7z|7za|7zr}",
+						"a",
+						"-bso0",
+						"-bsp0",
+						"{archive}",
+						"--",
+						"{names}"
+					]
+				}
+			],
+			"how": {
+				"watched": true
+			},
+			"then": {
+				"reread": true
+			}
+		},
+		{
+			"id": "archive.rar.open",
+			"label": "Open",
+			"default": true,
+			"when": {
+				"ext": [
+					"rar",
+					"cbr"
+				],
+				"kind": "file",
+				"count": "one"
+			},
+			"show": {
+				"place": "archive.rar",
+				"with": {
+					"archive": "{path}"
+				}
+			}
+		},
+		{
+			"id": "archive.rar.unpack",
+			"label": "Extract to…",
+			"when": {
+				"ext": [
+					"rar",
+					"cbr"
+				],
+				"kind": "file"
+			},
+			"ask": {
+				"dest": {
+					"folder": "Extract to",
+					"start": "{folder}"
+				}
+			},
+			"ways": [
+				{
+					"programs": [
+						"unrar"
+					],
+					"run": [
+						"sh",
+						"-c",
+						"mkdir -p -- \"$dest\" && unrar x -o- -idq -cfg- \"$1\" \"$dest/\"",
+						"sh",
+						"{path}"
+					]
+				},
+				{
+					"programs": [
+						"7zz|7z|7za|7zr"
+					],
+					"run": [
+						"{which:7zz|7z|7za|7zr}",
+						"x",
+						"-aos",
+						"-bso0",
+						"-bsp0",
+						"-o{dest}",
+						"--",
+						"{path}"
+					]
+				},
+				{
+					"programs": [
+						"bsdtar"
+					],
+					"run": [
+						"sh",
+						"-c",
+						"mkdir -p -- \"$dest\" && bsdtar -xkf \"$1\" -C \"$dest\"",
+						"sh",
+						"{path}"
+					]
+				}
+			],
+			"how": {
+				"watched": true
+			},
+			"then": {
+				"reread": true
+			}
+		},
+		{
+			"id": "archive.rar.unpack-here",
+			"label": "Extract here",
+			"when": {
+				"ext": [
+					"rar",
+					"cbr"
+				],
+				"kind": "file"
+			},
+			"like": "archive.rar.unpack",
+			"given": {
+				"dest": "{folder}"
+			}
+		},
+		{
+			"id": "archive.rar.unpack-folder",
+			"label": "Extract into a folder",
+			"when": {
+				"ext": [
+					"rar",
+					"cbr"
+				],
+				"kind": "file",
+				"count": "one"
+			},
+			"like": "archive.rar.unpack",
+			"given": {
+				"dest": "{folder}/{stem}"
+			},
+			"then": {
+				"choose": "{stem}"
+			}
+		},
+		{
+			"id": "archive.rar.extract",
+			"label": "Extract to…",
+			"when": {
+				"in": [
+					"archive.rar"
+				]
+			},
+			"ask": {
+				"dest": {
+					"folder": "Extract to",
+					"start": "{archive.parent}"
+				}
+			},
+			"ways": [
+				{
+					"programs": [
+						"unrar"
+					],
+					"run": [
+						"sh",
+						"-c",
+						"t=$1; shift; for e; do case \"$e\" in */) set -- \"$@\" \"${e%/}\" \"$e*\";; *) set -- \"$@\" \"$e\";; esac; shift; done; unrar x -o+ -idq -cfg- \"$archive\" \"$@\" \"$t/\"",
+						"sh",
+						"{temp}",
+						"{entries}"
+					]
+				},
+				{
+					"programs": [
+						"7zz|7z|7za|7zr"
+					],
+					"run": [
+						"{which:7zz|7z|7za|7zr}",
+						"x",
+						"-y",
+						"-bso0",
+						"-bsp0",
+						"-o{temp}",
+						"{archive}",
+						"--",
+						"{entries}"
+					]
+				},
+				{
+					"programs": [
+						"bsdtar"
+					],
+					"run": [
+						"sh",
+						"-c",
+						"t=$1; shift; for e; do set -- \"$@\" \"${e%/}\"; shift; done; bsdtar -xf \"$archive\" -C \"$t\" -- \"$@\"",
+						"sh",
+						"{temp}",
+						"{entries}"
+					]
+				}
+			],
+			"how": {
+				"watched": true
+			},
+			"then": {
+				"bring": {
+					"from": "{temp}",
+					"to": "{dest}"
+				},
+				"reread": true
+			}
+		},
+		{
+			"id": "archive.rar.extract-beside",
+			"label": "Extract beside the archive",
+			"when": {
+				"in": [
+					"archive.rar"
+				]
+			},
+			"like": "archive.rar.extract",
+			"given": {
+				"dest": "{archive.parent}"
+			}
+		},
+		{
+			"id": "archive.rar.extract-all",
+			"label": "Extract all to…",
+			"when": {
+				"target": "folder",
+				"in": [
+					"archive.rar"
+				]
+			},
+			"ask": {
+				"dest": {
+					"folder": "Extract to",
+					"start": "{archive.parent}"
+				}
+			},
+			"ways": [
+				{
+					"programs": [
+						"unrar"
+					],
+					"run": [
+						"sh",
+						"-c",
+						"mkdir -p -- \"$dest\" && unrar x -o- -idq -cfg- \"$1\" \"$dest/\"",
+						"sh",
+						"{archive}"
+					]
+				},
+				{
+					"programs": [
+						"7zz|7z|7za|7zr"
+					],
+					"run": [
+						"{which:7zz|7z|7za|7zr}",
+						"x",
+						"-aos",
+						"-bso0",
+						"-bsp0",
+						"-o{dest}",
+						"--",
+						"{archive}"
+					]
+				},
+				{
+					"programs": [
+						"bsdtar"
+					],
+					"run": [
+						"sh",
+						"-c",
+						"mkdir -p -- \"$dest\" && bsdtar -xkf \"$1\" -C \"$dest\"",
+						"sh",
+						"{archive}"
+					]
+				}
+			],
+			"how": {
+				"watched": true
+			}
+		},
+		{
+			"id": "archive.rar.remove",
+			"label": "Remove from archive",
+			"when": {
+				"in": [
+					"archive.rar"
+				]
+			},
+			"ways": [
+				{
+					"programs": [
+						"rar"
+					],
+					"run": [
+						"sh",
+						"-c",
+						"for e; do set -- \"$@\" \"${e%/}\"; shift; done; rar d -idq \"$archive\" \"$@\"",
+						"sh",
+						"{entries}"
+					]
+				}
+			],
+			"how": {
+				"watched": true,
+				"confirm": "What is removed from the archive cannot be put back."
+			},
+			"then": {
+				"reread": true
+			},
+			"key": "Delete"
+		},
+		{
+			"id": "archive.rar.add",
+			"label": "Add to archive",
+			"when": {
+				"in": [
+					"archive.rar"
+				],
+				"real": true
+			},
+			"ways": [
+				{
+					"programs": [
+						"rar"
+					],
+					"run": [
+						"rar",
+						"a",
+						"-r",
+						"-idq",
+						"{archive}",
+						"--",
+						"{names}"
+					]
+				}
+			],
+			"how": {
+				"watched": true
+			},
+			"then": {
+				"reread": true
+			}
+		},
+		{
+			"id": "archive.disk.open",
+			"label": "Open",
+			"default": true,
+			"when": {
+				"ext": [
+					"iso",
+					"dmg"
+				],
+				"kind": "file",
+				"count": "one"
+			},
+			"show": {
+				"place": "archive.disk",
+				"with": {
+					"archive": "{path}"
+				}
+			}
+		},
+		{
+			"id": "archive.disk.unpack",
+			"label": "Extract to…",
+			"when": {
+				"ext": [
+					"iso",
+					"dmg"
+				],
+				"kind": "file"
+			},
+			"ask": {
+				"dest": {
+					"folder": "Extract to",
+					"start": "{folder}"
+				}
+			},
+			"ways": [
+				{
+					"programs": [
+						"7zz|7z|7za|7zr"
+					],
+					"run": [
+						"{which:7zz|7z|7za|7zr}",
+						"x",
+						"-aos",
+						"-bso0",
+						"-bsp0",
+						"-o{dest}",
+						"--",
+						"{path}"
+					]
+				},
+				{
+					"programs": [
+						"bsdtar"
+					],
+					"run": [
+						"sh",
+						"-c",
+						"mkdir -p -- \"$dest\" && bsdtar -xkf \"$1\" -C \"$dest\"",
+						"sh",
+						"{path}"
+					]
+				}
+			],
+			"how": {
+				"watched": true
+			},
+			"then": {
+				"reread": true
+			}
+		},
+		{
+			"id": "archive.disk.unpack-here",
+			"label": "Extract here",
+			"when": {
+				"ext": [
+					"iso",
+					"dmg"
+				],
+				"kind": "file"
+			},
+			"like": "archive.disk.unpack",
+			"given": {
+				"dest": "{folder}"
+			}
+		},
+		{
+			"id": "archive.disk.unpack-folder",
+			"label": "Extract into a folder",
+			"when": {
+				"ext": [
+					"iso",
+					"dmg"
+				],
+				"kind": "file",
+				"count": "one"
+			},
+			"like": "archive.disk.unpack",
+			"given": {
+				"dest": "{folder}/{stem}"
+			},
+			"then": {
+				"choose": "{stem}"
+			}
+		},
+		{
+			"id": "archive.disk.extract",
+			"label": "Extract to…",
+			"when": {
+				"in": [
+					"archive.disk"
+				]
+			},
+			"ask": {
+				"dest": {
+					"folder": "Extract to",
+					"start": "{archive.parent}"
+				}
+			},
+			"ways": [
+				{
+					"programs": [
+						"7zz|7z|7za|7zr"
+					],
+					"run": [
+						"{which:7zz|7z|7za|7zr}",
+						"x",
+						"-y",
+						"-bso0",
+						"-bsp0",
+						"-o{temp}",
+						"{archive}",
+						"--",
+						"{entries}"
+					]
+				},
+				{
+					"programs": [
+						"bsdtar"
+					],
+					"run": [
+						"sh",
+						"-c",
+						"t=$1; shift; for e; do set -- \"$@\" \"${e%/}\"; shift; done; bsdtar -xf \"$archive\" -C \"$t\" -- \"$@\"",
+						"sh",
+						"{temp}",
+						"{entries}"
+					]
+				}
+			],
+			"how": {
+				"watched": true
+			},
+			"then": {
+				"bring": {
+					"from": "{temp}",
+					"to": "{dest}"
+				},
+				"reread": true
+			}
+		},
+		{
+			"id": "archive.disk.extract-beside",
+			"label": "Extract beside the archive",
+			"when": {
+				"in": [
+					"archive.disk"
+				]
+			},
+			"like": "archive.disk.extract",
+			"given": {
+				"dest": "{archive.parent}"
+			}
+		},
+		{
+			"id": "archive.disk.extract-all",
+			"label": "Extract all to…",
+			"when": {
+				"target": "folder",
+				"in": [
+					"archive.disk"
+				]
+			},
+			"ask": {
+				"dest": {
+					"folder": "Extract to",
+					"start": "{archive.parent}"
+				}
+			},
+			"ways": [
+				{
+					"programs": [
+						"7zz|7z|7za|7zr"
+					],
+					"run": [
+						"{which:7zz|7z|7za|7zr}",
+						"x",
+						"-aos",
+						"-bso0",
+						"-bsp0",
+						"-o{dest}",
+						"--",
+						"{archive}"
+					]
+				},
+				{
+					"programs": [
+						"bsdtar"
+					],
+					"run": [
+						"sh",
+						"-c",
+						"mkdir -p -- \"$dest\" && bsdtar -xkf \"$1\" -C \"$dest\"",
+						"sh",
+						"{archive}"
+					]
+				}
+			],
+			"how": {
+				"watched": true
+			}
+		},
+		{
+			"id": "decompress.gz",
+			"label": "Decompress",
+			"when": {
+				"ext": [
+					"gz"
+				],
+				"kind": "file",
+				"not": {
+					"ext": [
+						"tar.gz"
+					]
+				}
+			},
+			"ways": [
+				{
+					"programs": [
+						"gzip"
+					],
+					"run": [
+						"gzip",
+						"-dk",
+						"--",
+						"{path}"
+					]
+				},
+				{
+					"programs": [
+						"7zz|7z|7za|7zr"
+					],
+					"run": [
+						"{which:7zz|7z|7za|7zr}",
+						"x",
+						"-aos",
+						"-bso0",
+						"-bsp0",
+						"--",
+						"{path}"
+					]
+				}
+			],
+			"how": {
+				"watched": true
+			},
+			"then": {
+				"reread": true,
+				"choose": "{stem}"
+			}
+		},
+		{
+			"id": "decompress.zst",
+			"label": "Decompress",
+			"when": {
+				"ext": [
+					"zst",
+					"zstd"
+				],
+				"kind": "file",
+				"not": {
+					"ext": [
+						"tar.zst",
+						"tar.zstd"
+					]
+				}
+			},
+			"ways": [
+				{
+					"programs": [
+						"zstd"
+					],
+					"run": [
+						"zstd",
+						"-d",
+						"-q",
+						"-o",
+						"{stem}",
+						"--",
+						"{path}"
+					]
+				},
+				{
+					"programs": [
+						"7zz|7z|7za|7zr"
+					],
+					"run": [
+						"{which:7zz|7z|7za|7zr}",
+						"x",
+						"-aos",
+						"-bso0",
+						"-bsp0",
+						"--",
+						"{path}"
+					]
+				}
+			],
+			"how": {
+				"watched": true
+			},
+			"then": {
+				"reread": true,
+				"choose": "{stem}"
+			}
+		},
+		{
+			"id": "decompress.xz",
+			"label": "Decompress",
+			"when": {
+				"ext": [
+					"xz",
+					"lzma"
+				],
+				"kind": "file",
+				"not": {
+					"ext": [
+						"tar.xz",
+						"tar.lzma"
+					]
+				}
+			},
+			"ways": [
+				{
+					"programs": [
+						"xz"
+					],
+					"run": [
+						"xz",
+						"-dk",
+						"--",
+						"{path}"
+					]
+				},
+				{
+					"programs": [
+						"7zz|7z|7za|7zr"
+					],
+					"run": [
+						"{which:7zz|7z|7za|7zr}",
+						"x",
+						"-aos",
+						"-bso0",
+						"-bsp0",
+						"--",
+						"{path}"
+					]
+				}
+			],
+			"how": {
+				"watched": true
+			},
+			"then": {
+				"reread": true,
+				"choose": "{stem}"
+			}
+		},
+		{
+			"id": "decompress.bz2",
+			"label": "Decompress",
+			"when": {
+				"ext": [
+					"bz2"
+				],
+				"kind": "file",
+				"not": {
+					"ext": [
+						"tar.bz2"
+					]
+				}
+			},
+			"ways": [
+				{
+					"programs": [
+						"bzip2"
+					],
+					"run": [
+						"bzip2",
+						"-dk",
+						"--",
+						"{path}"
+					]
+				},
+				{
+					"programs": [
+						"7zz|7z|7za|7zr"
+					],
+					"run": [
+						"{which:7zz|7z|7za|7zr}",
+						"x",
+						"-aos",
+						"-bso0",
+						"-bsp0",
+						"--",
+						"{path}"
+					]
+				}
+			],
+			"how": {
+				"watched": true
+			},
+			"then": {
+				"reread": true,
+				"choose": "{stem}"
+			}
+		},
+		{
+			"id": "decompress.lz4",
+			"label": "Decompress",
+			"when": {
+				"ext": [
+					"lz4"
+				],
+				"kind": "file",
+				"not": {
+					"ext": [
+						"tar.lz4"
+					]
+				}
+			},
+			"ways": [
+				{
+					"programs": [
+						"lz4"
+					],
+					"run": [
+						"lz4",
+						"-d",
+						"-q",
+						"{path}",
+						"{stem}"
+					]
+				}
+			],
+			"how": {
+				"watched": true
+			},
+			"then": {
+				"reread": true,
+				"choose": "{stem}"
+			}
+		},
+		{
+			"id": "decompress.lz",
+			"label": "Decompress",
+			"when": {
+				"ext": [
+					"lz"
+				],
+				"kind": "file",
+				"not": {
+					"ext": [
+						"tar.lz"
+					]
+				}
+			},
+			"ways": [
+				{
+					"programs": [
+						"lzip"
+					],
+					"run": [
+						"lzip",
+						"-dk",
+						"--",
+						"{path}"
+					]
+				}
+			],
+			"how": {
+				"watched": true
+			},
+			"then": {
+				"reread": true,
+				"choose": "{stem}"
+			}
+		},
+		{
+			"id": "decompress.br",
+			"label": "Decompress",
+			"when": {
+				"ext": [
+					"br"
+				],
+				"kind": "file",
+				"not": {
+					"ext": [
+						"tar.br"
+					]
+				}
+			},
+			"ways": [
+				{
+					"programs": [
+						"brotli"
+					],
+					"run": [
+						"brotli",
+						"-dk",
+						"--",
+						"{path}"
+					]
+				}
+			],
+			"how": {
+				"watched": true
+			},
+			"then": {
+				"reread": true,
+				"choose": "{stem}"
+			}
+		},
+		{
+			"id": "decompress.Z",
+			"label": "Decompress",
+			"when": {
+				"ext": [
+					"Z"
+				],
+				"kind": "file",
+				"not": {
+					"ext": [
+						"tar.Z"
+					]
+				}
+			},
+			"ways": [
+				{
+					"programs": [
+						"gzip"
+					],
+					"run": [
+						"gzip",
+						"-dk",
+						"--",
+						"{path}"
+					]
+				},
+				{
+					"programs": [
+						"uncompress"
+					],
+					"run": [
+						"sh",
+						"-c",
+						"uncompress -c \"$1\" > \"$2\"",
+						"sh",
+						"{path}",
+						"{stem}"
+					]
+				}
+			],
+			"how": {
+				"watched": true
+			},
+			"then": {
+				"reread": true,
+				"choose": "{stem}"
+			}
+		},
+		{
+			"id": "compress.zip",
+			"label": "As a .zip…",
+			"submenu": "Compress",
+			"when": {
+				"count": "some",
+				"real": true,
+				"in": [
+					"folder"
+				]
+			},
+			"ask": {
+				"to": {
+					"text": "Name of the archive",
+					"start": "{stem}"
+				}
+			},
+			"ways": [
+				{
+					"programs": [
+						"zip"
+					],
+					"run": [
+						"zip",
+						"-q",
+						"-r",
+						"{to}.zip",
+						"--",
+						"{names}"
+					]
+				},
+				{
+					"programs": [
+						"7zz|7z|7za|7zr"
+					],
+					"run": [
+						"{which:7zz|7z|7za|7zr}",
+						"a",
+						"-tzip",
+						"-bso0",
+						"-bsp0",
+						"{to}.zip",
+						"--",
+						"{names}"
+					]
+				}
+			],
+			"how": {
+				"watched": true
+			},
+			"then": {
+				"reread": true,
+				"choose": "{to}.zip"
+			}
+		},
+		{
+			"id": "compress.7z",
+			"label": "As a .7z…",
+			"submenu": "Compress",
+			"when": {
+				"count": "some",
+				"real": true,
+				"in": [
+					"folder"
+				]
+			},
+			"ask": {
+				"to": {
+					"text": "Name of the archive",
+					"start": "{stem}"
+				}
+			},
+			"ways": [
+				{
+					"programs": [
+						"7zz|7z|7za|7zr"
+					],
+					"run": [
+						"{which:7zz|7z|7za|7zr}",
+						"a",
+						"-bso0",
+						"-bsp0",
+						"{to}.7z",
+						"--",
+						"{names}"
+					]
+				}
+			],
+			"how": {
+				"watched": true
+			},
+			"then": {
+				"reread": true,
+				"choose": "{to}.7z"
+			}
+		},
+		{
+			"id": "compress.rar",
+			"label": "As a .rar…",
+			"submenu": "Compress",
+			"when": {
+				"count": "some",
+				"real": true,
+				"in": [
+					"folder"
+				]
+			},
+			"ask": {
+				"to": {
+					"text": "Name of the archive",
+					"start": "{stem}"
+				}
+			},
+			"ways": [
+				{
+					"programs": [
+						"rar"
+					],
+					"run": [
+						"rar",
+						"a",
+						"-r",
+						"-idq",
+						"{to}.rar",
+						"--",
+						"{names}"
+					]
+				}
+			],
+			"how": {
+				"watched": true
+			},
+			"then": {
+				"reread": true,
+				"choose": "{to}.rar"
+			}
+		},
+		{
+			"id": "compress.tar-gz",
+			"label": "As a .tar.gz…",
+			"submenu": "Compress",
+			"when": {
+				"count": "some",
+				"real": true,
+				"in": [
+					"folder"
+				]
+			},
+			"ask": {
+				"to": {
+					"text": "Name of the archive",
+					"start": "{stem}"
+				}
+			},
+			"ways": [
+				{
+					"programs": [
+						"bsdtar"
+					],
+					"run": [
+						"bsdtar",
+						"-z",
+						"-cf",
+						"{to}.tar.gz",
+						"--",
+						"{names}"
+					]
+				},
+				{
+					"programs": [
+						"tar",
+						"gzip"
+					],
+					"run": [
+						"tar",
+						"-z",
+						"-cf",
+						"{to}.tar.gz",
+						"--",
+						"{names}"
+					]
+				}
+			],
+			"how": {
+				"watched": true
+			},
+			"then": {
+				"reread": true,
+				"choose": "{to}.tar.gz"
+			}
+		},
+		{
+			"id": "compress.tar-zst",
+			"label": "As a .tar.zst…",
+			"submenu": "Compress",
+			"when": {
+				"count": "some",
+				"real": true,
+				"in": [
+					"folder"
+				]
+			},
+			"ask": {
+				"to": {
+					"text": "Name of the archive",
+					"start": "{stem}"
+				}
+			},
+			"ways": [
+				{
+					"programs": [
+						"bsdtar"
+					],
+					"run": [
+						"bsdtar",
+						"--zstd",
+						"-cf",
+						"{to}.tar.zst",
+						"--",
+						"{names}"
+					]
+				},
+				{
+					"programs": [
+						"tar",
+						"zstd"
+					],
+					"run": [
+						"tar",
+						"--zstd",
+						"-cf",
+						"{to}.tar.zst",
+						"--",
+						"{names}"
+					]
+				}
+			],
+			"how": {
+				"watched": true
+			},
+			"then": {
+				"reread": true,
+				"choose": "{to}.tar.zst"
+			}
+		},
+		{
+			"id": "compress.tar-xz",
+			"label": "As a .tar.xz…",
+			"submenu": "Compress",
+			"when": {
+				"count": "some",
+				"real": true,
+				"in": [
+					"folder"
+				]
+			},
+			"ask": {
+				"to": {
+					"text": "Name of the archive",
+					"start": "{stem}"
+				}
+			},
+			"ways": [
+				{
+					"programs": [
+						"bsdtar"
+					],
+					"run": [
+						"bsdtar",
+						"-J",
+						"-cf",
+						"{to}.tar.xz",
+						"--",
+						"{names}"
+					]
+				},
+				{
+					"programs": [
+						"tar",
+						"xz"
+					],
+					"run": [
+						"tar",
+						"-J",
+						"-cf",
+						"{to}.tar.xz",
+						"--",
+						"{names}"
+					]
+				}
+			],
+			"how": {
+				"watched": true
+			},
+			"then": {
+				"reread": true,
+				"choose": "{to}.tar.xz"
 			}
 		},
 		{
