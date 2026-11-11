@@ -18,6 +18,7 @@ import prism.browser.Choosing
 import prism.browser.Disk
 import prism.browser.FileClipboard
 import prism.browser.Finder
+import prism.browser.FolderWatcher
 import prism.browser.Outcome
 import prism.browser.Request
 import prism.browser.Search
@@ -111,8 +112,11 @@ class Explorer(
 	private val scope: CoroutineScope,
 	val home: Path,
 	private val search: Search,
+	/** What says a folder shown has changed on disk, for its window to read it again. */
+	watcher: FolderWatcher = FolderWatcher.NONE,
 ) {
-	private val services = Services(disk, finder, desktop, clipboard, preferences)
+	private val services =
+		Services(disk, finder, desktop, clipboard, preferences, watcher = watcher)
 	private val ids = AtomicInteger()
 	private val open = MutableStateFlow<List<ExplorerWindow>>(emptyList())
 	private val defaultsSet = MutableStateFlow(0)

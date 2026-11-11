@@ -279,6 +279,11 @@ sealed interface BrowserEvent : Input {
 		val within: List<String>,
 	) : BrowserEvent
 
+	/** The rows a rectangle dragged out over the listing, from where no row is, takes in: chosen, in place of what was. */
+	data class Banded(
+		val rows: Set<RowId>,
+	) : BrowserEvent
+
 	/** [task], under way, to be stopped: the button of what shows it running, or Escape. */
 	data class Stopped(
 		val task: Task,
@@ -443,6 +448,11 @@ sealed interface Answer : Input {
 	data class Ran(
 		val job: Job,
 		val failure: String?,
+	) : Answer
+
+	/** What [folder] holds changed on disk, as whatever watches it says: made by anything, prism or not. */
+	data class Touched(
+		val folder: Path,
 	) : Answer
 
 	/** A line [task] wrote as it runs. */

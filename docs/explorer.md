@@ -201,6 +201,20 @@ the windows use (the focus watch and the title bar's tone) do nothing where the 
 its watcher are Linux's alone (eBPF), and are the larger part of a port: on macOS, FSEvents would take the watcher's
 place; on Windows, the USN journal.
 
+## A folder shown is kept as it is on disk
+
+A window reads its folder again whenever what the folder holds changes, whoever changed it: a file extracted beside
+an archive, a download finishing, something made in a terminal. What says so is a `FolderWatcher` (`browser/source.kt`),
+which a browser's services are given: the JVM's watch service here (inotify on Linux), and whatever another platform
+has behind the same interface. The folder is read a moment after it changes, so that many changes made together are
+one reading, and what is chosen and where the cursor is stay as they were. The pickers are given the same watcher.
+
+## Choosing with a rectangle
+
+A press where no row is, held and dragged, draws out a rectangle, and the rows it touches are chosen, in the list and
+in the gallery, in a folder, a search's results, or a place. With Ctrl held it adds to what was chosen. It takes in
+the rows in sight: it does not scroll the listing as it is dragged.
+
 ## Drag and drop
 
 Rows and tiles drag as files, into other applications and onto folders in prism; the folder rows, the listing between
@@ -208,6 +222,16 @@ them, the places in the sidebar and the steps of the path take files dropped on 
 rows keeps them all chosen until the press ends, so that a drag of it drags them all; let go without dragging, it alone
 is chosen, as a click of it chooses it. A folder a drag waits over for a moment opens, for the files to go further in,
 and a line under the listing says what a drop where the pointer is would make ("Move 2 items into “Documents”").
+
+A drag starts when the first button is held and the pointer has moved eight pixels, as desktops have it, so a click
+with an unsteady hand is a click; the other buttons drag nothing. (Compose's own drag source starts one after a pixel
+or two, with any button.)
+
+Under XWayland on a compositor that does not tell windows where they are (niri, through xwayland-satellite), the X
+server does not know where prism's windows are on screen, so a drag from one to another is never seen to be over the
+other, and ends dropped on nothing. Where a drag of prism's own ends that way and the pointer then comes at once into
+something that takes drops in another of its windows, that is where it was dropped (`StrayDrop`, in
+`browser/dragging.kt`). This is only done under XWayland.
 
 A drop is made by the reducer, as a paste is: `BrowserEvent.Dropped`, the files, where (a folder, or the listing
 itself), and copy, move or link. Which of those is the platform's convention for the keys held, and, for a drag of

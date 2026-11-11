@@ -4,8 +4,9 @@
 package prism.browser
 
 import androidx.compose.foundation.border
-import androidx.compose.foundation.draganddrop.dragAndDropSource
 import androidx.compose.foundation.draganddrop.dragAndDropTarget
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
@@ -20,11 +21,22 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draganddrop.DragAndDropEvent
+import androidx.compose.ui.draganddrop.DragAndDropSourceModifierNode
 import androidx.compose.ui.draganddrop.DragAndDropTarget
 import androidx.compose.ui.draganddrop.DragAndDropTransferAction
 import androidx.compose.ui.draganddrop.DragAndDropTransferData
 import androidx.compose.ui.draganddrop.DragAndDropTransferable
 import androidx.compose.ui.draganddrop.awtTransferable
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.SuspendingPointerInputModifierNode
+import androidx.compose.ui.input.pointer.areAnyPressed
+import androidx.compose.ui.input.pointer.isPrimaryPressed
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.node.DelegatingNode
+import androidx.compose.ui.node.ModifierNodeElement
+import androidx.compose.ui.platform.InspectorInfo
 import androidx.compose.ui.unit.dp
 import java.awt.HeadlessException
 import java.awt.datatransfer.DataFlavor
@@ -101,6 +113,7 @@ internal object OwnDrag {
 					override fun dragDropEnd(event: DragSourceDropEvent) {
 						keyed = null
 						CarriedDrag.current = null
+						StrayDrop.ended(event.dropSuccess)
 					}
 				},
 			)
@@ -264,6 +277,124 @@ private class DraggedFiles(
  */
 val LocalVolumes = staticCompositionLocalOf<(Path, Path) -> Boolean> { { _, _ -> true } }
 
+/** How far the pointer moves, a button held, before that is a drag and not a click with an unsteady hand. */
+private val DRAG_SLOP = 8.dp
+
+/** What a drag of this process's carries: files, or entries of a place. */
+internal sealed interface Dragged {
+	data class Files(
+		val paths: List<Path>,
+	) : Dragged
+
+	data class Entries(
+		val entries: EntriesOut,
+	) : Dragged
+}
+
+/** Which window something is drawn in, to tell one of prism's from another: whoever draws a window gives it its own. */
+val LocalWindowToken = staticCompositionLocalOf { Any() }
+
+/**
+ * A drop the display server never delivered, made good.
+ *
+ * Under XWayland on a compositor that does not tell windows where they are (niri, through xwayland-satellite), the X
+ * server's idea of where each window is on screen is not where it is. AWT finds what a drag is over by asking the X
+ * server which window is at the pointer, so a drag from one of prism's windows to another is never seen to be over
+ * the other, and when the button is let go the drag ends having been dropped on nothing.
+ *
+ * What does still happen, on every compositor, is that the window the pointer is really over is told the pointer has
+ * come into it, the moment the button is let go. So where a drag of this process's ends undelivered, and within a
+ * moment the pointer comes into something that takes drops in another of prism's windows, that is where it was
+ * dropped. The two can arrive in either order, so each waits a moment for the other.
+ *
+ * It is only done where it is needed ([enabled]): under XWayland. On a display server that delivers drops, a drag let
+ * go over nothing was let go over nothing.
+ */
+internal object StrayDrop {
+	private const val MOMENT_NANOS = 400_000_000L
+
+	/** Under XWayland: a Wayland session, and AWT speaking X11. `-Dprism.strayDrop=true` or `false` says otherwise. */
+	val enabled: Boolean by lazy {
+		System.getProperty("prism.strayDrop")?.toBoolean()
+			?: try {
+				System.getenv("WAYLAND_DISPLAY") != null &&
+					java.awt.Toolkit
+						.getDefaultToolkit()
+						.javaClass.name
+						.contains("XToolkit")
+			} catch (headless: java.awt.AWTError) {
+				false
+			}
+	}
+
+	private class Under(
+		val dragged: Dragged,
+		val from: Any,
+	)
+
+	private class Stray(
+		val drag: Under,
+		val at: Long,
+	)
+
+	private class Offer(
+		val window: Any,
+		val take: (Dragged) -> Boolean,
+		val at: Long,
+	)
+
+	// All read and written on AWT's event thread, where drags end and pointers move.
+	private var under: Under? = null
+	private var stray: Stray? = null
+	private var offer: Offer? = null
+
+	/** A drag of [dragged] begun in the window [from]. */
+	fun started(dragged: Dragged, from: Any) {
+		under = Under(dragged, from)
+		stray = null
+	}
+
+	/** The drag ended: delivered, or not; one that was not is given to where the pointer just came in, or waits for it. */
+	fun ended(delivered: Boolean) {
+		val drag = under
+		val now = System.nanoTime()
+
+		under = null
+		if (!enabled || delivered || drag == null)
+			return
+
+		val came = offer?.takeIf { now - it.at < MOMENT_NANOS && it.window !== drag.from }
+
+		if (came == null || !came.take(drag.dragged))
+			stray = Stray(drag, now)
+	}
+
+	/**
+	 * The pointer has come over something in [window] that takes drops, [take] giving it one (and saying whether it
+	 * took it). A drag that has just ended undelivered, from another window, is dropped there; otherwise this is
+	 * remembered a moment, for a drag about to end.
+	 */
+	fun offered(window: Any, take: (Dragged) -> Boolean) {
+		val now = System.nanoTime()
+		val left = stray?.takeIf { now - it.at < MOMENT_NANOS && it.drag.from !== window }
+
+		if (left != null) {
+			if (take(left.drag.dragged))
+				stray = null
+
+			return
+		}
+
+		// The innermost thing under the pointer says so first: what is around it, the same instant, does not replace it.
+		val last = offer
+
+		if (last == null || last.window !== window || now - last.at > SAME_INSTANT_NANOS)
+			offer = Offer(window, take, now)
+	}
+
+	private const val SAME_INSTANT_NANOS = 4_000_000L
+}
+
 /**
  * This dragged as files: those [paths] gives when the drag starts (none: no drag), as the browser's own drag. [onStart]
  * is told as it starts, and [onEnd] what the target made of it, once it is over: a move made by another application is
@@ -271,46 +402,126 @@ val LocalVolumes = staticCompositionLocalOf<(Path, Path) -> Boolean> { { _, _ ->
  *
  * Where there are no files to drag, [carried] may give entries of a place instead: dragged as themselves, to be
  * brought out into the folder they are dropped on, in any window of prism.
+ *
+ * A drag starts when the first button is held and the pointer has moved a little way ([DRAG_SLOP]), as desktops have
+ * it: a click with a hand that is not quite still is a click, and the other buttons drag nothing.
  */
+@Composable
 fun Modifier.filesDragged(
 	paths: () -> List<Path>,
 	onStart: () -> Unit,
 	onEnd: (Transfer?) -> Unit,
 	carried: () -> Carried? = { null },
-): Modifier =
-	dragAndDropSource { offset ->
-		val files = paths()
+): Modifier {
+	val window = LocalWindowToken.current
+	val files by rememberUpdatedState(paths)
+	val entries by rememberUpdatedState(carried)
+	val start by rememberUpdatedState(onStart)
+	val end by rememberUpdatedState(onEnd)
 
-		if (files.isEmpty())
-			return@dragAndDropSource carried()?.let(EntriesOut::of)?.let { entries ->
-				onStart()
-				OwnDrag.started()
-				if (CarriedDrag.kept)
-					CarriedDrag.current = entries
-				DragAndDropTransferData(
-					DragAndDropTransferable(DraggedEntries(entries)),
-					listOf(DragAndDropTransferAction.Copy),
-					offset,
-					// What is carried is let go when the drag ends (OwnDrag), which is after a drop has read it.
-					onTransferCompleted = {},
-				)
+	// One for as long as this is drawn, reading what it is given as it is by then: the modifier is then the same from
+	// one drawing to the next, and nothing is told the window system again that has not changed.
+	val data =
+		remember(window) {
+			{ offset: Offset ->
+				val dragged = files()
+
+				if (dragged.isEmpty()) {
+					entries()?.let(EntriesOut::of)?.let { out ->
+						start()
+						OwnDrag.started()
+						StrayDrop.started(Dragged.Entries(out), window)
+						if (CarriedDrag.kept)
+							CarriedDrag.current = out
+						DragAndDropTransferData(
+							DragAndDropTransferable(DraggedEntries(out)),
+							listOf(DragAndDropTransferAction.Copy),
+							offset,
+							// What is carried is let go when the drag ends (OwnDrag), which is after a drop has read it.
+							onTransferCompleted = {},
+						)
+					}
+				} else {
+					start()
+					OwnDrag.started()
+					StrayDrop.started(Dragged.Files(dragged), window)
+					DragAndDropTransferData(
+						DragAndDropTransferable(DraggedFiles(dragged)),
+						listOf(
+							DragAndDropTransferAction.Move,
+							DragAndDropTransferAction.Copy,
+							DragAndDropTransferAction.Link,
+						),
+						offset,
+						onTransferCompleted = { end(transferOf(it)) },
+					)
+				}
 			}
-
-		files.let { dragged ->
-			onStart()
-			OwnDrag.started()
-			DragAndDropTransferData(
-				DragAndDropTransferable(DraggedFiles(dragged)),
-				listOf(
-					DragAndDropTransferAction.Move,
-					DragAndDropTransferAction.Copy,
-					DragAndDropTransferAction.Link,
-				),
-				offset,
-				onTransferCompleted = { onEnd(transferOf(it)) },
-			)
 		}
+
+	return this then DragSourceElement(data)
+}
+
+/** A drag source that starts as [DragSourceNode] says, giving what [data] gives for where it started. */
+private data class DragSourceElement(
+	val data: (Offset) -> DragAndDropTransferData?,
+) : ModifierNodeElement<DragSourceNode>() {
+	override fun create(): DragSourceNode = DragSourceNode(data)
+
+	override fun update(node: DragSourceNode) {
+		node.data = data
 	}
+
+	override fun InspectorInfo.inspectableProperties() {
+		name = "filesDragged"
+	}
+}
+
+/**
+ * What starts a drag: the first button held, and the pointer moved [DRAG_SLOP] from where it was pressed. Compose's
+ * own drag source starts one after a pixel or two of movement with any button, which makes drags of clicks.
+ */
+private class DragSourceNode(
+	var data: (Offset) -> DragAndDropTransferData?,
+) : DelegatingNode() {
+	private var area = Size.Zero
+
+	private val source =
+		delegate(
+			DragAndDropSourceModifierNode { offset ->
+				// Nothing is drawn under the pointer as it is dragged: the row stays where it is, as on most desktops.
+				data(offset)?.let { startDragAndDropTransfer(it, area) {} }
+			},
+		)
+
+	init {
+		delegate(
+			SuspendingPointerInputModifierNode {
+				awaitEachGesture {
+					val down = awaitFirstDown(requireUnconsumed = false)
+
+					if (!currentEvent.buttons.isPrimaryPressed)
+						return@awaitEachGesture
+
+					val slop = DRAG_SLOP.toPx()
+
+					while (true) {
+						val change = awaitPointerEvent().changes.firstOrNull { it.id == down.id } ?: break
+
+						if (!change.pressed)
+							break
+
+						if ((change.position - down.position).getDistance() >= slop) {
+							area = Size(size.width.toFloat(), size.height.toFloat())
+							source.requestDragAndDropTransfer(down.position)
+							break
+						}
+					}
+				}
+			},
+		)
+	}
+}
 
 /** A drop about to be made: how many files, made what, where. */
 @Immutable
@@ -337,6 +548,8 @@ fun Modifier.filesDropped(
 	val hover by rememberUpdatedState(onHover)
 	val drop by rememberUpdatedState(onDrop)
 	val bring by rememberUpdatedState(onEntries)
+	val window = LocalWindowToken.current
+	val entered = onEntries != null
 	val folder by rememberUpdatedState(into)
 
 	val target =
@@ -400,12 +613,49 @@ fun Modifier.filesDropped(
 			}
 		}
 
-	return dragAndDropTarget(
-		{
-			carriesFiles(it.awtTransferable) ||
-				(onEntries != null && carriesEntries(it.awtTransferable))
-		},
-		target,
+	// The same from one drawing to the next, so that taking drops here is told the window system once, and not again
+	// each time the browser is drawn: a row that takes drops is a row the window system is told of.
+	val accepts =
+		remember(entered) {
+			{ event: DragAndDropEvent ->
+				carriesFiles(event.awtTransferable) ||
+					(entered && carriesEntries(event.awtTransferable))
+			}
+		}
+
+	// A drop the display server did not deliver ([StrayDrop]): taken as the files, or the entries, it was.
+	val take =
+		remember(spot) {
+			{ dragged: Dragged ->
+				when (dragged) {
+					is Dragged.Files -> {
+						val first = dragged.paths.firstOrNull()
+						val same = first == null || folder == null || volumes(first, folder!!)
+
+						drop(dragged.paths, transferOf(Asked.Default, same))
+						true
+					}
+					is Dragged.Entries -> bring?.let { it(dragged.entries) } != null
+				}
+			}
+		}
+
+	return dragAndDropTarget(accepts, target).then(
+		if (StrayDrop.enabled)
+			Modifier.pointerInput(window, take) {
+				awaitPointerEventScope {
+					while (true) {
+						val event = awaitPointerEvent()
+						val came =
+							event.type == PointerEventType.Enter || event.type == PointerEventType.Move
+
+						if (came && !event.buttons.areAnyPressed)
+							StrayDrop.offered(window, take)
+					}
+				}
+			}
+		else
+			Modifier,
 	)
 }
 

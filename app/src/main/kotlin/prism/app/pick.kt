@@ -22,6 +22,7 @@ import prism.browser.Choosing
 import prism.browser.Finder
 import prism.browser.HostedBrowser
 import prism.browser.JvmDisk
+import prism.browser.JvmFolderWatcher
 import prism.browser.Search
 import prism.browser.Services
 import prism.browser.Session
@@ -138,7 +139,15 @@ object PickCommand : Command(
 				search = search,
 			)
 
-		val services = Services(JvmDisk(), finder, desktop, SystemFileClipboard, preferences)
+		val services =
+			Services(
+				JvmDisk(),
+				finder,
+				desktop,
+				SystemFileClipboard,
+				preferences,
+				watcher = JvmFolderWatcher,
+			)
 
 		return when (
 			val outcome =

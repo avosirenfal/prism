@@ -9,6 +9,7 @@ import androidx.compose.ui.window.application
 import kotlin.io.path.Path
 import kotlinx.coroutines.flow.first
 import prism.browser.JvmDisk
+import prism.browser.JvmFolderWatcher
 import prism.browser.SystemFileClipboard
 import prism.cli.Args
 import prism.cli.Command
@@ -65,6 +66,7 @@ object ExploreCommand : Command(
 								scope,
 								home,
 								search,
+								JvmFolderWatcher,
 							).also { it.browse(args[folder]) }
 						}
 

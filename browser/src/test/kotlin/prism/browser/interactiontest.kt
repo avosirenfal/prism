@@ -851,6 +851,52 @@ class InteractionTest {
 		}
 
 	@Test
+	fun aRectangleDraggedOutFromWhereNoRowIsChoosesTheRowsItTakesIn() =
+		picking(Choosing.Exploring()) { session ->
+			val listing = onNodeWithTag("listing")
+			// The last two rows, from below them: the home's rows are Documents, Music, main.kt, notes.md, todo.txt.
+			val last = onNodeWithTag("row:todo.txt").fetchSemanticsNode().boundsInRoot
+			val top = listing.fetchSemanticsNode().boundsInRoot.top
+
+			listing.performMouseInput {
+				moveTo(Offset(width - 60f, height - 40f))
+				press()
+				moveTo(Offset(width - 120f, last.bottom - top + 40f))
+				moveTo(Offset(width - 200f, last.top - top - last.height / 2))
+			}
+			waitUntil(timeoutMillis = TIMEOUT) {
+				session.state.value.choosing.rows ==
+					setOf<RowId>(RowId("notes.md"), RowId("todo.txt"))
+			}
+			listing.performMouseInput { release() }
+			waitForIdle()
+			assertEquals(
+				setOf<RowId>(RowId("notes.md"), RowId("todo.txt")),
+				session.state.value.choosing.rows,
+			)
+
+			// With Ctrl held, a rectangle adds to what is chosen; a plain press where no row is lets go of it all.
+			onNodeWithTag("row:Documents").performClick()
+			listing.performKeyInput { keyDown(Key.CtrlLeft) }
+			listing.performMouseInput {
+				moveTo(Offset(width - 60f, height - 40f))
+				press()
+				moveTo(Offset(width - 200f, last.top - top + last.height / 2))
+				release()
+			}
+			listing.performKeyInput { keyUp(Key.CtrlLeft) }
+			waitUntil(timeoutMillis = TIMEOUT) {
+				session.state.value.choosing.rows ==
+					setOf<RowId>(RowId("Documents"), RowId("todo.txt"))
+			}
+			listing.performMouseInput { click(Offset(width - 60f, height - 40f)) }
+			waitUntil(timeoutMillis = TIMEOUT) {
+				session.state.value.choosing.rows
+					.isEmpty()
+			}
+		}
+
+	@Test
 	fun aSubmenuClosesWhenThePointerMovesToAnotherEntry() =
 		picking {
 			rightClickNowhere()

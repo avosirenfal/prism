@@ -304,13 +304,14 @@ object ProcessCommands : Commands {
 }
 
 /**
- * Folders made for a while: what entries of a place are brought out into to be opened. Each is under the system's
- * temporary folder, named with this process's id, and gone when whoever asked for it is done with it ([remove]), or
+ * Folders made for a while: what entries of a place are brought out into to be opened, and what a command that asks
+ * for somewhere to work is given. Each is in `prism`, under the system's temporary folder (`/tmp/prism`), named with
+ * this process's id, and gone when whoever asked for it is done with it ([remove]), or
  * when prism ends, whichever is first. Those a process that is no longer running left behind (one that was killed)
  * are removed when the next one starts.
  */
 class Temps(
-	private val under: Path = Path.of(System.getProperty("java.io.tmpdir")),
+	private val under: Path = Path.of(System.getProperty("java.io.tmpdir"), "prism"),
 	private val process: Long = ProcessHandle.current().pid(),
 ) {
 	private val made: MutableSet<Path> = ConcurrentHashMap.newKeySet()
@@ -326,7 +327,7 @@ class Temps(
 
 	/** A folder of its own, empty. */
 	fun make(): Path =
-		Files.createTempDirectory(under, "$PREFIX$process-").also {
+		Files.createTempDirectory(Files.createDirectories(under), "$process-").also {
 			made.add(it)
 		}
 
@@ -342,12 +343,11 @@ class Temps(
 	/** The folders left by processes that are not running any more, removed. */
 	private fun sweep() {
 		try {
-			Files.newDirectoryStream(under, "$PREFIX*").use { left ->
+			Files.newDirectoryStream(under).use { left ->
 				for (folder in left) {
 					val owner =
 						folder.fileName
 							.toString()
-							.removePrefix(PREFIX)
 							.substringBefore('-')
 							.toLongOrNull()
 
@@ -377,10 +377,6 @@ class Temps(
 		} catch (failed: java.io.UncheckedIOException) {
 			Unit
 		}
-	}
-
-	private companion object {
-		const val PREFIX = "prism-open-"
 	}
 }
 

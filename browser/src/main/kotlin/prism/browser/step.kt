@@ -315,6 +315,19 @@ private fun did(state: BrowserState, event: BrowserEvent): Step =
 			state.carrying(event.entries)?.let { state.droppedCarried(it, event.spot) }
 				?: Step(state)
 		is BrowserEvent.Stopped -> state.stopping(event.task)
+		is BrowserEvent.Banded ->
+			Step(
+				if (state.choosing.many) {
+					val taken = event.rows.filterTo(LinkedHashSet()) { it in state.rows }
+
+					state.copy(
+						choosing = state.choosing.chose(taken, state.rows),
+						cursor = taken.lastOrNull()?.let { Cursor(it, it) } ?: state.cursor,
+					)
+				} else {
+					state
+				},
+			)
 		// A line typed with nothing asking for one.
 		is BrowserEvent.AnswerTyped -> Step(state)
 	}
@@ -893,6 +906,12 @@ private fun answered(state: BrowserState, answer: Answer): Step =
 		is Answer.Listed -> state.listed(answer.placed, answer.listing)
 		is Answer.Ran -> state.ran(answer.job, answer.failure)
 		is Answer.Said -> state.said(answer.task, answer.line)
+		// The folder shown changed on disk: read again, what is chosen and where the cursor is kept as they are.
+		is Answer.Touched ->
+			if (answer.folder == state.folder)
+				state.reread()
+			else
+				Step(state)
 		is Answer.TempMade -> state.openingOut(answer.folder, answer.carried)
 		is Answer.ScratchMade -> state.scratched(answer.folder, answer.pending)
 		is Answer.Configured -> Step(state.copy(actions = answer.actions))

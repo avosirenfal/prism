@@ -58,10 +58,13 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.StrokeCap
@@ -1223,11 +1226,66 @@ private fun ListingPane(
 		return true
 	}
 
-	val nowhere =
-		Modifier.pressedNowhere {
-			stops.listing.requestFocus()
+	// A rectangle dragged out from where no row is, in the listing's own space, while it is being dragged; and what
+	// was chosen as it began, which a rectangle dragged with Ctrl held adds to.
+	var band by remember { mutableStateOf<Rect?>(null) }
+	var banded by remember { mutableStateOf(emptySet<RowId>()) }
+	val inset = with(LocalDensity.current) { Dims.gapSmall.toPx() }
+
+	/** The rows [rect] takes in: those in sight that it touches, each where the listing has laid it out. */
+	fun within(rect: Rect): Set<RowId> {
+		val laid =
+			if (gallery)
+				grid.layoutInfo.visibleItemsInfo.map {
+					it.index to
+						Rect(
+							Offset(it.offset.x + inset, it.offset.y + inset),
+							Size(it.size.width.toFloat(), it.size.height.toFloat()),
+						)
+				}
+			else
+				list.layoutInfo.visibleItemsInfo.map {
+					it.index to
+						Rect(
+							Offset(inset, it.offset + inset),
+							Size(
+								list.layoutInfo.viewportSize.width
+									.toFloat(),
+								it.size.toFloat(),
+							),
+						)
+				}
+
+		return laid
+			.filter { (index, bounds) -> index < rows.size && bounds.overlaps(rect) }
+			.mapTo(LinkedHashSet()) { (index, _) -> rows.idAt(index) }
+	}
+
+	// What a press where no row is, and a rectangle dragged from it, do, as the listing is by then: the pointer is
+	// followed by one thing for as long as the listing is drawn, which asks these each time.
+	val pressedNowhere by rememberUpdatedState { adding: Boolean ->
+		stops.listing.requestFocus()
+		// With Ctrl held, what is chosen stays, for what the rectangle takes in to be added to.
+		banded =
+			if (adding)
+				chosen
+			else
+				emptySet()
+		if (!adding)
 			onEvent(BrowserEvent.ClickedNowhere)
-		}
+	}
+
+	val bandedNowhere by rememberUpdatedState { rect: Rect? ->
+		band = rect
+		if (rect != null && state.choosing.many)
+			onEvent(BrowserEvent.Banded(banded + within(rect)))
+	}
+
+	val nowhere =
+		Modifier.pressedNowhere(
+			onPress = { pressedNowhere(it) },
+			onBand = { bandedNowhere(it) },
+		)
 
 	Column(
 		modifier
@@ -1246,7 +1304,14 @@ private fun ListingPane(
 				.weight(1f)
 				.fillMaxWidth()
 				.onGloballyPositioned { area.coordinates = it }
-				.contextMenu(menus) { folderMenu() }
+				// The rectangle being dragged out, over the rows.
+				.drawWithContent {
+					drawContent()
+					band?.takeIf { state.choosing.many }?.let {
+						drawRect(palette.accent.copy(alpha = 0.14f), it.topLeft, it.size)
+						drawRect(palette.accent, it.topLeft, it.size, style = Stroke(1.dp.toPx()))
+					}
+				}.contextMenu(menus) { folderMenu() }
 				// Files dropped between the rows: given to the folder shown, or, in a picker, gone to.
 				.filesDropped(
 					DropSpot.Here,
@@ -1576,21 +1641,57 @@ private suspend fun LazyListState.reveal(index: Int) {
 }
 
 /** A press that no row inside took. */
-private fun Modifier.pressedNowhere(onPress: () -> Unit): Modifier =
+private fun Modifier.pressedNowhere(
+	onPress: (adding: Boolean) -> Unit,
+	onBand: (Rect?) -> Unit,
+): Modifier =
 	pointerInput(Unit) {
 		awaitPointerEventScope {
 			while (true) {
 				val event = awaitPointerEvent(PointerEventPass.Main)
 				val pressed =
-					event.changes.any {
+					event.changes.firstOrNull {
 						it.pressed && !it.previousPressed && !it.isConsumed
 					}
 
-				if (pressed && event.buttons.isPrimaryPressed)
-					onPress()
+				if (pressed == null || !event.buttons.isPrimaryPressed)
+					continue
+
+				onPress(
+					event.keyboardModifiers.isCtrlPressed || event.keyboardModifiers.isMetaPressed,
+				)
+
+				// Held and dragged from there, it draws out a rectangle, which chooses the rows it takes in, until
+				// the button is let go. Not before it has moved a little way: a click is not a rectangle.
+				val from = pressed.position
+				var drawn = false
+
+				while (true) {
+					val moved =
+						awaitPointerEvent(PointerEventPass.Main).changes.firstOrNull { it.id == pressed.id }
+							?: break
+
+					if (!moved.pressed)
+						break
+
+					if (drawn ||
+						(moved.position - from).getDistance() >= viewConfiguration.touchSlop / 2
+					) {
+						drawn = true
+						moved.consume()
+						onBand(Rect(from, moved.position).normalized())
+					}
+				}
+
+				if (drawn)
+					onBand(null)
 			}
 		}
 	}
+
+/** [this] with its corners the right way round, whichever way it was dragged out. */
+private fun Rect.normalized(): Rect =
+	Rect(minOf(left, right), minOf(top, bottom), maxOf(left, right), maxOf(top, bottom))
 
 /** A press of a row: which keys were held, and when, by the pointer's own clock. */
 @Immutable

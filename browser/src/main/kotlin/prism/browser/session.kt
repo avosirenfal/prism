@@ -4,6 +4,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import java.awt.HeadlessException
 import java.awt.Toolkit
@@ -18,6 +19,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.channels.BufferOverflow.DROP_OLDEST
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -120,6 +122,29 @@ class Session(
 				}
 		}
 
+		// The folder shown is watched, whichever it is, and read again a moment after it changes: a moment, so that
+		// many changes made at once are one reading, and then no sooner than a little later, so that a folder written
+		// to without pause is not read without pause.
+		scope.launch(io) {
+			state.map { it.folder }.distinctUntilChanged().collectLatest { folder ->
+				if (folder == null)
+					return@collectLatest
+
+				val touched = Channel<Unit>(Channel.CONFLATED)
+				val watch = services.watcher.watch(folder) { touched.trySend(Unit) }
+
+				try {
+					for (touch in touched) {
+						delay(SETTLES_MILLIS)
+						inputs.send(Answer.Touched(folder))
+						delay(RESTS_MILLIS)
+					}
+				} finally {
+					watch.close()
+				}
+			}
+		}
+
 		// A browser done with (its window closed) leaves nothing behind it, and nothing running.
 		// Done as the browser is cancelled, and not once its work has ended: its work is waiting on those commands.
 		scope.launch {
@@ -148,6 +173,14 @@ class Session(
 	/** Whether [a] and [b] are on one volume, as the disk says: what a drop with no key held is told by. */
 	fun sameVolume(a: java.nio.file.Path, b: java.nio.file.Path): Boolean =
 		services.disk.sameVolume(a, b)
+
+	private companion object {
+		/** How long after a folder changes it is read again: long enough for what changes together to have. */
+		const val SETTLES_MILLIS = 120L
+
+		/** How long after reading a changed folder before it is read again for changing still. */
+		const val RESTS_MILLIS = 400L
+	}
 
 	/** What the user did, to be folded in after whatever came before it. */
 	fun send(event: BrowserEvent) {
@@ -284,9 +317,13 @@ fun SessionBrowser(
 ) {
 	val state by session.state.collectAsState()
 
+	// Each browser drawn is a window of its own, told apart from the others by this.
+	val window = remember(session) { Any() }
+
 	CompositionLocalProvider(
 		LocalVolumes provides session::sameVolume,
 		LocalWorld provides session.world,
+		LocalWindowToken provides window,
 	) {
 		FileBrowser(state, modifier, mouseChords, session::send)
 	}

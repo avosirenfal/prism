@@ -353,8 +353,9 @@ under a new `src/`: the folders above the one shown are left behind. That is wha
 with, the folder dragged from, and what each entry is called. It names no command. The window dropped on brings them
 out by its own actions, so it can be a window of another prism process, which reads the same preferences.
 
-**What is made to open an entry from is removed.** The folder an entry is brought out into to be opened is under the
-system's temporary folder, named with prism's process id. It is removed when the window it was made for closes, and
+**What is made to open an entry from is removed.** The folder an entry is brought out into to be opened, like the
+`{temp}` a command is given, is in `/tmp/prism` (`prism`, under the system's temporary folder), named with prism's
+process id. It is removed when the window it was made for closes, and
 any left are removed when prism ends. Those of a process that was killed are removed by the next prism to start. A place with no `out` has entries that cannot be dragged or copied at all; nothing has to forbid
 it.
 

@@ -652,15 +652,10 @@ class PlacesTest {
 
 	@Test
 	fun temporaryFoldersAreRemovedWhenDoneWithAndThoseOfProcessesGoneAreSwept() {
-		val under = Files.createDirectory(root.resolve("tmp"))
+		val under = Files.createDirectory(root.resolve("prism"))
 		// Left by a process that is not running any more, and by one that is.
-		val stale = Files.createDirectories(under.resolve("prism-open-999999999-old/inside"))
-
-		val live =
-			Files.createDirectory(
-				under.resolve("prism-open-${ProcessHandle.current().pid()}-mine"),
-			)
-
+		val stale = Files.createDirectories(under.resolve("999999999-old/inside"))
+		val live = Files.createDirectory(under.resolve("${ProcessHandle.current().pid()}-mine"))
 		val other = Files.createDirectory(under.resolve("something-else"))
 		val temps = Temps(under, process = 4242)
 
@@ -672,7 +667,8 @@ class PlacesTest {
 
 		made.resolve("deep").createDirectories()
 		made.resolve("deep/file").writeText("x")
-		assertTrue(made.fileName.toString().startsWith("prism-open-4242-"))
+		assertEquals(under, made.parent)
+		assertTrue(made.fileName.toString().startsWith("4242-"))
 		temps.remove(made)
 		assertFalse(made.exists())
 
@@ -683,7 +679,62 @@ class PlacesTest {
 		// Only what these made is theirs to remove.
 		temps.remove(other)
 		assertTrue(other.exists())
+
+		// Where nothing says otherwise, they are in `prism` under the system's temporary folder: `/tmp/prism`.
+		val shared = Temps()
+		val real = shared.make()
+
+		assertEquals(Path.of(System.getProperty("java.io.tmpdir"), "prism"), real.parent)
+		shared.remove(real)
+		assertFalse(real.exists())
 	}
+
+	@Test
+	fun aFolderShownIsReadAgainWhenWhatItHoldsChangesOnDisk() =
+		runBlocking {
+			val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+			val watched = root.resolve("watched").createDirectories()
+			val beside = root.resolve("beside").createDirectories()
+
+			val session =
+				Session(
+					opened(Choosing.Exploring(), watched, root, sidebarOf(XdgPlaces(), root, null)),
+					services.copy(watcher = JvmFolderWatcher),
+					scope,
+				)
+
+			try {
+				withTimeout(15_000) {
+					session.state.first { it.listing is Listing.Read }
+					// Made by something that is not prism: the folder is read again without being asked to.
+					delay(200)
+					watched.resolve("made.txt").writeText("made elsewhere")
+					session.state.first { state -> state.rows.list.any { it.name == "made.txt" } }
+
+					// What is chosen stays chosen as it is read again.
+					session.send(BrowserEvent.Clicked(RowId("made.txt"), Click.Only))
+					watched.resolve("more.txt").writeText("more")
+
+					val both =
+						session.state.first { state ->
+							state.rows.list.any { it.name == "more.txt" }
+						}
+
+					assertEquals(setOf<RowId>(RowId("made.txt")), both.choosing.rows)
+					Files.delete(watched.resolve("made.txt"))
+					session.state.first { state -> state.rows.list.none { it.name == "made.txt" } }
+
+					// Gone elsewhere, it is that folder that is watched, and the one left is not.
+					session.send(BrowserEvent.Opened(beside))
+					session.state.first { it.folder == beside && it.listing is Listing.Read }
+					delay(200)
+					beside.resolve("here.txt").writeText("here")
+					session.state.first { state -> state.rows.list.any { it.name == "here.txt" } }
+				}
+			} finally {
+				scope.cancel()
+			}
+		}
 
 	@Test
 	fun aCommandUnderWayIsToldOfAndStoppedAndABrowserClosedLeavesNothingBehind() =

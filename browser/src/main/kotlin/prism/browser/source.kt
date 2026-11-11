@@ -2,14 +2,21 @@ package prism.browser
 
 import java.io.IOException
 import java.nio.file.AccessDeniedException
+import java.nio.file.ClosedWatchServiceException
 import java.nio.file.DirectoryIteratorException
 import java.nio.file.DirectoryNotEmptyException
 import java.nio.file.FileAlreadyExistsException
+import java.nio.file.FileSystems
 import java.nio.file.Files
 import java.nio.file.LinkOption
 import java.nio.file.NoSuchFileException
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
+import java.nio.file.StandardWatchEventKinds.ENTRY_CREATE
+import java.nio.file.StandardWatchEventKinds.ENTRY_DELETE
+import java.nio.file.StandardWatchEventKinds.ENTRY_MODIFY
+import java.nio.file.WatchKey
+import java.nio.file.WatchService
 import java.nio.file.attribute.BasicFileAttributes
 import java.time.Instant
 import java.time.ZoneId
@@ -64,6 +71,86 @@ interface Disk {
 }
 
 /**
+ * What tells a browser that the folder it shows has changed on disk, so that it reads it again: something made in it,
+ * taken from it, or written to. How a platform says so is its own (inotify on Linux, through the JVM here; FSEvents
+ * and the USN journal elsewhere); a browser only asks to be told.
+ */
+fun interface FolderWatcher {
+	/** [changed] called, on some thread, whenever what [folder] holds changes, until what this gives is closed. */
+	fun watch(folder: Path, changed: () -> Unit): AutoCloseable
+
+	companion object {
+		/** Nothing watched: a browser that reads a folder when it is asked to, and not otherwise. */
+		val NONE = FolderWatcher { _, _ -> AutoCloseable {} }
+	}
+}
+
+/**
+ * Folders watched through the JVM's watch service, which is the platform's own where the JVM has one (inotify on
+ * Linux, ReadDirectoryChangesW on Windows) and polling where it has not. One service, and one thread reading it, for
+ * every folder watched; a folder watched by several browsers is watched once.
+ */
+object JvmFolderWatcher : FolderWatcher {
+	private val watched = HashMap<WatchKey, MutableList<() -> Unit>>()
+
+	private val service: WatchService by lazy {
+		FileSystems.getDefault().newWatchService().also { service ->
+			Thread({ read(service) }, "prism-folders").apply {
+				isDaemon = true
+				start()
+			}
+		}
+	}
+
+	override fun watch(folder: Path, changed: () -> Unit): AutoCloseable {
+		val key =
+			try {
+				folder.register(service, ENTRY_CREATE, ENTRY_DELETE, ENTRY_MODIFY)
+			} catch (failed: IOException) {
+				return AutoCloseable {}
+			} catch (unsupported: UnsupportedOperationException) {
+				return AutoCloseable {}
+			}
+
+		synchronized(watched) { watched.getOrPut(key, ::ArrayList).add(changed) }
+
+		return AutoCloseable {
+			synchronized(watched) {
+				watched[key]?.let { told ->
+					told.remove(changed)
+					// The last to watch it lets go of the folder itself.
+					if (told.isEmpty()) {
+						watched.remove(key)
+						key.cancel()
+					}
+				}
+			}
+		}
+	}
+
+	private fun read(service: WatchService) {
+		try {
+			while (true) {
+				val key = service.take()
+
+				key.pollEvents()
+
+				val told = synchronized(watched) { watched[key]?.toList().orEmpty() }
+
+				told.forEach { it() }
+				// A folder that is gone is watched no longer; whoever watched it was told it changed.
+				if (!key.reset())
+					synchronized(watched) { watched.remove(key) }
+			}
+		} catch (closed: ClosedWatchServiceException) {
+			Unit
+		} catch (stopped: InterruptedException) {
+			Unit
+		}
+	}
+}
+
+/**
  * What a browser's effects are carried out against: the [disk], the index it searches ([finder]), the [desktop] it opens
  * files and starts terminals on, the [clipboard] files are copied to, and the user's [preferences]. Without a desktop,
  * nothing can be opened, and is said not to be.
@@ -85,6 +172,8 @@ data class Services(
 	val carried: AtomicReference<Carried?> = AtomicReference(null),
 	/** The folders made for a while, which are removed when they are done with. */
 	val temps: Temps = SHARED_TEMPS,
+	/** What says the folder shown has changed on disk; nothing does, unless whoever runs the browser gives one. */
+	val watcher: FolderWatcher = FolderWatcher.NONE,
 ) {
 	/** What conditions are decided by: the desktop's types, the `PATH`, and the disk. */
 	val world: World by lazy { SystemWorld(home, desktop?.types) }
