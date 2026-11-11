@@ -153,6 +153,7 @@ fun FileBrowser(
 	val stops = remember { Stops() }
 	val saving = state.choosing is Choosing.SaveAs
 	val keyboard = remember { KeyboardUse() }
+	val hint = remember { DropHint() }
 	val latest by rememberUpdatedState(onEvent)
 	val bindings = LocalBindings.current
 	val current by rememberUpdatedState(state)
@@ -173,7 +174,10 @@ fun FileBrowser(
 			stops.listing.requestFocus()
 	}
 
-	CompositionLocalProvider(LocalKeyboardUse provides keyboard) {
+	CompositionLocalProvider(
+		LocalKeyboardUse provides keyboard,
+		LocalDropHint provides hint,
+	) {
 		Box(
 			modifier
 				.fillMaxSize()
@@ -512,7 +516,15 @@ private fun Crumbs(
 			crumbs.forEachIndexed { index, crumb ->
 				val last = index == crumbs.lastIndex
 
-				CrumbStep(crumb, last) { onEvent(BrowserEvent.Opened(crumb.path)) }
+				CrumbStep(
+					crumb,
+					last,
+					Modifier.folderDrop(
+						crumb.path,
+						{ onEvent(BrowserEvent.Opened(crumb.path)) }.takeIf { !last },
+						onEvent,
+					),
+				) { onEvent(BrowserEvent.Opened(crumb.path)) }
 				if (!last)
 					GlyphIcon(Glyph.Chevron, palette.textFaint, 12.dp)
 			}
@@ -568,7 +580,12 @@ private fun ResultsBar(
 }
 
 @Composable
-private fun CrumbStep(crumb: Crumb, last: Boolean, onClick: () -> Unit) {
+private fun CrumbStep(
+	crumb: Crumb,
+	last: Boolean,
+	modifier: Modifier,
+	onClick: () -> Unit,
+) {
 	val palette = LocalPalette.current
 	val type = LocalType.current
 	val source = remember { MutableInteractionSource() }
@@ -583,7 +600,7 @@ private fun CrumbStep(crumb: Crumb, last: Boolean, onClick: () -> Unit) {
 				type.body,
 		maxLines = 1,
 		modifier =
-			Modifier
+			modifier
 				.background(
 					if (felt.hovered)
 						palette.pressed
@@ -666,7 +683,12 @@ private fun SidebarPane(
 					place,
 					current = place.path == current,
 					keyed = felt.ringed && index == at,
-					Modifier.contextMenu(menus) { contextMenuOf(state, Target.Place(place), bindings) },
+					Modifier
+						.folderDrop(
+							place.path,
+							{ onEvent(BrowserEvent.Opened(place.path)) }.takeIf { place.path != current },
+							onEvent,
+						).contextMenu(menus) { contextMenuOf(state, Target.Place(place), bindings) },
 				) {
 					// A place clicked takes the keyboard to the places, as a list clicked does on any desktop.
 					at = index
@@ -801,6 +823,14 @@ private fun ListingPane(
 	val renaming = state.renaming
 	var typing by remember { mutableStateOf(Typing("", 0)) }
 	var pressed by remember { mutableStateOf<Pressed?>(null) }
+	// A row of several chosen, pressed with no key held: they all stay chosen until the press ends without a drag, as
+	// it would drag them all, and it alone is chosen then.
+	var deferred by remember { mutableStateOf<RowId?>(null) }
+	val hint = LocalDropHint.current
+	val exploring = state.choosing is Choosing.Exploring
+
+	// Gone elsewhere, nothing dragged here is over anything of it any more.
+	LaunchedEffect(state.at) { hint.clear() }
 
 	LaunchedEffect(cursorAt, state.layout) {
 		cursorAt?.let {
@@ -836,12 +866,50 @@ private fun ListingPane(
 
 		if (pressed?.doubledBy(row, press) == true) {
 			pressed = null
+			deferred = null
 			onEvent(BrowserEvent.Activated(row))
 		} else {
 			pressed = Pressed(row, press)
-			onEvent(BrowserEvent.Clicked(row, press.click))
+			deferred = row.takeIf { press.click == Click.Only && it in chosen && chosen.size > 1 }
+			if (deferred == null)
+				onEvent(BrowserEvent.Clicked(row, press.click))
 		}
 	}
+
+	/** A press of [row] ended without a drag: the row it chose alone, if its choosing waited for that. */
+	fun release(row: RowId) {
+		if (deferred == row)
+			onEvent(BrowserEvent.Clicked(row, Click.Only))
+		deferred = null
+	}
+
+	/** What dragging [row] drags: every row chosen, where it is one; or it alone. */
+	fun dragged(row: Row): List<java.nio.file.Path> =
+		if (row.id in chosen)
+			state.chosenRows.map { it.path }
+		else
+			listOf(row.path)
+
+	/**
+	 * [row] as something dragged, and, for a folder, as somewhere to drop: a drag of it is a drag of what it drags, and
+	 * a move another application made of them is the folder changed, read again.
+	 */
+	@Composable
+	fun dragging(row: Row): Modifier =
+		Modifier
+			.filesDragged(
+				paths = { dragged(row) },
+				onStart = { deferred = null },
+				onEnd = {
+					if (it == Transfer.Move)
+						onEvent(BrowserEvent.Refreshed)
+				},
+			).then(
+				if (row.isFolder)
+					Modifier.folderDrop(row.path, { onEvent(BrowserEvent.Activated(row.id)) }, onEvent)
+				else
+					Modifier,
+			)
 
 	/** The rows a key acts on: those chosen, or the cursor's where none is. */
 	fun targets(): List<Row> =
@@ -1052,7 +1120,19 @@ private fun ListingPane(
 				.weight(1f)
 				.fillMaxWidth()
 				.onGloballyPositioned { area.coordinates = it }
-				.contextMenu(menus) { folderMenu() },
+				.contextMenu(menus) { folderMenu() }
+				// Files dropped between the rows: given to the folder shown, or, in a picker, gone to.
+				.filesDropped(
+					DropSpot.Here,
+					state.folder,
+					onHover = { hint.over(DropSpot.Here, it) },
+					onDrop = {
+						paths,
+						transfer,
+						->
+						onEvent(BrowserEvent.Dropped(paths, DropSpot.Here, transfer))
+					},
+				),
 		) {
 			when (val listing = state.listing) {
 				// A folder that reads quickly would only flash a message, so a folder being read shows nothing yet.
@@ -1087,8 +1167,9 @@ private fun ListingPane(
 									renamed = renaming?.takeIf { it.row == row.id }?.text,
 									stops = stops,
 									onPress = { press(row.id, it) },
+									onRelease = { release(row.id) },
 									onEvent = onEvent,
-									modifier = Modifier.contextMenu(menus) { menuOf(row) },
+									modifier = dragging(row).contextMenu(menus) { menuOf(row) },
 								)
 							}
 						else ->
@@ -1110,16 +1191,36 @@ private fun ListingPane(
 										renamed = renaming?.takeIf { it.row == row.id }?.text,
 										stops = stops,
 										onPress = { press(row.id, it) },
+										onRelease = { release(row.id) },
 										onEvent = onEvent,
-										modifier = Modifier.contextMenu(menus) { menuOf(row) },
+										modifier = dragging(row).contextMenu(menus) { menuOf(row) },
 									)
 								}
 							}
 					}
 			}
 		}
+		// What a drop where files are dragged would make of them.
+		hint.shown?.let { DropLine(wordsOf(it, exploring)) }
 		ContextMenuHost(menus, onEvent)
 	}
+}
+
+/** A line under the listing saying what files dragged over the browser would be made, dropped where they are. */
+@Composable
+private fun DropLine(words: String) {
+	val palette = LocalPalette.current
+
+	Text(
+		words,
+		style = LocalType.current.body.copy(color = palette.onAccent),
+		modifier =
+			Modifier
+				.fillMaxWidth()
+				.background(palette.accent)
+				.padding(horizontal = Dims.gap * 2, vertical = Dims.gapSmall)
+				.testTag("drop-hint"),
+	)
 }
 
 /**
@@ -1368,7 +1469,7 @@ private data class Press(
  * Presses of a row, each reported as it happens, so a row is chosen as it is pressed and not a double click's wait
  * later. Whether two presses are a double click is the listing's to say, since only it sees presses of other rows.
  */
-private fun Modifier.pressing(onPress: (Press) -> Unit): Modifier =
+private fun Modifier.pressing(onPress: (Press) -> Unit, onRelease: () -> Unit): Modifier =
 	pointerInput(Unit) {
 		awaitEachGesture {
 			val down = awaitFirstDown()
@@ -1382,7 +1483,10 @@ private fun Modifier.pressing(onPress: (Press) -> Unit): Modifier =
 						viewConfiguration.doubleTapTimeoutMillis,
 					),
 				)
-				waitForUpOrCancellation()?.consume()
+				waitForUpOrCancellation()?.let {
+					it.consume()
+					onRelease()
+				}
 			}
 		}
 	}
@@ -1560,6 +1664,7 @@ private fun EntryRow(
 	renamed: String?,
 	stops: Stops,
 	onPress: (Press) -> Unit,
+	onRelease: () -> Unit,
 	onEvent: (BrowserEvent) -> Unit,
 	modifier: Modifier = Modifier,
 ) {
@@ -1593,7 +1698,7 @@ private fun EntryRow(
 				shape,
 			).ring(cursor, palette.focus, outset = 0.dp, width = 1.5.dp)
 			.hoverable(hover)
-			.pressing { pressed(it) }
+			.pressing({ pressed(it) }, onRelease)
 			.semantics { selected = chosen }
 			.testTag("row:${row.name}")
 			.padding(horizontal = Dims.gap),
@@ -1652,6 +1757,7 @@ private fun Tile(
 	renamed: String?,
 	stops: Stops,
 	onPress: (Press) -> Unit,
+	onRelease: () -> Unit,
 	onEvent: (BrowserEvent) -> Unit,
 	modifier: Modifier = Modifier,
 ) {
@@ -1682,7 +1788,7 @@ private fun Tile(
 				shape,
 			).ring(cursor, palette.focus, outset = 0.dp, width = 1.5.dp)
 			.hoverable(hover)
-			.pressing { pressed(it) }
+			.pressing({ pressed(it) }, onRelease)
 			.semantics { selected = chosen }
 			.testTag("row:${row.name}")
 			.padding(Dims.gap),

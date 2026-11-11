@@ -114,6 +114,7 @@ A clang other than the one on the PATH is named with `-Pprism.clang=PATH` or `$P
 | docs/plan.md | what prism is for, how it is put together, and how what is not built yet is meant to work |
 | docs/picker.md | the picker: one example followed through, then its state, its rules, its filters, its gallery, its session, its controls and its keys |
 | docs/explorer.md | the explorer: a double-click followed from the listing to a detached application, then its windows, the preferences every window shares, properties, "Open with", the bindings window, and what other platforms would need |
+| docs/platform.md | what is the same on every platform and what is Linux's; drag and drop followed through every toolkit; what macOS and Windows need, and the command-line picker that is prism's picker there |
 | docs/menus.md | a plan for context menus the user configures: actions declared with conditions and commands as words, run detached, in a terminal or watched; the menu's layout; items made as it opens; an editor that shows what an action would do |
 | docs/inprogress.md | where the work stands, what is not verified, what is next |
 | docs/ebpf.md | the eBPF DSL: what its types refuse, what it reports, what it checks against the kernel, the C it emits |

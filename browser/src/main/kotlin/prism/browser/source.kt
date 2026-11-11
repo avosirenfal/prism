@@ -49,6 +49,12 @@ interface Disk {
 
 	/** What each of [paths] is on disk now: its size and date, as a row of its folder would show them; or gone. */
 	fun stat(paths: List<Path>): List<Stat>
+
+	/**
+	 * Whether [a] and [b] are on the same volume, so that moving between them is a rename rather than a copy: what
+	 * decides whether files dragged with no key held are moved or copied. Where it cannot be told, they are taken to be.
+	 */
+	fun sameVolume(a: Path, b: Path): Boolean
 }
 
 /**
@@ -135,8 +141,9 @@ class JvmDisk(
 					Files.delete(change.path)
 					Change.MakeFile(change.path)
 				}
-				// What undoes copies is trashing them, which can be undone in turn.
+				// What undoes copies is trashing them, which can be undone in turn; links likewise.
 				is Change.Copy -> Change.Trash(change.sources.map { copied(it, change.into) })
+				is Change.Link -> Change.Trash(change.sources.map { linked(it, change.into) })
 				is Change.Move ->
 					Change.Relocate(
 						change.sources
@@ -167,6 +174,13 @@ class JvmDisk(
 		return target
 	}
 
+	/** A link to [source] made in [into], under a name free there; where it was made. */
+	private fun linked(source: Path, into: Path): Path =
+		Files.createSymbolicLink(
+			into.resolve(freeLinkName(into, source.fileName.toString())),
+			source.toAbsolutePath(),
+		)
+
 	/** [source] moved into [into] under a name free there; where it went. */
 	private fun moved(source: Path, into: Path): Path {
 		refuseInto(source, into)
@@ -181,6 +195,26 @@ class JvmDisk(
 	}
 
 	override fun stat(paths: List<Path>): List<Stat> = paths.map { statOf(it, zone) }
+
+	/**
+	 * By the device each is on, where the platform says (Linux and macOS, through the JVM's unix view), or else by the
+	 * file store; the nearest folder that is there stands for a path that is not.
+	 */
+	override fun sameVolume(a: Path, b: Path): Boolean =
+		try {
+			val (one, other) = listOf(a, b).map(::nearestThere)
+
+			try {
+				Files.getAttribute(one, "unix:dev") == Files.getAttribute(other, "unix:dev")
+			} catch (unsupported: UnsupportedOperationException) {
+				Files.getFileStore(one) == Files.getFileStore(other)
+			}
+		} catch (failed: IOException) {
+			true
+		}
+
+	private fun nearestThere(path: Path): Path =
+		generateSequence(path.toAbsolutePath()) { it.parent }.first { Files.exists(it) }
 }
 
 /** What [path] is now, its link followed, with its size and date said as its row would say them; gone if it is not there. */
@@ -215,6 +249,13 @@ fun freeName(folder: Path, name: String): String {
 			generateSequence(2) { it + 1 }.map { "$stem (copy $it)$extension" }
 	).first { !Files.exists(folder.resolve(it), LinkOption.NOFOLLOW_LINKS) }
 }
+
+/** [name], or, where [folder] holds something of that name, "Link to NAME", then "Link to NAME (2)", ... */
+fun freeLinkName(folder: Path, name: String): String =
+	(
+		sequenceOf(name, "Link to $name") +
+			generateSequence(2) { it + 1 }.map { "Link to $name ($it)" }
+	).first { !Files.exists(folder.resolve(it), LinkOption.NOFOLLOW_LINKS) }
 
 /** [work] done, answered with what undoes it, or why it was not done, in the words a person reads. */
 private fun attempted(work: () -> Change): ChangeResult =

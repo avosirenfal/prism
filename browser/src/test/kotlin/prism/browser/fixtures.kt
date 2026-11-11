@@ -128,6 +128,9 @@ object Fixtures {
 				row?.let { Stat.Read(it.size, it.modified) } ?: Stat.Gone
 			}
 
+		/** One volume, the whole tree. */
+		override fun sameVolume(a: Path, b: Path): Boolean = true
+
 		override fun look(paths: List<Path>): Map<Path, Found> =
 			paths.associateWith { path ->
 				val name = path.fileName.toString()
@@ -161,6 +164,10 @@ object Fixtures {
 					is Change.RemoveFile -> Change.MakeFile(change.path)
 					// Copies and moves keep their names: the tree holds nothing to clash with.
 					is Change.Copy ->
+						Change.Trash(
+							change.sources.map { change.into.resolve(it.fileName) },
+						)
+					is Change.Link ->
 						Change.Trash(
 							change.sources.map { change.into.resolve(it.fileName) },
 						)

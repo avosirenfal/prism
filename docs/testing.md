@@ -25,6 +25,7 @@ a device, so a test that ran and a test that could not run are never confused.
 | file types, desktop entries, `Exec` lines, defaults in `mimeapps.list`, places, and a real launch left detached (`desktop`) | Linux, `setsid` | never |
 | the explorer's windows around real sessions, properties, the application chooser, the preferences' edits merged on saving (`ExplorerTest`, `PropertiesTest`, `OpenWithTest`, `SettingsTest`) | the JDK | never |
 | the bindings window clicked, typed and mouse-pressed at, headless (`SettingsViewTest`) | the JDK | never |
+| drops: the default action's rule, the line under the listing, files read from what another application drags, drops on folders, an explorer's listing and a picker's, links on disk, undo, volumes told apart (`DropTest`) | Linux | never (the second volume, `/dev/shm`, where it is one) |
 | renaming, making and removing folders, and the trash both ways, on real files (`DiskTest`) | Linux | never |
 | every example of the search language, against a tree indexed from disk (`SearchTest`) | Linux | never |
 | the search language's text read: every example to the DSL's query, every prefix of one with nothing invalid, recovery, marks, and random text (`ParserTest`) | the JDK | never |
@@ -126,6 +127,21 @@ DISPLAY=:99 xdotool mousemove 350 211 click 1 && DISPLAY=:99 xdotool key Down Re
 
 ```bash
 DISPLAY=:99 import -window root screen.png
+```
+
+Drags between two windows need a window manager on the display: AWT finds the window under the pointer by the
+`WM_STATE` property a window manager gives each application's window, so with none, a drag from prism to another
+application (or back) finds no target, while a drag within one window still works. Any will do; twm, placing windows
+where they ask, is the smallest:
+
+```bash
+printf 'UsePPosition "on"\nRandomPlacement\nNoTitle\n' > twmrc && DISPLAY=:99 twm -f twmrc &
+```
+
+A drag is xdotool's button held while the pointer moves in steps (a jump is no drag), with a key held for an action:
+
+```bash
+DISPLAY=:99 xdotool mousemove 334 211 keydown ctrl mousedown 1 mousemove 350 190 mousemove 370 160 mousemove 380 153 mouseup 1 keyup ctrl
 ```
 
 `picked.txt` then holds the path chosen. The OpenGL warning skiko prints on a display without it goes to standard

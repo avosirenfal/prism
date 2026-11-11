@@ -1,6 +1,7 @@
 package prism.browser
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
@@ -106,6 +107,10 @@ class Session(
 		}
 	}
 
+	/** Whether [a] and [b] are on one volume, as the disk says: what a drop with no key held is told by. */
+	fun sameVolume(a: java.nio.file.Path, b: java.nio.file.Path): Boolean =
+		services.disk.sameVolume(a, b)
+
 	/** What the user did, to be folded in after whatever came before it. */
 	fun send(event: BrowserEvent) {
 		inputs.trySend(event)
@@ -194,5 +199,7 @@ fun SessionBrowser(
 ) {
 	val state by session.state.collectAsState()
 
-	FileBrowser(state, modifier, mouseChords, session::send)
+	CompositionLocalProvider(LocalVolumes provides session::sameVolume) {
+		FileBrowser(state, modifier, mouseChords, session::send)
+	}
 }

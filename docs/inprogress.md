@@ -27,7 +27,7 @@ The project is set up and every part named in the first brief exists, builds, an
 | D-Bus | `dbus`: the connection (handshake and `Hello` as it opens), messages as data, kotlinx.serialization for bodies with signatures worked out from the types and checked before decoding, calls with replies as values, signals as flows, `watch`, served methods (docs/dbus.md) |
 | the colour scheme | `portal`: the portal's Settings declared; `prism pick` opens in the desktop's palette and follows its changes; light where there is no bus or portal; `--theme` overrides |
 
-370 tests (355 of prism's own, 15 of the house formatting rules), all passing in the development container; one
+379 tests (364 of prism's own, 15 of the house formatting rules), all passing in the development container; one
 skipped there, the search benchmark, which runs only when asked for (`-Pindex.benchmark=N`). The D-Bus ones run against a real dbus-daemon each test starts, and against gdbus, dbus-send and busctl.
 
 ## Measured
@@ -126,6 +126,11 @@ In the order they unblock each other:
 - Headless drawing (`renderedPng`) draws two frames and returns, so it never shows a thumbnail: those arrive from an
   IO thread after. The gallery's pictures are checked by the interaction tests, and seen in a real window.
 
+- AWT's drag and drop under X11 finds the window under the pointer by the `WM_STATE` property a window manager sets:
+  on a display with none (a bare Xvfb), a drag between two applications finds no target, though one within a window
+  works. Test drags between windows under a window manager (docs/testing.md).
+- Compose's drop target always takes the action AWT gives it, and AWT says "move" of a drag with no key held: a drag of
+  prism's own watches its keys through AWT's `DragSource` to tell that from Shift held (`browser/dragging.kt`).
 - A path is a list of its own names in Kotlin (`Path` is `Iterable<Path>`), so `paths + path` adds the path's names,
   not the path. Use `paths.plusElement(path)`. The picker's history had this bug until a test caught it, and so,
   later, did pinning a folder and moving a pin in the preferences window.

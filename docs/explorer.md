@@ -193,6 +193,20 @@ the windows use (the focus watch and the title bar's tone) do nothing where the 
 its watcher are Linux's alone (eBPF), and are the larger part of a port: on macOS, FSEvents would take the watcher's
 place; on Windows, the USN journal.
 
+## Drag and drop
+
+Rows and tiles drag as files, into other applications and onto folders in prism; the folder rows, the listing between
+them, the places in the sidebar and the steps of the path take files dropped on them. Pressing one of several chosen
+rows keeps them all chosen until the press ends, so that a drag of it drags them all; let go without dragging, it alone
+is chosen, as a click of it chooses it. A folder a drag waits over for a moment opens, for the files to go further in,
+and a line under the listing says what a drop where the pointer is would make ("Move 2 items into “Documents”").
+
+A drop is made by the reducer, as a paste is: `BrowserEvent.Dropped`, the files, where (a folder, or the listing
+itself), and copy, move or link. Which of those is the platform's convention for the keys held, and, for a drag of
+prism's own with no key held, a move within a volume and a copy across one. A move into another application is that
+application's to make; prism reads its folder again afterwards, and deletes nothing itself. docs/platform.md follows a
+drag through, and says what each platform does with it.
+
 ## Not done yet
 
 - **Hosting in the daemon**, and the `org.freedesktop.FileManager1` interface that would let applications ask it to
@@ -202,4 +216,6 @@ place; on Windows, the USN journal.
   files' permissions together.
 - **Icons**: applications and files are drawn with prism's own glyphs, not the desktop's icon theme.
 - **Content sniffing** with shared-mime-info's magic, for files whose names say nothing.
-- **Drag and drop**, between explorer windows and with other applications.
+- **Drag and drop between X11 and Wayland windows under niri**: it works between X11 windows (checked on a virtual
+  display); between an X11 window and a Wayland one, it is xwayland-satellite's to bridge, which is to be tried on a
+  real desktop (docs/platform.md).

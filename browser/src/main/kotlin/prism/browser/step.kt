@@ -264,6 +264,7 @@ private fun did(state: BrowserState, event: BrowserEvent): Step =
 		is BrowserEvent.Pasted ->
 			(event.into ?: state.folder)?.let { Step(state, listOf(Effect.ReadClip(it))) }
 				?: Step(state)
+		is BrowserEvent.Dropped -> state.dropped(event.paths, event.spot, event.transfer)
 		is BrowserEvent.Pinned ->
 			if (state.sidebar.pins(event.path))
 				Step(state)
@@ -737,9 +738,55 @@ private fun BrowserState.goingTo(): Step {
 				),
 			)
 
+	return goingTo(text, path)
+}
+
+/** [path] gone to as a path typed as [text] is: a folder gone into, a file's folder gone to with it chosen. */
+private fun BrowserState.goingTo(text: String, path: Path): Step {
 	val lookup = Lookup.Going(text, path)
 
 	return Step(copy(waiting = lookup), listOf(Effect.Look(lookup)))
+}
+
+/**
+ * Files dropped on [spot]. On a folder, they are given to it as [transfer] says. On the listing itself, an explorer
+ * gives them to the folder shown (results, which are no folder, take nothing); a picker goes to the first of them
+ * instead, as to a path typed, since files dropped on a picker are files to choose.
+ */
+private fun BrowserState.dropped(
+	paths: List<Path>,
+	spot: DropSpot,
+	transfer: Transfer,
+): Step =
+	when (spot) {
+		is DropSpot.Into -> transferring(paths, spot.folder, transfer)
+		DropSpot.Here ->
+			when {
+				choosing is Choosing.Exploring ->
+					folder?.let { transferring(paths, it, transfer) }
+						?: Step(this)
+				else -> paths.firstOrNull()?.let { goingTo(it.toString(), it) } ?: Step(this)
+			}
+	}
+
+/**
+ * [sources] given to [into] as [transfer] says, as a paste or a drop gives them. Nothing is done for what would be no
+ * change at all: a folder given to itself, or files moved to the folder they are in.
+ */
+private fun BrowserState.transferring(
+	sources: List<Path>,
+	into: Path,
+	transfer: Transfer,
+): Step {
+	val given =
+		sources
+			.filter { it != into }
+			.filter { transfer != Transfer.Move || it.parent != into }
+
+	return if (given.isEmpty())
+		Step(this)
+	else
+		making(transfer.changeOf(given, into))
 }
 
 private fun BrowserState.finished(paths: List<Path>): Step =
@@ -778,11 +825,10 @@ private fun answered(state: BrowserState, answer: Answer): Step =
 			}
 		is Answer.Clipped ->
 			answer.clip?.let {
-				state.making(
-					if (it.cut)
-						Change.Move(it.paths, answer.into)
-					else
-						Change.Copy(it.paths, answer.into),
+				state.transferring(
+					it.paths,
+					answer.into,
+					if (it.cut) Transfer.Move else Transfer.Copy,
 				)
 			} ?: Step(state)
 		is Answer.Placed -> Step(state.copy(sidebar = answer.sidebar))
@@ -1186,13 +1232,13 @@ private fun BrowserState.landingAfter(
 
 	val made =
 		when (undo) {
-			is Change.Trash -> undo.paths.takeIf { change is Change.Copy }
+			is Change.Trash -> undo.paths.takeIf { change is Change.Copy || change is Change.Link }
 			is Change.Relocate -> undo.moves.map { it.from }
 			else -> null
 		}
 
 	return when (change) {
-		is Change.Copy, is Change.Move, is Change.Relocate ->
+		is Change.Copy, is Change.Link, is Change.Move, is Change.Relocate ->
 			made?.firstOrNull(::here)?.let { Landing.On(rowOf(it), choose = true) }
 		is Change.MakeFile ->
 			change.path.takeIf(::here)?.let {
@@ -1233,6 +1279,7 @@ private fun failingOf(change: Change, doing: Doing): String =
 				is Change.MakeFile -> "Couldn't make a file"
 				is Change.RemoveFile -> "Couldn't remove “${change.path.fileName}”"
 				is Change.Copy -> "Couldn't copy ${countOf(change.sources)}"
+				is Change.Link -> "Couldn't link to ${countOf(change.sources)}"
 				is Change.Move -> "Couldn't move ${countOf(change.sources)}"
 				is Change.Relocate -> "Couldn't move ${countOf(change.moves.map { it.from })}"
 			}
@@ -1251,6 +1298,7 @@ fun doneBy(change: Change): String =
 		is Change.MakeFile -> "the new file"
 		is Change.RemoveFile -> "removing the file"
 		is Change.Copy -> "the copy"
+		is Change.Link -> "the link"
 		is Change.Move, is Change.Relocate -> "the move"
 	}
 

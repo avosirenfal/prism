@@ -220,6 +220,16 @@ sealed interface BrowserEvent : Input {
 		val into: Path? = null,
 	) : BrowserEvent
 
+	/**
+	 * Files dropped on [spot], to be copied, moved or linked there as [transfer] says; the spot says where. The files
+	 * may be the browser's own, dragged from its listing, or another application's.
+	 */
+	data class Dropped(
+		val paths: List<Path>,
+		val spot: DropSpot,
+		val transfer: Transfer,
+	) : BrowserEvent
+
 	// ---- the desktop, and the application around the browser ----
 
 	/** [path] pinned to the sidebar, after the places pinned already. */
@@ -378,6 +388,34 @@ sealed interface Answer : Input {
 	) : Answer
 }
 
+/** What files given to a folder (dropped, or pasted) become there. */
+enum class Transfer {
+	Copy,
+	Move,
+	Link,
+	;
+
+	/** [sources] given to [into] this way, as a change of the disk's. */
+	fun changeOf(sources: List<Path>, into: Path): Change =
+		when (this) {
+			Copy -> Change.Copy(sources, into)
+			Move -> Change.Move(sources, into)
+			Link -> Change.Link(sources, into)
+		}
+}
+
+/** Where files are dropped. */
+@Immutable
+sealed interface DropSpot {
+	/** On the listing itself, between its rows: the folder shown, or, in a picker, the files to choose. */
+	data object Here : DropSpot
+
+	/** On a folder: a folder's row, a place in the sidebar, a step of the path. */
+	data class Into(
+		val folder: Path,
+	) : DropSpot
+}
+
 /** Files on the clipboard, and whether they were cut (to be moved) or copied. */
 @Immutable
 data class FileClip(
@@ -466,6 +504,12 @@ sealed interface Change {
 
 	/** [sources] copied into [into], a name taken by something there given a free one ("a (copy).txt"). */
 	data class Copy(
+		val sources: List<Path>,
+		val into: Path,
+	) : Change
+
+	/** A link to each of [sources] made in [into], under the source's name, or a free one ("Link to a.txt"). */
+	data class Link(
 		val sources: List<Path>,
 		val into: Path,
 	) : Change

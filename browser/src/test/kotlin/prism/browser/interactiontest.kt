@@ -843,6 +843,36 @@ class InteractionTest {
 	}
 
 	@Test
+	fun aRowOfSeveralChosenPressedKeepsThemAllUntilThePressEndsWithoutADrag() {
+		picking(Choosing.Files()) { session ->
+			fun chosen() =
+				session.state.value.chosenRows
+					.map { it.name }
+					.toSet()
+
+			row("notes.md").performClick()
+			onNodeWithTag("listing").performKeyInput { keyDown(Key.CtrlLeft) }
+			row("todo.txt").performMouseInput { click() }
+			onNodeWithTag("listing").performKeyInput { keyUp(Key.CtrlLeft) }
+			waitForIdle()
+			assertEquals(setOf("notes.md", "todo.txt"), chosen())
+
+			// Pressed and held, as a drag of them both would begin: both are still chosen.
+			row("notes.md").performMouseInput {
+				moveTo(center)
+				press()
+			}
+			waitForIdle()
+			assertEquals(setOf("notes.md", "todo.txt"), chosen())
+
+			// Let go without dragging: it alone, as a click of it is.
+			row("notes.md").performMouseInput { release() }
+			waitForIdle()
+			assertEquals(setOf("notes.md"), chosen())
+		}
+	}
+
+	@Test
 	fun aSearchsTilesShowTheirOwnPicturesNotThoseOfTheSearchBefore() {
 		// A search's rows are known by their places among its results, so the first result of one search and the first of
 		// the next are the same tile to the gallery. Here the first search finds only pictures, and the next only
