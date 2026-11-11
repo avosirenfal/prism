@@ -11,6 +11,9 @@ import java.time.LocalDateTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.format.DateTimeParseException
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -18,6 +21,9 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.longOrNull
+import prism.index.Given
+import prism.index.Index
+import prism.index.given
 
 /*
  * Places: what a window shows that is not a folder on disk (docs/menus.md). A place is listed by a command, once: it
@@ -117,34 +123,57 @@ class PlaceTree(
 		under.mapValues { it.value.values.toList() }
 	}
 
-	/** Whether there is a folder at [within] to be in: the place itself, or a grouping in it. */
-	fun has(within: List<String>): Boolean = within.isEmpty() || within in children
+	/** Every entry, by where it sits. */
+	private val sitting: Map<List<String>, Node> by lazy {
+		children.values.flatten().associateBy { it.entry.at }
+	}
+
+	private val keyed: Map<String, Node> by lazy {
+		children.values.flatten().associateBy { it.entry.key }
+	}
+
+	/**
+	 * Everything the place holds as an index of its own, which is what a search in the place searches: the same
+	 * search the index of the disk is given, over these entries and no others.
+	 */
+	val index: Index by lazy {
+		Index.given(sitting.values.map { Given(it.entry.at, it.entry.folder) })
+	}
+
+	/** Where the entry its command called [key] sits. */
+	fun at(key: String): List<String>? = keyed[key]?.entry?.at
+
+	/** The entry sitting at [at], as a row; null where none does. */
+	fun row(at: List<String>, zone: ZoneId = ZoneId.systemDefault()): Row? =
+		sitting[at]?.let { rowOf(it, zone) }
 
 	/** The rows of the folder at [within], in no particular order, their dates said in [zone]. */
 	fun rows(within: List<String>, zone: ZoneId = ZoneId.systemDefault()): List<Row> =
-		children[within].orEmpty().map { node ->
-			val entry = node.entry
-			val name = entry.at.last()
-			val category =
-				if (entry.folder)
-					Category.Folder
-				else
-					categoryOf(name)
+		children[within].orEmpty().map { rowOf(it, zone) }
 
-			Row(
-				id = RowId.Entry(entry.key),
-				// A grouping is the place's own, whatever path was printed for it.
-				item =
-					entry.path?.takeUnless { node.grouping }?.let(Item::OnDisk)
-						?: Item.InPlace(entry.key),
-				name = name,
-				category = category,
-				type = typeOf(name, category),
-				size = entry.size?.takeUnless { entry.folder }?.let { Shown(it, sizeOf(it)) },
-				modified = entry.modified?.let { Shown(it, dateOf(it, zone)) },
-				hidden = name.startsWith("."),
-			)
-		}
+	private fun rowOf(node: Node, zone: ZoneId): Row {
+		val entry = node.entry
+		val name = entry.at.last()
+		val category =
+			if (entry.folder)
+				Category.Folder
+			else
+				categoryOf(name)
+
+		return Row(
+			id = RowId.Entry(entry.key),
+			// A grouping is the place's own, whatever path was printed for it.
+			item =
+				entry.path?.takeUnless { node.grouping }?.let(Item::OnDisk)
+					?: Item.InPlace(entry.key),
+			name = name,
+			category = category,
+			type = typeOf(name, category),
+			size = entry.size?.takeUnless { entry.folder }?.let { Shown(it, sizeOf(it)) },
+			modified = entry.modified?.let { Shown(it, dateOf(it, zone)) },
+			hidden = name.startsWith("."),
+		)
+	}
 
 	override fun toString(): String = "PlaceTree(${entries.size} entries)"
 }
@@ -188,14 +217,33 @@ data class Ran(
 			.ifBlank { "It ended with status $status and said nothing." }
 }
 
-/** What runs the commands prism waits for: a place's listing, and an action's watched command. */
-fun interface Commands {
-	fun run(invocation: Invocation): Ran
+/**
+ * Who watches a command as it runs: told how to stop it once it has started, and each line it writes as it writes
+ * it, so that a person waiting on it sees that it is running, what it says, and can end it.
+ */
+interface Watch {
+	/** The command has started; [stop] ends it, and whatever it started. */
+	fun started(stop: () -> Unit) = Unit
+
+	/** A line it wrote: to standard error where [error], and otherwise to its output. */
+	fun said(line: String, error: Boolean) = Unit
+
+	companion object {
+		/** Nobody watching. */
+		val NONE = object : Watch {}
+	}
 }
 
-/** Commands run as processes, with nothing of prism's to read, and all they write kept. */
+/** What runs the commands prism waits for: a place's listing, and an action's watched command. */
+fun interface Commands {
+	fun run(invocation: Invocation, watch: Watch): Ran
+
+	fun run(invocation: Invocation): Ran = run(invocation, Watch.NONE)
+}
+
+/** Commands run as processes, with nothing of prism's to read, and all they write kept and told as it is written. */
 object ProcessCommands : Commands {
-	override fun run(invocation: Invocation): Ran =
+	override fun run(invocation: Invocation, watch: Watch): Ran =
 		try {
 			val process =
 				ProcessBuilder(invocation.words)
@@ -204,36 +252,145 @@ object ProcessCommands : Commands {
 					.apply { environment().putAll(invocation.environment) }
 					.start()
 
-			// Both read at once: a command that fills one pipe while the other is read would wait for ever.
-			val errors = StringBuilder()
+			val stopped = AtomicBoolean(false)
 
-			val reader =
-				Thread {
-					try {
-						errors.append(process.errorStream.bufferedReader().readText())
-					} catch (closed: IOException) {
-						Unit
+			// Ended with everything it started: a shell's pipeline is several processes, and each would run on.
+			watch.started {
+				stopped.set(true)
+				process.descendants().forEach { it.destroy() }
+				process.destroy()
+			}
+
+			fun read(stream: java.io.InputStream, error: Boolean): StringBuilder {
+				val kept = StringBuilder()
+
+				try {
+					stream.bufferedReader().forEachLine { line ->
+						kept.append(line).append('\n')
+						watch.said(line, error)
 					}
-				}.apply {
+				} catch (closed: IOException) {
+					Unit
+				}
+
+				return kept
+			}
+
+			// Both read at once: a command that fills one pipe while the other is read would wait for ever.
+			val errors = AtomicReference(StringBuilder())
+			val reader =
+				Thread { errors.set(read(process.errorStream, error = true)) }.apply {
 					isDaemon = true
 					start()
 				}
-
-			val output = process.inputStream.bufferedReader().readText()
+			val output = read(process.inputStream, error = false)
 			val status = process.waitFor()
 
 			reader.join()
-			Ran(status, output, errors.toString())
+
+			if (stopped.get())
+				Ran(null, output.toString(), STOPPED)
+			else
+				Ran(status, output.toString(), errors.get().toString())
 		} catch (failed: IOException) {
 			Ran(null, "", failed.message ?: failed.toString())
 		} catch (stopped: InterruptedException) {
 			Thread.currentThread().interrupt()
-			Ran(null, "", "It was stopped.")
+			Ran(null, "", STOPPED)
 		}
+
+	/** What a command the user stopped is said to have failed by. */
+	const val STOPPED = "It was stopped."
+}
+
+/**
+ * Folders made for a while: what entries of a place are brought out into to be opened. Each is under the system's
+ * temporary folder, named with this process's id, and gone when whoever asked for it is done with it ([remove]), or
+ * when prism ends, whichever is first. Those a process that is no longer running left behind (one that was killed)
+ * are removed when the next one starts.
+ */
+class Temps(
+	private val under: Path = Path.of(System.getProperty("java.io.tmpdir")),
+	private val process: Long = ProcessHandle.current().pid(),
+) {
+	private val made: MutableSet<Path> = ConcurrentHashMap.newKeySet()
+
+	init {
+		sweep()
+		try {
+			Runtime.getRuntime().addShutdownHook(Thread { clear() })
+		} catch (ending: IllegalStateException) {
+			Unit
+		}
+	}
+
+	/** A folder of its own, empty. */
+	fun make(): Path =
+		Files.createTempDirectory(under, "$PREFIX$process-").also {
+			made.add(it)
+		}
+
+	/** [folder], one of these, removed with all it holds. */
+	fun remove(folder: Path) {
+		if (made.remove(folder))
+			removed(folder)
+	}
+
+	/** Every folder made and not yet removed, removed. */
+	fun clear() = made.toList().forEach(::remove)
+
+	/** The folders left by processes that are not running any more, removed. */
+	private fun sweep() {
+		try {
+			Files.newDirectoryStream(under, "$PREFIX*").use { left ->
+				for (folder in left) {
+					val owner =
+						folder.fileName
+							.toString()
+							.removePrefix(PREFIX)
+							.substringBefore('-')
+							.toLongOrNull()
+
+					if (owner != null && owner != process && ProcessHandle.of(owner).isEmpty)
+						removed(folder)
+				}
+			}
+		} catch (failed: IOException) {
+			Unit
+		}
+	}
+
+	/** [folder] and everything in it deleted, links not followed; what cannot be deleted is left. */
+	private fun removed(folder: Path) {
+		try {
+			Files.walk(folder).use { all ->
+				all.sorted(Comparator.reverseOrder()).forEach {
+					try {
+						Files.deleteIfExists(it)
+					} catch (failed: IOException) {
+						Unit
+					}
+				}
+			}
+		} catch (failed: IOException) {
+			Unit
+		} catch (failed: java.io.UncheckedIOException) {
+			Unit
+		}
+	}
+
+	private companion object {
+		const val PREFIX = "prism-open-"
+	}
 }
 
 /** [placed] listed by [commands], from [home] where its place names no folder to run in. */
-fun listingOf(placed: Placed, commands: Commands, home: Path): PlaceListing {
+fun listingOf(
+	placed: Placed,
+	commands: Commands,
+	home: Path,
+	watch: Watch = Watch.NONE,
+): PlaceListing {
 	val filling = Filling(emptyList(), null, placed.values)
 	val folder =
 		placed.type.folder?.let {
@@ -249,7 +406,7 @@ fun listingOf(placed: Placed, commands: Commands, home: Path): PlaceListing {
 				"Its command names something this place was not opened with.",
 			)
 
-	val ran = commands.run(Invocation(words, folder, placed.values))
+	val ran = commands.run(Invocation(words, folder, placed.values), watch)
 
 	return if (ran.worked)
 		PlaceListing.Listed(PlaceTree(entriesOf(ran.output, placed.type, folder)))

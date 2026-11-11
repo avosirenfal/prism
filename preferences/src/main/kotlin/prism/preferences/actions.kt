@@ -132,6 +132,8 @@ data class PlaceSpec(
 	val takes: List<String> = emptyList(),
 	/** `here` (unless said) or `window`: where an action that shows it opens it. */
 	val opens: String? = null,
+	/** Whether a window in it shows the sidebar of places on disk: not, for a place that is a tool of its own. */
+	val sidebar: Boolean = true,
 	/** The command that lists it, as its words. */
 	val list: List<String>,
 	/** The folder [list] is run in, and relative paths it prints are in; the home folder unless said. */

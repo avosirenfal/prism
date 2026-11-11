@@ -76,7 +76,7 @@ fun openedIn(
 	search: Search = Search.Unavailable(BrowserState.NO_INDEX),
 ): Step =
 	opened(Choosing.Exploring(), home, home, sidebar, search = search).let {
-		Step(it.state.copy(at = Location.Place(placed)), listOf(Effect.ListPlace(placed)))
+		it.state.copy(at = Location.Place(placed)).listing(placed)
 	}
 
 fun titleOf(choosing: Choosing): String =
@@ -311,6 +311,7 @@ private fun did(state: BrowserState, event: BrowserEvent): Step =
 		is BrowserEvent.Answered -> state.answered(event.folder)
 		is BrowserEvent.WentWithin -> state.wentWithin(event.within)
 		is BrowserEvent.DroppedCarried -> state.droppedCarried(event.carried, event.spot)
+		is BrowserEvent.Stopped -> state.stopping(event.task)
 		// A line typed with nothing asking for one.
 		is BrowserEvent.AnswerTyped -> Step(state)
 	}
@@ -351,6 +352,7 @@ private fun noticed(state: BrowserState, notice: Notice, event: BrowserEvent): S
 					state,
 			)
 		BrowserEvent.Cancelled -> Step(state, listOf(Effect.Finish(Outcome.Cancelled)))
+		is BrowserEvent.Stopped -> state.stopping(event.task)
 		else -> Step(state)
 	}
 
@@ -385,15 +387,18 @@ internal fun BrowserState.reread(landing: Landing? = null): Step =
 
 			Step(
 				this,
-				listOf(Effect.Search(text, queryOf(QueryText.read(text), choosing), Purpose.Refresh)),
+				listOf(
+					Effect.Search(
+						text,
+						queryOf(QueryText.read(text), choosing),
+						Purpose.Refresh,
+						inPlace?.tree,
+					),
+				),
 			)
 		}
 		// A place is listed again, what it shows staying until the new listing arrives.
-		is Location.Place ->
-			Step(
-				copy(landing = landing ?: this.landing),
-				listOf(Effect.ListPlace(at.placed)),
-			)
+		is Location.Place -> copy(landing = landing ?: this.landing).listing(at.placed)
 	}
 
 private fun BrowserState.back(): Step =
@@ -449,7 +454,7 @@ internal fun BrowserState.shown(to: Location, history: History, landing: Landing
 		// A place listed already is shown from what its listing gave; one that is not, once it is listed.
 		is Location.Place ->
 			to.tree?.let { Step(left.arrived(Listing.Shown(it.rows(to.within)))) }
-				?: Step(left, listOf(Effect.ListPlace(to.placed)))
+				?: left.listing(to.placed)
 	}
 }
 
@@ -884,7 +889,9 @@ private fun answered(state: BrowserState, answer: Answer): Step =
 		is Answer.Clipped -> state.pasted(answer.into, answer.clip, answer.carried)
 		is Answer.Listed -> state.listed(answer.placed, answer.listing)
 		is Answer.Ran -> state.ran(answer.job, answer.failure)
+		is Answer.Said -> state.said(answer.task, answer.line)
 		is Answer.TempMade -> state.openingOut(answer.folder, answer.carried)
+		is Answer.ScratchMade -> state.scratched(answer.folder, answer.pending)
 		is Answer.Configured -> Step(state.copy(actions = answer.actions))
 		is Answer.Placed -> Step(state.copy(sidebar = answer.sidebar))
 		// A read of a folder no longer shown is too late to matter.
@@ -1045,7 +1052,12 @@ private fun BrowserState.withSearch(change: Search.Ready.() -> Search): BrowserS
  */
 private fun BrowserState.openedSearch(): Step =
 	when (val search = search) {
-		is Search.Unavailable -> Step(copy(search = search.copy(open = true)))
+		// A place is searched by its own listing, whether or not there is an index of the disk.
+		is Search.Unavailable ->
+			if (inPlace?.tree != null)
+				copy(search = Search.Ready(open = true)).previewing()
+			else
+				Step(copy(search = search.copy(open = true)))
 		is Search.Ready ->
 			copy(search = search.copy(open = true, highlighted = null)).previewing()
 	}
@@ -1060,7 +1072,14 @@ private fun BrowserState.previewing(): Step {
 
 	return Step(
 		this,
-		listOf(Effect.Search(search.text, queryOf(search.read, choosing), Purpose.Preview)),
+		listOf(
+			Effect.Search(
+				search.text,
+				queryOf(search.read, choosing),
+				Purpose.Preview,
+				inPlace?.tree,
+			),
+		),
 	)
 }
 
@@ -1100,6 +1119,23 @@ private fun BrowserState.chosenMatch(at: Int): Step {
 	val path = matches.pathOf(at)
 	val closed = copy(search = search.closed())
 
+	// A match of a search in a place is gone to in the place: into a folder, or to the folder an entry sits in.
+	matches.tree?.let { tree ->
+		val sits = path.map { it.toString() }
+		val row = tree.row(sits)?.id ?: return Step(closed)
+
+		if (matches.isFolder(at))
+			return closed.wentWithin(sits)
+
+		val gone = closed.wentWithin(sits.dropLast(1), Landing.On(row, choose = true))
+
+		// Already in that folder, there is nowhere to go: the cursor is put on the entry where it is.
+		return if (gone.state.at == closed.at)
+			Step(closed.landed(Landing.On(row, choose = true)))
+		else
+			gone
+	}
+
 	return if (matches.isFolder(at))
 		closed.went(path)
 	else
@@ -1116,7 +1152,10 @@ private fun BrowserState.showingMatches(): Step {
 	if (!search.searchable)
 		return Step(this)
 
-	search.matched?.let { return copy(search = search.closed()).showing(it) }
+	// What was found is shown only if it was found where the window is: in this place, or on the disk.
+	search.matched?.takeIf { it.matches.tree === inPlace?.tree }?.let {
+		return copy(search = search.closed()).showing(it)
+	}
 
 	// Refused for this text: nothing to show, and the window says why.
 	if (search.found?.text == search.text)
@@ -1124,13 +1163,20 @@ private fun BrowserState.showingMatches(): Step {
 
 	return Step(
 		copy(search = search.copy(showing = true)),
-		listOf(Effect.Search(search.text, queryOf(search.read, choosing), Purpose.Show)),
+		listOf(
+			Effect.Search(
+				search.text,
+				queryOf(search.read, choosing),
+				Purpose.Show,
+				inPlace?.tree,
+			),
+		),
 	)
 }
 
 /** [finding]'s results shown in the listing, in place of what is shown, which goes behind them in the history. */
 private fun BrowserState.showing(finding: Finding.Matched): Step =
-	shown(Location.Results(finding), History(history.back + at, emptyList()), null)
+	shown(Location.Results(finding, inPlace), History(history.back + at, emptyList()), null)
 
 /**
  * What a search came back with. For the window, kept where it is for what is typed now (a search overtaken by typing
@@ -1165,7 +1211,7 @@ private fun BrowserState.searched(finding: Finding, purpose: Purpose): Step {
 				Step(this)
 			else
 				copy(
-					at = Location.Results(finding),
+					at = Location.Results(finding, inPlace),
 					listing = Listing.Reading,
 					choosing = choosing.unchosen(),
 					cursor = null,

@@ -153,6 +153,8 @@ enum class Purpose {
  */
 class Matches(
 	private val results: Results,
+	/** The place that was searched, where one was, and not the index of the disk: its entries are what was found. */
+	val tree: PlaceTree? = null,
 ) {
 	val size: Int get() = results.size
 
@@ -190,6 +192,9 @@ class Matches(
 
 	/** The [at]th result's row, with what [stat] says of it on disk, where it has been read. */
 	fun rowOf(at: Int, stat: Stat?): Row {
+		// A result of a search in a place is that place's entry, which may be on disk or not, as the place has it.
+		entryOf(at)?.let { return it.copy(id = RowId.Found(at)) }
+
 		val category = categoryOf(at)
 		val read = stat as? Stat.Read
 
@@ -204,6 +209,13 @@ class Matches(
 			hidden = isHidden(at),
 		)
 	}
+
+	/** The entry of the place searched that the [at]th result is, as its row there. */
+	fun entryOf(at: Int): Row? = tree?.row(pathOf(at).map { it.toString() })
+
+	/** What is known of the [at]th result of a search in a place, which the place's listing said: nothing is read. */
+	fun listedStat(at: Int): Stat =
+		entryOf(at)?.let { Stat.Read(it.size, it.modified) } ?: Stat.Gone
 
 	override fun toString(): String = "Matches($size)"
 

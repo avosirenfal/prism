@@ -1,5 +1,6 @@
 package prism.browser
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -26,6 +27,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
@@ -51,6 +53,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -60,6 +64,8 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.input.key.KeyEventType
@@ -98,6 +104,7 @@ import androidx.compose.ui.window.PopupProperties
 import java.nio.file.Path
 import kotlin.io.path.name
 import kotlin.math.roundToInt
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.emptyFlow
@@ -191,8 +198,15 @@ fun FileBrowser(
 				Toolbar(state, stops, onEvent)
 				Line(palette.border)
 				Row(Modifier.weight(1f).fillMaxWidth()) {
-					SidebarPane(state, stops, onEvent)
-					Box(Modifier.width(1.dp).fillMaxHeight().background(palette.border))
+					// A place that is a tool of its own (an archive's window) has no places on disk beside it.
+					if (state.inPlace
+							?.placed
+							?.type
+							?.sidebar != false
+					) {
+						SidebarPane(state, stops, onEvent)
+						Box(Modifier.width(1.dp).fillMaxHeight().background(palette.border))
+					}
 					ListingPane(state, stops, Modifier.weight(1f), ::act, onEvent)
 				}
 				Line(palette.border)
@@ -204,6 +218,9 @@ fun FileBrowser(
 			}
 			state.search.takeIf { it.open }?.let { SearchLayer(it, state.home, onEvent) }
 			state.notice?.let { NoticeLayer(it, onEvent) }
+			// What is waited on, over everything, where nothing is asking: a notice is answered first.
+			if (state.notice == null)
+				state.running.firstOrNull()?.let { WorkLayer(it, onEvent) }
 		}
 	}
 }
@@ -1760,7 +1777,18 @@ private fun HeaderCell(
 
 /** Where [row] is, as a search's results say it; nothing in a folder, where every row is in the folder shown. */
 private fun whereOf(row: Row, state: BrowserState): String? =
-	row.path?.takeIf { state.results != null }?.let { folderOf(it, state.home) }
+	if (state.results == null)
+		null
+	else
+		when (val item = row.item) {
+			is Item.OnDisk -> folderOf(item.path, state.home)
+			// An entry of a place is in the place: the folders it sits under there.
+			is Item.InPlace ->
+				Part.Parent
+					.of(item.key)
+					.trimStart('/')
+					.ifEmpty { "/" }
+		}
 
 /** The folder [path] is in, from `~` where it is under [home]. */
 internal fun folderOf(path: Path, home: Path): String {
@@ -2139,7 +2167,7 @@ private fun statusOf(state: BrowserState): String {
 	val running =
 		state.running
 			.takeIf { it.isNotEmpty() }
-			?.joinToString(", ", postfix = "…") { it.removeSuffix("…") }
+			?.joinToString(", ", postfix = "…") { it.task.label.removeSuffix("…") }
 
 	return listOfNotNull(
 		if (state.listing is Listing.Reading)
@@ -2206,6 +2234,133 @@ private fun wordsOf(notice: Notice): Words =
 		is Notice.Asking -> Words(notice.prompt, "", "OK", "Cancel")
 		is Notice.ConfirmAction -> Words(notice.label, notice.question, notice.label, "Cancel")
 	}
+
+/** Whether what moves for its own sake (a spinner) moves: not where the view is drawn to be looked at once, or tested. */
+val LocalMotion = staticCompositionLocalOf { true }
+
+/** How long a command runs before it is shown as running: one that is done at once shows nothing. */
+private const val WORK_SHOWN_AFTER = 350L
+
+/**
+ * A command under way, over the browser, once it has run for a moment: what it is, that it is running, the last lines
+ * it wrote, and a button that stops it (as Escape does). It goes when the command ends. The browser behind it is not
+ * waiting on the command, which runs elsewhere; it is only not to be changed under it.
+ */
+@Composable
+private fun WorkLayer(work: Work, onEvent: (BrowserEvent) -> Unit) {
+	val palette = LocalPalette.current
+	val type = LocalType.current
+	val shape = RoundedCornerShape(8.dp)
+	val button = remember { FocusRequester() }
+	var shown by remember(work.task) { mutableStateOf(false) }
+
+	LaunchedEffect(work.task) {
+		delay(WORK_SHOWN_AFTER)
+		shown = true
+	}
+
+	if (!shown)
+		return
+
+	Popup(
+		alignment = Alignment.Center,
+		properties =
+			PopupProperties(
+				focusable = true,
+				dismissOnBackPress = false,
+				dismissOnClickOutside = false,
+			),
+	) {
+		Box(
+			Modifier
+				.fillMaxSize()
+				.background(palette.scrim)
+				.onKeyEvent {
+					(it.type == KeyEventType.KeyDown && it.key == Key.Escape).also { escaped ->
+						if (escaped)
+							onEvent(BrowserEvent.Stopped(work.task))
+					}
+				}.testTag("work"),
+			contentAlignment = Alignment.Center,
+		) {
+			Column(
+				Modifier
+					.width(520.dp)
+					.background(palette.surface, shape)
+					.border(1.dp, palette.border, shape)
+					.padding(20.dp),
+			) {
+				Row(verticalAlignment = Alignment.CenterVertically) {
+					Spinner(palette.accent)
+					Spacer(Modifier.width(Dims.gap * 2))
+					Text(
+						work.task.label.removeSuffix("…") + "…",
+						style = type.title,
+						maxLines = 1,
+						overflow = TextOverflow.Ellipsis,
+					)
+				}
+				// The last lines it wrote, the latest last, in the room they are given.
+				if (work.said.isNotEmpty())
+					Text(
+						work.said.takeLast(WORK_LINES).joinToString("\n"),
+						style = type.muted,
+						maxLines = WORK_LINES,
+						overflow = TextOverflow.Ellipsis,
+						modifier =
+							Modifier
+								.fillMaxWidth()
+								.padding(top = Dims.gap * 2)
+								.background(palette.field, RoundedCornerShape(Dims.radius))
+								.padding(Dims.gap)
+								.testTag("work-said"),
+					)
+				Row(
+					Modifier.fillMaxWidth().padding(top = 20.dp),
+					horizontalArrangement = Arrangement.End,
+				) {
+					PushButton(
+						if (work.stopping) "Stopping…" else "Cancel",
+						Emphasis.Secondary,
+						enabled = !work.stopping,
+						Modifier.testTag("stop"),
+						button,
+					) {
+						onEvent(BrowserEvent.Stopped(work.task))
+					}
+				}
+			}
+		}
+		LaunchedEffect(Unit) { button.requestFocus() }
+	}
+}
+
+/** How many of a command's last lines are shown while it runs. */
+private const val WORK_LINES = 8
+
+/** Something under way with no end in sight: an arc going round, or, where nothing moves, standing still. */
+@Composable
+private fun Spinner(color: Color) {
+	var turn by remember { mutableStateOf(0f) }
+
+	if (LocalMotion.current)
+		LaunchedEffect(Unit) {
+			val began = withFrameNanos { it }
+
+			while (true)
+				withFrameNanos { turn = ((it - began) / 1_000_000f * 0.36f) % 360f }
+		}
+
+	Canvas(Modifier.size(22.dp)) {
+		drawArc(
+			color,
+			startAngle = turn,
+			sweepAngle = 270f,
+			useCenter = false,
+			style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round),
+		)
+	}
+}
 
 /**
  * A notice, over the picker and in front of the keyboard: it takes the keyboard to its first button, Escape puts it

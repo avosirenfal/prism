@@ -14,7 +14,8 @@
 			],
 			"read": "names",
 			"out": "archive.tar.extract",
-			"in": "archive.tar.add"
+			"in": "archive.tar.add",
+			"sidebar": false
 		},
 		{
 			"id": "archive.zip",
@@ -30,7 +31,8 @@
 			],
 			"read": "names",
 			"out": "archive.zip.extract",
-			"in": "archive.zip.add"
+			"in": "archive.zip.add",
+			"sidebar": false
 		},
 		{
 			"id": "git.changes",
@@ -572,6 +574,7 @@
 				"{archive}",
 				"-C",
 				"{dest}",
+				"--strip-components={depth}",
 				"--",
 				"{entries}"
 			],
@@ -699,8 +702,9 @@
 			"run": [
 				"sh",
 				"-c",
-				"for e; do case \"$e\" in */) set -- \"$@\" \"$e\" \"$e*\";; *) set -- \"$@\" \"$e\";; esac; shift; done; unzip -n -q \"$archive\" \"$@\" -d \"$dest\"",
+				"t=$1; shift; for e; do case \"$e\" in */) set -- \"$@\" \"$e\" \"$e*\";; *) set -- \"$@\" \"$e\";; esac; shift; done; unzip -n -q \"$archive\" \"$@\" -d \"$t\" || exit 1; cd \"$t/$within\" && tar -cf - . | tar --skip-old-files -xf - -C \"$dest\"",
 				"sh",
+				"{temp}",
 				"{entries}"
 			],
 			"how": {

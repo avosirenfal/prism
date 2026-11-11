@@ -30,7 +30,9 @@ import prism.desktop.Opening
 import prism.desktop.Place
 import prism.desktop.Places
 import prism.desktop.currentDesktop
+import prism.index.SearchContext
 import prism.index.Searched
+import prism.index.search
 import prism.preferences.MemoryPreferences
 import prism.preferences.PreferenceStore
 
@@ -81,6 +83,8 @@ data class Services(
 	 * go of when files are copied instead.
 	 */
 	val carried: AtomicReference<Carried?> = AtomicReference(null),
+	/** The folders made for a while, which are removed when they are done with. */
+	val temps: Temps = SHARED_TEMPS,
 ) {
 	/** What conditions are decided by: the desktop's types, the `PATH`, and the disk. */
 	val world: World by lazy { SystemWorld(home, desktop?.types) }
@@ -122,17 +126,40 @@ class SystemWorld(
 	override fun exists(path: Path): Boolean = Files.exists(path)
 }
 
-/** The answer to [asking], from these. */
-fun Services.answer(asking: Effect.Asking): Answer =
+/** The temporary folders of this process, made once: every window's, and removed when prism ends. */
+private val SHARED_TEMPS: Temps by lazy { Temps() }
+
+/** What [search] finds in the place it says to search, with the search the index of the disk is given. */
+private fun findingIn(tree: PlaceTree, search: Effect.Search): Finding =
+	when (val found = tree.index.search(search.query, SearchContext(home = Path("/")))) {
+		is Searched.Found -> Finding.Matched(search.text, Matches(found.results, tree))
+		is Searched.Refused -> Finding.Refused(search.text, found.why)
+	}
+
+/**
+ * The answer to [asking], from these. A command that is waited for (an action's, a place's listing) is watched by
+ * what [watching] gives for its task, which is told how to stop it and what it writes.
+ */
+fun Services.answer(
+	asking: Effect.Asking,
+	watching: (Task) -> Watch = { Watch.NONE },
+): Answer =
 	when (asking) {
 		is Effect.Read -> Answer.Arrived(asking.folder, disk.read(asking.folder))
 		is Effect.Look -> Answer.Looked(asking.lookup, disk.look(asking.lookup.paths))
 		is Effect.Make -> Answer.Changed(asking.change, disk.make(asking.change), asking.doing)
-		is Effect.Search -> Answer.Searched(finder.findingOf(asking), asking.purpose)
+		is Effect.Search ->
+			Answer.Searched(
+				asking.within?.let { findingIn(it, asking) } ?: finder.findingOf(asking),
+				asking.purpose,
+			)
 		is Effect.Stat ->
 			Answer.Stated(
 				asking.matches,
-				asking.places.zip(disk.stat(asking.places.map(asking.matches::pathOf))).toMap(),
+				if (asking.matches.tree != null)
+					asking.places.associateWith(asking.matches::listedStat)
+				else
+					asking.places.zip(disk.stat(asking.places.map(asking.matches::pathOf))).toMap(),
 			)
 		is Effect.Order ->
 			Answer.Ordered(
@@ -151,18 +178,27 @@ fun Services.answer(asking: Effect.Asking): Answer =
 		is Effect.ListPlace ->
 			Answer.Listed(
 				asking.placed,
-				listingOf(asking.placed, commands, home),
+				listingOf(asking.placed, commands, home, watching(Task.Listing(asking.placed))),
 			)
 		// Each command waited for in turn; the first that fails ends them, and is why.
+		// The folder made for them to work in goes when they end, however they do.
 		is Effect.Run ->
-			Answer.Ran(
-				asking.job,
-				asking.job.invocations.firstNotNullOfOrNull { invocation ->
-					commands.run(invocation).takeUnless { it.worked }?.why
-				},
-			)
+			try {
+				Answer.Ran(
+					asking.job,
+					asking.job.invocations.firstNotNullOfOrNull { invocation ->
+						commands
+							.run(invocation, watching(Task.Running(asking.job)))
+							.takeUnless { it.worked }
+							?.why
+					},
+				)
+			} finally {
+				asking.job.scratch?.let(temps::remove)
+			}
 		is Effect.Launch -> Answer.Started(launched(asking.job, asking.terminal))
-		is Effect.Temp -> Answer.TempMade(Files.createTempDirectory("prism-"), asking.carried)
+		is Effect.Temp -> Answer.TempMade(temps.make(), asking.carried)
+		is Effect.Scratch -> Answer.ScratchMade(temps.make(), asking.pending)
 	}
 
 /** [job]'s commands started on the desktop, each a process of its own, or in a terminal: the first that fails, or the last. */

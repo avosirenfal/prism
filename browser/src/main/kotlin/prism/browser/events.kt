@@ -279,6 +279,11 @@ sealed interface BrowserEvent : Input {
 		val within: List<String>,
 	) : BrowserEvent
 
+	/** [task], under way, to be stopped: the button of what shows it running, or Escape. */
+	data class Stopped(
+		val task: Task,
+	) : BrowserEvent
+
 	/** Entries of a place, [carried] from it, dropped on [spot]: brought out into the folder there. */
 	data class DroppedCarried(
 		val carried: Carried,
@@ -431,6 +436,18 @@ sealed interface Answer : Input {
 		val failure: String?,
 	) : Answer
 
+	/** A line [task] wrote as it runs. */
+	data class Said(
+		val task: Task,
+		val line: String,
+	) : Answer
+
+	/** A folder made for [pending]'s command to work in, which is its `{temp}`. */
+	data class ScratchMade(
+		val folder: Path,
+		val pending: Pending,
+	) : Answer
+
 	/** A folder made for [carried]'s entries to be brought out into, to be opened from. */
 	data class TempMade(
 		val folder: Path,
@@ -525,6 +542,41 @@ sealed interface Start {
 	) : Start
 }
 
+/** Something a command is run for, and waited on: what is shown as running, and can be stopped. */
+@Immutable
+sealed interface Task {
+	val label: String
+
+	/** An action's commands. */
+	data class Running(
+		val job: Job,
+	) : Task {
+		override val label: String get() = job.label
+	}
+
+	/** A place being listed. */
+	data class Listing(
+		val placed: prism.browser.Placed,
+	) : Task {
+		override val label: String get() = "Listing ${placed.title}"
+	}
+}
+
+/** A task under way: what it has written so far (its last lines), and whether the user has asked for it to stop. */
+@Immutable
+data class Work(
+	val task: Task,
+	val said: List<String> = emptyList(),
+	val stopping: Boolean = false,
+) {
+	/** This, having written [line]: the latest lines are kept, which are what a person waiting reads. */
+	fun saying(line: String): Work = copy(said = (said + line).takeLast(KEPT))
+
+	companion object {
+		const val KEPT = 200
+	}
+}
+
 /** What follows a job's commands, once they have all worked. */
 @Immutable
 sealed interface After {
@@ -547,6 +599,8 @@ data class Job(
 	val label: String,
 	val invocations: List<Invocation>,
 	val after: After = After.None,
+	/** A folder made for these commands to work in (their `{temp}`): removed, with all in it, when they end. */
+	val scratch: Path? = null,
 )
 
 /**
@@ -745,6 +799,8 @@ sealed interface Effect {
 		val text: String,
 		val query: Query,
 		val purpose: Purpose,
+		/** The place searched, in the index's stead: only what it holds is found. */
+		val within: PlaceTree? = null,
 	) : Asking
 
 	/** The results at [places] among [matches] read on disk, and what was read sent back as [Answer.Stated]. */
@@ -790,10 +846,20 @@ sealed interface Effect {
 		val terminal: Boolean,
 	) : Asking
 
+	/** A folder made for [pending]'s command to work in, sent back as [Answer.ScratchMade]. */
+	data class Scratch(
+		val pending: Pending,
+	) : Asking
+
 	/** A folder made that nothing else uses, for [carried], sent back as [Answer.TempMade]. */
 	data class Temp(
 		val carried: Carried,
 	) : Asking
+
+	/** [task], under way, stopped, with whatever its command started. */
+	data class Stop(
+		val task: Task,
+	) : Effect
 
 	/** [carried] kept as what was copied last, for a paste in any window; null lets go of what was. */
 	data class Carry(

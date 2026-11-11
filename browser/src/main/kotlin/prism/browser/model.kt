@@ -602,8 +602,10 @@ sealed interface Location {
 		val path: Path,
 	) : Location
 
+	/** A search's results; of a search made in a place, [within] is that place, which is all that was searched. */
 	data class Results(
 		val finding: Finding.Matched,
+		val within: Place? = null,
 	) : Location
 
 	/**
@@ -848,8 +850,8 @@ data class BrowserState(
 	val actions: Actions = Actions.NONE,
 	/** An action begun and waiting for an answer (a folder being chosen in another window, a line being typed). */
 	val pending: Pending? = null,
-	/** The watched commands under way, by what each is called: what the status line says is being done. */
-	val running: List<String> = emptyList(),
+	/** What is under way and waited on (an action's commands, a place being listed): shown, and to be stopped. */
+	val running: List<Work> = emptyList(),
 ) {
 	/** The folder shown; none among a search's results. */
 	val folder: Path? get() = (at as? Location.Folder)?.path
@@ -857,13 +859,17 @@ data class BrowserState(
 	/** The place shown, where one is. */
 	val place: Location.Place? get() = at as? Location.Place
 
+	/** The place the window is in: the one shown, or the one whose search's results are. */
+	val inPlace: Location.Place? get() = place ?: (at as? Location.Results)?.within
+
 	/** Where the window is, as an action's conditions name it. */
 	val where: Where
 		get() =
 			when (val at = at) {
 				is Location.Folder -> Where.Folder(at.path)
-				is Location.Results -> Where.Results
-				is Location.Place -> Where.Place(at.placed)
+				// Results of a search in a place are in that place, at its top: its actions are for them too.
+				is Location.Results -> at.within?.let { Where.Place(it.placed) } ?: Where.Results
+				is Location.Place -> Where.Place(at.placed, at.within)
 			}
 
 	/** The search whose results are shown, where they are. */

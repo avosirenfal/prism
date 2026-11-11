@@ -100,6 +100,7 @@ internal object OwnDrag {
 
 					override fun dragDropEnd(event: DragSourceDropEvent) {
 						keyed = null
+						CarriedDrag.current = null
 					}
 				},
 			)
@@ -153,23 +154,35 @@ private val CARRIED =
 		"entries of a place",
 	)
 
-/** The entries of a place [transferable] is a drag of, where it is one of this process's. */
-private fun carriedOf(transferable: Transferable): Carried? =
-	CarriedDrag.current.takeIf { transferable.isDataFlavorSupported(CARRIED) }
+/**
+ * The entries of a place being dragged, where what is dragged is this process's drag of them. The drag itself is
+ * not asked: a window the drag is over is given it through the platform's protocol, as another application's would
+ * be, and what that says of a mark only this process knows differs between toolkits. What is kept here does not.
+ */
+@Suppress("UNUSED_PARAMETER")
+private fun carriedOf(transferable: Transferable): Carried? = CarriedDrag.current
 
 /** A drag of a place's entries: the mark alone, and no files. */
 private class DraggedEntries(
 	private val carried: Carried,
 ) : Transferable {
-	override fun getTransferDataFlavors(): Array<DataFlavor> = arrayOf(CARRIED)
+	// As text too, the entries' names: a drag that offers a platform nothing it knows is not begun by some of them,
+	// and an editor it is dropped on is given something sensible.
+	override fun getTransferDataFlavors(): Array<DataFlavor> =
+		arrayOf(CARRIED, DataFlavor.stringFlavor)
 
-	override fun isDataFlavorSupported(flavor: DataFlavor): Boolean = flavor == CARRIED
+	override fun isDataFlavorSupported(flavor: DataFlavor): Boolean =
+		flavor in transferDataFlavors
 
 	override fun getTransferData(flavor: DataFlavor): Any =
-		if (flavor == CARRIED)
-			carried
-		else
-			throw UnsupportedFlavorException(flavor)
+		when (flavor) {
+			CARRIED -> carried
+			DataFlavor.stringFlavor ->
+				carried.pending.subject.things.joinToString(
+					"\n",
+				) { it.name }
+			else -> throw UnsupportedFlavorException(flavor)
+		}
 }
 
 /** A URI list, as X11 and Wayland name files: where a toolkit does not make it a list of files itself. */
@@ -260,12 +273,14 @@ fun Modifier.filesDragged(
 		if (files.isEmpty())
 			return@dragAndDropSource carried()?.let { entries ->
 				onStart()
+				OwnDrag.started()
 				CarriedDrag.current = entries
 				DragAndDropTransferData(
 					DragAndDropTransferable(DraggedEntries(entries)),
 					listOf(DragAndDropTransferAction.Copy),
 					offset,
-					onTransferCompleted = { CarriedDrag.current = null },
+					// What is carried is let go when the drag ends (OwnDrag), which is after a drop has read it.
+					onTransferCompleted = {},
 				)
 			}
 

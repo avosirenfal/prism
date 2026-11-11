@@ -6,6 +6,14 @@ import kotlin.io.path.createDirectories
 import kotlin.io.path.exists
 import kotlin.io.path.readText
 import kotlin.io.path.writeText
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertInstanceOf
@@ -132,17 +140,17 @@ class PlacesTest {
 
 	private fun type(read: PlaceRead, tree: Boolean = false, nul: Boolean = false) =
 		PlaceType(
-			"t",
-			null,
-			emptyList(),
-			false,
-			(Command.read(listOf("true"), emptySet()) as Reading.Right).value,
-			null,
-			read,
-			tree,
-			nul,
-			null,
-			null,
+			id = "t",
+			title = null,
+			takes = emptyList(),
+			window = false,
+			list = (Command.read(listOf("true"), emptySet()) as Reading.Right).value,
+			folder = null,
+			read = read,
+			tree = tree,
+			nul = nul,
+			out = null,
+			into = null,
 		)
 
 	@Test
@@ -294,7 +302,7 @@ class PlacesTest {
 		assertEquals("spaced", root.resolve("out/with space/my file.txt").readText())
 		// The folder is read again once the command has run, and nothing is left running.
 		assertTrue(extracted.names().containsAll(listOf("src", "with space", "README.md")))
-		assertEquals(emptyList<String>(), extracted.running)
+		assertEquals(emptyList<Work>(), extracted.running)
 		assertNull(extracted.notice)
 
 		val foldered = extracted.choose("Extract into a folder", "code.zip")
@@ -397,12 +405,12 @@ class PlacesTest {
 
 		val moved = exploring(root.resolve("away")).viewing("code.zip")
 
-		moved.then(
-			moved.then(BrowserEvent.Activated(moved.row("with space").id)).let {
-				it.menu("my file.txt").event("Extract beside the archive")
-			},
-		)
-		assertEquals("spaced", root.resolve("away/with space/my file.txt").readText())
+		val spaced = moved.then(BrowserEvent.Activated(moved.row("with space").id))
+
+		// An entry is brought out as it is shown: the file itself, and not the folders it sits under in the archive.
+		spaced.choose("Extract beside the archive", "my file.txt")
+		assertEquals("spaced", root.resolve("away/my file.txt").readText())
+		assertFalse(root.resolve("away/with space").exists())
 	}
 
 	@Test
@@ -466,13 +474,13 @@ class PlacesTest {
 		val extracting = step(opening.state, Answer.TempMade(made, temp.carried))
 		val job = (extracting.effects.single() as Effect.Run).job
 
-		assertEquals(After.Open(listOf(made.resolve("src/main.c"))), job.after)
+		assertEquals(After.Open(listOf(made.resolve("main.c"))), job.after)
 
 		val ran = step(extracting.state, services.answer(Effect.Run(job)))
 
-		assertEquals("int main;", made.resolve("src/main.c").readText())
+		assertEquals("int main;", made.resolve("main.c").readText())
 		assertEquals(
-			listOf<Effect>(Effect.Open(listOf(made.resolve("src/main.c")))),
+			listOf<Effect>(Effect.Open(listOf(made.resolve("main.c")))),
 			ran.effects,
 		)
 	}
@@ -536,6 +544,232 @@ class PlacesTest {
 		assertInstanceOf(Listing.Unreadable::class.java, listing)
 		assertTrue((listing as Listing.Unreadable).why.isNotBlank())
 	}
+
+	@Test
+	fun entriesAreBroughtOutAsTheyAreShownWithoutTheFoldersAboveThem() {
+		archives()
+
+		for ((archive, into) in listOf("code.tar.gz" to "out", "code.zip" to "other")) {
+			val top = exploring().viewing(archive)
+			val src = top.then(BrowserEvent.Activated(top.row("src").id))
+			val carried = src.carrying(listOf(src.row("main.c"), src.row("deep")))!!
+
+			exploring(root.resolve(into)).then(BrowserEvent.DroppedCarried(carried, DropSpot.Here))
+
+			// The file, and the folder with what is in it; not the `src` they are under in the archive.
+			assertEquals("int main;", root.resolve("$into/main.c").readText(), archive)
+			assertEquals("deep", root.resolve("$into/deep/a.txt").readText(), archive)
+			assertFalse(root.resolve("$into/src").exists(), archive)
+			// Nothing a command worked in is left behind, where it was extracted or anywhere else.
+			assertEquals(
+				setOf("main.c", "deep"),
+				Files.list(root.resolve(into)).use { all ->
+					all.map { it.fileName.toString() }.toList().toSet()
+				},
+			)
+		}
+	}
+
+	@Test
+	fun aPlaceIsSearchedByItsOwnIndexAndNothingElseIsFound() {
+		archives()
+		// On disk beside the archive, and never in it: a search of the archive must not find it.
+		root.resolve("a.txt.elsewhere").writeText("not in the archive")
+
+		for (archive in listOf("code.tar.gz", "code.zip")) {
+			val top = exploring().viewing(archive)
+
+			// With no index of the disk at all, a place is still searched: by what it listed.
+			assertInstanceOf(Search.Unavailable::class.java, top.search)
+
+			val typed = top.then(BrowserEvent.OpenedSearch).then(BrowserEvent.SearchTyped("a.txt"))
+			val found = (typed.search as Search.Ready).matched!!.matches
+
+			assertEquals(listOf("a.txt"), (0 until found.size).map(found::nameOf), archive)
+
+			// Every match shown: results that are the archive's entries, with the archive's actions.
+			val shown = typed.then(BrowserEvent.ShowedResults)
+
+			assertEquals(listOf("a.txt"), shown.names())
+			assertEquals(
+				Item.InPlace("src/deep/a.txt"),
+				shown.rows.list
+					.single()
+					.item,
+			)
+			assertEquals(archive, shown.inPlace?.placed?.title)
+			assertTrue("Extract to…" in shown.menu("a.txt").labels())
+			assertFalse("Move to trash" in shown.menu("a.txt").labels())
+			assertNotNull(
+				shown.rows.list
+					.single()
+					.size,
+			)
+
+			// The search language is the index's: an extension, a folder, a glob.
+			fun finds(text: String) =
+				top
+					.then(
+						BrowserEvent.OpenedSearch,
+					).then(
+						BrowserEvent.SearchTyped(text),
+					).then(BrowserEvent.ShowedResults)
+					.names()
+					.toSet()
+
+			assertEquals(setOf("main.c"), finds("ext:c"))
+			assertEquals(setOf("deep", "main.c", "a.txt"), finds("dir:src"))
+			assertEquals(setOf("my file.txt"), finds("\"my file\""))
+			assertEquals(setOf("src", "deep", "with space"), finds("is:dir"))
+
+			// A match chosen in the search's window is gone to in the archive: the folder it sits in, the cursor on it.
+			val gone = typed.then(BrowserEvent.MatchChosen(0))
+
+			assertEquals(listOf("src", "deep"), gone.place?.within)
+			assertEquals(RowId.Entry("src/deep/a.txt"), gone.cursor?.at)
+
+			// A folder among the results is gone into where it sits, and Back returns to the results.
+			val folders =
+				top
+					.then(
+						BrowserEvent.OpenedSearch,
+					).then(BrowserEvent.SearchTyped("deep"))
+					.then(BrowserEvent.ShowedResults)
+
+			val into =
+				folders.then(
+					BrowserEvent.Activated(
+						folders.rows.list
+							.single()
+							.id,
+					),
+				)
+
+			assertEquals(listOf("src", "deep"), into.place?.within)
+			assertEquals(listOf("deep"), into.then(BrowserEvent.Back).names())
+		}
+	}
+
+	@Test
+	fun temporaryFoldersAreRemovedWhenDoneWithAndThoseOfProcessesGoneAreSwept() {
+		val under = Files.createDirectory(root.resolve("tmp"))
+		// Left by a process that is not running any more, and by one that is.
+		val stale = Files.createDirectories(under.resolve("prism-open-999999999-old/inside"))
+
+		val live =
+			Files.createDirectory(
+				under.resolve("prism-open-${ProcessHandle.current().pid()}-mine"),
+			)
+
+		val other = Files.createDirectory(under.resolve("something-else"))
+		val temps = Temps(under, process = 4242)
+
+		assertFalse(stale.parent.exists())
+		assertTrue(live.exists())
+		assertTrue(other.exists())
+
+		val made = temps.make()
+
+		made.resolve("deep").createDirectories()
+		made.resolve("deep/file").writeText("x")
+		assertTrue(made.fileName.toString().startsWith("prism-open-4242-"))
+		temps.remove(made)
+		assertFalse(made.exists())
+
+		val more = listOf(temps.make(), temps.make())
+
+		temps.clear()
+		assertTrue(more.none { it.exists() })
+		// Only what these made is theirs to remove.
+		temps.remove(other)
+		assertTrue(other.exists())
+	}
+
+	@Test
+	fun aCommandUnderWayIsToldOfAndStoppedAndABrowserClosedLeavesNothingBehind() =
+		runBlocking {
+			has("sh", "sleep")
+
+			val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+			val temps = Temps(Files.createDirectory(root.resolve("tmp")))
+
+			val session =
+				Session(
+					opened(Choosing.Exploring(), root, root, sidebarOf(XdgPlaces(), root, null)),
+					services.copy(temps = temps),
+					scope,
+				)
+
+			val slow =
+				Actions
+					.read(
+						listOf(
+							prism.preferences.ActionsFile.parse(
+								"""{"actions": [{"id": "slow", "label": "Slow", "when": {"target": "folder"},
+								"run": ["sh", "-c", "echo started; echo \"in $1\" >&2; sleep 60 | cat", "sh", "{temp}"],
+								"how": {"watched": true}}]}""",
+							),
+						),
+					).actions
+					.single()
+
+			try {
+				withTimeout(15_000) {
+					val state = session.state.first { it.listing is Listing.Read }
+
+					session.send(BrowserEvent.Did(slow, state.subjectOf(Target.Folder)))
+
+					// What it writes, to its output and to standard error, is told as it writes it.
+					val told =
+						session.state
+							.first {
+								it.running
+									.singleOrNull()
+									?.said
+									?.size == 2
+							}.running
+							.single()
+
+					val scratch = Path.of(told.said.single { it.startsWith("in ") }.removePrefix("in "))
+
+					assertTrue("started" in told.said)
+					assertTrue(scratch.exists())
+
+					// Stopped, it ends at once, with the pipeline it started; nothing is said to have failed, and the
+					// folder it worked in is gone.
+					val began = System.nanoTime()
+
+					session.send(BrowserEvent.Stopped(told.task))
+
+					val ended = session.state.first { it.running.isEmpty() }
+
+					assertTrue(System.nanoTime() - began < 5_000_000_000L)
+					assertNull(ended.notice)
+					assertFalse(scratch.exists())
+
+					// A browser closed while a command runs ends it, and takes the folders made for it with it.
+					session.send(BrowserEvent.Did(slow, state.subjectOf(Target.Folder)))
+
+					val again =
+						session.state
+							.first {
+								it.running
+									.singleOrNull()
+									?.said
+									?.size == 2
+							}.running
+							.single()
+
+					val left = Path.of(again.said.single { it.startsWith("in ") }.removePrefix("in "))
+
+					scope.cancel()
+					while (left.exists())
+						delay(20)
+				}
+			} finally {
+				scope.cancel()
+			}
+		}
 
 	/** [png] kept where `-Pbrowser.screenshots=DIR` says, for a person to look at. */
 	private fun kept(name: String, png: ByteArray) {

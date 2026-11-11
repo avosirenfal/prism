@@ -543,7 +543,7 @@ class ActionsTest {
 		val did = step(state, BrowserEvent.Did(action, notes))
 		val job = (did.effects.single() as Effect.Run).job
 
-		assertEquals(listOf("Stamp"), did.state.running)
+		assertEquals(listOf("Stamp"), did.state.running.map { it.task.label })
 		assertEquals(
 			Job(
 				"Stamp",
@@ -561,7 +561,7 @@ class ActionsTest {
 
 		val ran = step(did.state, Answer.Ran(job, null))
 
-		assertEquals(emptyList<String>(), ran.state.running)
+		assertEquals(emptyList<Work>(), ran.state.running)
 		assertEquals(listOf<Effect>(Effect.Read(home)), ran.effects)
 		assertEquals(Landing.On(RowId("notes.stamp"), choose = true), ran.state.landing)
 
@@ -726,5 +726,66 @@ class ActionsTest {
 			listOf<Effect>(Effect.Ask(Request.NewWindow(home.resolve("Documents")))),
 			step(state, BrowserEvent.Did(window, found)).effects,
 		)
+	}
+
+	@Test
+	fun whatIsRunningIsToldWhatItWritesAndStoppedWithoutBeingSaidToHaveFailed() {
+		val action =
+			action(
+				"""{"id": "x", "label": "Pack", "run": ["tar", "-cvf", "a.tar", "."], "how": {"watched": true}}""",
+			)
+
+		val did = step(exploring(Actions.NONE), BrowserEvent.Did(action, notes))
+		val task =
+			did.state.running
+				.single()
+				.task
+		val job = (did.effects.single() as Effect.Run).job
+
+		assertEquals(Task.Running(job), task)
+
+		val told =
+			step(
+				step(did.state, Answer.Said(task, "./a")).state,
+				Answer.Said(task, "./b"),
+			).state
+
+		assertEquals(listOf("./a", "./b"), told.running.single().said)
+
+		// Stopped by the user, its command is ended; that it then ends is nothing to tell them of.
+		val stopping = step(told, BrowserEvent.Stopped(task))
+
+		assertEquals(listOf<Effect>(Effect.Stop(task)), stopping.effects)
+		assertTrue(
+			stopping.state.running
+				.single()
+				.stopping,
+		)
+
+		val ended = step(stopping.state, Answer.Ran(job, ProcessCommands.STOPPED)).state
+
+		assertEquals(emptyList<Work>(), ended.running)
+		assertNull(ended.notice)
+		// Something not under way is not there to stop.
+		assertEquals(emptyList<Effect>(), step(ended, BrowserEvent.Stopped(task)).effects)
+	}
+
+	@Test
+	fun aCommandThatWorksInAFolderOfItsOwnIsGivenOneWhichIsItsJobsToBeRidOf() {
+		val action =
+			action(
+				"""{"id": "s", "label": "Sort", "run": ["sh", "-c", "sort \"$2\" > \"$1/sorted\"", "sh", "{temp}", "{path}"],
+				"how": {"watched": true}}""",
+			)
+
+		assertTrue(action.scratch)
+
+		val asked = step(exploring(Actions.NONE), BrowserEvent.Did(action, notes))
+		val pending = (asked.effects.single() as Effect.Scratch).pending
+		val made = step(asked.state, Answer.ScratchMade(home.resolve("scratch"), pending))
+		val job = (made.effects.single() as Effect.Run).job
+
+		assertEquals(home.resolve("scratch"), job.scratch)
+		assertEquals("/home/avery/scratch", job.invocations.single().words[4])
 	}
 }

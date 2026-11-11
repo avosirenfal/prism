@@ -126,7 +126,11 @@ class InteractionTest {
 			running[0] = session
 			BrowserTheme {
 				// The keys as a window has them: the defaults, and those of the actions that ship.
-				CompositionLocalProvider(LocalBindings provides Bindings.of(Preferences())) {
+				CompositionLocalProvider(
+					LocalBindings provides Bindings.of(Preferences()),
+					// Nothing moves for its own sake, so that the view comes to rest and can be looked at.
+					LocalMotion provides false,
+				) {
 					Box(width?.let { Modifier.width(it.value) } ?: Modifier) { SessionBrowser(session) }
 				}
 			}
@@ -762,6 +766,26 @@ class InteractionTest {
 					session.state.value.place != null
 			}
 			onNodeWithTag("place").assertExists()
+			// An archive's window is the archive's: the places on disk are not beside it.
+			assertEquals(0, onAllNodes(hasTestTag("places")).fetchSemanticsNodes().size)
+
+			// Ctrl+Shift+F searches the archive, by its own listing, though this window has no index of the disk.
+			session.send(BrowserEvent.OpenedSearch)
+			waitUntil(timeoutMillis = TIMEOUT) { session.state.value.search.open }
+			session.send(BrowserEvent.SearchTyped("todo"))
+			waitUntil(timeoutMillis = TIMEOUT) {
+				(session.state.value.search as? Search.Ready)?.matched?.matches?.size == 1
+			}
+			session.send(BrowserEvent.ShowedResults)
+			waitUntil(timeoutMillis = TIMEOUT) { session.state.value.results != null }
+			waitUntil(timeoutMillis = TIMEOUT) {
+				onAllNodes(hasTestTag("row:todo.txt")).fetchSemanticsNodes().size == 1 &&
+					onAllNodes(hasTestTag("row:notes.md")).fetchSemanticsNodes().isEmpty()
+			}
+			session.send(BrowserEvent.Back)
+			waitUntil(timeoutMillis = TIMEOUT) {
+				onAllNodes(hasTestTag("row:notes.md")).fetchSemanticsNodes().isNotEmpty()
+			}
 
 			// The menu of an entry is its place's: nothing of the trash, or of renaming.
 			row("todo.txt").performMouseInput { rightClick() }
@@ -786,6 +810,44 @@ class InteractionTest {
 					onAllNodes(hasTestTag("row:todo.txt")).fetchSemanticsNodes().isEmpty()
 			}
 			row("notes.md").assertExists()
+		}
+
+	@Test
+	fun aCommandUnderWayIsShownOverTheBrowserWithWhatItSaysAndAButtonThatStopsIt() =
+		picking(Choosing.Exploring()) { session ->
+			assumeTrue(has("sh", "sleep"))
+
+			val slow =
+				Actions
+					.read(
+						listOf(
+							prism.preferences.ActionsFile.parse(
+								"""{"actions": [{"id": "slow", "label": "Counting", "when": {"target": "folder"},
+								"run": ["sh", "-c", "echo one; echo two; sleep 60"], "how": {"watched": true}}]}""",
+							),
+						),
+					).actions
+					.single()
+
+			session.send(BrowserEvent.Did(slow, session.state.value.subjectOf(Target.Folder)))
+			waitUntil(timeoutMillis = TIMEOUT) {
+				onAllNodes(hasTestTag("work")).fetchSemanticsNodes().isNotEmpty() &&
+					session.state.value.running
+						.singleOrNull()
+						?.said == listOf("one", "two")
+			}
+			onNodeWithTag("work-said").assertTextEquals("one\ntwo")
+
+			// The button stops it, and what showed it running goes with it; nothing is said to have failed.
+			onNodeWithTag("stop").performClick()
+			waitUntil(timeoutMillis = TIMEOUT) {
+				session.state.value.running
+					.isEmpty()
+			}
+			waitUntil(timeoutMillis = TIMEOUT) {
+				onAllNodes(hasTestTag("work")).fetchSemanticsNodes().isEmpty()
+			}
+			assertEquals(null, session.state.value.notice)
 		}
 
 	@Test

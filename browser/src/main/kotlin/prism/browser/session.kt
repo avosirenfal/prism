@@ -9,11 +9,13 @@ import java.awt.HeadlessException
 import java.awt.Toolkit
 import java.awt.datatransfer.StringSelection
 import java.time.Instant
+import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.channels.BufferOverflow.DROP_OLDEST
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.ensureActive
@@ -65,6 +67,13 @@ class Session(
 	) : this(first, Services(disk, finder), scope, io, clipboard, {}, clock)
 
 	private val inputs = Channel<Input>(Channel.UNLIMITED)
+
+	// How to stop each task under way, once its command has started; and the tasks asked to stop before theirs had.
+	private val stops = ConcurrentHashMap<Task, () -> Unit>()
+	private val stopped: MutableSet<Task> = ConcurrentHashMap.newKeySet()
+
+	// The folders made for this browser, to open a place's entries from: gone when it is.
+	private val temps: MutableSet<java.nio.file.Path> = ConcurrentHashMap.newKeySet()
 	private val ending = CompletableDeferred<Outcome>()
 
 	// The latest search asked for the window, waiting while one runs: a newer one takes its place, and the same one
@@ -111,6 +120,17 @@ class Session(
 				}
 		}
 
+		// A browser done with (its window closed) leaves nothing behind it, and nothing running.
+		// Done as the browser is cancelled, and not once its work has ended: its work is waiting on those commands.
+		scope.launch {
+			try {
+				awaitCancellation()
+			} finally {
+				stops.values.forEach { it() }
+				temps.forEach(services.temps::remove)
+			}
+		}
+
 		scope.launch(io) {
 			previews.collectLatest { search ->
 				val answer = answerOf(search)
@@ -149,6 +169,7 @@ class Session(
 					services.clipboard.put(effect.clip)
 				}
 			is Effect.Carry -> services.carried.set(effect.carried)
+			is Effect.Stop -> stops[effect.task]?.invoke() ?: stopped.add(effect.task).let {}
 			is Effect.Pin ->
 				scope.launch(io) {
 					services.preferences.update { it.pinning(effect.paths) }
@@ -163,10 +184,32 @@ class Session(
 		}
 	}
 
+	/**
+	 * Who watches [task]'s command: this session, which keeps how to stop it while it runs (and stops it at once where
+	 * that was already asked), and is told what it writes. A listing's output is its entries, which are not for
+	 * reading; what it writes to standard error is.
+	 */
+	private fun watching(task: Task): Watch =
+		object : Watch {
+			override fun started(stop: () -> Unit) {
+				stops[task] = stop
+				if (stopped.remove(task))
+					stop()
+			}
+
+			override fun said(line: String, error: Boolean) {
+				if (error || task is Task.Running)
+					inputs.trySend(Answer.Said(task, line))
+			}
+		}
+
 	/** The answer to [asking], or, where it failed outright, the answer that says nothing could be had. */
 	private fun answerOf(asking: Effect.Asking): Answer =
 		try {
-			services.answer(asking)
+			services.answer(asking, ::watching).also {
+				if (it is Answer.TempMade)
+					temps.add(it.folder)
+			}
 		} catch (failed: RuntimeException) {
 			val why = failed.message ?: failed.toString()
 
@@ -199,11 +242,21 @@ class Session(
 				is Effect.Run -> Answer.Ran(asking.job, why)
 				is Effect.Launch -> Answer.Started(Launched.Failed(asking.job.label, why))
 				// With no folder to bring them out into, nothing is opened: the action is let go.
+				is Effect.Scratch -> Answer.Ran(Job(asking.pending.action.label, emptyList()), why)
 				is Effect.Temp ->
 					Answer.Ran(
 						Job(asking.carried.pending.action.label, emptyList()),
 						why,
 					)
+			}
+		} finally {
+			when (asking) {
+				is Effect.Run -> Task.Running(asking.job)
+				is Effect.ListPlace -> Task.Listing(asking.placed)
+				else -> null
+			}?.let {
+				stops.remove(it)
+				stopped.remove(it)
 			}
 		}
 }

@@ -64,14 +64,22 @@ internal fun BrowserState.doing(pending: Pending): Step {
 				),
 			)
 		null ->
-			if (action.confirm != null && !pending.confirmed)
-				Step(
-					copy(pending = filled, notice = Notice.ConfirmAction(action.label, action.confirm)),
-				)
-			else
-				copy(pending = null).done(filled, filling)
+			when {
+				action.confirm != null && !pending.confirmed ->
+					Step(
+						copy(pending = filled, notice = Notice.ConfirmAction(action.label, action.confirm)),
+					)
+				// A command that works in a folder of its own is given one first.
+				action.scratch && TEMP !in answers ->
+					Step(copy(pending = null), listOf(Effect.Scratch(filled)))
+				else -> copy(pending = null).done(filled, filling)
+			}
 	}
 }
+
+/** A folder made for [pending]'s command to work in: it is done, with that its `{temp}`. */
+internal fun BrowserState.scratched(folder: Path, pending: Pending): Step =
+	doing(pending.copy(answers = pending.answers + (TEMP to folder.toString())))
 
 /** The line an action asked for, typed and given: its answer. */
 internal fun BrowserState.typed(text: String): Step {
@@ -116,17 +124,22 @@ private fun BrowserState.done(pending: Pending, filling: Filling): Step {
 			// The values with names are the command's environment too, which is how a script reads them safely.
 			val environment = filling.values + ("folder" to folder.toString())
 			val invocations = runs.map { Invocation(it, folder, environment) }
+			val scratch = filling.values[TEMP]?.let { Path.of(it) }
 
 			when (val how = deed.how) {
 				How.Detached ->
 					Step(
 						this,
-						listOf(Effect.Launch(Job(action.label, invocations), terminal = false)),
+						listOf(
+							Effect.Launch(Job(action.label, invocations, scratch = scratch), terminal = false),
+						),
 					)
 				How.Terminal ->
 					Step(
 						this,
-						listOf(Effect.Launch(Job(action.label, invocations), terminal = true)),
+						listOf(
+							Effect.Launch(Job(action.label, invocations, scratch = scratch), terminal = true),
+						),
 					)
 				is How.Watched -> {
 					val after =
@@ -137,8 +150,11 @@ private fun BrowserState.done(pending: Pending, filling: Filling): Step {
 								After.None
 
 					Step(
-						copy(running = running + action.label),
-						listOf(Effect.Run(Job(action.label, invocations, after))),
+						copy(
+							running =
+								running + Work(Task.Running(Job(action.label, invocations, after, scratch))),
+						),
+						listOf(Effect.Run(Job(action.label, invocations, after, scratch))),
 					)
 				}
 			}
@@ -189,7 +205,10 @@ private fun BrowserState.failed(action: UserAction, why: String): Step =
  * out opened.
  */
 internal fun BrowserState.ran(job: Job, failure: String?): Step {
-	val rested = copy(running = running - job.label)
+	val work = running.firstOrNull { it.task == Task.Running(job) }
+	val rested = copy(running = running.filterNot { it === work })
+	// A command the user stopped did not fail: they know why it ended.
+	val failure = failure.takeUnless { work?.stopping == true }
 
 	val followed =
 		when (val after = job.after) {
@@ -228,27 +247,62 @@ private fun BrowserState.rowNamed(name: String): RowId =
 
 /** What listing [placed] gave: shown, where that place is still what is shown. */
 internal fun BrowserState.listed(placed: Placed, listing: PlaceListing): Step {
-	val place = place?.takeIf { it.placed == placed } ?: return Step(this)
+	val rested = copy(running = running.filterNot { it.task == Task.Listing(placed) })
+	val place = rested.place?.takeIf { it.placed == placed } ?: return Step(rested)
 
 	return Step(
 		when (listing) {
 			is PlaceListing.Listed ->
-				copy(
-					at = place.copy(tree = listing.tree),
-				).arrived(Listing.Shown(listing.tree.rows(place.within)))
-			is PlaceListing.Failed -> arrived(Listing.Unreadable(listing.why))
+				rested
+					.copy(
+						at = place.copy(tree = listing.tree),
+					).arrived(Listing.Shown(listing.tree.rows(place.within)))
+			is PlaceListing.Failed -> rested.arrived(Listing.Unreadable(listing.why))
 		},
 	)
 }
+
+/** [placed] asked to be listed: shown as under way until its listing arrives, unless it already is. */
+internal fun BrowserState.listing(placed: Placed): Step =
+	Step(
+		if (running.any { it.task == Task.Listing(placed) })
+			this
+		else
+			copy(running = running + Work(Task.Listing(placed))),
+		listOf(Effect.ListPlace(placed)),
+	)
+
+/** [task], under way, stopped by the user: its command is ended, and its ending is then not a failure to tell of. */
+internal fun BrowserState.stopping(task: Task): Step =
+	if (running.none { it.task == task })
+		Step(this)
+	else
+		Step(
+			copy(
+				running =
+					running.map {
+						if (it.task == task)
+							it.copy(stopping = true)
+						else
+							it
+					},
+			),
+			listOf(Effect.Stop(task)),
+		)
+
+/** A line [task] wrote, kept with what it has written, for whoever waits on it to read. */
+internal fun BrowserState.said(task: Task, line: String): Step =
+	Step(copy(running = running.map { if (it.task == task) it.saying(line) else it }))
 
 /** The folder of the place shown at [within] gone to, the folder left behind it in the history. */
 internal fun BrowserState.wentWithin(
 	within: List<String>,
 	landing: Landing? = null,
 ): Step {
-	val place = place ?: return Step(this)
+	val place = inPlace ?: return Step(this)
 
-	return if (within == place.within)
+	// From a search's results in the place, any folder of it is somewhere else to go.
+	return if (this.place != null && within == place.within)
 		Step(this)
 	else
 		shown(place.copy(within = within), History(history.back + at, emptyList()), landing)
@@ -269,10 +323,12 @@ internal fun BrowserState.upWithin(): Step {
  * place's way out, and opened from there, as an archive's files are looked at without extracting the archive.
  */
 internal fun BrowserState.activatedInPlace(row: Row): Step {
-	val place = place ?: return Step(this)
+	val place = inPlace ?: return Step(this)
+	// Where the folder sits is the place's to say: among a search's results, it is not under what is shown.
+	val sits = (row.item as? Item.InPlace)?.let { place.tree?.at(it.key) }
 
 	return when {
-		row.isFolder -> wentWithin(place.within + row.name)
+		row.isFolder -> wentWithin(sits ?: (place.within + row.name))
 		choosing is Choosing.Exploring ->
 			carrying(listOf(row))?.let { Step(this, listOf(Effect.Temp(it))) } ?: Step(this)
 		else -> Step(this)
@@ -284,11 +340,10 @@ internal fun BrowserState.openingOut(folder: Path, carried: Carried): Step =
 	doing(
 		carried.into(folder).copy(
 			after =
+				// Brought out, an entry is in the folder by its own name: the folders it was under are left behind.
 				After.Open(
 					carried.pending.subject.things
-						.mapNotNull {
-							it.key
-						}.map(folder::resolve),
+						.map { folder.resolve(it.name) },
 				),
 		),
 	)
@@ -298,7 +353,7 @@ internal fun BrowserState.openingOut(folder: Path, carried: Carried): Step =
  * that is for them, with where to still to say.
  */
 fun BrowserState.carrying(rows: List<Row>): Carried? {
-	val place = place ?: return null
+	val place = inPlace ?: return null
 	val out = actions.outOf(place.placed) ?: return null
 	val subject = Subject(On.Files, rows.map(Thing::of), where)
 

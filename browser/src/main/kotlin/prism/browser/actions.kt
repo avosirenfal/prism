@@ -633,10 +633,24 @@ sealed interface Where {
 		override val word: String get() = "results"
 	}
 
+	/** In [placed], in the folder of it at [within]. */
 	data class Place(
 		val placed: Placed,
+		val within: List<String> = emptyList(),
 	) : Where {
 		override val word: String get() = placed.type.id
+
+		/**
+		 * What the place adds to the values with names: those it was opened with, and where in it the window is:
+		 * `within`, the folder shown as a path with a `/` after it (empty at the top), and `depth`, how many folders
+		 * deep that is. A command that brings entries out uses them to leave the folders above behind.
+		 */
+		val values: Map<String, String> get() =
+			placed.values +
+				mapOf(
+					"within" to within.joinToString("") { "$it/" },
+					"depth" to within.size.toString(),
+				)
 	}
 }
 
@@ -653,7 +667,7 @@ data class Subject(
 
 	/** What commands are filled from, with [answers] to what was asked. */
 	fun filling(answers: Map<String, String> = emptyMap()): Filling =
-		Filling(things, folder, (where as? Where.Place)?.placed?.values.orEmpty() + answers)
+		Filling(things, folder, (where as? Where.Place)?.values.orEmpty() + answers)
 }
 
 // ---- an action ---------------------------------------------------------------------------------------------------
@@ -795,6 +809,12 @@ data class UserAction(
 			(Need.Virtual !in needs || subject.things.all { it.key != null }) &&
 			(!folder || subject.folder != null)
 
+	/** Whether its command names `{temp}`: a folder made for it to work in, and removed when it ends. */
+	val scratch: Boolean get() =
+		(deed as? Deed.Run)?.command?.words.orEmpty().any { word ->
+			word is Word.One && word.phrase.holes.any { it is Hole.Value && it.name == TEMP }
+		}
+
 	/** The one question a drop, or a paste, answers with its folder; null where there is not exactly one. */
 	val destination: Question.Folder? get() =
 		questions
@@ -802,6 +822,9 @@ data class UserAction(
 			.filter { it.name !in given }
 			.singleOrNull()
 }
+
+/** The value every action's command can name: a folder made for it, empty, and removed when the command ends. */
+const val TEMP = "temp"
 
 /** How what a place's command prints is read. */
 enum class PlaceRead(
@@ -832,6 +855,8 @@ data class PlaceType(
 	val read: PlaceRead,
 	val tree: Boolean,
 	val nul: Boolean,
+	/** Whether a window in it shows the sidebar of places on disk. */
+	val sidebar: Boolean = true,
 	/** The action that brings its entries out, into a folder: by id, among the actions. */
 	val out: String?,
 	/** The action that takes files in. */
@@ -883,6 +908,9 @@ data class Actions(
 
 	companion object {
 		val NONE = Actions(emptyList(), emptyMap(), emptyList())
+
+		/** The values every place has, beside those it takes: where in it the window is. */
+		private val IN_PLACE = setOf("within", "depth")
 
 		/** Prism's own actions and places, which ship with it (resources' actions.json). */
 		val SHIPPED: ActionsFile by lazy {
@@ -991,17 +1019,18 @@ data class Actions(
 							).then { read ->
 								window(spec.opens).map { window ->
 									PlaceType(
-										spec.id,
-										title,
-										spec.takes,
-										window ?: false,
-										list,
-										folder,
-										read,
-										spec.tree,
-										spec.nul,
-										spec.out,
-										spec.into,
+										id = spec.id,
+										title = title,
+										takes = spec.takes,
+										window = window ?: false,
+										list = list,
+										folder = folder,
+										read = read,
+										tree = spec.tree,
+										nul = spec.nul,
+										sidebar = spec.sidebar,
+										out = spec.out,
+										into = spec.into,
 									)
 								}
 							}
@@ -1016,7 +1045,7 @@ data class Actions(
 			places: Map<String, PlaceType>,
 		): Set<String> =
 			within
-				?.map { places[it]?.takes?.toSet().orEmpty() }
+				?.map { places[it]?.let { place -> place.takes.toSet() + IN_PLACE }.orEmpty() }
 				?.reduceOrNull { all, its -> all intersect its }
 				.orEmpty()
 
@@ -1024,7 +1053,7 @@ data class Actions(
 			spec: ActionSpec,
 			places: Map<String, PlaceType>,
 		): Reading<UserAction> {
-			val named = namedIn(spec.conditions.within, places) + spec.ask.keys
+			val named = namedIn(spec.conditions.within, places) + spec.ask.keys + TEMP
 
 			val deed: Reading<Deed> =
 				when {
