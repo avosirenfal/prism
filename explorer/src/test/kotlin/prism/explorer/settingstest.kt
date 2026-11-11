@@ -10,6 +10,7 @@ import prism.browser.Action
 import prism.browser.Bindings
 import prism.browser.Chord
 import prism.desktop.Place
+import prism.preferences.ActionsFile
 import prism.preferences.Preferences
 
 /**
@@ -143,5 +144,32 @@ class SettingsTest {
 
 		for (words in listOf(listOf("a b", "c"), listOf("it's", "\\", "\"q\""), listOf("")))
 			assertEquals(words, wordsOf(textOf(words)), "$words")
+	}
+
+	@Test
+	fun anActionWrittenWrongIsSaidWithWhyAndTheRestAreListed() {
+		val written =
+			ActionsFile.parse(
+				"""{"actions": [
+					{"id": "mine", "label": "Mine", "run": ["true"], "key": "F9"},
+					{"id": "wrong", "label": "Wrong", "run": ["cp", "{nowhere}"]}
+				]}""",
+			)
+
+		val settings = Settings(Preferences(actions = written.actions), emptyList())
+
+		assertEquals("Mine", settings.actions["mine"]?.label)
+		assertEquals(listOf("wrong"), settings.actions.broken.map { it.id })
+		assertTrue(
+			"nothing fills “{nowhere}”" in
+				settings.actions.broken
+					.single()
+					.why,
+		)
+		// What reads is bound like any of prism's own, by the chord it names until another is given it.
+		assertTrue(
+			settings.rebinding.bindings.actions
+				.any { it.key == "action:mine" },
+		)
 	}
 }

@@ -54,7 +54,8 @@ fun contextMenuOf(
 }
 
 /** The first chord [action] is bound to, as a menu shows it; nothing where it is bound to none. */
-private fun Bindings.keys(action: Bindable): String? = of(action).firstOrNull()?.toString()
+private fun Bindings.keys(action: Bindable): String? =
+	of(action).firstOrNull()?.toString()
 
 /** The user's actions offered for [subject], as a menu's entries: those of no submenu, then each submenu, nested. */
 private fun ownActions(
@@ -78,7 +79,10 @@ private fun ownActions(
 				keys = bindings.keys(Custom(it)),
 				id = it.id,
 			)
-		} + below.map { (label, under) -> MenuEntry.Submenu(label, Menu(entries(under, depth + 1))) }
+		} +
+			below.map { (label, under) ->
+				MenuEntry.Submenu(label, Menu(entries(under, depth + 1)))
+			}
 	}
 
 	return entries(state.actions.offered(subject, world), 0)
@@ -101,7 +105,12 @@ private fun rowsMenuOf(
 		one?.let { row ->
 			when {
 				row.isFolder -> {
-					item("Open", BrowserEvent.Activated(row.id), keys = bindings.keys(Action.Open), id = "builtin.open")
+					item(
+						"Open",
+						BrowserEvent.Activated(row.id),
+						keys = bindings.keys(Action.Open),
+						id = "builtin.open",
+					)
 					if (exploring)
 						folder?.let {
 							item(
@@ -116,26 +125,52 @@ private fun rowsMenuOf(
 				}
 				state.choosing is Choosing.SaveAs -> item("Save over it", BrowserEvent.Picked(row.id))
 				else ->
-					item("Open", BrowserEvent.Picked(row.id), keys = bindings.keys(Action.Open), id = "builtin.open")
+					item(
+						"Open",
+						BrowserEvent.Picked(row.id),
+						keys = bindings.keys(Action.Open),
+						id = "builtin.open",
+					)
 			}
 		}
 		// Several files open together, each with its application.
 		if (exploring && one == null && paths != null && rows.any { !it.isFolder })
-			item("Open", BrowserEvent.Accepted, keys = bindings.keys(Action.Open), id = "builtin.open")
+			item(
+				"Open",
+				BrowserEvent.Accepted,
+				keys = bindings.keys(Action.Open),
+				id = "builtin.open",
+			)
 		if (exploring && rows.none { it.isFolder })
 			paths?.let {
-				item("Open with…", BrowserEvent.Requested(Request.OpenWith(it)), id = "builtin.open-with")
+				item(
+					"Open with…",
+					BrowserEvent.Requested(Request.OpenWith(it)),
+					id = "builtin.open-with",
+				)
 			}
 		separator()
 		own.forEach(::add)
 		separator()
 		if (exploring) {
 			if (paths != null)
-				item("Cut", BrowserEvent.CutFiles(ids), keys = bindings.keys(Action.CutFiles), id = "builtin.cut")
+				item(
+					"Cut",
+					BrowserEvent.CutFiles(ids),
+					keys = bindings.keys(Action.CutFiles),
+					id = "builtin.cut",
+				)
 			// Entries of a place are copied where their place says how they are brought out of it.
 			if (paths != null || state.carrying(rows) != null)
-				item("Copy", BrowserEvent.CopiedFiles(ids), keys = bindings.keys(Action.CopyFiles), id = "builtin.copy")
-			folder?.let { item("Paste into folder", BrowserEvent.Pasted(it), id = "builtin.paste-into") }
+				item(
+					"Copy",
+					BrowserEvent.CopiedFiles(ids),
+					keys = bindings.keys(Action.CopyFiles),
+					id = "builtin.copy",
+				)
+			folder?.let {
+				item("Paste into folder", BrowserEvent.Pasted(it), id = "builtin.paste-into")
+			}
 			separator()
 		}
 		paths?.let {
@@ -163,7 +198,12 @@ private fun rowsMenuOf(
 		// trash at once, as Shift+Delete does; Delete alone asks first.
 		separator()
 		if (paths != null)
-			item("Move to trash", BrowserEvent.Trashed(ids), keys = bindings.keys(Action.Trash), id = "builtin.trash")
+			item(
+				"Move to trash",
+				BrowserEvent.Trashed(ids),
+				keys = bindings.keys(Action.Trash),
+				id = "builtin.trash",
+			)
 		if (exploring)
 			paths?.let {
 				separator()
@@ -178,10 +218,7 @@ private fun rowsMenuOf(
 }
 
 /** Pinning [path] to the sidebar, or taking it off where it is pinned. */
-private fun MenuBuilder<BrowserEvent>.pinning(
-	state: BrowserState,
-	path: Path,
-) {
+private fun MenuBuilder<BrowserEvent>.pinning(state: BrowserState, path: Path) {
 	if (state.sidebar.pins(path))
 		item("Unpin from sidebar", BrowserEvent.Unpinned(path), id = "builtin.pin")
 	else
@@ -217,7 +254,12 @@ private fun folderMenuOf(
 		}
 		separator()
 		if (exploring && (state.folder != null || takes)) {
-			item("Paste", BrowserEvent.Pasted(), keys = bindings.keys(Action.Paste), id = "builtin.paste")
+			item(
+				"Paste",
+				BrowserEvent.Pasted(),
+				keys = bindings.keys(Action.Paste),
+				id = "builtin.paste",
+			)
 			separator()
 		}
 		own.forEach(::add)
@@ -262,9 +304,19 @@ private fun folderMenuOf(
 		separator()
 		// A search's results, and a place, are in no one folder: there is nowhere to make one, and no path to copy.
 		state.folder?.let {
-			item("New folder", BrowserEvent.MadeFolder, keys = bindings.keys(Action.NewFolder), id = "builtin.new-folder")
+			item(
+				"New folder",
+				BrowserEvent.MadeFolder,
+				keys = bindings.keys(Action.NewFolder),
+				id = "builtin.new-folder",
+			)
 			if (exploring)
-				item("New file", BrowserEvent.MadeFile, keys = bindings.keys(Action.NewFile), id = "builtin.new-file")
+				item(
+					"New file",
+					BrowserEvent.MadeFile,
+					keys = bindings.keys(Action.NewFile),
+					id = "builtin.new-file",
+				)
 			item("Copy path", BrowserEvent.CopiedPaths(listOf(it)), id = "builtin.copy-path")
 			pinning(state, it)
 			if (exploring)
@@ -275,7 +327,12 @@ private fun folderMenuOf(
 					id = "builtin.terminal",
 				)
 		}
-		item("Refresh", BrowserEvent.Refreshed, keys = bindings.keys(Action.Refresh), id = "builtin.refresh")
+		item(
+			"Refresh",
+			BrowserEvent.Refreshed,
+			keys = bindings.keys(Action.Refresh),
+			id = "builtin.refresh",
+		)
 		if (exploring)
 			state.folder?.let {
 				separator()

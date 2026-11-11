@@ -46,6 +46,7 @@ import kotlin.io.path.Path
 import kotlin.io.path.isDirectory
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
+import prism.browser.Actions
 import prism.browser.Bindable
 import prism.browser.Bindings
 import prism.browser.Chord
@@ -133,6 +134,7 @@ fun SettingsView(
 					Page.Sidebar -> SidebarPage(settings, onChange)
 					Page.Terminal -> TerminalPage(settings, onChange)
 					Page.Bindings -> BindingsPage(rebinding) { onChange(settings.copy(rebinding = it)) }
+					Page.Actions -> ActionsPage(settings.actions)
 				}
 			}
 			Spacer(Modifier.height(Dims.gap))
@@ -226,6 +228,82 @@ private fun SidebarPage(settings: Settings, onChange: (Settings) -> Unit) {
 		Spacer(Modifier.height(Dims.gap))
 		PushButton("Desktop's own", Emphasis.Secondary, enabled = settings.pinned != null) {
 			onChange(settings.copy(pinned = null))
+		}
+	}
+}
+
+/**
+ * The actions the menus offer beyond prism's own, and the places they show: which there are, and, of those the
+ * preferences write that did not read, why not, so that one written wrong is not simply missing from a menu. They are
+ * written in the preferences file, as docs/menus.md says how.
+ */
+@Composable
+private fun ActionsPage(actions: Actions) {
+	val type = LocalType.current
+	val palette = LocalPalette.current
+
+	Column(Modifier.fillMaxSize()) {
+		Text(
+			"Actions are what a context menu offers beyond prism's own. Places are what a " +
+				"window shows that is not a folder. Both are written in the preferences " +
+				"file, under “actions” and “places”.",
+			style = type.muted,
+		)
+		Spacer(Modifier.height(Dims.gap))
+		LazyColumn(Modifier.weight(1f).testTag("actions")) {
+			if (actions.broken.isNotEmpty()) {
+				item(key = "broken") {
+					Text(
+						"Not read",
+						style = type.heading,
+						modifier = Modifier.padding(top = Dims.gap, bottom = Dims.gap),
+					)
+				}
+				items(actions.broken) { broken ->
+					Column(
+						Modifier.fillMaxWidth().padding(vertical = 3.dp).testTag("broken:${broken.id}"),
+					) {
+						Text(
+							"The ${broken.what} ${broken.id?.let { "“$it”" } ?: "with no id"}",
+							style = type.body.copy(color = palette.accent),
+						)
+						Text(broken.why, style = type.muted)
+					}
+				}
+			}
+			item(key = "actions") {
+				Text(
+					"Actions",
+					style = type.heading,
+					modifier = Modifier.padding(top = Dims.gap * 2, bottom = Dims.gap),
+				)
+			}
+			items(actions.actions, key = { "action:${it.id}" }) { action ->
+				Row(Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
+					Text(
+						(action.submenu + action.label).joinToString(" ▸ "),
+						style = type.body,
+						maxLines = 1,
+						modifier = Modifier.width(320.dp),
+					)
+					Text(
+						action.id + " (hidden)".takeIf { action.id in actions.hidden }.orEmpty(),
+						style = type.muted,
+						maxLines = 1,
+						overflow = TextOverflow.Ellipsis,
+					)
+				}
+			}
+			item(key = "places") {
+				Text(
+					"Places",
+					style = type.heading,
+					modifier = Modifier.padding(top = Dims.gap * 2, bottom = Dims.gap),
+				)
+			}
+			items(actions.places.values.toList(), key = { "place:${it.id}" }) { place ->
+				Text(place.id, style = type.body, modifier = Modifier.padding(vertical = 3.dp))
+			}
 		}
 	}
 }
@@ -341,7 +419,12 @@ private fun BindingsPage(rebinding: Rebinding, onChange: (Rebinding) -> Unit) {
 							),
 					)
 				}
-				items(rebinding.bindings.actions.filter { it.scope == scope }, key = { it.key }) { action ->
+				items(
+					rebinding.bindings.actions.filter {
+						it.scope == scope
+					},
+					key = { it.key },
+				) { action ->
 					BindingRow(action, rebinding, onChange)
 				}
 			}

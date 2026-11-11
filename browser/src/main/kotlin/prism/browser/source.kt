@@ -14,9 +14,9 @@ import java.nio.file.attribute.BasicFileAttributes
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicReference
-import java.util.Locale
 import kotlin.io.path.Path
 import kotlin.io.path.exists
 import kotlin.io.path.isDirectory
@@ -101,7 +101,9 @@ class SystemWorld(
 			else ->
 				try {
 					// An entry of a place has only its name to tell its type by.
-					types.lineage(types.of(thing.path ?: Path("/nowhere").resolve(thing.name))).map { it.name }
+					types.lineage(types.of(thing.path ?: Path("/nowhere").resolve(thing.name))).map {
+						it.name
+					}
 				} catch (failed: RuntimeException) {
 					emptyList()
 				}
@@ -146,7 +148,11 @@ fun Services.answer(asking: Effect.Asking): Answer =
 					?: Launched.Failed("a terminal", "there is no desktop to start one on"),
 			)
 		is Effect.ReadClip -> Answer.Clipped(asking.into, clipboard.read(), carried.get())
-		is Effect.ListPlace -> Answer.Listed(asking.placed, listingOf(asking.placed, commands, home))
+		is Effect.ListPlace ->
+			Answer.Listed(
+				asking.placed,
+				listingOf(asking.placed, commands, home),
+			)
 		// Each command waited for in turn; the first that fails ends them, and is why.
 		is Effect.Run ->
 			Answer.Ran(
@@ -172,7 +178,8 @@ private fun Services.launched(job: Job, terminal: Boolean): Launched {
 				if (invocation.environment.isEmpty())
 					invocation.words
 				else
-					listOf("env") + invocation.environment.map { (name, value) -> "$name=$value" } + invocation.words
+					listOf("env") + invocation.environment.map { (name, value) -> "$name=$value" } +
+						invocation.words
 
 			if (terminal)
 				launcher.inTerminal(words, invocation.folder)

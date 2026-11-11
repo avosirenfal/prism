@@ -327,10 +327,12 @@ class Bindings(
 		}
 
 	/** The cursor's move [chord] makes, Shift and Ctrl aside. */
-	fun movement(chord: Chord): Action? = find(chord.bare) { it.scope == Scope.Movement } as? Action
+	fun movement(chord: Chord): Action? =
+		find(chord.bare) { it.scope == Scope.Movement } as? Action
 
 	/** What [chord] does where whatever had the keyboard did not use it. */
-	fun leftover(chord: Chord): Action? = find(chord) { it.scope == Scope.Leftover } as? Action
+	fun leftover(chord: Chord): Action? =
+		find(chord) { it.scope == Scope.Leftover } as? Action
 
 	/** These, with [action]'s chords [chords]. */
 	fun with(action: Bindable, chords: List<Chord>): Bindings =
@@ -403,7 +405,8 @@ class Bindings(
 	override fun hashCode(): Int = chords.hashCode()
 
 	companion object {
-		val DEFAULT = Bindings(Action.entries.associateWith<Bindable, List<Chord>> { it.defaults })
+		val DEFAULT =
+			Bindings(Action.entries.associateWith<Bindable, List<Chord>> { it.defaults })
 
 		/**
 		 * The bindings [preferences] make, of the browser's own actions and of [actions], the user's: an action named

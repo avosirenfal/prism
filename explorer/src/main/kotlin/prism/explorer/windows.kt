@@ -39,9 +39,9 @@ import prism.browser.Chord
 import prism.browser.Dims
 import prism.browser.HostedBrowser
 import prism.browser.HostedWindow
-import prism.browser.Location
 import prism.browser.LocalPalette
 import prism.browser.LocalType
+import prism.browser.Location
 import prism.browser.MouseChords
 import prism.browser.Palette
 

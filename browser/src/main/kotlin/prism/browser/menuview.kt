@@ -357,7 +357,10 @@ private fun <A> MenuPanel(
 			.pointerInput(Unit) {
 				awaitPointerEventScope {
 					while (true)
-						awaitPointerEvent().changes.forEach { if (it.changedToDown()) it.consume() }
+						awaitPointerEvent().changes.forEach {
+							if (it.changedToDown())
+								it.consume()
+						}
 				}
 			}.padding(4.dp),
 	) {

@@ -134,7 +134,9 @@ class PlaceTree(
 			Row(
 				id = RowId.Entry(entry.key),
 				// A grouping is the place's own, whatever path was printed for it.
-				item = entry.path?.takeUnless { node.grouping }?.let(Item::OnDisk) ?: Item.InPlace(entry.key),
+				item =
+					entry.path?.takeUnless { node.grouping }?.let(Item::OnDisk)
+						?: Item.InPlace(entry.key),
 				name = name,
 				category = category,
 				type = typeOf(name, category),
@@ -204,6 +206,7 @@ object ProcessCommands : Commands {
 
 			// Both read at once: a command that fills one pipe while the other is read would wait for ever.
 			val errors = StringBuilder()
+
 			val reader =
 				Thread {
 					try {
@@ -215,6 +218,7 @@ object ProcessCommands : Commands {
 					isDaemon = true
 					start()
 				}
+
 			val output = process.inputStream.bufferedReader().readText()
 			val status = process.waitFor()
 
@@ -236,9 +240,15 @@ fun listingOf(placed: Placed, commands: Commands, home: Path): PlaceListing {
 			it.fill(filling)?.let { text -> pathOf(text, home, home) }
 				?: return PlaceListing.Failed("The folder to list it in could not be worked out.")
 		} ?: home
+
 	val words =
-		placed.type.list.fill(filling.copy(folder = folder))?.singleOrNull()
-			?: return PlaceListing.Failed("Its command names something this place was not opened with.")
+		placed.type.list
+			.fill(filling.copy(folder = folder))
+			?.singleOrNull()
+			?: return PlaceListing.Failed(
+				"Its command names something this place was not opened with.",
+			)
+
 	val ran = commands.run(Invocation(words, folder, placed.values))
 
 	return if (ran.worked)
@@ -262,11 +272,18 @@ fun entriesOf(output: String, type: PlaceType, base: Path): List<PlaceEntry> {
 			printed.mapNotNull { line ->
 				val path = resolved(line, base) ?: return@mapNotNull null
 				val read = attributesOf(path)
-				val below = path.takeIf { type.tree && it.startsWith(base) && it != base }?.let(base::relativize)
+				val below =
+					path
+						.takeIf {
+							type.tree && it.startsWith(base) && it != base
+						}?.let(base::relativize)
 
 				PlaceEntry(
 					key = path.toString(),
-					at = below?.map { it.toString() } ?: listOf(path.fileName?.toString() ?: path.toString()),
+					at =
+						below?.map { it.toString() } ?: listOf(
+							path.fileName?.toString() ?: path.toString(),
+						),
 					path = path,
 					folder = read?.isDirectory ?: false,
 					size = read?.size(),
@@ -276,12 +293,25 @@ fun entriesOf(output: String, type: PlaceType, base: Path): List<PlaceEntry> {
 		PlaceRead.Names ->
 			printed.mapNotNull { line ->
 				val fields = line.split('\t')
-				val said =
-					fields.drop(1).mapNotNull { field ->
-						field.indexOf('=').takeIf { it > 0 }?.let { field.substring(0, it) to field.substring(it + 1) }
-					}.toMap()
 
-				entryOf(fields.first(), said["path"], said["kind"], said["size"]?.toLongOrNull(), said["time"], base)
+				val said =
+					fields
+						.drop(1)
+						.mapNotNull { field ->
+							field.indexOf('=').takeIf { it > 0 }?.let {
+								field.substring(0, it) to
+									field.substring(it + 1)
+							}
+						}.toMap()
+
+				entryOf(
+					fields.first(),
+					said["path"],
+					said["kind"],
+					said["size"]?.toLongOrNull(),
+					said["time"],
+					base,
+				)
 			}
 		PlaceRead.Entries ->
 			printed.mapNotNull { line ->
@@ -300,7 +330,8 @@ fun entriesOf(output: String, type: PlaceType, base: Path): List<PlaceEntry> {
 				entryOf(
 					at,
 					path,
-					text("kind") ?: "folder".takeIf { (said["folder"] as? JsonPrimitive)?.booleanOrNull == true },
+					text("kind")
+						?: "folder".takeIf { (said["folder"] as? JsonPrimitive)?.booleanOrNull == true },
 					(said["size"] as? JsonPrimitive)?.longOrNull,
 					text("time"),
 					base,
@@ -328,7 +359,9 @@ private fun entryOf(
 		key = at,
 		at = names,
 		path = real,
-		folder = at.endsWith("/") || kind == "folder" || (kind == null && real?.let(Files::isDirectory) == true),
+		folder =
+			at.endsWith("/") || kind == "folder" ||
+				(kind == null && real?.let(Files::isDirectory) == true),
 		size = size,
 		modified = time?.let(::timeOf),
 	)
@@ -349,8 +382,13 @@ private fun attributesOf(path: Path): BasicFileAttributes? =
 	}
 
 private val TIMES =
-	listOf("yyyy-MM-dd HH:mm:ss", "yyyy-MM-dd HH:mm", "yyyy-MM-dd'T'HH:mm:ss", "yyyyMMdd.HHmmss", "yyyyMMdd'T'HHmmss")
-		.map(DateTimeFormatter::ofPattern)
+	listOf(
+		"yyyy-MM-dd HH:mm:ss",
+		"yyyy-MM-dd HH:mm",
+		"yyyy-MM-dd'T'HH:mm:ss",
+		"yyyyMMdd.HHmmss",
+		"yyyyMMdd'T'HHmmss",
+	).map(DateTimeFormatter::ofPattern)
 
 /**
  * A time as a command prints one: seconds since 1970, an instant (`2026-01-02T03:04:05Z`), or a date and a time of

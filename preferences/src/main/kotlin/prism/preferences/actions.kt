@@ -175,7 +175,10 @@ data class ActionsFile(
 	val actions: List<JsonElement> = emptyList(),
 	val places: List<JsonElement> = emptyList(),
 ) {
-	fun actionSpecs(): List<Spec<ActionSpec>> = actions.map { read(ActionSpec.serializer(), it) }
+	fun actionSpecs(): List<Spec<ActionSpec>> =
+		actions.map {
+			read(ActionSpec.serializer(), it)
+		}
 
 	fun placeSpecs(): List<Spec<PlaceSpec>> = places.map { read(PlaceSpec.serializer(), it) }
 
@@ -194,7 +197,10 @@ data class ActionsFile(
 			try {
 				Spec.Read(json.decodeFromJsonElement(serializer, element))
 			} catch (failed: SerializationException) {
-				Spec.Unread(idOf(element), failed.message?.lineSequence()?.firstOrNull() ?: failed.toString())
+				Spec.Unread(
+					idOf(element),
+					failed.message?.lineSequence()?.firstOrNull() ?: failed.toString(),
+				)
 			} catch (failed: IllegalArgumentException) {
 				Spec.Unread(idOf(element), failed.message ?: failed.toString())
 			}

@@ -67,6 +67,10 @@ The explorer's state is one immutable list of `ExplorerWindow`s, each one of:
 | `Properties` | "Properties" (Alt+Enter) | the properties of some paths |
 | `OpenWith` | "Open with…", a file nothing opens, the properties' "Change…" | an application chosen, to open files with or to be a type's default |
 | `Settings` | "Preferences…" (Ctrl+Comma) | the preferences window; there is only ever one |
+| `Picking` | an action of the user's that asks for a folder ("Extract to…") | prism's folder picker, whose choice is the answer, given to the window that asked |
+
+A `Browsing` window starts in a folder or in a place (`Start`): "View contents" on an archive opens one on the
+archive's place, which a command lists (docs/menus.md).
 
 `ExplorerWindows(explorer, palette, decorated)` is a composable that draws one window for each entry, keyed by its id.
 Nothing else says what is open, so there is nothing to keep in step: a window is opened by adding it to the list and
@@ -148,6 +152,10 @@ Ctrl+Shift+F, "Back" is Alt+Left and the mouse's back button. The view never nam
 was given. So any action can be bound to any chord, and the preferences window's "Key bindings" page is where that is
 done, the way a game's controls are set.
 
+The user's own actions (docs/menus.md) are in the same table, under "On the files, from the list", each with the chord
+it names as its default. The pickers read the same bindings, so a key bound here is bound in every file and folder
+dialog too.
+
 Each action is a row, with a chip for each of its chords and a "+" for another. Clicking a chip makes it wait ("Press a
 key…"). The next chord pressed is taken: a key with whatever of Ctrl, Alt, Shift and Meta are held, or a mouse button
 (the middle, back or forward; the left and right buttons are what clicking is). Escape stops waiting instead. A chip's
@@ -211,7 +219,8 @@ drag through, and says what each platform does with it.
 
 - **Hosting in the daemon**, and the `org.freedesktop.FileManager1` interface that would let applications ask it to
   show a folder or a file.
-- **Configurable context menus**: docs/menus.md is the plan.
+- **The rest of the context menus the user configures**: docs/menus.md says what is built (actions, places, the
+  archive tool made of them) and what is not (the menu's order, items made as it opens, an editor).
 - **Renaming from the properties window** (rename from the listing, with F2, as before), and the properties of several
   files' permissions together.
 - **Icons**: applications and files are drawn with prism's own glyphs, not the desktop's icon theme.

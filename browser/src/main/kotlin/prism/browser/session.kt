@@ -104,7 +104,9 @@ class Session(
 				.distinctUntilChanged()
 				.collect { (written, menu) ->
 					inputs.send(
-						Answer.Configured(Actions.read(listOf(Actions.SHIPPED, written), menu.hidden.toSet())),
+						Answer.Configured(
+							Actions.read(listOf(Actions.SHIPPED, written), menu.hidden.toSet()),
+						),
 					)
 				}
 		}
@@ -197,7 +199,11 @@ class Session(
 				is Effect.Run -> Answer.Ran(asking.job, why)
 				is Effect.Launch -> Answer.Started(Launched.Failed(asking.job.label, why))
 				// With no folder to bring them out into, nothing is opened: the action is let go.
-				is Effect.Temp -> Answer.Ran(Job(asking.carried.pending.action.label, emptyList()), why)
+				is Effect.Temp ->
+					Answer.Ran(
+						Job(asking.carried.pending.action.label, emptyList()),
+						why,
+					)
 			}
 		}
 }
@@ -225,7 +231,10 @@ fun SessionBrowser(
 ) {
 	val state by session.state.collectAsState()
 
-	CompositionLocalProvider(LocalVolumes provides session::sameVolume, LocalWorld provides session.world) {
+	CompositionLocalProvider(
+		LocalVolumes provides session::sameVolume,
+		LocalWorld provides session.world,
+	) {
 		FileBrowser(state, modifier, mouseChords, session::send)
 	}
 }

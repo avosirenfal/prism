@@ -336,7 +336,11 @@ private fun noticed(state: BrowserState, notice: Notice, event: BrowserEvent): S
 			Step(
 				state.copy(
 					notice = null,
-					pending = state.pending.takeUnless { notice is Notice.Asking || notice is Notice.ConfirmAction },
+					pending =
+						state.pending.takeUnless {
+							notice is Notice.Asking ||
+								notice is Notice.ConfirmAction
+						},
 				),
 			)
 		is BrowserEvent.AnswerTyped ->
@@ -385,7 +389,11 @@ internal fun BrowserState.reread(landing: Landing? = null): Step =
 			)
 		}
 		// A place is listed again, what it shows staying until the new listing arrives.
-		is Location.Place -> Step(copy(landing = landing ?: this.landing), listOf(Effect.ListPlace(at.placed)))
+		is Location.Place ->
+			Step(
+				copy(landing = landing ?: this.landing),
+				listOf(Effect.ListPlace(at.placed)),
+			)
 	}
 
 private fun BrowserState.back(): Step =
@@ -697,7 +705,9 @@ internal fun BrowserState.accepted(): Step {
 		is Choosing.Exploring ->
 			when {
 				// An entry of a place is opened as a double click opens it; several are not opened together.
-				chosen.any { it.path == null } -> chosen.singleOrNull()?.let { activated(it.id) } ?: Step(this)
+				chosen.any { it.path == null } ->
+					chosen.singleOrNull()?.let { activated(it.id) }
+						?: Step(this)
 				files.isNotEmpty() -> Step(this, listOf(Effect.Open(files.mapNotNull { it.path })))
 				else -> chosen.singleOrNull()?.let { activated(it.id) } ?: Step(this)
 			}
@@ -1220,7 +1230,10 @@ private fun BrowserState.renamed(): Step {
 		else ->
 			copy(
 				renaming = null,
-			).let { state -> row.path?.let { state.making(Change.Rename(it, it.resolveSibling(name))) } ?: Step(state) }
+			).let { state ->
+				row.path?.let { state.making(Change.Rename(it, it.resolveSibling(name))) }
+					?: Step(state)
+			}
 	}
 }
 

@@ -147,7 +147,11 @@ internal object CarriedDrag {
 }
 
 /** What marks a drag as one of a place's entries, to this process alone. */
-private val CARRIED = DataFlavor(DataFlavor.javaJVMLocalObjectMimeType + ";class=prism.browser.Carried", "entries of a place")
+private val CARRIED =
+	DataFlavor(
+		DataFlavor.javaJVMLocalObjectMimeType + ";class=prism.browser.Carried",
+		"entries of a place",
+	)
 
 /** The entries of a place [transferable] is a drag of, where it is one of this process's. */
 private fun carriedOf(transferable: Transferable): Carried? =
@@ -371,7 +375,10 @@ fun Modifier.filesDropped(
 		}
 
 	return dragAndDropTarget(
-		{ carriesFiles(it.awtTransferable) || (onCarried != null && carriedOf(it.awtTransferable) != null) },
+		{
+			carriesFiles(it.awtTransferable) ||
+				(onCarried != null && carriedOf(it.awtTransferable) != null)
+		},
 		target,
 	)
 }

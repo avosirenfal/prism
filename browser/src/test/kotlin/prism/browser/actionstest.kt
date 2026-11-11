@@ -27,11 +27,21 @@ class ActionsTest {
 	private fun read(actions: String = "[]", places: String = "[]"): Actions =
 		Actions.read(listOf(file(actions, places)))
 
-	private fun action(text: String): UserAction = read("[$text]").also { assertEquals(emptyList<Broken>(), it.broken) }.actions.single()
+	private fun action(text: String): UserAction =
+		read("[$text]")
+			.also {
+				assertEquals(emptyList<Broken>(), it.broken)
+			}.actions
+			.single()
 
 	/** Why the one action written as [text] does not read. */
 	private fun wrong(text: String, places: String = "[]"): String =
-		read("[$text]", places).also { assertEquals(emptyList<UserAction>(), it.actions) }.broken.single().why
+		read("[$text]", places)
+			.also {
+				assertEquals(emptyList<UserAction>(), it.actions)
+			}.broken
+			.single()
+			.why
 
 	/** A world where the programs named are installed, the paths named are there, and a type is a name's extension. */
 	private class Known(
@@ -61,8 +71,13 @@ class ActionsTest {
 	@Test
 	fun aCommandIsWordsAndAFileIsOneWordWhateverIsInItsName() {
 		val command =
-			(Command.read(listOf("magick", "{path}", "-resize", "50%", "{stem}-half.{ext}"), emptySet()) as Reading.Right)
-				.value
+			(
+				Command.read(
+					listOf("magick", "{path}", "-resize", "50%", "{stem}-half.{ext}"),
+					emptySet(),
+				) as Reading.Right
+			).value
+
 		val subject = files("a b.png", "-rf \"\$(x)\".png")
 
 		assertTrue(command.forEach)
@@ -70,7 +85,13 @@ class ActionsTest {
 		assertEquals(
 			listOf(
 				listOf("magick", "/home/avery/a b.png", "-resize", "50%", "a b-half.png"),
-				listOf("magick", "/home/avery/-rf \"\$(x)\".png", "-resize", "50%", "-rf \"\$(x)\"-half.png"),
+				listOf(
+					"magick",
+					"/home/avery/-rf \"\$(x)\".png",
+					"-resize",
+					"50%",
+					"-rf \"\$(x)\"-half.png",
+				),
 			),
 			command.fill(subject.filling()),
 		)
@@ -79,7 +100,12 @@ class ActionsTest {
 	@Test
 	fun everyFileAtOnceIsAWordEachAndTheCommandRunsOnce() {
 		val command =
-			(Command.read(listOf("tar", "-czf", "{to}.tar.gz", "--", "{names}"), setOf("to")) as Reading.Right).value
+			(
+				Command.read(
+					listOf("tar", "-czf", "{to}.tar.gz", "--", "{names}"),
+					setOf("to"),
+				) as Reading.Right
+			).value
 
 		assertFalse(command.forEach)
 		assertEquals(
@@ -91,7 +117,14 @@ class ActionsTest {
 	@Test
 	fun aShellsOwnBracesAndAnEscapedOneAreText() {
 		val script = "for f; do echo \"\${f%.*}\"; done; awk '{ print \$1 }'; echo \\{path}"
-		val command = (Command.read(listOf("sh", "-c", script, "sh", "{paths}"), emptySet()) as Reading.Right).value
+
+		val command =
+			(
+				Command.read(
+					listOf("sh", "-c", script, "sh", "{paths}"),
+					emptySet(),
+				) as Reading.Right
+			).value
 
 		assertEquals(
 			listOf(
@@ -110,12 +143,18 @@ class ActionsTest {
 	@Test
 	fun aValuesPartsAreItsFolderItsNameItsStemAndItsExtension() {
 		val phrase =
-			(Phrase.read("{archive.parent}|{archive.name}|{archive.stem}|{archive.ext}", setOf("archive")) as Reading.Right)
-				.value
+			(
+				Phrase.read(
+					"{archive.parent}|{archive.name}|{archive.stem}|{archive.ext}",
+					setOf("archive"),
+				) as Reading.Right
+			).value
 
 		assertEquals(
 			"/home/avery|backup.tar.gz|backup|tar.gz",
-			phrase.fill(Filling(emptyList(), null, mapOf("archive" to "/home/avery/backup.tar.gz"))),
+			phrase.fill(
+				Filling(emptyList(), null, mapOf("archive" to "/home/avery/backup.tar.gz")),
+			),
 		)
 	}
 
@@ -138,17 +177,25 @@ class ActionsTest {
 	fun anActionRunsOrShowsAndNeverBothOrNeither() {
 		assertTrue("neither" in wrong("""{"id": "a", "label": "A"}"""))
 		assertTrue(
-			"both" in wrong("""{"id": "a", "label": "A", "run": ["x"], "show": {"folder": "{parent}"}}"""),
+			"both" in
+				wrong("""{"id": "a", "label": "A", "run": ["x"], "show": {"folder": "{parent}"}}"""),
 		)
 		assertTrue(
-			"watches" in wrong("""{"id": "a", "label": "A", "run": ["x"], "then": {"reread": true}}"""),
+			"watches" in
+				wrong("""{"id": "a", "label": "A", "run": ["x"], "then": {"reread": true}}"""),
 		)
 		assertTrue(
 			"not a place" in wrong("""{"id": "a", "label": "A", "show": {"place": "nowhere"}}"""),
 		)
 		// A condition written wrong is said, and not taken for no condition at all.
-		assertTrue("typs" in wrong("""{"id": "a", "label": "A", "run": ["x"], "when": {"typs": ["image/*"]}}"""))
-		assertTrue("a count" in wrong("""{"id": "a", "label": "A", "run": ["x"], "when": {"count": "two"}}"""))
+		assertTrue(
+			"typs" in
+				wrong("""{"id": "a", "label": "A", "run": ["x"], "when": {"typs": ["image/*"]}}"""),
+		)
+		assertTrue(
+			"a count" in
+				wrong("""{"id": "a", "label": "A", "run": ["x"], "when": {"count": "two"}}"""),
+		)
 	}
 
 	@Test
@@ -171,7 +218,9 @@ class ActionsTest {
 		val read =
 			Actions.read(
 				listOf(
-					file("""[{"id": "a", "label": "Theirs", "run": ["true"]}, {"id": "b", "label": "B", "run": ["true"]}]"""),
+					file(
+						"""[{"id": "a", "label": "Theirs", "run": ["true"]}, {"id": "b", "label": "B", "run": ["true"]}]""",
+					),
 					file("""[{"id": "a", "label": "Mine", "run": ["false"]}]"""),
 				),
 			)
@@ -205,10 +254,15 @@ class ActionsTest {
 				"""[{"id": "archive", "takes": ["archive"], "list": ["true"], "out": "out"}]""",
 			).broken.map { it.why }
 
-		assertTrue("exactly one folder" in broken(""""run": ["tar", "-xf", "{archive}"], "how": {"watched": true}""").single())
+		assertTrue(
+			"exactly one folder" in
+				broken(""""run": ["tar", "-xf", "{archive}"], "how": {"watched": true}""").single(),
+		)
 		assertTrue(
 			"watched" in
-				broken(""""ask": {"dest": {"folder": "To"}}, "run": ["tar", "-xf", "{archive}", "-C", "{dest}"]""").single(),
+				broken(
+					""""ask": {"dest": {"folder": "To"}}, "run": ["tar", "-xf", "{archive}", "-C", "{dest}"]""",
+				).single(),
 		)
 		assertEquals(
 			emptyList<String>(),
@@ -226,8 +280,18 @@ class ActionsTest {
 		assertEquals(emptyList<Broken>(), shipped.broken)
 		assertTrue(shipped.places.keys.containsAll(listOf("archive.tar", "archive.zip")))
 
-		val own: JsonElement = Json.parseToJsonElement("""{"id": "mine", "label": "Mine", "run": ["true"]}""")
-		val all = Actions.of(Preferences(actions = listOf(own), menu = MenuSpec(hidden = listOf("builtin.copy-path"))))
+		val own: JsonElement =
+			Json.parseToJsonElement(
+				"""{"id": "mine", "label": "Mine", "run": ["true"]}""",
+			)
+
+		val all =
+			Actions.of(
+				Preferences(
+					actions = listOf(own),
+					menu = MenuSpec(hidden = listOf("builtin.copy-path")),
+				),
+			)
 
 		assertEquals("Mine", all["mine"]?.label)
 		assertEquals(setOf("builtin.copy-path"), all.hidden)
@@ -238,11 +302,31 @@ class ActionsTest {
 
 	@Test
 	fun conditionsAreAboutTheFilesAndAllMustHold() {
-		val images = action("""{"id": "i", "label": "I", "when": {"types": ["image/*"]}, "run": ["x", "{path}"]}""")
-		val text = action("""{"id": "t", "label": "T", "when": {"types": ["text/plain"]}, "run": ["x", "{path}"]}""")
-		val odd = action("""{"id": "o", "label": "O", "when": {"ext": ["foo", "tar.gz"]}, "run": ["x", "{path}"]}""")
-		val two = action("""{"id": "m", "label": "M", "when": {"count": "many"}, "run": ["x", "{paths}"]}""")
-		val folders = action("""{"id": "f", "label": "F", "when": {"kind": "folder"}, "run": ["x", "{path}"]}""")
+		val images =
+			action(
+				"""{"id": "i", "label": "I", "when": {"types": ["image/*"]}, "run": ["x", "{path}"]}""",
+			)
+
+		val text =
+			action(
+				"""{"id": "t", "label": "T", "when": {"types": ["text/plain"]}, "run": ["x", "{path}"]}""",
+			)
+
+		val odd =
+			action(
+				"""{"id": "o", "label": "O", "when": {"ext": ["foo", "tar.gz"]}, "run": ["x", "{path}"]}""",
+			)
+
+		val two =
+			action(
+				"""{"id": "m", "label": "M", "when": {"count": "many"}, "run": ["x", "{paths}"]}""",
+			)
+
+		val folders =
+			action(
+				"""{"id": "f", "label": "F", "when": {"kind": "folder"}, "run": ["x", "{path}"]}""",
+			)
+
 		val world = Known()
 
 		assertTrue(images.offered(files("a.png", "b.png"), world))
@@ -256,16 +340,30 @@ class ActionsTest {
 		assertTrue(two.offered(files("a.png", "b.png"), world))
 		assertFalse(folders.offered(files("a.png"), world))
 		assertTrue(
-			folders.offered(Subject(On.Files, listOf(Thing.folder(home.resolve("Music"))), Where.Folder(home)), world),
+			folders.offered(
+				Subject(On.Files, listOf(Thing.folder(home.resolve("Music"))), Where.Folder(home)),
+				world,
+			),
 		)
 	}
 
 	@Test
 	fun conditionsAreAboutWhereTheWindowIsAndCanBeNegated() {
-		val results = action("""{"id": "r", "label": "R", "when": {"in": ["results"]}, "run": ["x", "{path}"]}""")
-		val elsewhere = action("""{"id": "e", "label": "E", "when": {"elsewhere": true}, "show": {"folder": "{parent}"}}""")
+		val results =
+			action(
+				"""{"id": "r", "label": "R", "when": {"in": ["results"]}, "run": ["x", "{path}"]}""",
+			)
+
+		val elsewhere =
+			action(
+				"""{"id": "e", "label": "E", "when": {"elsewhere": true}, "show": {"folder": "{parent}"}}""",
+			)
+
 		val notResults =
-			action("""{"id": "n", "label": "N", "when": {"not": {"in": ["results"]}}, "run": ["x", "{path}"]}""")
+			action(
+				"""{"id": "n", "label": "N", "when": {"not": {"in": ["results"]}}, "run": ["x", "{path}"]}""",
+			)
+
 		val inFolder = files("a.txt")
 		val inResults = inFolder.copy(where = Where.Results)
 		val world = Known()
@@ -285,8 +383,15 @@ class ActionsTest {
 				"""{"id": "g", "label": "G", "when": {"kind": "folder", "inside": [".git"], "programs": ["git"]},
 				"run": ["git", "-C", "{path}", "log"], "how": {"terminal": true}}""",
 			)
+
 		val repo = Path("/src/prism")
-		val deep = Subject(On.Files, listOf(Thing.folder(repo.resolve("browser/src"))), Where.Folder(repo.resolve("browser")))
+
+		val deep =
+			Subject(
+				On.Files,
+				listOf(Thing.folder(repo.resolve("browser/src"))),
+				Where.Folder(repo.resolve("browser")),
+			)
 
 		assertTrue(git.offered(deep, Known(setOf("git"), setOf(repo.resolve(".git")))))
 		assertFalse(git.offered(deep, Known(emptySet(), setOf(repo.resolve(".git")))))
@@ -334,7 +439,14 @@ class ActionsTest {
 	@Test
 	fun theUsersActionsAreAmongAFilesOwnInTheirSubmenus() {
 		val state = exploring(read(mine))
-		val menu = contextMenuOf(state, rowsOf(state, "notes.md"), Bindings.of(Preferences(), state.actions), Known())
+
+		val menu =
+			contextMenuOf(
+				state,
+				rowsOf(state, "notes.md"),
+				Bindings.of(Preferences(), state.actions),
+				Known(),
+			)
 
 		assertEquals(
 			listOf(
@@ -357,12 +469,18 @@ class ActionsTest {
 			menu.labels(),
 		)
 
-		val upper = menu.entries.filterIsInstance<MenuEntry.Item<BrowserEvent>>().single { it.label == "Upper case" }
+		val upper =
+			menu.entries.filterIsInstance<MenuEntry.Item<BrowserEvent>>().single {
+				it.label ==
+					"Upper case"
+			}
 
 		assertEquals("Ctrl+U", upper.keys)
 		assertInstanceOf(BrowserEvent.Did::class.java, upper.action)
 		// For a file its conditions do not hold, it is not there; nor in a picker, which chooses and does nothing else.
-		assertFalse("Upper case" in contextMenuOf(state, rowsOf(state, "Music"), world = Known()).labels())
+		assertFalse(
+			"Upper case" in contextMenuOf(state, rowsOf(state, "Music"), world = Known()).labels(),
+		)
 		assertFalse(
 			"Upper case" in
 				Fixtures.picker().copy(actions = state.actions).let {
@@ -375,9 +493,15 @@ class ActionsTest {
 	fun anActionForTheFolderIsInTheFoldersMenuAndEntriesCanBeHidden() {
 		val state = exploring(read(mine))
 
-		assertTrue("Serve this folder" in contextMenuOf(state, Target.Folder, world = Known()).labels())
+		assertTrue(
+			"Serve this folder" in contextMenuOf(state, Target.Folder, world = Known()).labels(),
+		)
 
-		val hidden = state.copy(actions = state.actions.copy(hidden = setOf("upper", "builtin.rename", "half")))
+		val hidden =
+			state.copy(
+				actions = state.actions.copy(hidden = setOf("upper", "builtin.rename", "half")),
+			)
+
 		val menu = contextMenuOf(hidden, rowsOf(hidden, "notes.md"), world = Known()).labels()
 
 		assertFalse("Upper case" in menu)
@@ -414,6 +538,7 @@ class ActionsTest {
 				"""{"id": "x", "label": "Stamp", "run": ["touch", "{stem}.stamp"], "how": {"watched": true},
 				"then": {"reread": true, "choose": "{stem}.stamp"}}""",
 			)
+
 		val state = exploring(Actions.NONE)
 		val did = step(state, BrowserEvent.Did(action, notes))
 		val job = (did.effects.single() as Effect.Run).job
@@ -422,7 +547,13 @@ class ActionsTest {
 		assertEquals(
 			Job(
 				"Stamp",
-				listOf(Invocation(listOf("touch", "notes.stamp"), home, mapOf("folder" to home.toString()))),
+				listOf(
+					Invocation(
+						listOf("touch", "notes.stamp"),
+						home,
+						mapOf("folder" to home.toString()),
+					),
+				),
 				After.Reread("notes.stamp"),
 			),
 			job,
@@ -437,23 +568,41 @@ class ActionsTest {
 		// A command that fails says what it wrote, and the folder is read again all the same.
 		val failed = step(did.state, Answer.Ran(job, "touch: cannot touch"))
 
-		assertEquals(Notice.Failed("“Stamp” failed", "touch: cannot touch"), failed.state.notice)
+		assertEquals(
+			Notice.Failed("“Stamp” failed", "touch: cannot touch"),
+			failed.state.notice,
+		)
 		assertEquals(listOf<Effect>(Effect.Read(home)), failed.effects)
 	}
 
 	@Test
 	fun aCommandNotWatchedIsStartedAndForgotten() {
 		val detached = action("""{"id": "c", "label": "Code", "run": ["code", "{paths}"]}""")
-		val terminal = action("""{"id": "l", "label": "Log", "run": ["git", "log"], "how": {"terminal": true}}""")
+
+		val terminal =
+			action(
+				"""{"id": "l", "label": "Log", "run": ["git", "log"], "how": {"terminal": true}}""",
+			)
+
 		val state = exploring(Actions.NONE)
 
 		assertEquals(
 			false,
-			(step(state, BrowserEvent.Did(detached, notes)).effects.single() as Effect.Launch).terminal,
+			(
+				step(
+					state,
+					BrowserEvent.Did(detached, notes),
+				).effects.single() as Effect.Launch
+			).terminal,
 		)
 		assertEquals(
 			true,
-			(step(state, BrowserEvent.Did(terminal, notes)).effects.single() as Effect.Launch).terminal,
+			(
+				step(
+					state,
+					BrowserEvent.Did(terminal, notes),
+				).effects.single() as Effect.Launch
+			).terminal,
 		)
 	}
 
@@ -464,6 +613,7 @@ class ActionsTest {
 				"""{"id": "z", "label": "Compress", "ask": {"to": {"text": "Name of the archive", "start": "{stem}"}},
 				"run": ["tar", "-czf", "{to}.tar.gz", "--", "{names}"], "how": {"watched": true}}""",
 			)
+
 		val asked = step(exploring(Actions.NONE), BrowserEvent.Did(action, notes))
 
 		assertEquals(Notice.Asking("Name of the archive", "notes"), asked.state.notice)
@@ -476,12 +626,18 @@ class ActionsTest {
 		assertNull(given.state.pending)
 		assertEquals(
 			listOf("tar", "-czf", "old notes.tar.gz", "--", "notes.md"),
-			(given.effects.single() as Effect.Run).job.invocations.single().words,
+			(given.effects.single() as Effect.Run)
+				.job.invocations
+				.single()
+				.words,
 		)
 		// What was typed is the command's to read from its environment too.
 		assertEquals(
 			"old notes",
-			(given.effects.single() as Effect.Run).job.invocations.single().environment["to"],
+			(given.effects.single() as Effect.Run)
+				.job.invocations
+				.single()
+				.environment["to"],
 		)
 
 		// Escape lets go of the action with the question.
@@ -498,15 +654,23 @@ class ActionsTest {
 				"""{"id": "e", "label": "Extract to…", "ask": {"dest": {"folder": "Extract to"}},
 				"run": ["tar", "-xf", "{path}", "-C", "{dest}"], "how": {"watched": true}}""",
 			)
-		val asked = step(exploring(Actions.NONE), BrowserEvent.Did(action, files("backup.tar.gz")))
 
-		assertEquals(listOf<Effect>(Effect.Ask(Request.PickFolder("Extract to", home))), asked.effects)
+		val asked =
+			step(exploring(Actions.NONE), BrowserEvent.Did(action, files("backup.tar.gz")))
+
+		assertEquals(
+			listOf<Effect>(Effect.Ask(Request.PickFolder("Extract to", home))),
+			asked.effects,
+		)
 
 		val chosen = step(asked.state, BrowserEvent.Answered(Path("/tmp/out")))
 
 		assertEquals(
 			listOf("tar", "-xf", "/home/avery/backup.tar.gz", "-C", "/tmp/out"),
-			(chosen.effects.single() as Effect.Run).job.invocations.single().words,
+			(chosen.effects.single() as Effect.Run)
+				.job.invocations
+				.single()
+				.words,
 		)
 
 		val cancelled = step(asked.state, BrowserEvent.Answered(null))
@@ -522,20 +686,37 @@ class ActionsTest {
 				"""{"id": "w", "label": "Wipe", "run": ["shred", "{path}"],
 				"how": {"watched": true, "confirm": "This cannot be undone."}}""",
 			)
+
 		val asked = step(exploring(Actions.NONE), BrowserEvent.Did(action, notes))
 
 		assertEquals(Notice.ConfirmAction("Wipe", "This cannot be undone."), asked.state.notice)
 		assertEquals(emptyList<Effect>(), asked.effects)
-		assertInstanceOf(Effect.Run::class.java, step(asked.state, BrowserEvent.Confirmed).effects.single())
+		assertInstanceOf(
+			Effect.Run::class.java,
+			step(asked.state, BrowserEvent.Confirmed).effects.single(),
+		)
 		assertEquals(emptyList<Effect>(), step(asked.state, BrowserEvent.Dismissed).effects)
 	}
 
 	@Test
 	fun anActionThatShowsAFolderGoesThereOrOpensAWindowOnIt() {
 		val here =
-			action("""{"id": "c", "label": "Open containing folder", "show": {"folder": "{parent}", "choose": "{name}"}}""")
-		val window = action("""{"id": "w", "label": "In a window", "show": {"folder": "{parent}", "in": "window"}}""")
-		val found = Subject(On.Files, listOf(Thing.file(home.resolve("Documents/letter.odt"))), Where.Results)
+			action(
+				"""{"id": "c", "label": "Open containing folder", "show": {"folder": "{parent}", "choose": "{name}"}}""",
+			)
+
+		val window =
+			action(
+				"""{"id": "w", "label": "In a window", "show": {"folder": "{parent}", "in": "window"}}""",
+			)
+
+		val found =
+			Subject(
+				On.Files,
+				listOf(Thing.file(home.resolve("Documents/letter.odt"))),
+				Where.Results,
+			)
+
 		val state = exploring(Actions.NONE)
 		val went = step(state, BrowserEvent.Did(here, found))
 

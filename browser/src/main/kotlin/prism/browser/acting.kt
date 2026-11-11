@@ -32,7 +32,10 @@ internal fun BrowserState.doing(pending: Pending): Step {
 	val given = action.given.mapValues { (_, phrase) -> phrase.fill(before) }
 
 	if (given.values.any { it == null })
-		return failed(action, "What it is given could not be worked out from what it was chosen for.")
+		return failed(
+			action,
+			"What it is given could not be worked out from what it was chosen for.",
+		)
 
 	val answers = given.mapValues { it.value!! } + pending.answers
 	val filled = pending.copy(answers = answers)
@@ -62,7 +65,9 @@ internal fun BrowserState.doing(pending: Pending): Step {
 			)
 		null ->
 			if (action.confirm != null && !pending.confirmed)
-				Step(copy(pending = filled, notice = Notice.ConfirmAction(action.label, action.confirm)))
+				Step(
+					copy(pending = filled, notice = Notice.ConfirmAction(action.label, action.confirm)),
+				)
 			else
 				copy(pending = null).done(filled, filling)
 	}
@@ -91,7 +96,10 @@ internal fun BrowserState.answered(folder: Path?): Step {
 	return when {
 		asked == null -> Step(this)
 		folder == null -> Step(copy(pending = null))
-		else -> doing(pending.copy(answers = pending.answers + (asked.name to folder.toString())))
+		else ->
+			doing(
+				pending.copy(answers = pending.answers + (asked.name to folder.toString())),
+			)
 	}
 }
 
@@ -110,8 +118,16 @@ private fun BrowserState.done(pending: Pending, filling: Filling): Step {
 			val invocations = runs.map { Invocation(it, folder, environment) }
 
 			when (val how = deed.how) {
-				How.Detached -> Step(this, listOf(Effect.Launch(Job(action.label, invocations), terminal = false)))
-				How.Terminal -> Step(this, listOf(Effect.Launch(Job(action.label, invocations), terminal = true)))
+				How.Detached ->
+					Step(
+						this,
+						listOf(Effect.Launch(Job(action.label, invocations), terminal = false)),
+					)
+				How.Terminal ->
+					Step(
+						this,
+						listOf(Effect.Launch(Job(action.label, invocations), terminal = true)),
+					)
 				is How.Watched -> {
 					val after =
 						pending.after
@@ -163,7 +179,9 @@ private fun BrowserState.done(pending: Pending, filling: Filling): Step {
 }
 
 private fun BrowserState.failed(action: UserAction, why: String): Step =
-	Step(copy(pending = null, notice = Notice.Failed("“${action.label}” couldn't be done", why)))
+	Step(
+		copy(pending = null, notice = Notice.Failed("“${action.label}” couldn't be done", why)),
+	)
 
 /**
  * What [job]'s commands came to. It is no longer under way; where it failed, why is said; and what follows it is done:
@@ -178,7 +196,10 @@ internal fun BrowserState.ran(job: Job, failure: String?): Step {
 			After.None -> Step(rested)
 			is After.Reread ->
 				rested.reread(
-					after.choose?.takeIf { failure == null }?.let { Landing.On(rested.rowNamed(it), choose = true) },
+					after.choose
+						?.takeIf {
+							failure == null
+						}?.let { Landing.On(rested.rowNamed(it), choose = true) },
 				)
 			is After.Open ->
 				if (failure == null)
@@ -212,14 +233,19 @@ internal fun BrowserState.listed(placed: Placed, listing: PlaceListing): Step {
 	return Step(
 		when (listing) {
 			is PlaceListing.Listed ->
-				copy(at = place.copy(tree = listing.tree)).arrived(Listing.Shown(listing.tree.rows(place.within)))
+				copy(
+					at = place.copy(tree = listing.tree),
+				).arrived(Listing.Shown(listing.tree.rows(place.within)))
 			is PlaceListing.Failed -> arrived(Listing.Unreadable(listing.why))
 		},
 	)
 }
 
 /** The folder of the place shown at [within] gone to, the folder left behind it in the history. */
-internal fun BrowserState.wentWithin(within: List<String>, landing: Landing? = null): Step {
+internal fun BrowserState.wentWithin(
+	within: List<String>,
+	landing: Landing? = null,
+): Step {
 	val place = place ?: return Step(this)
 
 	return if (within == place.within)
@@ -257,7 +283,13 @@ internal fun BrowserState.activatedInPlace(row: Row): Step {
 internal fun BrowserState.openingOut(folder: Path, carried: Carried): Step =
 	doing(
 		carried.into(folder).copy(
-			after = After.Open(carried.pending.subject.things.mapNotNull { it.key }.map(folder::resolve)),
+			after =
+				After.Open(
+					carried.pending.subject.things
+						.mapNotNull {
+							it.key
+						}.map(folder::resolve),
+				),
 		),
 	)
 
@@ -304,7 +336,12 @@ internal fun BrowserState.pasted(into: Path?, clip: FileClip?, carried: Carried?
 	when {
 		into == null -> clip?.let { givingIn(it.paths) } ?: Step(this)
 		carried != null -> doing(carried.into(into))
-		clip != null -> transferring(clip.paths, into, if (clip.cut) Transfer.Move else Transfer.Copy)
+		clip != null ->
+			transferring(
+				clip.paths,
+				into,
+				if (clip.cut) Transfer.Move else Transfer.Copy,
+			)
 		else -> Step(this)
 	}
 

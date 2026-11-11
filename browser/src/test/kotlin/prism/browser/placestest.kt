@@ -35,12 +35,18 @@ class PlacesTest {
 	private val world get() = services.world
 
 	private fun sh(script: String) {
-		val process = ProcessBuilder("sh", "-c", script).directory(root.toFile()).inheritIO().start()
+		val process =
+			ProcessBuilder(
+				"sh",
+				"-c",
+				script,
+			).directory(root.toFile()).inheritIO().start()
 
 		assertEquals(0, process.waitFor(), script)
 	}
 
-	private fun has(vararg programs: String) = assumeTrue(programs.all(world::installed), "needs ${programs.joinToString()}")
+	private fun has(vararg programs: String) =
+		assumeTrue(programs.all(world::installed), "needs ${programs.joinToString()}")
 
 	/** A folder with a few files, and the same files as a tar and as a zip. */
 	private fun archives() {
@@ -59,11 +65,17 @@ class PlacesTest {
 	/** An explorer on [folder], with the actions that ship, settled. */
 	private fun exploring(folder: Path = root): BrowserState =
 		step(
-			opened(Choosing.Exploring(), folder, root, sidebarOf(XdgPlaces(), root, null)).settled(services),
+			opened(
+				Choosing.Exploring(),
+				folder,
+				root,
+				sidebarOf(XdgPlaces(), root, null),
+			).settled(services),
 			Answer.Configured(shipped),
 		).state
 
-	private fun BrowserState.then(input: Input): BrowserState = step(this, input).settled(services)
+	private fun BrowserState.then(input: Input): BrowserState =
+		step(this, input).settled(services)
 
 	private fun BrowserState.row(name: String): Row = rows.list.single { it.name == name }
 
@@ -94,7 +106,11 @@ class PlacesTest {
 			when (it) {
 				is MenuEntry.Item -> it.action.takeIf { _ -> it.label == label }
 				is MenuEntry.Submenu ->
-					label.removePrefix("${it.label} ▸ ").takeIf { rest -> rest != label }?.let { rest -> it.menu.event(rest) }
+					label
+						.removePrefix("${it.label} ▸ ")
+						.takeIf { rest ->
+							rest != label
+						}?.let { rest -> it.menu.event(rest) }
 				MenuEntry.Separator -> null
 			}
 		}
@@ -142,17 +158,37 @@ class PlacesTest {
 			listOf(root.resolve("a/b/one.txt"), root.resolve("two.txt")),
 			flat.rows(emptyList()).map { it.path },
 		)
-		assertEquals(2L, flat.rows(emptyList()).last().size?.value)
+		assertEquals(
+			2L,
+			flat
+				.rows(emptyList())
+				.last()
+				.size
+				?.value,
+		)
 
 		// The same, separated by NULs and laid out as the disk is: the folders are the place's own groupings.
-		val tree = PlaceTree(entriesOf("a/b/one.txt\u0000two.txt\u0000", type(PlaceRead.Paths, tree = true, nul = true), root))
+		val tree =
+			PlaceTree(
+				entriesOf(
+					"a/b/one.txt\u0000two.txt\u0000",
+					type(PlaceRead.Paths, tree = true, nul = true),
+					root,
+				),
+			)
+
 		val top = tree.rows(emptyList())
 
 		assertEquals(listOf("a", "two.txt"), top.map { it.name })
 		assertTrue(top.first().isFolder)
 		assertNull(top.first().path)
 		assertEquals(listOf("b"), tree.rows(listOf("a")).map { it.name })
-		assertEquals(listOf(root.resolve("a/b/one.txt")), tree.rows(listOf("a", "b")).map { it.path })
+		assertEquals(
+			listOf(root.resolve("a/b/one.txt")),
+			tree.rows(listOf("a", "b")).map {
+				it.path
+			},
+		)
 	}
 
 	@Test
@@ -165,12 +201,16 @@ class PlacesTest {
 					root,
 				),
 			)
+
 		val top = tree.rows(emptyList())
 
 		assertEquals(listOf("src", "loose"), top.map { it.name })
 		assertEquals(listOf(true, true), top.map { it.isFolder })
 		// A folder the command listed keeps what it was called; one only implied is called by where it sits.
-		assertEquals(listOf<RowId>(RowId.Entry("src/"), RowId.Entry("loose/")), top.map { it.id })
+		assertEquals(
+			listOf<RowId>(RowId.Entry("src/"), RowId.Entry("loose/")),
+			top.map { it.id },
+		)
 
 		val main = tree.rows(listOf("src")).single()
 
@@ -189,7 +229,9 @@ class PlacesTest {
 			PlaceTree(
 				entriesOf(
 					"""
-					{"at": "Cluster/one.txt", "path": "${root.resolve("one.txt")}", "size": 3, "time": "1767322800"}
+					{"at": "Cluster/one.txt", "path": "${root.resolve(
+						"one.txt",
+					)}", "size": 3, "time": "1767322800"}
 					{"at": "real/", "path": "${root.resolve("real")}"}
 					{"at": "real/inside.txt"}
 					{"at": "empty", "path": "${root.resolve("real")}"}
@@ -199,6 +241,7 @@ class PlacesTest {
 					root,
 				),
 			)
+
 		val top = tree.rows(emptyList()).associateBy { it.name }
 
 		assertEquals(setOf("Cluster", "real", "empty"), top.keys)
@@ -219,10 +262,18 @@ class PlacesTest {
 
 		assertTrue(
 			state.menu("code.tar.gz").labels().containsAll(
-				listOf("View contents", "Extract here", "Extract into a folder", "Extract to…", "Compress ▸ As a .zip…"),
+				listOf(
+					"View contents",
+					"Extract here",
+					"Extract into a folder",
+					"Extract to…",
+					"Compress ▸ As a .zip…",
+				),
 			),
 		)
-		assertTrue(state.menu("code.zip").labels().containsAll(listOf("View contents", "Extract here")))
+		assertTrue(
+			state.menu("code.zip").labels().containsAll(listOf("View contents", "Extract here")),
+		)
 		assertFalse("View contents" in state.menu("README.md").labels())
 		assertTrue("Compress ▸ As a .tar.gz…" in state.menu("README.md", "src").labels())
 		// In the folder they are in, files have no containing folder to open.
@@ -258,7 +309,10 @@ class PlacesTest {
 
 		val asked = step(exploring(), exploring().menu("code.zip").event("Extract to…"))
 
-		assertEquals(listOf<Effect>(Effect.Ask(Request.PickFolder("Extract to", root))), asked.effects)
+		assertEquals(
+			listOf<Effect>(Effect.Ask(Request.PickFolder("Extract to", root))),
+			asked.effects,
+		)
 
 		asked.state.then(BrowserEvent.Answered(root.resolve("other")))
 		assertEquals("read me", root.resolve("other/README.md").readText())
@@ -301,11 +355,21 @@ class PlacesTest {
 			val deep = src.then(BrowserEvent.Activated(src.row("deep").id))
 
 			assertEquals(listOf("a.txt"), deep.names())
-			assertEquals(top.row("src").id, deep.then(BrowserEvent.Up).then(BrowserEvent.Up).cursor?.at)
+			assertEquals(
+				top.row("src").id,
+				deep
+					.then(BrowserEvent.Up)
+					.then(BrowserEvent.Up)
+					.cursor
+					?.at,
+			)
 			assertEquals(listOf("src"), deep.then(BrowserEvent.Back).place?.within)
 			assertEquals(root, top.then(BrowserEvent.Back).folder)
 			// A step of the path across the top goes there too.
-			assertEquals(emptyList<String>(), deep.then(BrowserEvent.WentWithin(emptyList())).place?.within)
+			assertEquals(
+				emptyList<String>(),
+				deep.then(BrowserEvent.WentWithin(emptyList())).place?.within,
+			)
 		}
 	}
 
@@ -317,7 +381,10 @@ class PlacesTest {
 			val top = exploring().viewing(archive)
 			val asked = step(top, top.menu("src", "README.md").event("Extract to…"))
 
-			assertEquals(listOf<Effect>(Effect.Ask(Request.PickFolder("Extract to", root))), asked.effects)
+			assertEquals(
+				listOf<Effect>(Effect.Ask(Request.PickFolder("Extract to", root))),
+				asked.effects,
+			)
 			asked.state.then(BrowserEvent.Answered(root.resolve(into)))
 
 			assertEquals("deep", root.resolve("$into/src/deep/a.txt").readText())
@@ -330,7 +397,11 @@ class PlacesTest {
 
 		val moved = exploring(root.resolve("away")).viewing("code.zip")
 
-		moved.then(moved.then(BrowserEvent.Activated(moved.row("with space").id)).let { it.menu("my file.txt").event("Extract beside the archive") })
+		moved.then(
+			moved.then(BrowserEvent.Activated(moved.row("with space").id)).let {
+				it.menu("my file.txt").event("Extract beside the archive")
+			},
+		)
 		assertEquals("spaced", root.resolve("away/with space/my file.txt").readText())
 	}
 
@@ -342,17 +413,25 @@ class PlacesTest {
 		val carried = top.carrying(listOf(top.row("src"), top.row("README.md")))!!
 
 		// Another window, on another folder: the drop is made there, and it is that folder that is read again.
-		val elsewhere = exploring(root.resolve("out")).then(BrowserEvent.DroppedCarried(carried, DropSpot.Here))
+		val elsewhere =
+			exploring(
+				root.resolve("out"),
+			).then(BrowserEvent.DroppedCarried(carried, DropSpot.Here))
 
 		assertEquals("deep", root.resolve("out/src/deep/a.txt").readText())
 		assertEquals(setOf("src", "README.md"), elsewhere.names().toSet())
 
 		// On a folder's row, into that folder.
-		exploring().then(BrowserEvent.DroppedCarried(carried, DropSpot.Into(root.resolve("other"))))
+		exploring().then(
+			BrowserEvent.DroppedCarried(carried, DropSpot.Into(root.resolve("other"))),
+		)
 		assertEquals("int main;", root.resolve("other/src/main.c").readText())
 
 		// A picker takes no drops of the kind, and a place is no folder to extract into.
-		assertEquals(emptyList<Effect>(), step(top, BrowserEvent.DroppedCarried(carried, DropSpot.Here)).effects)
+		assertEquals(
+			emptyList<Effect>(),
+			step(top, BrowserEvent.DroppedCarried(carried, DropSpot.Here)).effects,
+		)
 	}
 
 	@Test
@@ -392,7 +471,10 @@ class PlacesTest {
 		val ran = step(extracting.state, services.answer(Effect.Run(job)))
 
 		assertEquals("int main;", made.resolve("src/main.c").readText())
-		assertEquals(listOf<Effect>(Effect.Open(listOf(made.resolve("src/main.c")))), ran.effects)
+		assertEquals(
+			listOf<Effect>(Effect.Open(listOf(made.resolve("src/main.c")))),
+			ran.effects,
+		)
 	}
 
 	@Test
@@ -414,7 +496,9 @@ class PlacesTest {
 		}
 
 		// A compressed tar cannot have entries removed in place, so it is not offered there.
-		assertFalse("Remove from archive" in exploring().viewing("code.tar.gz").menu("src").labels())
+		assertFalse(
+			"Remove from archive" in exploring().viewing("code.tar.gz").menu("src").labels(),
+		)
 	}
 
 	@Test
@@ -425,7 +509,11 @@ class PlacesTest {
 
 		for (archive in listOf("plain.tar", "code.zip")) {
 			val top = exploring().viewing(archive)
-			val added = top.then(BrowserEvent.Dropped(listOf(root.resolve("new.txt")), DropSpot.Here, Transfer.Copy))
+
+			val added =
+				top.then(
+					BrowserEvent.Dropped(listOf(root.resolve("new.txt")), DropSpot.Here, Transfer.Copy),
+				)
 
 			assertTrue("new.txt" in added.names(), archive)
 
@@ -438,7 +526,10 @@ class PlacesTest {
 	@Test
 	fun anArchiveThatCannotBeListedSaysWhy() {
 		has("tar")
-		root.resolve("broken.tar").writeText("this is not a tar archive at all, whatever its name says")
+		root
+			.resolve(
+				"broken.tar",
+			).writeText("this is not a tar archive at all, whatever its name says")
 
 		val listing = exploring().viewing("broken.tar").listing
 
@@ -446,12 +537,68 @@ class PlacesTest {
 		assertTrue((listing as Listing.Unreadable).why.isNotBlank())
 	}
 
+	/** [png] kept where `-Pbrowser.screenshots=DIR` says, for a person to look at. */
+	private fun kept(name: String, png: ByteArray) {
+		assertTrue(png.size > 1000, name)
+		System.getProperty("browser.screenshots")?.takeIf { it.isNotBlank() }?.let { dir ->
+			Files.createDirectories(Path.of(dir))
+			Files.write(Path.of(dir, "$name.png"), png)
+		}
+	}
+
+	@Test
+	fun theArchiveToolIsDrawn() {
+		archives()
+
+		val folder = exploring()
+		val zip = folder.row("code.zip")
+		val inside =
+			folder.viewing("code.zip").let {
+				it.then(BrowserEvent.Activated(it.row("src").id))
+			}
+		val chosen = inside.then(BrowserEvent.Clicked(inside.row("main.c").id, Click.Only))
+		val bindings = Bindings.of(prism.preferences.Preferences())
+
+		kept(
+			"archive-menu-of-a-file",
+			renderedPng(1000, 640) {
+				FileBrowser(folder.then(BrowserEvent.Clicked(zip.id, Click.Only)))
+				MenuPopup(
+					contextMenuOf(folder, Target.Rows(listOf(zip)), bindings, world),
+					MenuAnchor.At(
+						androidx.compose.ui.unit
+							.IntOffset(420, 120),
+					),
+					{},
+					{},
+				)
+			},
+		)
+		kept(
+			"archive-inside",
+			renderedPng(1000, 640, Palette.Dark) {
+				FileBrowser(chosen)
+				MenuPopup(
+					contextMenuOf(chosen, Target.Rows(chosen.chosenRows), bindings, world),
+					MenuAnchor.At(
+						androidx.compose.ui.unit
+							.IntOffset(420, 150),
+					),
+					{},
+					{},
+				)
+			},
+		)
+	}
+
 	// ---- a place of files on disk ---------------------------------------------------------------------------------------
 
 	@Test
 	fun aPlaceOfRealFilesOpensHereAndItsFilesAreFilesWhereverTheyAreShown() {
 		has("git")
-		sh("git init -q . && git -c user.name=t -c user.email=t@t commit -q --allow-empty -m first")
+		sh(
+			"git init -q . && git -c user.name=t -c user.email=t@t commit -q --allow-empty -m first",
+		)
 		root.resolve("docs").createDirectories()
 		root.resolve("docs/menus.md").writeText("one")
 		root.resolve("top.txt").writeText("two")
@@ -470,7 +617,11 @@ class PlacesTest {
 		val labels = docs.menu("menus.md").labels()
 
 		// A file on disk is one here too: prism's own entries, and its folder to go to, since it is shown elsewhere.
-		assertTrue(labels.containsAll(listOf("Open containing folder", "Cut", "Rename", "Move to trash", "Properties")))
+		assertTrue(
+			labels.containsAll(
+				listOf("Open containing folder", "Cut", "Rename", "Move to trash", "Properties"),
+			),
+		)
 
 		val went = docs.choose("Open containing folder", "menus.md")
 

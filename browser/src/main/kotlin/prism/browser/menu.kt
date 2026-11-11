@@ -41,7 +41,9 @@ data class Menu<out A>(
 			menu {
 				for (entry in entries)
 					when (entry) {
-						is MenuEntry.Item -> if (entry.id !in hidden) add(entry)
+						is MenuEntry.Item ->
+							if (entry.id !in hidden)
+								add(entry)
 						is MenuEntry.Submenu ->
 							entry.menu.without(hidden).takeUnless { it.isEmpty() }?.let {
 								add(MenuEntry.Submenu(entry.label, it))

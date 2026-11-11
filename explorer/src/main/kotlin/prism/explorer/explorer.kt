@@ -133,7 +133,14 @@ class Explorer(
 
 		val first =
 			when (start) {
-				is Start.Folder -> opened(Choosing.Exploring(), start.path, home, sidebar, search = search)
+				is Start.Folder ->
+					opened(
+						Choosing.Exploring(),
+						start.path,
+						home,
+						sidebar,
+						search = search,
+					)
 				is Start.Place -> openedIn(start.placed, home, sidebar, search)
 			}
 
@@ -144,7 +151,9 @@ class Explorer(
 		val browsing =
 			ExplorerWindow.Browsing(
 				ids.incrementAndGet(),
-				Session(first, services, window, requests = { ask(it) { event -> asking.getCompleted().send(event) } }),
+				Session(first, services, window, requests = {
+					ask(it) { event -> asking.getCompleted().send(event) }
+				}),
 				window,
 			)
 

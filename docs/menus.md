@@ -1,103 +1,73 @@
-# Context menus the user configures: a plan
+# Context menus the user configures: actions and places
 
 The explorer's context menus offer what every file manager's do: open, open with, cut, copy, paste, rename, the
-trash, properties, a terminal here. This document plans how the user will add their own items, and rearrange or hide
-the built-in ones. None of it is built yet; the last section says in what order it would be.
+trash, properties, a terminal here. Those are prism's own, and are written in Kotlin (`browser/menus.kt`). This
+document is about what the user adds to them: **actions**, which a menu offers and a key does, and **places**, which
+are what a window shows when it is not showing a folder on disk. Both are declared in the preferences file, as JSON.
 
-## What the user wants to say
+To show that the two are enough, prism's archive support is made of nothing else. There is no archive code in
+prism: viewing a `.zip` or a `.tar.gz`, extracting from it by a menu or by dragging, adding to it and removing from it
+are declarations in one file (`browser/src/main/resources/prism/browser/actions.json`), which run `tar`, `zip` and
+`unzip`. A user can write the same for any other tool.
 
-Five actions show the range:
+## One action, followed through
 
-1. **"Extract here"** on an archive (a `.zip`, a `.tar.gz`, a `.7z`): run `bsdtar -xf FILE -C FOLDER`, once for each
-   archive chosen, and read the folder again when done.
-2. **"Compress…"** on any files: ask for a name, then run `tar --zstd -cf NAME.tar.zst FILES...` once, with every
-   file, and put the cursor on the archive made.
-3. **"Resize to half"** on images only: run ImageMagick's `magick FILE -resize 50% STEM-half.EXT` for each.
-4. **"Git log"** on a folder inside a git repository: open a terminal running `git log` there.
-5. **"Open in VS Code"** on a folder, but only where `code` is installed, and on Ctrl+Shift+O.
+Say the explorer shows `~/Downloads`, and the user right-clicks `photos.zip` and chooses "Extract to…". This is the
+action, as it ships (with fewer extensions shown):
 
-Each action is the same three things: **when** it is offered (which files, how many, where), **what** it runs, and
-**how** (detached, in a terminal, or watched until it finishes), plus where in the menu it goes and what key does it.
+```json
+{
+  "id": "archive.zip.extract-to",
+  "label": "Extract to…",
+  "when": { "ext": ["zip", "jar", "epub"], "kind": "file", "programs": ["unzip"] },
+  "ask": { "dest": { "folder": "Extract to", "start": "{folder}" } },
+  "run": ["unzip", "-n", "-q", "{path}", "-d", "{dest}"],
+  "how": { "watched": true },
+  "then": { "reread": true }
+}
+```
 
-## What Thunar's custom actions cannot say
+**The menu is built.** `contextMenuOf(state, target, bindings, world)` builds prism's own entries, and among them
+every action whose conditions hold for what was pressed. What was pressed is a `Subject`: what the menu is of (rows),
+the things (one file, `photos.zip`), and where the window is (a folder). This action's `when` asks three things of
+it: that each name ends in one of those extensions, that each is a file, and that `unzip` is on the `PATH`. None of
+those runs anything, so the menu opens at once.
 
-Thunar's custom actions (`~/.config/Thunar/uca.xml`, edited in a dialog) get the idea right and the details wrong:
+**Choosing it is an event.** The entry's action is `BrowserEvent.Did(action, subject)`, which the reducer takes, as it
+takes every other thing the user does. The reducer runs nothing; it works out what should happen next
+(`browser/acting.kt`).
 
-- **When** is a list of name globs and six boxes for kinds of file (folders, audio, images, text, video, other). There
-  is no MIME type, so "every archive" is a long list of globs; no "exactly one file" or "two or more"; no condition
-  on where the files are (inside a git repository, under `~/Projects`); and no "only if the program is installed".
-- **What** is one string, given to a shell, with `%f`, `%F`, `%n` and the rest pasted into it. A file name with a
-  quote or a `$` in it either breaks the command or runs part of it, and every action has to be quoted defensively.
-- **How** is: started and forgotten. A command that fails says nothing; one that takes a while shows nothing; there is
-  no "run in a terminal" except by writing the terminal into the command; there is no question before running, and no
-  way to ask for a name first.
-- **Where** is a flat list at one place in the menu, in the order the dialog has them; the built-in items cannot be
-  moved or hidden; there are no submenus.
-- **Keys** for custom actions exist only by editing `accels.scm` by hand.
-- **Dynamic items** (a submenu whose items depend on the files, like "Open with" or "Send to") are not possible at
-  all without writing a C plugin against Thunar's extension API.
-- **Testing** an action means saving it, right-clicking, and guessing why it did not appear.
+**What it asks is asked first.** The action has a question, `dest`, of the kind that wants a folder. The reducer keeps
+the action as `pending` and asks the application for a picker: `Effect.Ask(Request.PickFolder("Extract to",
+~/Downloads))`. The explorer opens a window for it, which is prism's own folder picker, and sends what it chose back
+as `BrowserEvent.Answered(folder)`. Had the picker been cancelled, the action would be let go, and nothing run.
 
-## The design
+**The command is filled in.** With `dest` answered, the words of `run` are filled: `{path}` becomes the file's path,
+as one word, and `{dest}` the folder chosen. The result is a value, `Effect.Run(Job(...))`, whose words are
+`unzip -n -q /home/avery/Downloads/photos.zip -d /home/avery/Pictures`, which is what the tests read.
 
-### One menu, of entries with names
+**It is run, and what follows it follows.** The session runs the job and sends back `Answer.Ran`. While it runs, the
+status line says "Extract to…". Because the action says `"then": { "reread": true }`, the folder is read again. Had
+`unzip` failed, what it wrote to standard error would be shown in a notice.
 
-Menus are already data: `Menu<A>` with `MenuEntry.Item`, `Submenu` and `Separator` (browser/menu.kt), built by
-`contextMenuOf(state, target, bindings)`. The first change gives each built-in entry an id (`builtin.cut`,
-`builtin.open-with`, `builtin.properties`) and builds the menu in two steps:
+The rest of this document is the parts: what an action can say, then places.
 
-1. **Available entries**: every built-in entry that applies to the target, and every user action whose conditions
-   hold for it.
-2. **Layout**: the user's arrangement applied to them. The layout is an ordered list of sections, each a list of entry
-   ids and submenus; an id the layout does not mention goes where its action says, or at the end of its section; an
-   id in the `hidden` list is left out.
+## An action, declared
 
-Built-in and user entries are the same kind of thing from then on, so "move Properties above Rename", "hide Copy
-path", and "put my archive actions in a submenu next to Cut" are all the same operation on the layout.
-
-### An action, declared
-
-Actions live in the preferences, beside the pins and bindings, so they reach every window as soon as they change.
-The five examples above, as they would be written:
+Actions are under `"actions"` in `$XDG_CONFIG_HOME/prism/preferences.json`, beside the pins and the bindings, so a
+change reaches every window as the file is saved. An action written there with the id of one that ships replaces it.
 
 ```json
 {
   "actions": [
     {
-      "id": "extract-here",
-      "label": "Extract here",
-      "when": { "types": ["application/zip", "application/x-tar", "application/x-7z-compressed",
-                          "application/x-compressed-tar", "application/x-zstd-compressed-tar"],
-                "kind": "file", "programs": ["bsdtar"] },
-      "run": ["bsdtar", "-xf", "{path}", "-C", "{folder}"],
-      "how": { "watched": true },
-      "then": { "reread": true },
-      "submenu": "Archive"
-    },
-    {
-      "id": "compress",
-      "label": "Compress…",
-      "when": { "count": "some" },
-      "ask": { "input": "Name of the archive", "default": "{stem}" },
-      "run": ["tar", "--zstd", "-cf", "{input}.tar.zst", "--", "{names}"],
-      "how": { "watched": true },
-      "then": { "reread": true, "choose": "{input}.tar.zst" },
-      "submenu": "Archive"
-    },
-    {
       "id": "half",
-      "label": "Resize to half",
+      "label": "Half size",
+      "submenu": "Image/Resize",
       "when": { "types": ["image/*"], "programs": ["magick"] },
       "run": ["magick", "{path}", "-resize", "50%", "{stem}-half.{ext}"],
       "how": { "watched": true },
       "then": { "reread": true }
-    },
-    {
-      "id": "git-log",
-      "label": "Git log",
-      "when": { "kind": "folder", "count": "one", "inside": ".git" },
-      "run": ["git", "-C", "{path}", "log"],
-      "how": { "terminal": true }
     },
     {
       "id": "code",
@@ -107,135 +77,293 @@ The five examples above, as they would be written:
       "key": "Ctrl+Shift+O"
     }
   ],
-  "menu": { "hidden": ["builtin.copy-path"], "order": ["builtin.open", "builtin.open-with", "code", "—", "..."] }
+  "menu": { "hidden": ["builtin.copy-path"] }
 }
 ```
 
-**When**: every condition named must hold, and each is optional.
+### When it is offered
+
+Every condition named must hold, and each is optional.
 
 | condition | holds when |
 |---|---|
-| `types` | each file's type, or a type it is a kind of, matches one of these (`image/*` matches every image; `text/plain` matches source code, since its types are kinds of text) |
-| `kind` | each file is a `file`, a `folder`, or a `link` |
-| `count` | the files chosen are `one`, `some` (one or more), or `many` (two or more) |
-| `names` | each name matches one of these globs |
-| `under` | each file is under one of these folders (`~/Projects`) |
-| `inside` | a folder holding this name (`.git`, `Cargo.toml`) is the file itself or one of its ancestors |
-| `programs` | each of these is on the `PATH` |
-| `target` | the menu is a file's (`files`, the default), the folder's own (`folder`), or a sidebar place's (`place`) |
+| `types` | each file's MIME type, or a type it is a kind of, is one of these (`image/*` is every image; `text/plain` matches source code, whose types are kinds of text) |
+| `names` | each name matches one of these globs (`*.foo`, `Makefile`) |
+| `ext` | each name ends in one of these extensions (`foo`, `tar.gz`), whether or not prism knows the type |
+| `kind` | each is a `file`, a `folder`, or a `link` |
+| `count` | the things chosen are `one`, `some` (one or more), or `many` (two or more) |
+| `under` | each is under one of these folders (`~/Projects`) |
+| `inside` | each is, or is under, a folder that holds one of these names (`.git`, `Cargo.toml`) |
+| `programs` | every one of these is on the `PATH` |
+| `target` | the menu is of rows (`files`, unless said), of the folder shown itself (`folder`), or of a sidebar place (`place`) |
+| `in` | the window is in a `folder`, in a search's `results`, or in the place with one of these ids |
+| `elsewhere` | each is a file on disk shown somewhere other than the folder it is in (a search's results, a place) |
+| `real` | each is a file on disk (`true`), or an entry only its place knows (`false`) |
+| `with` | the place shown was opened with values matching these globs: `{"archive": ["*.tar"]}` |
+| `not` | the conditions inside it do not all hold |
 
-`types` uses the desktop's own lineage of types (`FileTypes.lineage`), so it means the same thing on every platform
-that has MIME types, and conditions never run anything: whether an action is offered is decided from facts prism
-already has (or, for `inside`, a few `stat` calls), so opening a menu never waits on a program.
+`not` is how anything is excluded: `"not": { "in": ["results"] }` is "anywhere but a search's results".
 
-**What**: a command is a list of words, never a string for a shell. A placeholder is a whole word, and is replaced by
-whole words:
+`ext` and `names` are there so that an action does not depend on what prism knows of a type: an action for `*.blend`
+files needs no MIME type to exist for them. `kind: "folder"` makes one for folders.
+
+A condition written wrong (`"typs"`) makes the action unreadable, and it is said to be; it is never taken for no
+condition at all, which would offer the action everywhere.
+
+Two things are decided without being written. An action whose command names `{path}` needs files on disk, so it is
+not offered for an entry of an archive; one that names `{entries}` is offered only for those. And an action is offered
+in a picker's menus not at all: a picker chooses for another application, and does nothing else to files.
+
+### What it runs
+
+A command is a list of words, never text for a shell. A placeholder is replaced by whole words, so a file called
+`-rf "$(…)".txt` is one argument, whatever is in its name.
 
 | placeholder | becomes | the command runs |
 |---|---|---|
 | `{path}` | one file's path | once for each file |
+| `{parent}` | the folder one file is in | once for each file |
+| `{name}`, `{stem}`, `{ext}` | one name; without its extension; its extension | once for each |
+| `{entry}` | what one entry of a place is called by the place's command | once for each |
 | `{paths}` | every file's path, each a word | once |
-| `{names}` | every file's name, each a word (run in their folder) | once |
-| `{name}`, `{stem}`, `{ext}` | one file's name, without its extension, its extension | once for each file |
-| `{folder}` | the folder shown | once |
-| `{input}` | what the user typed, where the action asks | as the others say |
+| `{names}` | every name, each a word | once |
+| `{entries}` | every entry, each a word | once |
+| `{folder}` | the folder shown; where there is none, the folder the first file is in | as the others say |
+| `{dest}`, `{archive}`, … | a value with a name: a question's answer, or one the place shown was opened with | as the others say |
 
-Because a placeholder is replaced by whole words, a file called `-rf "$(…)".txt` is one argument, whatever is in it;
-the only care an action takes is a `--` before its paths, where the program reads options. Someone who does want a
-shell writes one, with the files passed as its arguments rather than pasted into its text, which is the safe way:
-`["sh", "-c", "for f; do convert \"$f\" \"${f%.*}.webp\"; done", "sh", "{paths}"]`.
+A value with a name has parts: `{archive.parent}`, `{archive.name}`, `{archive.stem}`, `{archive.ext}`.
 
-These rules are checked when the preferences are read, not when the action runs. In the types, a command is not text
-but a list of `Word`s, each a `Literal` or a `Placeholder` of a known kind, and whether it runs once or once per file
-follows from which placeholders it holds, so it is never a separate setting that could disagree with them. A command
-that mixes `{path}` with `{paths}` cannot be represented. An action that does not read (an unknown placeholder, an
-unknown condition) is shown as broken in the editor, with why, and the rest still load, as an unreadable preferences
-file leaves the defaults in place today.
+`{paths}`, `{names}` and `{entries}` stand for several words, so each must be a word by itself. A placeholder that
+fills one word can be part of it: `{stem}-half.{ext}`.
 
-**How**:
+A command runs in the folder shown (or, where there is none, the folder the first file is in), which is why `{names}`
+are enough to name files.
 
-| how | what happens |
+Someone who wants a shell writes one, with the files as its arguments and never pasted into its text:
+
+```json
+"run": ["sh", "-c", "for f; do magick \"$f\" \"${f%.*}.webp\"; done", "sh", "{paths}"]
+```
+
+Every value with a name is also in the command's environment, under its name, with `folder`. So a script reads
+`$archive` and `$dest`, and the files as `"$@"`:
+
+```json
+"run": ["sh", "-c", "tar -xf \"$archive\" -C \"$dest\" -- \"$@\"", "sh", "{entries}"]
+```
+
+In a word, a `{` after a `$` is the shell's own (`${f%.*}`), braces around anything that is not a name are text (an
+awk program's `{ print $1 }`), and `\{` is a brace as itself.
+
+All of this is checked when the preferences are read, and held in the types (`browser/actions.kt`). A `Command` is a
+list of `Word`s, each a `Phrase` of text and `Hole`s or a `Spread` of every file. Whether it runs once or once for
+each file is read off which placeholders it holds, and so is whether it needs files or entries, so no setting beside
+them can disagree. A command that names one file at a time and every file at once is refused; so is a placeholder
+that nothing fills.
+
+### How it is run
+
+| `how` | what happens |
 |---|---|
 | (nothing said) | started detached, as opening a file is, and forgotten |
-| `terminal` | started in the user's terminal (the preferences' `terminal`, or the desktop's), which stays open |
-| `watched` | prism runs it and shows it in the status bar while it runs, with a way to stop it; if it fails, what it wrote to standard error is shown |
-| `confirm` | a question first ("Resize 12 images?") |
-| `ask` | a line of text asked for first, given to the command as `{input}` |
-| `then` | once a watched command finishes: `reread` the folder, `choose` what it made |
+| `"terminal": true` | started in the user's terminal |
+| `"watched": true` | prism runs it and waits; the status line names it while it runs; if it fails, what it wrote to standard error is shown |
+| `"confirm": "…"` | this question is asked first, with the action's label on the button |
+
+`then` follows a watched command: `"reread": true` reads again what is shown, and `"choose": "{stem}.zip"` puts the
+cursor on what was made. It can only be said of a watched command, since prism knows nothing of how the others ended.
+
+### What it asks
+
+`ask` is questions by name. Each answer is a value with that name, for the command to use.
+
+```json
+"ask": { "to": { "text": "Name of the archive", "start": "{stem}" } }
+"ask": { "dest": { "folder": "Extract to", "start": "{folder}" } }
+```
+
+A `text` question is a line typed in a notice over the browser, starting as `start` says. A `folder` question is a
+folder chosen in prism's folder picker, which opens on `start`.
+
+### An action that shows somewhere
+
+An action runs a command or shows somewhere, never both. Showing is going to a folder, or to a place:
+
+```json
+{ "id": "containing-folder", "label": "Open containing folder",
+  "when": { "count": "one", "elsewhere": true },
+  "show": { "folder": "{parent}", "choose": "{name}" } }
+
+{ "id": "archive.zip.view", "label": "View contents",
+  "when": { "ext": ["zip"], "count": "one" },
+  "show": { "place": "archive.zip", "with": { "archive": "{path}" } } }
+```
+
+`"in": "window"` opens it in a window of its own, and `"in": "here"` in this one. Unless it says, a folder is shown
+here, and a place where the place says it opens.
 
 ### Where it goes, and its key
 
-`submenu` puts an action in a submenu (nested with `/`: `"Image/Convert"`); `menu.order` arranges the whole menu, by
-id, with `—` for a separator and `...` for "everything not named, where it would go". `menu.hidden` hides entries,
-built-in or not.
+`submenu` puts an action in a submenu, nested with `/`: `"Image/Resize"`. `key` is the chord that does it, until the
+user binds another: every action is in the preferences window's "Key bindings" page, under "On the files, from the
+list", and is rebound there like any of prism's own. From the keyboard an action is done to the rows chosen, or to the
+folder shown where none is.
 
-`key` binds the action, but bindings are already the bindings window's business, so a user action becomes an action
-like any built-in one: `Action` (browser/bindings.kt) turns from an enum into a sealed type, `Builtin(kind)` or
-`User(id)`, and every user action appears in the bindings window under "On the files, from the list", rebindable like
-the rest. `key` in the action is only its default.
+A chord can be bound to one of prism's actions and one of the user's when they are for different things. Delete moves
+files to the trash; inside an archive, where there are no files to trash, it is "Remove from archive". Each action
+bound to the chord is tried in turn until one has something to do.
 
-### Items made as the menu opens
+`"default": true` makes a double click (or Enter) on what the action is offered for do it, in place of opening.
 
-Some items cannot be declared, because what they are depends on the files: "Open with ▸" lists the applications for
-their types; "Compress ▸" could list the formats whose programs are installed; "Send to ▸" the devices plugged in. A
-**provider** makes such items when the menu is built:
+`menu.hidden` hides entries by id: an action's, or one of prism's own. Prism's ids are `builtin.open`,
+`builtin.open-in-new-window`, `builtin.open-with`, `builtin.cut`, `builtin.copy`, `builtin.paste`,
+`builtin.paste-into`, `builtin.rename`, `builtin.copy-path`, `builtin.pin`, `builtin.terminal`, `builtin.trash`,
+`builtin.properties`, `builtin.new-folder`, `builtin.new-file`, `builtin.refresh`, `builtin.undo`, `builtin.redo`.
 
-```kotlin
-interface MenuProvider {
-	val id: String
+### One command under two names
 
-	/** The entries for [files] (their facts known), each with its action; none where there are none. */
-	fun entriesFor(target: Target, files: List<Facts>): List<ProvidedEntry>
+`like` makes an action that does what another does, with some of its questions answered beforehand:
+
+```json
+{ "id": "archive.zip.extract-beside", "label": "Extract beside the archive",
+  "when": { "in": ["archive.zip"] },
+  "like": "archive.zip.extract", "given": { "dest": "{archive.parent}" } }
+```
+
+So the `unzip` command is written once.
+
+## Places
+
+A place is what a window shows that is not a folder on disk. Prism has always had one: a search's results, shown as if
+a folder held them all. A declared place is the same idea with a command in the index's stead.
+
+```json
+{
+  "places": [
+    {
+      "id": "archive.zip",
+      "title": "{archive.name}",
+      "takes": ["archive"],
+      "opens": "window",
+      "list": ["sh", "-c", "zipinfo -T \"$archive\" | awk '…'"],
+      "read": "names",
+      "out": "archive.zip.extract",
+      "in": "archive.zip.add"
+    }
+  ]
 }
 ```
 
-prism's own providers are Kotlin ("Open with" becomes one). A user's provider is a program, run with the files as
-JSON on its standard input and answering with entries as JSON on its standard output (a label, an id, the command to
-run if chosen). It never runs inside prism's process, so a broken one cannot take the explorer down, and it is given a
-short time (around 150 ms): the menu opens without waiting, and a provider's items fill in when they come, or its
-submenu says it is still asking. Its answers are kept for a while for the same types, so a second right-click does not
-ask again.
+**What it is opened with.** `takes` names the values a place is opened with; an action that shows it gives them
+(`"with": { "archive": "{path}" }`). That is how an archive's window remembers which file it is of. The type and its
+values together (`Placed`) say where a window is, as a path does for a folder, so a place can be in the history, be
+read again, and be what a new window opens on.
 
-### The editor
+The values can be named only by the place's own commands and by actions that say they are only in it
+(`"in": ["archive.zip"]`). An action that names `{archive}` anywhere else is refused when it is read.
 
-A page of the preferences window, beside the bindings: the actions in a list (each with on/off, and whether it reads),
-and for the one chosen a form with its label, conditions, command and how it runs. Thunar's guesswork goes away with
-two things the form shows as it is edited:
+**How it is listed.** `list` is run once, in `folder` (the home folder unless said). It prints every entry, and
+`read` says how they are printed:
 
-- **Against what is chosen**: in the explorer window it was opened from, which of the chosen files the conditions hold
-  for, and for the ones they do not, which condition fails.
-- **The commands it would run**: each command in full, with the real paths in place of the placeholders, as words, so
-  what will happen is seen before it does.
+| `read` | each line is |
+|---|---|
+| `paths` (unless said) | a file on disk, by its path: what `fd`, `rg -l` and `git diff --name-only` print. With `"tree": true`, each is shown under the folders it is in, below `folder`; otherwise all together |
+| `names` | where an entry sits in the place (`src/main.c`; a `/` at the end says a folder), then, apart by tabs, any of `size=`, `time=`, `path=` and `kind=folder` |
+| `entries` | a JSON object: `at`, and `path`, `size`, `time` and `kind` where they are said |
 
-The menu's layout is edited on the same page, as a list to drag entries in, built-in and the user's alike. An action
-can be copied out as JSON and pasted in, which is how people would share them.
+`"nul": true` reads what is printed as separated by NUL characters, as `-z` and `-print0` print. A `time` is seconds
+since 1970, an instant, or a date and time of day as `tar` and `unzip` print them.
 
-### What ships
+So a pipe that puts files under folders of its own prints two columns:
 
-A few actions ship with prism as ordinary actions in a defaults file, which the user can switch off or copy and change:
-"Extract here" and "Extract to a folder" (with whichever of `bsdtar`, `7z` or `unzip` is installed), "Compress…",
-and "Open in a terminal" for a sidebar place. They are the examples the format is learnt from.
+```
+Staged/step.kt	path=/repo/browser/step.kt
+Untracked/notes.md	path=/repo/notes.md
+```
 
-### Across platforms
+The browser then goes about the tree it was given, without asking the command again: into a folder, up, back. Reading
+again (F5, or an action's `then`) lists it again.
 
-Nothing in the format is Linux's: commands are lists of words (which the JVM's `ProcessBuilder` quotes correctly for
-Windows' `CreateProcess` too), conditions are decided from `Facts` and `FileTypes`, which every `Desktop` provides,
-and running goes through the `Launcher`. On macOS, `types` matches the MIME types its uniform type identifiers map to.
-A defaults file per platform would ship the actions that make sense there.
+### Files on disk, and entries only the place knows
 
-## In what order it would be built
+What a row is decides what can be done with it, and it is in the types (`Item`, in `browser/places.kt`):
 
-1. **Ids and the layout.** Built-in entries get ids; `menu.hidden` and `menu.order` are read from the preferences and
-   applied by a pure function from the available entries to the menu, tested as the menus are now. This alone lets the
-   user hide and reorder the built-in items.
-2. **Declared actions.** `UserAction`, its conditions and its command as types in the preferences module, read by
-   kotlinx.serialization with the checks above; a pure `available(action, target, facts)` and
-   `commandsOf(action, target)`, tested with the examples here. Running is a new effect, carried out by the session
-   through the launcher, which already starts commands detached or in a terminal.
-3. **Watched commands.** A runner that reports progress and failure back to the session as answers, shown in the
-   status bar; `then` reads the folder again and lands the cursor.
-4. **Keys.** `Action` becomes sealed, and the bindings window lists user actions.
-5. **Providers**, prism's own first ("Open with" moved onto the interface), then programs.
-6. **The editor.**
+- A row with a path is **a file on disk** (`Item.OnDisk`), wherever it is shown. Everything prism does with files
+  applies: open, cut, copy, rename, the trash, properties, dragging. "Changed files (git)" is a place of these.
+- A row without one is **an entry only its place knows** (`Item.InPlace`). A folder of them can be gone into. Beyond
+  that, only what the place's actions do can be done: prism's own entries are built from paths, so "Move to trash" on
+  an archive's entry is not hidden by a rule; there is no path to build it from.
 
-Each step is useful alone, and none needs the ones after it.
+A folder that has entries under it in a place is always the place's own grouping, even where a folder on disk has
+its name. In "Changed files (git)" shown as a tree, `browser/` holds the two files that changed, and the folder on
+disk holds four hundred: if that row were the folder, trashing it would trash all of them. What is done to a row must
+be what is shown in it. A folder with nothing under it in the place (every `node_modules` a command found) is the
+folder itself, whole.
+
+### The way out, and the way in
+
+`out` names the action that brings entries out of the place into a folder. It must ask for exactly one folder. That
+one question can then be answered four ways, all running the same command:
+
+| what the user does | what answers the question |
+|---|---|
+| chooses the action from the menu | the picker |
+| drags entries onto a folder, in this window or another | the folder they are dropped on |
+| copies entries, and pastes in a folder | the folder pasted into |
+| double-clicks an entry | a folder made for it, from which it is then opened |
+
+So "Extract to…", dragging out of an archive, copy and paste, and looking at a file without extracting the archive,
+are one declaration. A place with no `out` has entries that cannot be dragged or copied at all; nothing has to forbid
+it.
+
+`in` names the action that takes files in: what dropping files on the place, or pasting them, does. A place with no
+`in` takes none.
+
+Only a folder on disk takes a drop of entries. A place's own folders are not targets.
+
+## What ships
+
+`browser/src/main/resources/prism/browser/actions.json` holds prism's own actions and places, which are the examples
+the format is learnt from:
+
+- **Archives**, tar (`.tar`, `.tar.gz`, `.tar.xz`, `.tar.zst`, …) and zip (`.zip`, `.jar`, `.epub`, …), each with the
+  tool for it. From the folder an archive is in: "View contents", "Extract here", "Extract into a folder", "Extract
+  to…". In its window: "Extract to…" and "Extract beside the archive" on entries, "Extract all to…" on the place,
+  "Remove from archive" (Delete), entries dragged or copied out, files dropped or pasted in. Removing and adding are
+  offered where the tool can do it: any zip, and a tar that is not compressed.
+- **Compress** ▸ as a `.zip`, `.tar.gz`, `.tar.xz`, `.tar.zst` or `.tar`, each asking for a name, and each offered
+  where its program is installed.
+- **Open containing folder**, here or in a new window, for a file shown elsewhere than its folder.
+- **Changed files (git)**, on a folder in a repository: a place of real files, opened here as a search's results are.
+
+Another archive tool is another pair of declarations: a place whose `list` runs `7z l`, and actions that run `7z x`
+and `7z d`.
+
+## Where it is
+
+| | |
+|---|---|
+| `preferences/actions.kt` | the shapes of the JSON, each action and place read on its own |
+| `browser/actions.kt` | what they mean: commands, conditions, actions and places as types, and the checks |
+| `browser/places.kt` | what a row is, a place's tree, what a command prints read into it, and running commands |
+| `browser/acting.kt` | the reducer's part: an action asked, confirmed and done; a place gone about; the way out and in |
+| `browser/menus.kt` | prism's own entries, with ids, and the user's among them |
+| `browser/bindings.kt` | `Bindable`: prism's actions and the user's, bound alike |
+| `explorer/explorer.kt` | a window on a place, and the folder picker a question opens |
+
+The preferences window's "Actions" page lists what was read, and, for what was not, why not.
+
+## Not built yet
+
+- **The menu's order.** Entries can be hidden, and actions put in submenus, but prism's own entries cannot be
+  rearranged, nor an action placed among them by name.
+- **Items made as the menu opens** (a submenu whose items depend on the files, from a program asked as the menu is
+  built).
+- **An editor.** Actions are written by hand in the preferences file. The "Actions" page only shows them.
+- **Stopping a watched command**, and showing how far along it is.
+- **Dragging entries of a place to another application.** They are dragged between prism's windows in one process.
+  Another application would need files, which would mean extracting as the drag starts.
+- **Listing a folder of a place only when it is gone into**, for places too large to list at once.
+- **Adding into a folder inside an archive.** Files given to an archive go to its top.
+- **Clearing the folders entries are opened from.** They are made under the system's temporary folder and left there.
+- **Undo** of what a command did, which prism cannot know.

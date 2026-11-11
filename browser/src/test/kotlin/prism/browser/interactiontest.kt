@@ -2,6 +2,7 @@ package prism.browser
 
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.width
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.State
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -52,9 +53,11 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Assumptions.assumeTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import prism.desktop.freedesktop.XdgPlaces
+import prism.preferences.Preferences
 
 /**
  * The picker as a user meets it: composed headless around a running [Session] over a real folder, then clicked,
@@ -122,7 +125,10 @@ class InteractionTest {
 
 			running[0] = session
 			BrowserTheme {
-				Box(width?.let { Modifier.width(it.value) } ?: Modifier) { SessionBrowser(session) }
+				// The keys as a window has them: the defaults, and those of the actions that ship.
+				CompositionLocalProvider(LocalBindings provides Bindings.of(Preferences())) {
+					Box(width?.let { Modifier.width(it.value) } ?: Modifier) { SessionBrowser(session) }
+				}
 			}
 		}
 		waitUntil(timeoutMillis = TIMEOUT) { running[0]?.state?.value?.listing is Listing.Read }
@@ -671,6 +677,115 @@ class InteractionTest {
 			waitUntil(timeoutMillis = TIMEOUT) { !work.resolve("main.kt").exists() }
 			assertFalse(asked())
 			assertEquals("fun main() {}", bin.resolve("files/main.kt").readText())
+		}
+
+	/** Whether each of [programs] is on the `PATH`: what the archive actions that ship need, to be offered. */
+	private fun has(vararg programs: String): Boolean =
+		programs.all { program ->
+			System
+				.getenv(
+					"PATH",
+				).orEmpty()
+				.split(':')
+				.any { java.io.File(it, program).canExecute() }
+		}
+
+	/** A home with a zip of its notes beside them, made by the machine's own `zip`. */
+	private fun zipped(): Path =
+		home().also {
+			assumeTrue(has("zip", "unzip", "zipinfo"))
+			assertEquals(
+				0,
+				ProcessBuilder("zip", "-q", "old.zip", "notes.md", "todo.txt")
+					.directory(it.toFile())
+					.start()
+					.waitFor(),
+			)
+			it.resolve("notes.md").toFile().delete()
+		}
+
+	@Test
+	fun theUsersActionsAreInAFilesMenuAndASubmenusAsksBeforeItRuns() =
+		picking(Choosing.Exploring(), folder = zipped()) { session ->
+			waitUntil(timeoutMillis = TIMEOUT) {
+				session.state.value.actions.actions
+					.isNotEmpty()
+			}
+
+			// An archive is extracted from its menu, and the folder read again once it has been.
+			row("old.zip").performMouseInput { rightClick() }
+			onNodeWithTag("menu:Extract here").performClick()
+			waitUntil(timeoutMillis = TIMEOUT) { work.resolve("notes.md").exists() }
+			waitUntil(timeoutMillis = TIMEOUT) {
+				onAllNodes(hasTestTag("row:notes.md")).fetchSemanticsNodes().isNotEmpty()
+			}
+			noMenu()
+
+			// An action in a submenu asks for a name first, in a field, with what it would be called to type over.
+			row("main.kt").performMouseInput { rightClick() }
+			onNodeWithTag("menu:Compress").performMouseInput { moveTo(center) }
+			onNodeWithTag("menu:As a .zip…").performClick()
+			waitUntil(timeoutMillis = TIMEOUT) { session.state.value.notice is Notice.Asking }
+			field("answer").assertTextEquals("main")
+			field("answer").performTextReplacement("sources")
+			press(Key.Enter)
+			waitUntil(timeoutMillis = TIMEOUT) { work.resolve("sources.zip").exists() }
+			waitUntil(timeoutMillis = TIMEOUT) {
+				session.state.value.cursor
+					?.at ==
+					RowId("sources.zip")
+			}
+		}
+
+	@Test
+	fun inAnArchiveDeleteRemovesAnEntryAndAskedFirst() =
+		picking(Choosing.Exploring(), folder = zipped()) { session ->
+			waitUntil(timeoutMillis = TIMEOUT) {
+				session.state.value.actions.actions
+					.isNotEmpty()
+			}
+
+			// The archive's place, in this window: as its menu's "View contents" shows it, but for the window.
+			val state = session.state.value
+			val view = state.actions["archive.zip.view"]!!
+
+			session.send(
+				BrowserEvent.Did(
+					view.copy(deed = (view.deed as Deed.Show).copy(window = false)),
+					state.subjectOf(
+						Target.Rows(listOf(state.rows.list.single { it.name == "old.zip" })),
+					),
+				),
+			)
+			waitUntil(timeoutMillis = TIMEOUT) {
+				onAllNodes(hasTestTag("row:todo.txt")).fetchSemanticsNodes().isNotEmpty() &&
+					session.state.value.place != null
+			}
+			onNodeWithTag("place").assertExists()
+
+			// The menu of an entry is its place's: nothing of the trash, or of renaming.
+			row("todo.txt").performMouseInput { rightClick() }
+			onNodeWithTag("menu:Extract to…").assertExists()
+			onNodeWithTag("menu:Remove from archive").assertExists()
+			assertEquals(
+				0,
+				onAllNodes(hasTestTag("menu:Move to trash")).fetchSemanticsNodes().size,
+			)
+			press(Key.Escape)
+
+			// Delete, which the place's action is bound to here, asks first; then the entry is gone from the archive.
+			row("todo.txt").performClick()
+			press(Key.Delete)
+			waitUntil(
+				timeoutMillis = TIMEOUT,
+			) { session.state.value.notice is Notice.ConfirmAction }
+			onNodeWithTag("yes").performClick()
+			waitUntil(timeoutMillis = TIMEOUT) {
+				session.state.value.running
+					.isEmpty() &&
+					onAllNodes(hasTestTag("row:todo.txt")).fetchSemanticsNodes().isEmpty()
+			}
+			row("notes.md").assertExists()
 		}
 
 	@Test

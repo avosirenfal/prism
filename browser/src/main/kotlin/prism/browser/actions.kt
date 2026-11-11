@@ -61,10 +61,12 @@ private fun extensionAt(name: String): Int? =
 	)
 
 /** [name] without its extension: `report` of `report.pdf`, `backup` of `backup.tar.gz`. */
-fun stemOf(name: String): String = extensionAt(name)?.let { name.substring(0, it) } ?: name
+fun stemOf(name: String): String =
+	extensionAt(name)?.let { name.substring(0, it) } ?: name
 
 /** [name]'s extension, without its dot: `tar.gz` of `backup.tar.gz`; nothing where it has none. */
-fun extOf(name: String): String = extensionAt(name)?.let { name.substring(it + 1) }.orEmpty()
+fun extOf(name: String): String =
+	extensionAt(name)?.let { name.substring(it + 1) }.orEmpty()
 
 /** What a placeholder needs the things an action is for to be. */
 enum class Need {
@@ -204,9 +206,11 @@ data class Phrase(
 							else ->
 								return Reading.Wrong(
 									"nothing fills “${match.value}”" +
-										named.takeIf { it.isNotEmpty() }?.let { names ->
-											": the values with names here are ${names.sorted().joinToString { "{$it}" }}"
-										}.orEmpty(),
+										named
+											.takeIf { it.isNotEmpty() }
+											?.let { names ->
+												": the values with names here are ${names.sorted().joinToString { "{$it}" }}"
+											}.orEmpty(),
 								)
 						},
 					)
@@ -311,7 +315,10 @@ data class Command(
 
 			val read =
 				words.map { word ->
-					Every.entries.firstOrNull { "{${it.word}}" == word }?.let { Reading.Right(Word.Spread(it)) }
+					Every.entries
+						.firstOrNull {
+							"{${it.word}}" == word
+						}?.let { Reading.Right(Word.Spread(it)) }
 						?: Phrase.read(word, named).map { Word.One(it) }
 				}
 
@@ -320,14 +327,23 @@ data class Command(
 			val command = Command(read.map { (it as Reading.Right).value })
 
 			return when {
-				command.forEach && command.words.any { it is Word.Spread } ->
+				command.forEach && command.words.any { it is Word.Spread } -> {
+					val one =
+						command.holes
+							.filterIsInstance<Hole.Of>()
+							.first()
+							.each.word
+
+					val all =
+						command.words
+							.filterIsInstance<Word.Spread>()
+							.first()
+							.every.word
+
 					Reading.Wrong(
-						"it names one file at a time (${command.holes.filterIsInstance<Hole.Of>().first().let {
-							"{${it.each.word}}"
-						}}) and every file at once (${command.words.filterIsInstance<Word.Spread>().first().let {
-							"{${it.every.word}}"
-						}}): one or the other",
+						"it names one file at a time ({$one}) and every file at once ({$all}): one or the other",
 					)
+				}
 				command.needs.size > 1 ->
 					Reading.Wrong("it names files on disk and entries of a place: it cannot be for both")
 				else -> Reading.Right(command)
@@ -416,7 +432,8 @@ data class Conditions(
 	val not: Conditions? = null,
 ) {
 	/** Whether these hold for [subject], in [world]. */
-	fun hold(subject: Subject, world: World): Boolean = on == subject.on && holdBut(subject, world)
+	fun hold(subject: Subject, world: World): Boolean =
+		on == subject.on && holdBut(subject, world)
 
 	/** As [hold], but for what the menu is of, which a negation does not say again. */
 	private fun holdBut(subject: Subject, world: World): Boolean {
@@ -425,7 +442,10 @@ data class Conditions(
 		fun each(holds: (Thing) -> Boolean) = things.all(holds)
 
 		return listOf<() -> Boolean>(
-			{ types == null || each { thing -> world.lineage(thing).any { type -> types.any { typed(it, type) } } } },
+			{
+				types == null ||
+					each { thing -> world.lineage(thing).any { type -> types.any { typed(it, type) } } }
+			},
 			{ names == null || each { thing -> names.any { it.matches(thing.name) } } },
 			{ kind == null || each { it.kind == kind } },
 			{ count == null || count.holds(things.size) },
@@ -463,7 +483,10 @@ data class Conditions(
 			{
 				with == null ||
 					(subject.where as? Where.Place)?.placed?.values?.let { values ->
-						with.all { (name, globs) -> values[name]?.let { value -> globs.any { it.matches(value) } } ?: false }
+						with.all { (name, globs) ->
+							values[name]?.let { value -> globs.any { it.matches(value) } }
+								?: false
+						}
 					} ?: false
 			},
 			{ not == null || !not.holdBut(subject, world) },
@@ -478,7 +501,12 @@ data class Conditions(
 
 	companion object {
 		fun read(spec: WhenSpec): Reading<Conditions> {
-			fun <T> one(text: String?, of: List<T>, word: (T) -> String, what: String): Reading<T?> =
+			fun <T> one(
+				text: String?,
+				of: List<T>,
+				word: (T) -> String,
+				what: String,
+			): Reading<T?> =
 				when (text) {
 					null -> Reading.Right(null)
 					else ->
@@ -544,7 +572,13 @@ interface World {
 }
 
 /** The world the view decides the conditions of the user's actions by: the session's, given by whoever runs one. */
-val LocalWorld = staticCompositionLocalOf<World> { World.Bare(java.nio.file.Path.of("/")) }
+val LocalWorld =
+	staticCompositionLocalOf<World> {
+		World.Bare(
+			java.nio.file.Path
+				.of("/"),
+		)
+	}
 
 /** Something an action is for: a file or a folder on disk, or an entry of a place. */
 @Immutable
@@ -572,7 +606,11 @@ data class Thing(
 
 		/** The folder at [path]. */
 		fun folder(path: Path): Thing =
-			Thing(Item.OnDisk(path), path.fileName?.toString() ?: path.toString(), ThingKind.Folder)
+			Thing(
+				Item.OnDisk(path),
+				path.fileName?.toString() ?: path.toString(),
+				ThingKind.Folder,
+			)
 
 		/** [path], taken to be a file: something given to the browser, of which no more is known. */
 		fun file(path: Path): Thing =
@@ -737,7 +775,8 @@ data class UserAction(
 
 	/** Whether it names the things it is for, and so needs there to be some. */
 	private val named: Boolean get() =
-		(deed as? Deed.Run)?.command?.named == true || phrases.any { phrase -> phrase.holes.any { it is Hole.Of } }
+		(deed as? Deed.Run)?.command?.named == true ||
+			phrases.any { phrase -> phrase.holes.any { it is Hole.Of } }
 
 	private val folder: Boolean get() =
 		(deed as? Deed.Run)?.command?.folder == true || phrases.any { Hole.Folder in it.holes }
@@ -758,7 +797,10 @@ data class UserAction(
 
 	/** The one question a drop, or a paste, answers with its folder; null where there is not exactly one. */
 	val destination: Question.Folder? get() =
-		questions.filterIsInstance<Question.Folder>().filter { it.name !in given }.singleOrNull()
+		questions
+			.filterIsInstance<Question.Folder>()
+			.filter { it.name !in given }
+			.singleOrNull()
 }
 
 /** How what a place's command prints is read. */
@@ -860,7 +902,11 @@ data class Actions(
 		fun read(files: List<ActionsFile>, hidden: Set<String> = emptySet()): Actions {
 			val broken = ArrayList<Broken>()
 
-			fun <T> written(specs: List<Spec<T>>, what: String, id: (T) -> String): Map<String, T> =
+			fun <T> written(
+				specs: List<Spec<T>>,
+				what: String,
+				id: (T) -> String,
+			): Map<String, T> =
 				specs
 					.mapNotNull {
 						when (it) {
@@ -872,7 +918,11 @@ data class Actions(
 			val placeSpecs = written(files.flatMap { it.placeSpecs() }, "place") { it.id }
 			val actionSpecs = written(files.flatMap { it.actionSpecs() }, "action") { it.id }
 
-			fun <S, T> meant(specs: Map<String, S>, what: String, read: (S) -> Reading<T>): Map<String, T> =
+			fun <S, T> meant(
+				specs: Map<String, S>,
+				what: String,
+				read: (S) -> Reading<T>,
+			): Map<String, T> =
 				specs
 					.mapNotNull { (id, spec) ->
 						when (val reading = read(spec)) {
@@ -882,9 +932,17 @@ data class Actions(
 					}.toMap()
 
 			val places = meant(placeSpecs, "place", ::placeOf)
-			val plain = meant(actionSpecs.filterValues { it.like == null }, "action") { actionOf(it, places) }
+			val plain =
+				meant(actionSpecs.filterValues { it.like == null }, "action") { actionOf(it, places) }
+
 			val alike =
-				meant(actionSpecs.filterValues { it.like != null }, "action") { likeOf(it, plain, places) }
+				meant(
+					actionSpecs.filterValues {
+						it.like != null
+					},
+					"action",
+				) { likeOf(it, plain, places) }
+
 			val all = actionSpecs.keys.mapNotNull { plain[it] ?: alike[it] }
 
 			// A place's way out and way in are actions that are there, and that a drop can be the doing of.
@@ -925,7 +983,12 @@ data class Actions(
 				else
 					phrase(spec.title, named).then { title ->
 						phrase(spec.folder, named).then { folder ->
-							word(spec.read ?: PlaceRead.Paths.word, PlaceRead.entries, PlaceRead::word, "a way to read").then { read ->
+							word(
+								spec.read ?: PlaceRead.Paths.word,
+								PlaceRead.entries,
+								PlaceRead::word,
+								"a way to read",
+							).then { read ->
 								window(spec.opens).map { window ->
 									PlaceType(
 										spec.id,
@@ -948,35 +1011,51 @@ data class Actions(
 		}
 
 		/** The values with names in an action that says it is only [within] these places: those every one takes. */
-		private fun namedIn(within: List<String>?, places: Map<String, PlaceType>): Set<String> =
+		private fun namedIn(
+			within: List<String>?,
+			places: Map<String, PlaceType>,
+		): Set<String> =
 			within
 				?.map { places[it]?.takes?.toSet().orEmpty() }
 				?.reduceOrNull { all, its -> all intersect its }
 				.orEmpty()
 
-		private fun actionOf(spec: ActionSpec, places: Map<String, PlaceType>): Reading<UserAction> {
+		private fun actionOf(
+			spec: ActionSpec,
+			places: Map<String, PlaceType>,
+		): Reading<UserAction> {
 			val named = namedIn(spec.conditions.within, places) + spec.ask.keys
 
 			val deed: Reading<Deed> =
 				when {
-					spec.run != null && spec.show != null -> Reading.Wrong("it says both “run” and “show”: one or the other")
+					spec.run != null && spec.show != null ->
+						Reading.Wrong(
+							"it says both “run” and “show”: one or the other",
+						)
 					spec.run != null ->
 						Command.read(spec.run!!, named).then { command ->
 							howOf(spec, named).map { Deed.Run(command, it) }
 						}
 					spec.show != null ->
-						if (spec.how.terminal || spec.how.watched || spec.then != prism.preferences.ThenSpec())
+						if (spec.how.terminal || spec.how.watched ||
+							spec.then != prism.preferences.ThenSpec()
+						)
 							Reading.Wrong("“how” and “then” are said of a command, and this shows somewhere")
 						else
 							showingOf(spec, named, places)
-					else -> Reading.Wrong("it says neither “run” nor “show”: there is nothing for it to do")
+					else ->
+						Reading.Wrong(
+							"it says neither “run” nor “show”: there is nothing for it to do",
+						)
 				}
 
 			return deed.then { did ->
 				Conditions.read(spec.conditions).then { conditions ->
 					questionsOf(spec.ask, named).then { questions ->
 						if (spec.given.isNotEmpty())
-							Reading.Wrong("“given” answers the questions of an action this is “like”, and it is like none")
+							Reading.Wrong(
+								"“given” answers the questions of an action this is “like”, and it is like none",
+							)
 						else
 							keyOf(spec).map { key ->
 								UserAction(
@@ -1005,20 +1084,29 @@ data class Actions(
 		): Reading<UserAction> {
 			val base =
 				plain[spec.like]
-					?: return Reading.Wrong("it is like “${spec.like}”, which is not an action (or is itself like another)")
+					?: return Reading.Wrong(
+						"it is like “${spec.like}”, which is not an action (or is itself like another)",
+					)
 
 			if (spec.run != null || spec.show != null || spec.ask.isNotEmpty())
-				return Reading.Wrong("it is like “${spec.like}”, so what it runs, shows and asks is that action's to say")
+				return Reading.Wrong(
+					"it is like “${spec.like}”, so what it runs, shows and asks is that action's to say",
+				)
 
 			val unasked = spec.given.keys - base.questions.map { it.name }.toSet()
 
 			if (unasked.isNotEmpty())
-				return Reading.Wrong("“${spec.like}” does not ask for ${unasked.joinToString { "“$it”" }}")
+				return Reading.Wrong(
+					"“${spec.like}” does not ask for ${unasked.joinToString { "“$it”" }}",
+				)
 
 			val named = namedIn(spec.conditions.within, places)
 			val given = spec.given.mapValues { (_, text) -> Phrase.read(text, named) }
 
-			given.values.filterIsInstance<Reading.Wrong>().firstOrNull()?.let { return it }
+			given.values
+				.filterIsInstance<Reading.Wrong>()
+				.firstOrNull()
+				?.let { return it }
 
 			return Conditions.read(spec.conditions).then { conditions ->
 				keyOf(spec).map { key ->
@@ -1075,7 +1163,11 @@ data class Actions(
 
 						when {
 							missing.isNotEmpty() ->
-								Reading.Wrong("“${place.id}” is opened with ${missing.joinToString { "“$it”" }}, which it does not give")
+								Reading.Wrong(
+									"“${place.id}” is opened with ${missing.joinToString {
+										"“$it”"
+									}}, which it does not give",
+								)
 							extra.isNotEmpty() ->
 								Reading.Wrong("“${place.id}” does not take ${extra.joinToString { "“$it”" }}")
 							else -> {
@@ -1084,7 +1176,12 @@ data class Actions(
 								with.values.filterIsInstance<Reading.Wrong>().firstOrNull()
 									?: Reading.Right(
 										Deed.Show(
-											Showing.Place(place.id, with.mapValues { (_, read) -> (read as Reading.Right).value }),
+											Showing.Place(
+												place.id,
+												with.mapValues { (_, read) ->
+													(read as Reading.Right).value
+												},
+											),
 											window,
 										),
 									)
@@ -1096,21 +1193,32 @@ data class Actions(
 			}
 		}
 
-		private fun questionsOf(ask: Map<String, AskSpec>, named: Set<String>): Reading<List<Question>> {
+		private fun questionsOf(
+			ask: Map<String, AskSpec>,
+			named: Set<String>,
+		): Reading<List<Question>> {
 			val read =
 				ask.map { (name, spec) ->
 					// A question's start cannot be an answer: what was asked is not known until it is.
 					phrase(spec.start, named - ask.keys).then { start ->
 						when {
 							!Regex("[a-z][A-Za-z0-9_]*").matches(name) ->
-								Reading.Wrong("“$name” cannot name a value: a name is letters and digits, a small letter first")
-							Each.entries.any { it.word == name } || Every.entries.any { it.word == name } || name == "folder" ->
-								Reading.Wrong("“$name” is a placeholder of prism's own: a question needs another name")
+								Reading.Wrong(
+									"“$name” cannot name a value: a name is letters and digits, a small letter first",
+								)
+							Each.entries.any { it.word == name } || Every.entries.any { it.word == name } ||
+								name == "folder" ->
+								Reading.Wrong(
+									"“$name” is a placeholder of prism's own: a question needs another name",
+								)
 							spec.text != null && spec.folder != null ->
 								Reading.Wrong("“$name” asks for text and for a folder: one or the other")
 							spec.text != null -> Reading.Right(Question.Text(name, spec.text!!, start))
 							spec.folder != null -> Reading.Right(Question.Folder(name, spec.folder!!, start))
-							else -> Reading.Wrong("“$name” asks for nothing: say “text” or “folder”, with what to ask")
+							else ->
+								Reading.Wrong(
+									"“$name” asks for nothing: say “text” or “folder”, with what to ask",
+								)
 						}
 					}
 				}
@@ -1122,11 +1230,17 @@ data class Actions(
 		private fun keyOf(spec: ActionSpec): Reading<Chord?> =
 			when (val key = spec.key) {
 				null -> Reading.Right(null)
-				else -> Chord.parse(key)?.let { Reading.Right(it) } ?: Reading.Wrong("“$key” is not a chord")
+				else ->
+					Chord.parse(key)?.let { Reading.Right(it) }
+						?: Reading.Wrong("“$key” is not a chord")
 			}
 
 		private fun submenuOf(text: String?): List<String> =
-			text?.split('/')?.map { it.trim() }?.filter { it.isNotEmpty() }.orEmpty()
+			text
+				?.split('/')
+				?.map { it.trim() }
+				?.filter { it.isNotEmpty() }
+				.orEmpty()
 
 		private fun phrase(text: String?, named: Set<String>): Reading<Phrase?> =
 			text?.let { Phrase.read(it, named) } ?: Reading.Right(null)

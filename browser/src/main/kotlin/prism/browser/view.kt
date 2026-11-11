@@ -356,7 +356,12 @@ private fun Toolbar(state: BrowserState, stops: Stops, onEvent: (BrowserEvent) -
 		) {
 			onEvent(BrowserEvent.Forward)
 		}
-		ToolButton(Glyph.Up, "Up", state.folder?.parent != null, Modifier.testTag("up")) {
+		ToolButton(
+			Glyph.Up,
+			"Up",
+			state.folder?.parent != null || state.place?.within?.isNotEmpty() == true,
+			Modifier.testTag("up"),
+		) {
 			onEvent(BrowserEvent.Up)
 		}
 		MenuButton(
@@ -967,7 +972,9 @@ private fun ListingPane(
 
 	/** What dragging [row] drags, as files: none where any of it is not one on disk. */
 	fun dragged(row: Row): List<java.nio.file.Path> =
-		draggedWith(row).let { all -> all.mapNotNull { it.path }.takeIf { it.size == all.size }.orEmpty() }
+		draggedWith(row).let { all ->
+			all.mapNotNull { it.path }.takeIf { it.size == all.size }.orEmpty()
+		}
 
 	/**
 	 * [row] as something dragged, and, for a folder, as somewhere to drop: a drag of it is a drag of what it drags, and
@@ -1228,8 +1235,9 @@ private fun ListingPane(
 					DropSpot.Here,
 					state.folder,
 					onHover = { hint.over(DropSpot.Here, it) },
-					onCarried = { carried: Carried -> onEvent(BrowserEvent.DroppedCarried(carried, DropSpot.Here)) }
-						.takeIf { state.folder != null },
+					onCarried =
+						{ carried: Carried -> onEvent(BrowserEvent.DroppedCarried(carried, DropSpot.Here)) }
+							.takeIf { state.folder != null },
 					onDrop = {
 						paths,
 						transfer,
@@ -1243,7 +1251,8 @@ private fun ListingPane(
 				Listing.Reading -> Box(Modifier.fillMaxSize())
 				is Listing.Unreadable ->
 					Message(
-						state.place?.let { "“${it.placed.title}” can't be listed" } ?: "This folder can't be opened",
+						state.place?.let { "“${it.placed.title}” can't be listed" }
+							?: "This folder can't be opened",
 						listing.why,
 					)
 				is Listing.Shown, is Listing.Found ->
@@ -2127,7 +2136,10 @@ private fun statusOf(state: BrowserState): String {
 			"$shown of $items"
 
 	// The watched commands under way, by what each is called: "Extract here…".
-	val running = state.running.takeIf { it.isNotEmpty() }?.joinToString(", ", postfix = "…")
+	val running =
+		state.running
+			.takeIf { it.isNotEmpty() }
+			?.joinToString(", ", postfix = "…") { it.removeSuffix("…") }
 
 	return listOfNotNull(
 		if (state.listing is Listing.Reading)
@@ -2251,7 +2263,10 @@ private fun NoticeLayer(notice: Notice, onEvent: (BrowserEvent) -> Unit) {
 						Emphasis.Primary,
 						enabled = true,
 						Modifier.testTag("yes"),
-						if (notice is Notice.Asking) remember { FocusRequester() } else first,
+						if (notice is Notice.Asking)
+							remember { FocusRequester() }
+						else
+							first,
 					) {
 						onEvent(
 							if (asks)

@@ -1,6 +1,7 @@
 package prism.explorer
 
 import java.nio.file.Path
+import prism.browser.Actions
 import prism.browser.Bindable
 import prism.browser.Bindings
 import prism.browser.Chord
@@ -21,6 +22,7 @@ enum class Page(
 	Sidebar("Sidebar"),
 	Terminal("Terminal"),
 	Bindings("Key bindings"),
+	Actions("Actions"),
 }
 
 /** A chord's place in the bindings table: [action]'s chord at [index], or, past its last, a chord to add. */
@@ -91,6 +93,9 @@ data class Settings(
 	val rebinding: Rebinding = Rebinding(Bindings.of(base)),
 	val page: Page = Page.Sidebar,
 ) {
+	/** The actions and places there are, prism's own and those the preferences write, with what of them did not read. */
+	val actions: Actions by lazy { Actions.of(base) }
+
 	/** The places pinned, as the sidebar shows them. */
 	val pins: List<Path> get() = pinned ?: known.map { it.path }
 
