@@ -674,6 +674,26 @@ class InteractionTest {
 		}
 
 	@Test
+	fun aSubmenuClosesWhenThePointerMovesToAnotherEntry() =
+		picking {
+			rightClickNowhere()
+			onNodeWithTag("menu:Sort by").performMouseInput { moveTo(center) }
+			onNodeWithTag("menu:Size").assertExists()
+
+			// Down the menu, off the submenu's entry: its submenu closes, and the entry under the pointer is lit.
+			onNodeWithTag("menu:Refresh").performMouseInput { moveTo(center) }
+			waitForIdle()
+			assertEquals(0, onAllNodes(hasTestTag("menu:Size")).fetchSemanticsNodes().size)
+
+			// From one submenu's entry to the next, the first closes and the second opens.
+			onNodeWithTag("menu:Sort by").performMouseInput { moveTo(center) }
+			onNodeWithTag("menu:View").performMouseInput { moveTo(center) }
+			waitForIdle()
+			assertEquals(0, onAllNodes(hasTestTag("menu:Size")).fetchSemanticsNodes().size)
+			onNodeWithTag("menu:Gallery").assertExists()
+		}
+
+	@Test
 	fun theFoldersMenuSortsAndMakesAFolder() =
 		picking { session ->
 			rightClickNowhere()

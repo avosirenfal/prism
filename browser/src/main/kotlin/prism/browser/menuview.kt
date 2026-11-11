@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -24,6 +25,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
@@ -40,6 +42,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEvent
@@ -53,8 +56,11 @@ import androidx.compose.ui.input.pointer.changedToDown
 import androidx.compose.ui.input.pointer.isCtrlPressed
 import androidx.compose.ui.input.pointer.isSecondaryPressed
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.findRootCoordinates
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.selected
@@ -65,6 +71,7 @@ import androidx.compose.ui.unit.IntRect
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.round
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.ui.window.PopupProperties
@@ -100,40 +107,143 @@ sealed interface MenuAnchor {
 	data object Beside : MenuAnchor
 }
 
-/** A menu of [menu] open where [anchor] says, giving what is chosen to [onAction]; [onClose] when it closes. */
+/**
+ * A menu of [menu] open where [anchor] says, giving what is chosen to [onAction]; [onClose] when it closes.
+ *
+ * Every level of it (the menu, and each submenu open beside its entry) is drawn in one layer over the whole window,
+ * so the pointer is followed from one level to another: an entry of the menu lit while a submenu is open closes that
+ * submenu, which a submenu in a layer of its own would keep from ever being told. A press anywhere outside every level
+ * closes the whole menu.
+ */
 @Composable
 fun <A> MenuPopup(
 	menu: Menu<A>,
 	anchor: MenuAnchor,
 	onAction: (A) -> Unit,
 	onClose: () -> Unit,
-) = MenuLevel(menu, anchor, onAction, onClose, onBack = onClose, startLit = false)
+) {
+	// What the menu is drawn in (a button, for a menu under it), found from a mark of no size left in it.
+	var owner by remember { mutableStateOf<LayoutCoordinates?>(null) }
+	var layer by remember { mutableStateOf<LayoutCoordinates?>(null) }
+
+	Box(Modifier.onGloballyPositioned { owner = it.parentLayoutCoordinates })
+	Popup(
+		popupPositionProvider = WholeWindow,
+		onDismissRequest = onClose,
+		properties = PopupProperties(focusable = true, dismissOnBackPress = false),
+	) {
+		Box(
+			Modifier
+				.fillMaxSize()
+				.onGloballyPositioned { layer = it }
+				.pointerInput(Unit) {
+					awaitPointerEventScope {
+						while (true) {
+							val event = awaitPointerEvent()
+
+							// A press no level took is a press outside the menu.
+							if (event.type == PointerEventType.Press && event.changes.none { it.isConsumed })
+								onClose()
+						}
+					}
+				},
+		) {
+			val from =
+				layer?.let { over ->
+					when (anchor) {
+						is MenuAnchor.At ->
+							over
+								.windowToLocal(
+									Offset(anchor.point.x.toFloat(), anchor.point.y.toFloat()),
+								).let { IntRect(it.round(), IntSize.Zero) }
+						MenuAnchor.Below, MenuAnchor.Beside ->
+							owner?.takeIf { it.isAttached }?.let {
+								val corner = over.windowToLocal(it.positionInWindow()).round()
+
+								IntRect(corner, it.size)
+							}
+					}
+				}
+
+			from?.let {
+				MenuLevel(menu, anchor, it, onAction, onClose, onBack = onClose, startLit = false)
+			}
+		}
+	}
+}
+
+/** The whole window, for the layer a menu's levels are drawn in. */
+private object WholeWindow : PopupPositionProvider {
+	override fun calculatePosition(
+		anchorBounds: IntRect,
+		windowSize: IntSize,
+		layoutDirection: LayoutDirection,
+		popupContentSize: IntSize,
+	): IntOffset = IntOffset.Zero
+}
 
 /**
- * One level of a menu: the menu itself, or a submenu of it. [onClose] closes every level; [onBack] closes this one
- * (the menu itself, at the first level). [startLit] lights its first entry, for a submenu opened from the keyboard.
+ * One level of a menu: the menu itself, or a submenu of it, placed by [anchor] about [from] (a rectangle of the
+ * menu's layer: the point it opens at, the button it opens under, the entry it opens beside). [onClose] closes every
+ * level; [onBack] closes this one (the menu itself, at the first level). [startLit] lights its first entry, for a
+ * submenu opened from the keyboard.
  */
 @Composable
 private fun <A> MenuLevel(
 	menu: Menu<A>,
 	anchor: MenuAnchor,
+	from: IntRect,
 	onAction: (A) -> Unit,
 	onClose: () -> Unit,
 	onBack: () -> Unit,
 	startLit: Boolean,
 ) {
 	val gap = with(LocalDensity.current) { Dims.gapSmall.roundToPx() }
+	// The submenu open beside one of this level's entries, drawn after it: over it, where they overlap.
+	var beside by remember { mutableStateOf<Beside<A>?>(null) }
 
-	// A press outside any level closes the whole menu, as on any desktop: a submenu is a popup of its own, and left to
-	// itself would close only itself. Escape is the panel's own, and goes back a level.
-	Popup(
-		popupPositionProvider = remember(anchor, gap) { MenuPlacement(anchor, gap) },
-		onDismissRequest = onClose,
-		properties = PopupProperties(focusable = true, dismissOnBackPress = false),
-	) {
-		MenuPanel(menu, onAction, onClose, onBack, sub = anchor == MenuAnchor.Beside, startLit)
+	Layout(
+		content = {
+			MenuPanel(
+				menu,
+				onAction,
+				onClose,
+				onBack,
+				sub = anchor == MenuAnchor.Beside,
+				startLit,
+				onBeside = { beside = it },
+			)
+		},
+	) { measurables, constraints ->
+		val panel = measurables.single().measure(constraints.copy(minWidth = 0, minHeight = 0))
+		val window = IntSize(constraints.maxWidth, constraints.maxHeight)
+
+		layout(window.width, window.height) {
+			panel.place(placeOf(anchor, from, gap, IntSize(panel.width, panel.height), window))
+		}
+	}
+
+	beside?.let {
+		MenuLevel(
+			it.menu,
+			MenuAnchor.Beside,
+			it.from,
+			onAction,
+			onClose,
+			onBack = it.onBack,
+			startLit = it.byKey,
+		)
 	}
 }
+
+/** A submenu open beside its entry, which is at [from] in the menu's layer. */
+@Immutable
+private data class Beside<A>(
+	val menu: Menu<A>,
+	val from: IntRect,
+	val byKey: Boolean,
+	val onBack: () -> Unit,
+)
 
 /** A submenu open, and whether it was opened from the keyboard, which lights its first entry. */
 @Immutable
@@ -150,6 +260,7 @@ private fun <A> MenuPanel(
 	onBack: () -> Unit,
 	sub: Boolean,
 	startLit: Boolean,
+	onBeside: (Beside<A>?) -> Unit,
 ) {
 	val palette = LocalPalette.current
 	val shape = RoundedCornerShape(8.dp)
@@ -166,6 +277,27 @@ private fun <A> MenuPanel(
 	}
 
 	var opening by remember { mutableStateOf<Opening?>(null) }
+	// Where each submenu's entry is, in the menu's layer, for its submenu to open beside.
+	val places = remember { mutableMapOf<Int, IntRect>() }
+	val beside by rememberUpdatedState(onBeside)
+
+	// The submenu open is this level's to say, and the level's to draw, beside the entry it belongs to.
+	LaunchedEffect(opening, menu) {
+		val open = opening
+		val entry = open?.let { menu.entries.getOrNull(it.index) as? MenuEntry.Submenu }
+		val from = open?.let { places[it.index] }
+
+		beside(
+			if (open == null || entry == null || from == null)
+				null
+			else
+				Beside(entry.menu, from, open.byKey) {
+					opening = null
+					focus.requestFocus()
+				},
+		)
+	}
+	DisposableEffect(Unit) { onDispose { beside(null) } }
 
 	fun choose(index: Int, ctrl: Boolean, byKey: Boolean) {
 		when (val entry = menu.entries[index]) {
@@ -221,7 +353,13 @@ private fun <A> MenuPanel(
 			.onKeyEvent(::key)
 			.focusable()
 			.testTag("menu")
-			.padding(4.dp),
+			// A press on the menu is the menu's, and not a press outside it, which would close it.
+			.pointerInput(Unit) {
+				awaitPointerEventScope {
+					while (true)
+						awaitPointerEvent().changes.forEach { if (it.changedToDown()) it.consume() }
+				}
+			}.padding(4.dp),
 	) {
 		menu.entries.forEachIndexed { index, entry ->
 			when (entry) {
@@ -250,7 +388,14 @@ private fun <A> MenuPanel(
 						onChoose = { ctrl -> choose(index, ctrl, byKey = false) },
 					)
 				is MenuEntry.Submenu ->
-					Box {
+					Box(
+						Modifier.onGloballyPositioned { row ->
+							row.findRootCoordinates().let { root ->
+								places[index] =
+									IntRect(root.localPositionOf(row, Offset.Zero).round(), row.size)
+							}
+						},
+					) {
 						MenuRow(
 							entry.label,
 							keys = null,
@@ -265,19 +410,6 @@ private fun <A> MenuPanel(
 							},
 							onChoose = { choose(index, ctrl = false, byKey = false) },
 						)
-						opening?.takeIf { it.index == index }?.let {
-							MenuLevel(
-								entry.menu,
-								MenuAnchor.Beside,
-								onAction,
-								onClose,
-								onBack = {
-									opening = null
-									focus.requestFocus()
-								},
-								startLit = it.byKey,
-							)
-						}
 					}
 			}
 		}
@@ -392,49 +524,34 @@ private fun MenuRow(
 	}
 }
 
-/** A menu's place in the window, from where it opens and how big it is: where there is room, and never outside. */
-private class MenuPlacement(
-	private val anchor: MenuAnchor,
-	private val gap: Int,
-) : PopupPositionProvider {
-	override fun calculatePosition(
-		anchorBounds: IntRect,
-		windowSize: IntSize,
-		layoutDirection: LayoutDirection,
-		popupContentSize: IntSize,
-	): IntOffset {
-		val width = popupContentSize.width
-		val height = popupContentSize.height
-
-		return when (anchor) {
-			is MenuAnchor.At ->
-				IntOffset(
-					fitted(anchor.point.x, width, windowSize.width, anchor.point.x - width),
-					fitted(anchor.point.y, height, windowSize.height, anchor.point.y - height),
-				)
-			MenuAnchor.Below ->
-				IntOffset(
-					fitted(anchorBounds.left, width, windowSize.width, anchorBounds.right - width),
-					fitted(
-						anchorBounds.bottom + gap,
-						height,
-						windowSize.height,
-						anchorBounds.top - gap - height,
-					),
-				)
-			MenuAnchor.Beside ->
-				IntOffset(
-					fitted(anchorBounds.right, width, windowSize.width, anchorBounds.left - width),
-					fitted(
-						anchorBounds.top - gap,
-						height,
-						windowSize.height,
-						anchorBounds.bottom + gap - height,
-					),
-				)
-		}
+/**
+ * Where a menu of [size] goes in a window of [window], opened by [anchor] about [from]: where there is room, and
+ * never outside.
+ */
+private fun placeOf(
+	anchor: MenuAnchor,
+	from: IntRect,
+	gap: Int,
+	size: IntSize,
+	window: IntSize,
+): IntOffset =
+	when (anchor) {
+		is MenuAnchor.At ->
+			IntOffset(
+				fitted(from.left, size.width, window.width, from.left - size.width),
+				fitted(from.top, size.height, window.height, from.top - size.height),
+			)
+		MenuAnchor.Below ->
+			IntOffset(
+				fitted(from.left, size.width, window.width, from.right - size.width),
+				fitted(from.bottom + gap, size.height, window.height, from.top - gap - size.height),
+			)
+		MenuAnchor.Beside ->
+			IntOffset(
+				fitted(from.right, size.width, window.width, from.left - size.width),
+				fitted(from.top - gap, size.height, window.height, from.bottom + gap - size.height),
+			)
 	}
-}
 
 /**
  * Where something [size] long starts along one side of the window: at [start] if it fits there, otherwise at
