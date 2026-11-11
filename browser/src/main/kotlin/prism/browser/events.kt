@@ -284,6 +284,15 @@ sealed interface BrowserEvent : Input {
 		val task: Task,
 	) : BrowserEvent
 
+	/**
+	 * Entries of a place dragged out of it, as the drag describes them ([entries]), dropped on [spot]: brought out into
+	 * the folder there, by this window's own actions, whichever window of prism (in whichever process) they came from.
+	 */
+	data class DroppedEntries(
+		val entries: EntriesOut,
+		val spot: DropSpot,
+	) : BrowserEvent
+
 	/** Entries of a place, [carried] from it, dropped on [spot]: brought out into the folder there. */
 	data class DroppedCarried(
 		val carried: Carried,
@@ -629,6 +638,47 @@ data class Carried(
 	/** These, brought out into [folder]. */
 	fun into(folder: Path): Pending =
 		pending.copy(answers = pending.answers + (question to folder.toString()))
+}
+
+/**
+ * Entries of a place as a drag carries them: which place (its type by id, and what it was opened with), the folder of
+ * it they were dragged from, and what each is called. It names no action and holds no command: whatever window takes
+ * the drop brings them out by its own actions, read from the same preferences, so this is all another process needs
+ * to be told, and nothing in it is run.
+ */
+data class EntriesOut(
+	val place: String,
+	val values: Map<String, String>,
+	val within: List<String>,
+	val entries: List<Entry>,
+) : java.io.Serializable {
+	data class Entry(
+		val key: String,
+		val name: String,
+		val folder: Boolean,
+	) : java.io.Serializable
+
+	companion object {
+		private const val serialVersionUID = 1L
+
+		/** [carried], described; null where it is not of entries of a place. */
+		fun of(carried: Carried): EntriesOut? {
+			val subject = carried.pending.subject
+			val where = subject.where as? Where.Place ?: return null
+			val entries =
+				subject.things.map {
+					Entry(it.key ?: return null, it.name, it.kind == ThingKind.Folder)
+				}
+
+			// Plain collections, which are what is written when this goes to another process.
+			return EntriesOut(
+				where.placed.type.id,
+				HashMap(where.placed.values),
+				ArrayList(where.within),
+				ArrayList(entries),
+			)
+		}
+	}
 }
 
 /**

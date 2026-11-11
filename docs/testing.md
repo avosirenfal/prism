@@ -22,6 +22,8 @@ a device, so a test that ran and a test that could not run are never confused.
 | the browser exploring: files opened, or offered to an application; copied, cut and pasted, with undo; made; pinned (`ExploreTest`) | Linux | never |
 | the user's actions: commands read and filled word by word, what is refused and why, conditions, the menus they are in, their keys, and each step of doing one (`ActionsTest`) | the JDK | never |
 | places: what a command prints read into a tree, files told from entries, and the archive tool listed, gone about, extracted from (by the menu, a drop, a paste, and to open), added to and removed from, on real archives (`PlacesTest`) | Linux | without `tar`, `zip`, `unzip` or `git`, the tests that run them |
+| a drag between two real windows, made by the pointer: an archive's entry dropped on a folder's window, as this process's own drag and as another's would be read (`DragTest`) | a display, and `-Pbrowser.display`: `xvfb-run ./gradlew :browser:test --tests prism.browser.DragTest -Pbrowser.display` | unless asked for |
+| an index of a tree that was given, held and searched as one read from disk (`GivenTest`) | the JDK | never |
 | chords read and written, where each action acts, the user's bindings, and clashes (`BindingsTest`) | the JDK | never |
 | the preferences in memory and in a watched file, written by another process, unreadable and kept aside (`preferences`) | Linux | never |
 | file types, desktop entries, `Exec` lines, defaults in `mimeapps.list`, places, and a real launch left detached (`desktop`) | Linux, `setsid` | never |

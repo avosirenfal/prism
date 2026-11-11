@@ -311,6 +311,9 @@ private fun did(state: BrowserState, event: BrowserEvent): Step =
 		is BrowserEvent.Answered -> state.answered(event.folder)
 		is BrowserEvent.WentWithin -> state.wentWithin(event.within)
 		is BrowserEvent.DroppedCarried -> state.droppedCarried(event.carried, event.spot)
+		is BrowserEvent.DroppedEntries ->
+			state.carrying(event.entries)?.let { state.droppedCarried(it, event.spot) }
+				?: Step(state)
 		is BrowserEvent.Stopped -> state.stopping(event.task)
 		// A line typed with nothing asking for one.
 		is BrowserEvent.AnswerTyped -> Step(state)

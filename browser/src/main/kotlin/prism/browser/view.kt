@@ -1252,9 +1252,10 @@ private fun ListingPane(
 					DropSpot.Here,
 					state.folder,
 					onHover = { hint.over(DropSpot.Here, it) },
-					onCarried =
-						{ carried: Carried -> onEvent(BrowserEvent.DroppedCarried(carried, DropSpot.Here)) }
-							.takeIf { state.folder != null },
+					onEntries =
+						{ entries: EntriesOut ->
+							onEvent(BrowserEvent.DroppedEntries(entries, DropSpot.Here))
+						}.takeIf { state.folder != null },
 					onDrop = {
 						paths,
 						transfer,

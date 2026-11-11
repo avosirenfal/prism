@@ -138,49 +138,60 @@ private fun transferOf(action: DragAndDropTransferAction?): Transfer? =
 	}
 
 /**
- * Entries of a place being dragged: what they are is kept here, in this process, while the drag lasts, and the drag
- * itself carries only a mark that says so ([CARRIED]). They are nowhere on disk, so there are no files for another
- * application to be given; a window of this process, which the mark tells, reads them from here.
+ * Entries of a place being dragged. They are nowhere on disk, so there are no files for another application to be
+ * given: the drag carries a description of them ([EntriesOut]), which any window of prism reads, in this process or
+ * another, and brings them out by its own actions. As text, it carries their names.
+ *
+ * While the drag lasts the description is kept here too. A window of this process is given the drag through the
+ * platform's protocol, as another application's would be, and not every toolkit hands a description of its own
+ * making back whole; what is kept here needs none of that. A window of another process reads the drag itself.
  */
 internal object CarriedDrag {
 	@Volatile
-	var current: Carried? = null
+	var current: EntriesOut? = null
+
+	/** Whether the description is kept here at all: not, for the tests, which then read the drag as another process would. */
+	@Volatile
+	var kept: Boolean = true
 }
 
-/** What marks a drag as one of a place's entries, to this process alone. */
-private val CARRIED =
-	DataFlavor(
-		DataFlavor.javaJVMLocalObjectMimeType + ";class=prism.browser.Carried",
-		"entries of a place",
-	)
+/** The description of a place's entries, as a drag's data: itself, written out for another process. */
+private val ENTRIES = DataFlavor(EntriesOut::class.java, "entries of a place")
 
-/**
- * The entries of a place being dragged, where what is dragged is this process's drag of them. The drag itself is
- * not asked: a window the drag is over is given it through the platform's protocol, as another application's would
- * be, and what that says of a mark only this process knows differs between toolkits. What is kept here does not.
- */
-@Suppress("UNUSED_PARAMETER")
-private fun carriedOf(transferable: Transferable): Carried? = CarriedDrag.current
+/** Whether [transferable] is a drag of a place's entries. */
+private fun carriesEntries(transferable: Transferable): Boolean =
+	CarriedDrag.current != null || transferable.isDataFlavorSupported(ENTRIES)
 
-/** A drag of a place's entries: the mark alone, and no files. */
+/** The entries [transferable] is a drag of: those kept here for this process's own drag, or those it describes. */
+private fun entriesOf(transferable: Transferable): EntriesOut? =
+	CarriedDrag.current
+		?: try {
+			transferable
+				.takeIf {
+					it.isDataFlavorSupported(ENTRIES)
+				}?.getTransferData(ENTRIES) as? EntriesOut
+		} catch (failed: IOException) {
+			null
+		} catch (wrong: UnsupportedFlavorException) {
+			null
+		} catch (gone: InvalidDnDOperationException) {
+			null
+		}
+
+/** A drag of a place's entries: their description, and their names as text. */
 private class DraggedEntries(
-	private val carried: Carried,
+	private val entries: EntriesOut,
 ) : Transferable {
-	// As text too, the entries' names: a drag that offers a platform nothing it knows is not begun by some of them,
-	// and an editor it is dropped on is given something sensible.
 	override fun getTransferDataFlavors(): Array<DataFlavor> =
-		arrayOf(CARRIED, DataFlavor.stringFlavor)
+		arrayOf(ENTRIES, DataFlavor.stringFlavor)
 
 	override fun isDataFlavorSupported(flavor: DataFlavor): Boolean =
 		flavor in transferDataFlavors
 
 	override fun getTransferData(flavor: DataFlavor): Any =
 		when (flavor) {
-			CARRIED -> carried
-			DataFlavor.stringFlavor ->
-				carried.pending.subject.things.joinToString(
-					"\n",
-				) { it.name }
+			ENTRIES -> entries
+			DataFlavor.stringFlavor -> entries.entries.joinToString("\n") { it.name }
 			else -> throw UnsupportedFlavorException(flavor)
 		}
 }
@@ -259,7 +270,7 @@ val LocalVolumes = staticCompositionLocalOf<(Path, Path) -> Boolean> { { _, _ ->
  * the files gone from where they were.
  *
  * Where there are no files to drag, [carried] may give entries of a place instead: dragged as themselves, to be
- * brought out into the folder they are dropped on, in any window of this process.
+ * brought out into the folder they are dropped on, in any window of prism.
  */
 fun Modifier.filesDragged(
 	paths: () -> List<Path>,
@@ -271,10 +282,11 @@ fun Modifier.filesDragged(
 		val files = paths()
 
 		if (files.isEmpty())
-			return@dragAndDropSource carried()?.let { entries ->
+			return@dragAndDropSource carried()?.let(EntriesOut::of)?.let { entries ->
 				onStart()
 				OwnDrag.started()
-				CarriedDrag.current = entries
+				if (CarriedDrag.kept)
+					CarriedDrag.current = entries
 				DragAndDropTransferData(
 					DragAndDropTransferable(DraggedEntries(entries)),
 					listOf(DragAndDropTransferAction.Copy),
@@ -318,13 +330,13 @@ fun Modifier.filesDropped(
 	spot: DropSpot,
 	into: Path?,
 	onHover: (Dropping?) -> Unit,
-	onCarried: ((Carried) -> Unit)? = null,
+	onEntries: ((EntriesOut) -> Unit)? = null,
 	onDrop: (List<Path>, Transfer) -> Unit,
 ): Modifier {
 	val volumes = LocalVolumes.current
 	val hover by rememberUpdatedState(onHover)
 	val drop by rememberUpdatedState(onDrop)
-	val bring by rememberUpdatedState(onCarried)
+	val bring by rememberUpdatedState(onEntries)
 	val folder by rememberUpdatedState(into)
 
 	val target =
@@ -345,9 +357,8 @@ fun Modifier.filesDropped(
 
 				fun dropping(event: DragAndDropEvent): Dropping? {
 					// Entries of a place are brought out, which leaves them where they were: a copy, whatever is held.
-					carriedOf(event.awtTransferable)?.let {
-						return Dropping(it.pending.subject.things.size, Transfer.Copy, folder)
-					}
+					if (bring != null && carriesEntries(event.awtTransferable))
+						return Dropping(CarriedDrag.current?.entries?.size, Transfer.Copy, folder)
 
 					val action = transferOf(event.action) ?: return null
 					val (dragged, same) = readOf(event)
@@ -370,10 +381,10 @@ fun Modifier.filesDropped(
 				}
 
 				override fun onDrop(event: DragAndDropEvent): Boolean {
-					carriedOf(event.awtTransferable)?.let { carried ->
+					if (carriesEntries(event.awtTransferable)) {
 						hover(null)
 
-						return bring?.let { it(carried) } != null
+						return bring?.let { taken -> entriesOf(event.awtTransferable)?.let(taken) } != null
 					}
 
 					val made = dropping(event)
@@ -392,7 +403,7 @@ fun Modifier.filesDropped(
 	return dragAndDropTarget(
 		{
 			carriesFiles(it.awtTransferable) ||
-				(onCarried != null && carriedOf(it.awtTransferable) != null)
+				(onEntries != null && carriesEntries(it.awtTransferable))
 		},
 		target,
 	)
@@ -491,7 +502,7 @@ fun Modifier.folderDrop(
 			over = it != null
 			hint.over(spot, it)
 		},
-		onCarried = { onEvent(BrowserEvent.DroppedCarried(it, spot)) },
+		onEntries = { onEvent(BrowserEvent.DroppedEntries(it, spot)) },
 		onDrop = { paths, transfer -> onEvent(BrowserEvent.Dropped(paths, spot, transfer)) },
 	).then(
 		if (over)

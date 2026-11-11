@@ -130,8 +130,14 @@ A command is a list of words, never text for a shell. A placeholder is replaced 
 | `{entries}` | every entry, each a word | once |
 | `{folder}` | the folder shown; where there is none, the folder the first file is in | as the others say |
 | `{dest}`, `{archive}`, … | a value with a name: a question's answer, or one the place shown was opened with | as the others say |
+| `{within}`, `{depth}` | in a place: the folder of it shown, as a path with a `/` after it (empty at the top), and how many folders deep that is | as the others say |
+| `{temp}` | a folder prism makes for the command, empty, and removes with all in it when the command ends | as the others say |
 
 A value with a name has parts: `{archive.parent}`, `{archive.name}`, `{archive.stem}`, `{archive.ext}`.
+
+`{temp}` is how a command gets somewhere to work without having to clean up after itself: no script that ships
+deletes anything. The zip extraction uses it, since `unzip` cannot leave the folders above an entry behind: it
+extracts into `{temp}`, and what is under the folder shown is copied from there to where it was asked for.
 
 `{paths}`, `{names}` and `{entries}` stand for several words, so each must be a word by itself. A placeholder that
 fills one word can be part of it: `{stem}-half.{ext}`.
@@ -167,11 +173,21 @@ that nothing fills.
 |---|---|
 | (nothing said) | started detached, as opening a file is, and forgotten |
 | `"terminal": true` | started in the user's terminal |
-| `"watched": true` | prism runs it and waits; the status line names it while it runs; if it fails, what it wrote to standard error is shown |
+| `"watched": true` | prism runs it and waits, shown as running (below); if it fails, what it wrote to standard error is shown |
 | `"confirm": "…"` | this question is asked first, with the action's label on the button |
 
 `then` follows a watched command: `"reread": true` reads again what is shown, and `"choose": "{stem}.zip"` puts the
 cursor on what was made. It can only be said of a watched command, since prism knows nothing of how the others ended.
+
+### While it runs
+
+A watched command, and a place being listed, never hold the window up: they run elsewhere, and what they come to is
+sent back when they end. One that takes more than a moment (about a third of a second) is shown over the browser:
+what it is called, a spinner, the last lines it has written (to its output and to standard error), and a Cancel
+button, which Escape presses too. It goes when the command ends.
+
+Cancel ends the command and everything it started: a shell's pipeline is several processes, and each is ended. A
+command the user stopped is not then said to have failed. A window closed while a command runs stops it as well.
 
 ### What it asks
 
@@ -262,6 +278,9 @@ read again, and be what a new window opens on.
 The values can be named only by the place's own commands and by actions that say they are only in it
 (`"in": ["archive.zip"]`). An action that names `{archive}` anywhere else is refused when it is read.
 
+**What its window is.** `"sidebar": false` leaves out the sidebar of places on disk, for a place that is a tool of
+its own: an archive's window is the archive's, with nothing of the home folder beside it.
+
 **How it is listed.** `list` is run once, in `folder` (the home folder unless said). It prints every entry, and
 `read` says how they are printed:
 
@@ -283,6 +302,17 @@ Untracked/notes.md	path=/repo/notes.md
 
 The browser then goes about the tree it was given, without asking the command again: into a folder, up, back. Reading
 again (F5, or an action's `then`) lists it again.
+
+### Searching a place
+
+What a place lists is made into an index of its own (`Index.given`, in the index module): the same columns the index
+of the disk is held in, built from the entries the command printed. Ctrl+Shift+F in a place searches that index and
+nothing else, with the whole search language and the same ranking (`ext:c`, `dir:src`, `*.txt`, `is:dir`), whether or
+not the window was opened with an index of the disk at all. A match chosen is gone to in the place; every match shown
+is a listing of the place's entries, with the place's actions. Ctrl+F narrows the folder shown, as in any folder.
+
+This holds for every place, whether its entries are files on disk or not: in "Changed files (git)", a search finds
+only among the files that changed.
 
 ### Files on disk, and entries only the place knows
 
@@ -313,7 +343,19 @@ one question can then be answered four ways, all running the same command:
 | double-clicks an entry | a folder made for it, from which it is then opened |
 
 So "Extract to…", dragging out of an archive, copy and paste, and looking at a file without extracting the archive,
-are one declaration. A place with no `out` has entries that cannot be dragged or copied at all; nothing has to forbid
+are one declaration.
+
+**Entries are brought out as they are shown.** An entry dragged from `src/` in an archive arrives as itself, and not
+under a new `src/`: the folders above the one shown are left behind. That is what `{within}` and `{depth}` are for:
+`tar` is given `--strip-components={depth}`.
+
+**A drag says what it carries.** Dragged, entries go as a description (`EntriesOut`): which place, what it was opened
+with, the folder dragged from, and what each entry is called. It names no command. The window dropped on brings them
+out by its own actions, so it can be a window of another prism process, which reads the same preferences.
+
+**What is made to open an entry from is removed.** The folder an entry is brought out into to be opened is under the
+system's temporary folder, named with prism's process id. It is removed when the window it was made for closes, and
+any left are removed when prism ends. Those of a process that was killed are removed by the next prism to start. A place with no `out` has entries that cannot be dragged or copied at all; nothing has to forbid
 it.
 
 `in` names the action that takes files in: what dropping files on the place, or pasting them, does. A place with no
@@ -360,10 +402,9 @@ The preferences window's "Actions" page lists what was read, and, for what was n
 - **Items made as the menu opens** (a submenu whose items depend on the files, from a program asked as the menu is
   built).
 - **An editor.** Actions are written by hand in the preferences file. The "Actions" page only shows them.
-- **Stopping a watched command**, and showing how far along it is.
-- **Dragging entries of a place to another application.** They are dragged between prism's windows in one process.
-  Another application would need files, which would mean extracting as the drag starts.
+- **How far along a command is.** It is shown as running, with what it writes, and can be stopped; there is no bar.
+- **Dragging entries of a place to another application.** They are dragged between prism's windows. Another
+  application would need files, which would mean extracting as the drag starts; it is given their names, as text.
 - **Listing a folder of a place only when it is gone into**, for places too large to list at once.
 - **Adding into a folder inside an archive.** Files given to an archive go to its top.
-- **Clearing the folders entries are opened from.** They are made under the system's temporary folder and left there.
 - **Undo** of what a command did, which prism cannot know.

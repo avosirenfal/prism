@@ -10,6 +10,16 @@ tasks.test {
 	providers.gradleProperty("browser.screenshots").orNull?.let {
 		systemProperty("browser.screenshots", it)
 	}
+	// `-Pbrowser.display` runs the tests that need real windows on a display (a drag from one to another), which the
+	// rest, drawn headless, do not: run under one, as `xvfb-run ./gradlew :browser:test -Pbrowser.display`.
+	if (providers.gradleProperty("browser.display").isPresent) {
+		jvmArgs("-Djava.awt.headless=false")
+		systemProperty("browser.display", "true")
+		// The display is this run's, read as an input: the environment a task was first configured with is otherwise
+		// kept with the configuration, and would name a display that is gone.
+		for (name in listOf("DISPLAY", "XAUTHORITY", "WAYLAND_DISPLAY"))
+			providers.environmentVariable(name).orNull?.let { environment(name, it) }
+	}
 }
 
 dependencies {

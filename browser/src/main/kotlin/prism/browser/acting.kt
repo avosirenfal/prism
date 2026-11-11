@@ -335,12 +335,14 @@ internal fun BrowserState.activatedInPlace(row: Row): Step {
 	}
 }
 
-/** A folder made for [carried]'s entries: they are brought out into it, and opened once they are. */
+/**
+ * A folder made for [carried]'s entries: they are brought out into it, and opened once they are. Brought out, an entry
+ * is in the folder by its own name: the folders it was under in the place are left behind.
+ */
 internal fun BrowserState.openingOut(folder: Path, carried: Carried): Step =
 	doing(
 		carried.into(folder).copy(
 			after =
-				// Brought out, an entry is in the folder by its own name: the folders it was under are left behind.
 				After.Open(
 					carried.pending.subject.things
 						.map { folder.resolve(it.name) },
@@ -359,6 +361,35 @@ fun BrowserState.carrying(rows: List<Row>): Carried? {
 
 	return out.destination
 		?.takeIf { rows.isNotEmpty() && out.fits(subject) }
+		?.let { Carried(Pending(out, subject), it.name) }
+}
+
+/**
+ * [entries], as a drag described them, as something carried out of their place: that place's way out, as this window's
+ * actions have it, begun for them. Null where this window knows no such place, or it has no way out for them.
+ */
+fun BrowserState.carrying(entries: EntriesOut): Carried? {
+	val placed = Placed(actions.places[entries.place] ?: return null, entries.values)
+	val out = actions.outOf(placed) ?: return null
+
+	val subject =
+		Subject(
+			On.Files,
+			entries.entries.map {
+				Thing(
+					Item.InPlace(it.key),
+					it.name,
+					if (it.folder)
+						ThingKind.Folder
+					else
+						ThingKind.File,
+				)
+			},
+			Where.Place(placed, entries.within),
+		)
+
+	return out.destination
+		?.takeIf { subject.things.isNotEmpty() && out.fits(subject) }
 		?.let { Carried(Pending(out, subject), it.name) }
 }
 
