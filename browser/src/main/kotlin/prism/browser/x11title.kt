@@ -2,12 +2,10 @@ package prism.browser
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.ui.awt.ComposeWindow
-import java.awt.GraphicsEnvironment
-import java.awt.Toolkit
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import prism.window.NativeHandle
+import prism.window.NativeWindow
 
 /*
  * The title bar a window manager draws over the picker, in its palette. On X11 an application draws only inside its
@@ -19,67 +17,40 @@ import kotlinx.coroutines.withContext
 
 /** For as long as this is composed, [window]'s title bar asked to be dark where [dark], and light otherwise. */
 @Composable
-fun TitleBarTone(window: ComposeWindow, dark: Boolean) {
+fun TitleBarTone(window: NativeWindow, dark: Boolean) {
 	LaunchedEffect(window, dark) {
-		if (!onX11())
-			return@LaunchedEffect
-
+		val handle = window.handle as? NativeHandle.X11 ?: return@LaunchedEffect
 		val x = X11.instance ?: return@LaunchedEffect
-
-		// The window has no native handle until it is shown, which can be a moment after it is composed.
-		var handle = window.windowHandle
-
-		repeat(100) {
-			if (handle != 0L)
-				return@repeat
-			delay(50)
-			handle = window.windowHandle
-		}
-		if (handle == 0L)
-			return@LaunchedEffect
 
 		withContext(Dispatchers.IO) {
 			val display = x.openDisplay() ?: return@withContext
 
-			x.setText(display, handle, "_GTK_THEME_VARIANT", if (dark) "dark" else "light")
+			x.setText(display, handle.window, "_GTK_THEME_VARIANT", if (dark) "dark" else "light")
 			x.flush(display)
 			x.closeDisplay(display)
 		}
 	}
 }
 
-/** Whether the picker's windows are X11's (directly, or through XWayland), the only ones these are for. */
-internal fun onX11(): Boolean =
-	!GraphicsEnvironment.isHeadless() &&
-		Toolkit.getDefaultToolkit().javaClass.name == "sun.awt.X11.XToolkit"
-
 /**
  * For as long as this is composed, [window] a dialog of the X11 window [parent]: the window manager keeps it over
  * that window, and puts it with it, as a dialog of an application's own would be. What the portal asks a file chooser
- * to be, of the application that asked for it; on Wayland the parent is a surface prism's X11 window cannot name.
+ * to be, of the application that asked for it, where both are X11 windows; a Wayland window's parent is named another
+ * way (xdg-foreign), not yet.
  */
 @Composable
-fun TransientFor(window: ComposeWindow, parent: Long?) {
+fun TransientFor(window: NativeWindow, parent: Long?) {
 	LaunchedEffect(window, parent) {
-		if (parent == null || !onX11())
-			return@LaunchedEffect
-
+		val handle = window.handle as? NativeHandle.X11 ?: return@LaunchedEffect
 		val x = X11.instance ?: return@LaunchedEffect
-		var handle = window.windowHandle
 
-		repeat(100) {
-			if (handle != 0L)
-				return@repeat
-			delay(50)
-			handle = window.windowHandle
-		}
-		if (handle == 0L)
+		if (parent == null)
 			return@LaunchedEffect
 
 		withContext(Dispatchers.IO) {
 			val display = x.openDisplay() ?: return@withContext
 
-			x.setWindow(display, handle, "WM_TRANSIENT_FOR", parent)
+			x.setWindow(display, handle.window, "WM_TRANSIENT_FOR", parent)
 			x.flush(display)
 			x.closeDisplay(display)
 		}

@@ -1,5 +1,6 @@
 package prism.browser
 
+import androidx.compose.ui.input.pointer.PointerButton
 import java.nio.file.Path
 import kotlin.io.path.Path
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -1185,19 +1186,13 @@ class StepTest {
 	}
 
 	@Test
-	fun theSideButtonsAreXsEightAndNineWhichAwtNumbersSixAndSevenOnLinux() {
-		assertEquals(MouseButton.Back, mouseButtonOf(6, linux = true))
-		assertEquals(MouseButton.Forward, mouseButtonOf(7, linux = true))
-		assertEquals(MouseButton.Middle, mouseButtonOf(2, linux = true))
-		// AWT's 4 and 5 are X's sideways scroll on Linux, and the rest are clicks: none of them is a chord's.
-		assertEquals(
-			listOf(null, null, null, null),
-			listOf(1, 3, 4, 5).map {
-				mouseButtonOf(it, linux = true)
-			},
-		)
-		// Elsewhere, AWT's 4 and 5 are the side buttons.
-		assertEquals(MouseButton.Back, mouseButtonOf(4, linux = false))
+	fun theMiddleAndSideButtonsAreChordsAndTheTwoEveryClickIsAreNot() {
+		assertEquals(MouseButton.Back, mouseButtonOf(PointerButton.Back))
+		assertEquals(MouseButton.Forward, mouseButtonOf(PointerButton.Forward))
+		assertEquals(MouseButton.Middle, mouseButtonOf(PointerButton.Tertiary))
+		assertNull(mouseButtonOf(PointerButton.Primary))
+		assertNull(mouseButtonOf(PointerButton.Secondary))
+		assertNull(mouseButtonOf(null))
 	}
 
 	@Test

@@ -5,10 +5,8 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Window
-import androidx.compose.ui.window.application
-import androidx.compose.ui.window.rememberWindowState
 import java.nio.file.Path
 import kotlin.io.path.Path
 import kotlin.io.path.isDirectory
@@ -47,6 +45,8 @@ import prism.index.IndexRead
 import prism.index.UsageFile
 import prism.index.UsageRead
 import prism.preferences.PreferenceFile
+import prism.window.Window
+import prism.window.application
 import prism.browser.Outcome as Ended
 
 /*
@@ -181,7 +181,7 @@ object PickCommand : Command(
 		val ended = CompletableDeferred<Ended>()
 
 		Appearance.follow(theme).use { appearance ->
-			application(exitProcessOnExit = false) {
+			application(APP_ID) {
 				val scheme by appearance.changes.collectAsState(appearance.first)
 				val scope = rememberCoroutineScope()
 				val session = remember { Session(first, services, scope) }
@@ -197,8 +197,8 @@ object PickCommand : Command(
 				Window(
 					onCloseRequest = { session.send(BrowserEvent.Cancelled) },
 					title = state.title,
-					state = rememberWindowState(width = 1100.dp, height = 680.dp),
-					undecorated = !decorated,
+					size = DpSize(1100.dp, 680.dp),
+					decorated = decorated,
 				) {
 					HostedBrowser(window, session, services.preferences, palette)
 				}

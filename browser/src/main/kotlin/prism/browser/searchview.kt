@@ -53,6 +53,7 @@ import java.nio.file.Path
 import prism.index.query.Problem
 import prism.index.query.ReadQuery
 import prism.index.query.Role
+import prism.window.WindowLocals
 
 /*
  * The search of the index, drawn over the picker as Everything's and Listary's are: a field across the top of a
@@ -75,50 +76,52 @@ internal fun SearchLayer(search: Search, home: Path, onEvent: (BrowserEvent) -> 
 		onDismissRequest = { onEvent(BrowserEvent.ClosedSearch) },
 		properties = PopupProperties(focusable = true),
 	) {
-		Box(
-			Modifier
-				.fillMaxSize()
-				.background(palette.scrim)
-				// Taps, not clicks: a click's semantics would merge everything inside into one node.
-				.pointerInput(Unit) { detectTapGestures { onEvent(BrowserEvent.ClosedSearch) } }
-				.testTag("search-layer"),
-			contentAlignment = Alignment.TopCenter,
-		) {
-			Column(
+		WindowLocals {
+			Box(
 				Modifier
-					.padding(top = 64.dp, start = 24.dp, end = 24.dp)
-					.width(680.dp)
-					.background(palette.surface, shape)
-					.border(1.dp, palette.border, shape)
-					// A tap inside is not a tap outside.
-					.pointerInput(Unit) { detectTapGestures { } }
-					// Escape puts the window away, whatever in it has the keyboard. The chord that opens it, pressed
-					// while it is open (the window holds the keyboard, so the browser behind it is not told), starts
-					// the search again: the field emptied, and the keyboard in it.
-					.onPreviewKeyEvent {
-						val down = it.type == KeyEventType.KeyDown
-						val escape = down && it.key == Key.Escape
-						val again = down && Chord.of(it)?.let(bindings::window) == Action.SearchIndex
-
-						when {
-							escape -> onEvent(BrowserEvent.ClosedSearch)
-							again -> {
-								onEvent(BrowserEvent.OpenedSearch)
-								field.requestFocus()
-							}
-						}
-
-						escape || again
-					}.padding(12.dp),
-				verticalArrangement = Arrangement.spacedBy(Dims.gap),
+					.fillMaxSize()
+					.background(palette.scrim)
+					// Taps, not clicks: a click's semantics would merge everything inside into one node.
+					.pointerInput(Unit) { detectTapGestures { onEvent(BrowserEvent.ClosedSearch) } }
+					.testTag("search-layer"),
+				contentAlignment = Alignment.TopCenter,
 			) {
-				when (search) {
-					is Search.Unavailable -> Unavailable(search, field, onEvent)
-					is Search.Ready -> Searching(search, home, field, onEvent)
+				Column(
+					Modifier
+						.padding(top = 64.dp, start = 24.dp, end = 24.dp)
+						.width(680.dp)
+						.background(palette.surface, shape)
+						.border(1.dp, palette.border, shape)
+						// A tap inside is not a tap outside.
+						.pointerInput(Unit) { detectTapGestures { } }
+						// Escape puts the window away, whatever in it has the keyboard. The chord that opens it, pressed
+						// while it is open (the window holds the keyboard, so the browser behind it is not told), starts
+						// the search again: the field emptied, and the keyboard in it.
+						.onPreviewKeyEvent {
+							val down = it.type == KeyEventType.KeyDown
+							val escape = down && it.key == Key.Escape
+							val again = down && Chord.of(it)?.let(bindings::window) == Action.SearchIndex
+
+							when {
+								escape -> onEvent(BrowserEvent.ClosedSearch)
+								again -> {
+									onEvent(BrowserEvent.OpenedSearch)
+									field.requestFocus()
+								}
+							}
+
+							escape || again
+						}.padding(12.dp),
+					verticalArrangement = Arrangement.spacedBy(Dims.gap),
+				) {
+					when (search) {
+						is Search.Unavailable -> Unavailable(search, field, onEvent)
+						is Search.Ready -> Searching(search, home, field, onEvent)
+					}
 				}
 			}
+			LaunchedEffect(Unit) { field.requestFocus() }
 		}
-		LaunchedEffect(Unit) { field.requestFocus() }
 	}
 }
 

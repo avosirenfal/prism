@@ -5,7 +5,6 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.ui.window.application
 import java.nio.file.Path
 import kotlin.io.path.Path
 import kotlinx.coroutines.flow.first
@@ -22,6 +21,7 @@ import prism.desktop.currentDesktop
 import prism.explorer.Explorer
 import prism.explorer.ExplorerWindows
 import prism.preferences.PreferenceFile
+import prism.window.application
 
 /**
  * `prism explore`: the file explorer, in a window on a folder, and in as many more as it is asked for, until the last
@@ -75,7 +75,7 @@ internal fun explored(
 		}
 
 		Appearance.follow(theme).use { appearance ->
-			application(exitProcessOnExit = false) {
+			application(APP_ID) {
 				val scheme by appearance.changes.collectAsState(appearance.first)
 				val scope = rememberCoroutineScope()
 

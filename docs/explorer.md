@@ -227,11 +227,9 @@ A drag starts when the first button is held and the pointer has moved eight pixe
 with an unsteady hand is a click; the other buttons drag nothing. (Compose's own drag source starts one after a pixel
 or two, with any button.)
 
-Under XWayland on a compositor that does not tell windows where they are (niri, through xwayland-satellite), the X
-server does not know where prism's windows are on screen, so a drag from one to another is never seen to be over the
-other, and ends dropped on nothing. Where a drag of prism's own ends that way and the pointer then comes at once into
-something that takes drops in another of its windows, that is where it was dropped (`StrayDrop`, in
-`browser/dragging.kt`). This is only done under XWayland.
+A drag of prism's own carries what it drags as itself, to any of prism's windows the platform says the pointer is over
+(X11, Windows, macOS); on Wayland, which says nothing of where windows are, it stays within its window until prism
+speaks Wayland's drag protocol itself (docs/window.md).
 
 A drop is made by the reducer, as a paste is: `BrowserEvent.Dropped`, the files, where (a folder, or the listing
 itself), and copy, move or link. Which of those is the platform's convention for the keys held, and, for a drag of
@@ -249,6 +247,6 @@ drag through, and says what each platform does with it.
   files' permissions together.
 - **Icons**: applications and files are drawn with prism's own glyphs, not the desktop's icon theme.
 - **Content sniffing** with shared-mime-info's magic, for files whose names say nothing.
-- **Drag and drop between X11 and Wayland windows under niri**: it works between X11 windows (checked on a virtual
-  display); between an X11 window and a Wayland one, it is xwayland-satellite's to bridge, which is to be tried on a
-  real desktop (docs/platform.md).
+- **Dragging out to other applications**, and on Wayland between prism's own windows: files dragged in from other
+  applications are taken on every platform, but SDL starts no drags, so dragging out is each platform's protocol for
+  prism to speak (docs/window.md). Copy and paste is the way meanwhile.

@@ -106,8 +106,8 @@ all is left out, since a filter of no patterns would show every file.
 **Its window is the explorer's** (`Explorer.choose`): a picker in a window of its own, beside any explorer windows
 open, with the sidebar, the search of the index, and every key as the user has bound them. Where the application's
 window is an X11 one, the picker is made its dialog (`WM_TRANSIENT_FOR`), so the window manager keeps it over the
-application. A Wayland window's handle is a surface that prism's window, an X11 one under XWayland, cannot name; the
-picker then opens as a window of its own.
+application. Over a Wayland window the picker opens as a window of its own for now: making it the application's dialog
+is Wayland's `xdg-foreign` protocol, which prism's windows (native Wayland ones, docs/window.md) do not speak yet.
 
 **The portal can take the dialog away.** For as long as the picker is open, prism serves
 `org.freedesktop.impl.portal.Request.Close` at the request's handle. The portal calls it when the application goes
@@ -155,8 +155,9 @@ files in theirs; it is what the folder entry runs, so `xdg-open ~/Documents` ope
 
 ## Not yet
 
-- **Wayland parents.** A picker over a Wayland application is not made its dialog: prism's windows are X11 ones under
-  XWayland, which cannot name a Wayland surface. JetBrains' Wayland toolkit, with `xdg-foreign`, would.
+- **Wayland parents.** A picker over a Wayland application is not made its dialog: the application's handle is an
+  `xdg-foreign` one, which prism's windows, native Wayland ones now (docs/window.md), are to import and be made the
+  child of; SDL does not do that for them yet.
 - **Choices.** The extra controls an application asks for (a list, a check box) are not shown; each is answered at the
   value it asked for at first.
 - **The daemon's index.** `serve` searches an index read once from its file (`--index`), as `prism pick` does; the

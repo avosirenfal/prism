@@ -117,6 +117,7 @@ import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import prism.desktop.Place
+import prism.window.WindowLocals
 
 /*
  * The picker, drawn: a pure function of a [BrowserState], made of the controls in elements.kt. It shows what the state
@@ -2383,67 +2384,69 @@ private fun WorkLayer(work: Work, onEvent: (BrowserEvent) -> Unit) {
 				dismissOnClickOutside = false,
 			),
 	) {
-		Box(
-			Modifier
-				.fillMaxSize()
-				.background(palette.scrim)
-				.onKeyEvent {
-					(it.type == KeyEventType.KeyDown && it.key == Key.Escape).also { escaped ->
-						if (escaped)
-							onEvent(BrowserEvent.Stopped(work.task))
-					}
-				}.testTag("work"),
-			contentAlignment = Alignment.Center,
-		) {
-			Column(
+		WindowLocals {
+			Box(
 				Modifier
-					.width(520.dp)
-					.background(palette.surface, shape)
-					.border(1.dp, palette.border, shape)
-					.padding(20.dp),
+					.fillMaxSize()
+					.background(palette.scrim)
+					.onKeyEvent {
+						(it.type == KeyEventType.KeyDown && it.key == Key.Escape).also { escaped ->
+							if (escaped)
+								onEvent(BrowserEvent.Stopped(work.task))
+						}
+					}.testTag("work"),
+				contentAlignment = Alignment.Center,
 			) {
-				Row(verticalAlignment = Alignment.CenterVertically) {
-					Spinner(palette.accent)
-					Spacer(Modifier.width(Dims.gap * 2))
-					Text(
-						work.task.label.removeSuffix("…") + "…",
-						style = type.title,
-						maxLines = 1,
-						overflow = TextOverflow.Ellipsis,
-					)
-				}
-				// The last lines it wrote, the latest last, in the room they are given.
-				if (work.said.isNotEmpty())
-					Text(
-						work.said.takeLast(WORK_LINES).joinToString("\n"),
-						style = type.muted,
-						maxLines = WORK_LINES,
-						overflow = TextOverflow.Ellipsis,
-						modifier =
-							Modifier
-								.fillMaxWidth()
-								.padding(top = Dims.gap * 2)
-								.background(palette.field, RoundedCornerShape(Dims.radius))
-								.padding(Dims.gap)
-								.testTag("work-said"),
-					)
-				Row(
-					Modifier.fillMaxWidth().padding(top = 20.dp),
-					horizontalArrangement = Arrangement.End,
+				Column(
+					Modifier
+						.width(520.dp)
+						.background(palette.surface, shape)
+						.border(1.dp, palette.border, shape)
+						.padding(20.dp),
 				) {
-					PushButton(
-						if (work.stopping) "Stopping…" else "Cancel",
-						Emphasis.Secondary,
-						enabled = !work.stopping,
-						Modifier.testTag("stop"),
-						button,
+					Row(verticalAlignment = Alignment.CenterVertically) {
+						Spinner(palette.accent)
+						Spacer(Modifier.width(Dims.gap * 2))
+						Text(
+							work.task.label.removeSuffix("…") + "…",
+							style = type.title,
+							maxLines = 1,
+							overflow = TextOverflow.Ellipsis,
+						)
+					}
+					// The last lines it wrote, the latest last, in the room they are given.
+					if (work.said.isNotEmpty())
+						Text(
+							work.said.takeLast(WORK_LINES).joinToString("\n"),
+							style = type.muted,
+							maxLines = WORK_LINES,
+							overflow = TextOverflow.Ellipsis,
+							modifier =
+								Modifier
+									.fillMaxWidth()
+									.padding(top = Dims.gap * 2)
+									.background(palette.field, RoundedCornerShape(Dims.radius))
+									.padding(Dims.gap)
+									.testTag("work-said"),
+						)
+					Row(
+						Modifier.fillMaxWidth().padding(top = 20.dp),
+						horizontalArrangement = Arrangement.End,
 					) {
-						onEvent(BrowserEvent.Stopped(work.task))
+						PushButton(
+							if (work.stopping) "Stopping…" else "Cancel",
+							Emphasis.Secondary,
+							enabled = !work.stopping,
+							Modifier.testTag("stop"),
+							button,
+						) {
+							onEvent(BrowserEvent.Stopped(work.task))
+						}
 					}
 				}
 			}
+			LaunchedEffect(Unit) { button.requestFocus() }
 		}
-		LaunchedEffect(Unit) { button.requestFocus() }
 	}
 }
 
@@ -2491,100 +2494,102 @@ private fun NoticeLayer(notice: Notice, onEvent: (BrowserEvent) -> Unit) {
 		onDismissRequest = { onEvent(BrowserEvent.Dismissed) },
 		properties = PopupProperties(focusable = true),
 	) {
-		Box(
-			Modifier.fillMaxSize().background(palette.scrim).testTag("notice"),
-			contentAlignment = Alignment.Center,
-		) {
-			Column(
-				Modifier
-					.width(if (notice is Notice.Failed) 560.dp else 420.dp)
-					.background(palette.surface, shape)
-					.border(1.dp, palette.border, shape)
-					.padding(20.dp),
+		WindowLocals {
+			Box(
+				Modifier.fillMaxSize().background(palette.scrim).testTag("notice"),
+				contentAlignment = Alignment.Center,
 			) {
-				// What a notice says can be selected and copied: what failed, above all, is for pasting elsewhere.
-				SelectionContainer {
-					Text(words.title, style = type.title)
-				}
-				// Why something failed can be all a command wrote: in a box of its own, which scrolls, the end in sight.
-				if (notice is Notice.Failed && words.detail.lines().size > 2) {
-					val scroll = rememberScrollState()
-
-					LaunchedEffect(words.detail) { scroll.scrollTo(scroll.maxValue) }
-					SelectionContainer {
-						Text(
-							words.detail,
-							style = type.muted,
-							modifier =
-								Modifier
-									.fillMaxWidth()
-									.padding(top = Dims.gap)
-									.heightIn(max = 280.dp)
-									.background(palette.field, RoundedCornerShape(Dims.radius))
-									.verticalScroll(scroll)
-									.padding(Dims.gap)
-									.testTag("failure"),
-						)
-					}
-				} else if (words.detail.isNotEmpty())
-					SelectionContainer {
-						Text(
-							words.detail,
-							style = type.body,
-							modifier = Modifier.padding(top = Dims.gap).testTag("notice-detail"),
-						)
-					}
-				// A line an action asks for: typed here, Enter giving it as the button does.
-				if (notice is Notice.Asking)
-					Field(
-						notice.text,
-						{ onEvent(BrowserEvent.AnswerTyped(it)) },
-						Modifier.fillMaxWidth().padding(top = Dims.gap).testTag("answer"),
-						focus = first,
-						onKey = {
-							(it.type == KeyEventType.KeyDown && it.isEnter).also { entered ->
-								if (entered)
-									onEvent(BrowserEvent.Confirmed)
-							}
-						},
-					)
-				Row(
-					Modifier.fillMaxWidth().padding(top = 20.dp),
-					horizontalArrangement = Arrangement.spacedBy(Dims.gap, Alignment.End),
+				Column(
+					Modifier
+						.width(if (notice is Notice.Failed) 560.dp else 420.dp)
+						.background(palette.surface, shape)
+						.border(1.dp, palette.border, shape)
+						.padding(20.dp),
 				) {
-					val asks = words.no != null
-
-					// What failed, and why, copied whole, to be pasted where it is wanted.
-					if (notice is Notice.Failed)
-						PushButton("Copy", Emphasis.Secondary, enabled = true, Modifier.testTag("copy")) {
-							onEvent(BrowserEvent.CopiedText("${notice.doing}\n\n${notice.why}"))
-						}
-
-					PushButton(
-						words.yes,
-						Emphasis.Primary,
-						enabled = true,
-						Modifier.testTag("yes"),
-						if (notice is Notice.Asking)
-							remember { FocusRequester() }
-						else
-							first,
-					) {
-						onEvent(
-							if (asks)
-								BrowserEvent.Confirmed
-							else
-								BrowserEvent.Dismissed,
-						)
+					// What a notice says can be selected and copied: what failed, above all, is for pasting elsewhere.
+					SelectionContainer {
+						Text(words.title, style = type.title)
 					}
-					words.no?.let {
-						PushButton(it, Emphasis.Secondary, enabled = true, Modifier.testTag("no")) {
-							onEvent(BrowserEvent.Dismissed)
+					// Why something failed can be all a command wrote: in a box of its own, which scrolls, the end in sight.
+					if (notice is Notice.Failed && words.detail.lines().size > 2) {
+						val scroll = rememberScrollState()
+
+						LaunchedEffect(words.detail) { scroll.scrollTo(scroll.maxValue) }
+						SelectionContainer {
+							Text(
+								words.detail,
+								style = type.muted,
+								modifier =
+									Modifier
+										.fillMaxWidth()
+										.padding(top = Dims.gap)
+										.heightIn(max = 280.dp)
+										.background(palette.field, RoundedCornerShape(Dims.radius))
+										.verticalScroll(scroll)
+										.padding(Dims.gap)
+										.testTag("failure"),
+							)
+						}
+					} else if (words.detail.isNotEmpty())
+						SelectionContainer {
+							Text(
+								words.detail,
+								style = type.body,
+								modifier = Modifier.padding(top = Dims.gap).testTag("notice-detail"),
+							)
+						}
+					// A line an action asks for: typed here, Enter giving it as the button does.
+					if (notice is Notice.Asking)
+						Field(
+							notice.text,
+							{ onEvent(BrowserEvent.AnswerTyped(it)) },
+							Modifier.fillMaxWidth().padding(top = Dims.gap).testTag("answer"),
+							focus = first,
+							onKey = {
+								(it.type == KeyEventType.KeyDown && it.isEnter).also { entered ->
+									if (entered)
+										onEvent(BrowserEvent.Confirmed)
+								}
+							},
+						)
+					Row(
+						Modifier.fillMaxWidth().padding(top = 20.dp),
+						horizontalArrangement = Arrangement.spacedBy(Dims.gap, Alignment.End),
+					) {
+						val asks = words.no != null
+
+						// What failed, and why, copied whole, to be pasted where it is wanted.
+						if (notice is Notice.Failed)
+							PushButton("Copy", Emphasis.Secondary, enabled = true, Modifier.testTag("copy")) {
+								onEvent(BrowserEvent.CopiedText("${notice.doing}\n\n${notice.why}"))
+							}
+
+						PushButton(
+							words.yes,
+							Emphasis.Primary,
+							enabled = true,
+							Modifier.testTag("yes"),
+							if (notice is Notice.Asking)
+								remember { FocusRequester() }
+							else
+								first,
+						) {
+							onEvent(
+								if (asks)
+									BrowserEvent.Confirmed
+								else
+									BrowserEvent.Dismissed,
+							)
+						}
+						words.no?.let {
+							PushButton(it, Emphasis.Secondary, enabled = true, Modifier.testTag("no")) {
+								onEvent(BrowserEvent.Dismissed)
+							}
 						}
 					}
 				}
 			}
+			LaunchedEffect(Unit) { first.requestFocus() }
 		}
-		LaunchedEffect(Unit) { first.requestFocus() }
 	}
 }

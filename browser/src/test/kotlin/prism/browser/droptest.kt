@@ -1,7 +1,5 @@
 package prism.browser
 
-import java.awt.datatransfer.DataFlavor
-import java.awt.datatransfer.Transferable
 import java.nio.file.Files
 import java.nio.file.Path
 import java.time.ZoneOffset
@@ -18,6 +16,7 @@ import org.junit.jupiter.api.Assumptions.assumeTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import prism.desktop.freedesktop.XdgPlaces
+import prism.window.DragKeys
 
 /**
  * Files dropped on the browser: what a drop is made with no key held and with one; what the line under the listing says
@@ -60,6 +59,20 @@ class DropTest {
 		for (transfer in Transfer.entries)
 			for (same in listOf(true, false))
 				assertEquals(transfer, transferOf(Asked.Chosen(transfer), same))
+
+		// The keys that ask: Ctrl copies, Shift moves and both link; on macOS, Option, Command and both.
+		val none = DragKeys.None
+
+		assertEquals(Asked.Default, askedOf(none, mac = false))
+		assertEquals(Asked.Chosen(Transfer.Copy), askedOf(none.copy(ctrl = true), mac = false))
+		assertEquals(Asked.Chosen(Transfer.Move), askedOf(none.copy(shift = true), mac = false))
+		assertEquals(
+			Asked.Chosen(Transfer.Link),
+			askedOf(none.copy(ctrl = true, shift = true), mac = false),
+		)
+		assertEquals(Asked.Chosen(Transfer.Copy), askedOf(none.copy(alt = true), mac = true))
+		assertEquals(Asked.Chosen(Transfer.Move), askedOf(none.copy(meta = true), mac = true))
+		assertEquals(Asked.Default, askedOf(none.copy(ctrl = true), mac = true))
 	}
 
 	@Test
@@ -92,39 +105,13 @@ class DropTest {
 	}
 
 	@Test
-	fun theFilesAnotherApplicationDragsAreReadAsAListOrAsUris() {
+	fun theFilesAnotherApplicationGivesAreReadFromAUriList() {
 		assertEquals(
 			listOf(Path.of("/home/avery/a b.txt"), Path.of("/tmp/x")),
 			pathsOfUris(
 				"# dragged\r\nfile:///home/avery/a%20b.txt\r\nhttps://example.org/\r\nfile:///tmp/x\r\n\r\n",
 			),
 		)
-
-		val uris =
-			object : Transferable {
-				val flavor = DataFlavor("text/uri-list;class=java.lang.String")
-
-				override fun getTransferDataFlavors() = arrayOf(flavor)
-
-				override fun isDataFlavorSupported(flavor: DataFlavor) = flavor == this.flavor
-
-				override fun getTransferData(flavor: DataFlavor): Any =
-					"file:///tmp/one\nfile:///tmp/two"
-			}
-
-		assertEquals(listOf(Path.of("/tmp/one"), Path.of("/tmp/two")), filesOf(uris))
-
-		val text =
-			object : Transferable {
-				override fun getTransferDataFlavors() = arrayOf(DataFlavor.stringFlavor)
-
-				override fun isDataFlavorSupported(flavor: DataFlavor) =
-					flavor == DataFlavor.stringFlavor
-
-				override fun getTransferData(flavor: DataFlavor): Any = "not files"
-			}
-
-		assertNull(filesOf(text))
 	}
 
 	@Test

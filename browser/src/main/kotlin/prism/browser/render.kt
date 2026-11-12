@@ -3,10 +3,9 @@ package prism.browser
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.ImageComposeScene
 import androidx.compose.ui.unit.Density
-import java.awt.EventQueue
-import kotlinx.coroutines.Dispatchers
+import java.util.concurrent.Executors
+import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.swing.Swing
 import org.jetbrains.skia.EncodedImageFormat
 
 /**
@@ -14,8 +13,8 @@ import org.jetbrains.skia.EncodedImageFormat
  * `prism snapshot` look at, so the picker can be seen without a display. [scale] is the display's density (2 for
  * a picture a person will look at on a high-density screen).
  *
- * It is drawn on AWT's event thread, where a window draws it, and the scene's effects run there too: an effect that
- * scrolls the listing then runs between frames, as in a window, and never while another thread measures the scene.
+ * It is drawn on a thread of its own ([Drawing]), and the scene's effects run there too: an effect that scrolls the
+ * listing then runs between frames, as in a window, and never while another thread measures the scene.
  */
 fun renderedPng(
 	state: BrowserState,
@@ -33,10 +32,20 @@ fun renderedPng(
 	scale: Float = 1f,
 	content: @Composable () -> Unit,
 ): ByteArray =
-	if (EventQueue.isDispatchThread())
+	if (Thread.currentThread().name == Drawing.NAME)
 		drawn(width, height, palette, scale, content)
 	else
-		runBlocking(Dispatchers.Swing) { drawn(width, height, palette, scale, content) }
+		runBlocking(Drawing.dispatcher) { drawn(width, height, palette, scale, content) }
+
+/** The thread headless drawing is done on, one at a time, as a window's is. */
+private object Drawing {
+	const val NAME = "prism headless drawing"
+
+	val dispatcher =
+		Executors
+			.newSingleThreadExecutor { task -> Thread(task, NAME).apply { isDaemon = true } }
+			.asCoroutineDispatcher()
+}
 
 private fun drawn(
 	width: Int,
@@ -50,7 +59,7 @@ private fun drawn(
 			(width * scale).toInt(),
 			(height * scale).toInt(),
 			Density(scale),
-			coroutineContext = Dispatchers.Swing,
+			coroutineContext = Drawing.dispatcher,
 		) {
 			BrowserTheme(palette, content)
 		}

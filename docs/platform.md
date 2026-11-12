@@ -29,58 +29,39 @@ Say the user drags `report.pdf` from prism onto a browser's upload box. Three th
 2. **The target takes the form it understands**, and reads the files.
 3. **The two agree on an action**, copy, move or link, which the user steers with the keys they hold.
 
-prism names none of those forms. It offers a Java `Transferable` holding a list of files, and AWT, under Compose,
-turns that into the platform's own: its X11 toolkit into XDND, its macOS toolkit into a dragging session, its Windows
-toolkit into OLE, and JetBrains' Wayland toolkit into a Wayland data offer. Files dropped on prism come back the same
-way, as a list of files, or as a URI list where a toolkit leaves it at that (`browser/dragging.kt`).
+prism's windows are SDL3's (docs/window.md), and SDL speaks each platform's protocol for files dropped on a window:
+they come to prism as a list of paths, whatever the platform. A drag of prism's own, between its own windows, carries
+what it drags as itself, and needs no protocol; a drag out to another application does, and SDL starts none, so that
+is each platform's for prism to speak (below).
 
 **A move is the target's to make.** When files are dropped with "move" on another application, that application moves
 them; prism is only told how the drag ended, and reads its folder again. It never deletes what it dragged. Windows is
 where this matters most: Explorer, as the target, makes the move itself, and a source that deleted the files as well
 would lose them.
 
-**Which action a drop makes** is the platform's convention for the keys held, which AWT already applies: on Linux and
-Windows, Ctrl copies, Shift moves (and Ctrl+Shift, or Windows' Alt, links); on macOS, Option copies and Cmd moves. With
-no key held, desktops agree that a drop moves within a volume and copies across one. A drag from another application
-arrives with its toolkit's choice made. A drag of prism's own, though, AWT calls "move" whether Shift asked for it or
-nothing did, so prism watches the keys held during its own drags through AWT's drag source (which every platform's
-toolkit drives) and applies the rule itself: with no key held, `Disk.sameVolume` decides between a move and a copy. The
-rule is a pure function (`transferOf`), the same on every platform; so is what it is told, since `sameVolume` asks the
-JVM for the device a path is on (the `unix:dev` attribute, on Linux and macOS) or, failing that, its file store.
+**Which action a drop makes** is the platform's convention for the keys held: on Linux and Windows, Ctrl copies,
+Shift moves and both link; on macOS, Option copies and Cmd moves (`askedOf`). With no key held, desktops agree that a
+drop moves within a volume and copies across one, which `Disk.sameVolume` decides. A drag from another application is
+dropped as no key asks, since the keys held over it are that application's. The rule is a pure function
+(`transferOf`), the same on every platform; so is what it is told, since `sameVolume` asks the JVM for the device a
+path is on (the `unix:dev` attribute, on Linux and macOS) or, failing that, its file store.
 
 What a drop does once made is the reducer's, as for a paste: a `Change.Copy`, `Change.Move` or `Change.Link`, with
 free names ("a (copy).txt", "Link to a.txt") and undo. Dropped on the listing of a picker, files are not copied
 anywhere: the picker goes to the first of them, as to a path typed, since files dropped on a picker are files to choose.
 
-Compose decides the action AWT shows the pointer with, and always takes the platform's; so where prism will copy
-across volumes while the pointer says "move", the line under the listing says what will happen ("Copy 2 items into
-“Backup”"), and that line is the truth.
+The pointer cannot be told which action prism will make, so the line under the listing says it ("Copy 2 items into
+“Backup”"), and that line is the truth. Of another application's drag it says "Drop", since what is dragged, and so
+whether it is on the same volume, is known only once it is dropped.
 
-### The four ways prism's windows reach the desktop
+### Each platform
 
-**X11, under XWayland, under xwayland-satellite on niri.** Between X11 windows, a drag is XDND inside one X server,
-and works (checked on a virtual display: prism to prism, prism to another Java application in another process, and
-back, with the actions and the keys as above). Between an X11 window and a Wayland one, the X11 drag must be turned into
-a Wayland one: GNOME's, KDE's and wlroots' compositors do it in their own XWayland window managers; on niri,
-xwayland-satellite would have to. Whether it does is to be tried on a real desktop: drag from prism into a native
-Wayland application, and from Nautilus into prism. If it does not, it is xwayland-satellite's gap, and copy and paste,
-whose clipboard it does bridge, is the way between them meanwhile.
-
-A test display needs a window manager for drags between windows: AWT finds the window under the pointer by the
-`WM_STATE` property a window manager gives each application's window, so on a bare Xvfb a drag between two
-applications finds no target (docs/testing.md).
-
-**Wayland, directly.** JetBrains' Wayland toolkit (WLToolkit) has drag and drop; what prism waits for is Compose and
-skiko running on it. prism's drag and drop needs nothing new for it, since it is AWT's. What does: the mouse's side
-buttons are read by AWT's button numbers, which `mouseButtonOf` assumes are X's on Linux; the focus watch and the title
-bar's tone are X11's, and already do nothing elsewhere; and a window with no decorations of the window manager's may
-need decorations of its own there.
-
-**macOS.** AWT's toolkit gives and takes file drags as Finder does. Its keys are Option to copy and Cmd to move, which
-the rule above takes as they are. It shows a picture of what is dragged (as Windows does; X11's AWT does not).
-
-**Windows.** AWT's toolkit speaks OLE with `CF_HDROP`, which Explorer gives and takes. Ctrl copies, Shift moves, Alt
-links.
+| | files dropped on prism | prism's drags between its windows | prism's drags out to other applications |
+|---|---|---|---|
+| Wayland | SDL's data device | within a window; between windows needs Wayland's drag protocol | Wayland's data device (`wl_data_source`, `start_drag`), to be spoken through libwayland-client beside SDL's connection |
+| X11 | SDL's XDND | between windows, by where the pointer is on the screen | XDND, to be spoken through Xlib |
+| Windows | SDL's OLE drop target | between windows, as on X11 | OLE's `DoDragDrop` with `CF_HDROP` |
+| macOS | SDL's dragging destination | between windows, as on X11 | an `NSDraggingSession` with file URLs |
 
 ## What else a port needs
 

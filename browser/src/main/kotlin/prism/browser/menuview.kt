@@ -76,6 +76,7 @@ import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.ui.window.PopupProperties
 import kotlin.math.roundToInt
+import prism.window.WindowLocals
 
 /*
  * Menus, drawn (menu.kt has them as data). One component, [MenuPopup], draws any menu wherever it opens; the rest
@@ -132,41 +133,43 @@ fun <A> MenuPopup(
 		onDismissRequest = onClose,
 		properties = PopupProperties(focusable = true, dismissOnBackPress = false),
 	) {
-		Box(
-			Modifier
-				.fillMaxSize()
-				.onGloballyPositioned { layer = it }
-				.pointerInput(Unit) {
-					awaitPointerEventScope {
-						while (true) {
-							val event = awaitPointerEvent()
+		WindowLocals {
+			Box(
+				Modifier
+					.fillMaxSize()
+					.onGloballyPositioned { layer = it }
+					.pointerInput(Unit) {
+						awaitPointerEventScope {
+							while (true) {
+								val event = awaitPointerEvent()
 
-							// A press no level took is a press outside the menu.
-							if (event.type == PointerEventType.Press && event.changes.none { it.isConsumed })
-								onClose()
+								// A press no level took is a press outside the menu.
+								if (event.type == PointerEventType.Press && event.changes.none { it.isConsumed })
+									onClose()
+							}
+						}
+					},
+			) {
+				val from =
+					layer?.let { over ->
+						when (anchor) {
+							is MenuAnchor.At ->
+								over
+									.windowToLocal(
+										Offset(anchor.point.x.toFloat(), anchor.point.y.toFloat()),
+									).let { IntRect(it.round(), IntSize.Zero) }
+							MenuAnchor.Below, MenuAnchor.Beside ->
+								owner?.takeIf { it.isAttached }?.let {
+									val corner = over.windowToLocal(it.positionInWindow()).round()
+
+									IntRect(corner, it.size)
+								}
 						}
 					}
-				},
-		) {
-			val from =
-				layer?.let { over ->
-					when (anchor) {
-						is MenuAnchor.At ->
-							over
-								.windowToLocal(
-									Offset(anchor.point.x.toFloat(), anchor.point.y.toFloat()),
-								).let { IntRect(it.round(), IntSize.Zero) }
-						MenuAnchor.Below, MenuAnchor.Beside ->
-							owner?.takeIf { it.isAttached }?.let {
-								val corner = over.windowToLocal(it.positionInWindow()).round()
 
-								IntRect(corner, it.size)
-							}
-					}
+				from?.let {
+					MenuLevel(menu, anchor, it, onAction, onClose, onBack = onClose, startLit = false)
 				}
-
-			from?.let {
-				MenuLevel(menu, anchor, it, onAction, onClose, onBack = onClose, startLit = false)
 			}
 		}
 	}

@@ -36,20 +36,15 @@ compose.desktop {
 			toolchainJdk
 				.get()
 				.metadata.installationPath.asFile.absolutePath
-		jvmArgs += listOf("--enable-native-access=ALL-UNNAMED")
+		// Native access for SDL, libc and libbpf through FFM; AWT never opens a window (prism's are SDL's), which
+		// headless says, and macOS has SDL's windows on the process's first thread.
+		jvmArgs += listOf("--enable-native-access=ALL-UNNAMED", "-Djava.awt.headless=true")
+		if (System.getProperty("os.name").startsWith("Mac"))
+			jvmArgs += "-XstartOnFirstThread"
 		nativeDistributions {
 			targetFormats(TargetFormat.AppImage)
 			packageName = "prism"
 			packageVersion = "0.1.0"
 		}
 	}
-}
-
-// AWT assumes the window manager reparents its windows into a frame. Wayland compositors and tiling window
-// managers do not, so AWT never learns the window's real size; this tells it so.
-val nonReparenting = "_JAVA_AWT_WM_NONREPARENTING"
-
-tasks.withType<JavaExec>().configureEach {
-	if (!providers.environmentVariable(nonReparenting).isPresent)
-		environment(nonReparenting, "1")
 }

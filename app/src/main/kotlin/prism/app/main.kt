@@ -22,6 +22,9 @@ val PRISM =
 		),
 	)
 
+/** What prism's windows are named to the desktop: Wayland's app id and X11's class, which its entry and icon match. */
+internal const val APP_ID = "prism"
+
 /**
  * The command line [args] run: what a command prints goes to stdout, its help too, and a mistake in the words or a
  * problem with what the command was given to stderr. The output is UTF-8 whatever the platform's charset, and

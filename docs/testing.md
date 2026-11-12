@@ -22,7 +22,8 @@ a device, so a test that ran and a test that could not run are never confused.
 | the browser exploring: files opened, or offered to an application; copied, cut and pasted, with undo; made; pinned (`ExploreTest`) | Linux | never |
 | the user's actions: commands read and filled word by word, what is refused and why, conditions, the menus they are in, their keys, and each step of doing one (`ActionsTest`) | the JDK | never |
 | places: what a command prints read into a tree, files told from entries, and the archive tool listed, gone about, extracted from (by the menu, a drop, a paste, and to open), added to and removed from, on real archives (`PlacesTest`) | Linux | without `tar`, `zip`, `unzip` or `git`, the tests that run them |
-| a drag between two real windows, made by the pointer: an archive's entry dropped on a folder's window, as this process's own drag and as another's would be read (`DragTest`) | a display, and `-Pbrowser.display`: `xvfb-run ./gradlew :browser:test --tests prism.browser.DragTest -Pbrowser.display` | unless asked for |
+| a drag between two real windows, made by X's own pointer (xdotool): an archive's entry dropped on a folder's window and extracted there, and a click with an unsteady hand and the other buttons dragging nothing (`DragTest`) | an X display, xdotool, and `-Pbrowser.display`: `xvfb-run ./gradlew :browser:test --tests prism.browser.DragTest -Pbrowser.display` | unless asked for |
+| a real window of the window module's, clicked, typed in, dropped on from another program and copied from, through SDL's own events (`WindowTest`) | a display, X11's or Wayland's, and `-Pwindow.display`: `xvfb-run ./gradlew :window:test -Pwindow.display` | unless asked for |
 | an index of a tree that was given, held and searched as one read from disk (`GivenTest`) | the JDK | never |
 | every shape of entry (file, folder, nested, empty, several, names with `[x]`, `*`, `?`) brought out of every kind of archive, with and without folder entries, by every program that reads it; and removed from every kind that can be changed (`EntriesTest`) | Linux | each case, without the programs it is of |
 | what a notice says, selected with the pointer and copied with Ctrl+C, in a real window with the system's clipboard (`SelectionTest`) | a display, and `-Pbrowser.display` | unless asked for |
@@ -138,9 +139,9 @@ DISPLAY=:99 xdotool mousemove 350 211 click 1 && DISPLAY=:99 xdotool key Down Re
 DISPLAY=:99 import -window root screen.png
 ```
 
-Drags between two windows need a window manager on the display: AWT finds the window under the pointer by the
-`WM_STATE` property a window manager gives each application's window, so with none, a drag from prism to another
-application (or back) finds no target, while a drag within one window still works. Any will do; twm, placing windows
+Drags from another application need a window manager on the display: X's drag and drop (XDND) finds the window under
+the pointer by the `WM_STATE` property a window manager gives each application's window, so with none, a drag from
+another application finds no target. A drag between prism's own windows needs none: prism finds the window itself. Any will do; twm, placing windows
 where they ask, is the smallest:
 
 ```bash

@@ -5,7 +5,6 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.ui.window.application
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.io.path.Path
@@ -42,6 +41,7 @@ import prism.portal.serveFileChooser
 import prism.portal.serveFileManager
 import prism.portal.showInFileManager
 import prism.preferences.PreferenceFile
+import prism.window.application
 
 /*
  * `prism portal`: prism as the desktop's file chooser and file manager (docs/portal.md). `serve` is the process that
@@ -97,7 +97,7 @@ object PortalServe : Command(
 		bus.use {
 			PreferenceFile.open().use { preferences ->
 				Appearance.follow(args[theme]).use { appearance ->
-					application(exitProcessOnExit = false) {
+					application(APP_ID) {
 						val scheme by appearance.changes.collectAsState(appearance.first)
 						val scope = rememberCoroutineScope()
 

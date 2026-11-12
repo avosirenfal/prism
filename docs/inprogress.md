@@ -57,8 +57,9 @@ does both; the first run is the cold one.
 - **The window has not been opened under Wayland.** It has been opened under X: `prism pick` ran on a virtual X
   display (Xvfb, no window manager) and was driven by xdotool through opening a file from the keyboard, several with
   Ctrl-click, saving under a typed name, choosing a folder, and cancelling, each printing what it should
-  (docs/testing.md says how). Under Wayland it runs through XWayland, as any AWT window does; that, and how it sits
-  with a real window manager (focus on opening, the title bar), is untried.
+  (docs/testing.md says how). Its windows are now SDL3's (docs/window.md), native under Wayland: `prism explore` has been run as a Wayland client
+  under weston's headless backend. How it sits with a real compositor (niri: focus on opening, the title bar, drags
+  from Nautilus) is untried.
 - **The explorer has been opened under X too**, on the same virtual display, and driven by xdotool: a file's menu,
   its properties and a folder's (contents counted, a permission ticked and unticked on disk), "Open with" filtered,
   confirmed with "always" (Vim started in a terminal, its parent init and its session its own, and the default
@@ -118,25 +119,24 @@ In the order they unblock each other:
   on a press outside, and Escape, handled by the menu itself, goes back a level.
 - A test's mouse (Compose's `performMouseInput`) starts at the window's top-left corner, and a wheel turns wherever the
   mouse is: move it over what is to be scrolled first.
-- The mouse's side buttons cannot be had from Compose on Linux: X numbers them 8 and 9, the JDK passes them on as
-  AWT's 6 and 7, and Compose drops them, while reporting a sideways scroll (X's 6 and 7, AWT's 4 and 5) as back and
-  forward. They are read from AWT itself (`browser/mousebuttons.kt`); nothing should use Compose's `PointerButton.Back`.
+- The mouse's side buttons reach Compose as its `PointerButton.Back` and `Forward` (SDL names them as the platform
+  does; AWT on Linux did not).
 - Headless drawing (`renderedPng`) draws two frames and returns, so it never shows a thumbnail: those arrive from an
   IO thread after. The gallery's pictures are checked by the interaction tests, and seen in a real window.
 
-- AWT's drag and drop under X11 finds the window under the pointer by the `WM_STATE` property a window manager sets:
-  on a display with none (a bare Xvfb), a drag between two applications finds no target, though one within a window
-  works. Test drags between windows under a window manager (docs/testing.md).
-- Compose's drop target always takes the action AWT gives it, and AWT says "move" of a drag with no key held: a drag of
-  prism's own watches its keys through AWT's `DragSource` to tell that from Shift held (`browser/dragging.kt`).
+- A drag of prism's own carries what it drags as itself, and the keys held decide its action (`askedOf`); one from
+  another application comes as files, with no action said, and is dropped as no key asks (docs/window.md).
+- Compose gives each popup a clipboard of its own making (AWT's, which has none under SDL): a popup's content is
+  wrapped in `WindowLocals` for the window's.
+- A clickable is focusable on the desktop: a click on one takes the keyboard from a text field.
 - A path is a list of its own names in Kotlin (`Path` is `Iterable<Path>`), so `paths + path` adds the path's names,
   not the path. Use `paths.plusElement(path)`. The picker's history had this bug until a test caught it, and so,
   later, did pinning a folder and moving a pin in the preferences window.
-- Compose's `application { }` ends the process when its last window closes unless given `exitProcessOnExit = false`;
-  anything after it (printing what was picked) needs that.
+- `application { }` (prism.window's) returns once `exitApplication()` is called, whatever windows are open; anything
+  after it (printing what was picked) runs then.
 - A `LazyListState` knows nothing of what is in sight until the list has been laid out once. An effect that scrolls
   as a folder arrives must wait for that (`snapshotFlow { layoutInfo }.first { ... }`), or it scrolls blind.
-- Headless drawing (`renderedPng`) runs on AWT's event thread, with the scene's effects dispatched there too; drawn
+- Headless drawing (`renderedPng`) runs on a thread of its own, with the scene's effects dispatched there too; drawn
   from the test thread, an effect could run on the event thread while the test thread measured, which Compose refuses.
 
 - The house formatter (`./gradlew ktlintFormat`) breaks a comparison inside an `if` condition across lines when the

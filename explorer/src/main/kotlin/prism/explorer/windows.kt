@@ -22,7 +22,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.awt.ComposeWindow
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -30,8 +29,6 @@ import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Window
-import androidx.compose.ui.window.rememberWindowState
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import prism.browser.BrowserEvent
@@ -42,9 +39,11 @@ import prism.browser.HostedWindow
 import prism.browser.LocalPalette
 import prism.browser.LocalType
 import prism.browser.Location
-import prism.browser.MouseChords
 import prism.browser.Palette
 import prism.browser.TransientFor
+import prism.browser.mouseChords
+import prism.window.NativeWindow
+import prism.window.Window
 
 /*
  * Every window the explorer has open, drawn from its list: a browser's in a window of its own, and each of the rest
@@ -71,8 +70,8 @@ fun ExplorerWindows(explorer: Explorer, palette: Palette, decorated: Boolean) {
 								is Location.Results -> "Search"
 								is Location.Place -> at.placed.title
 							},
-						state = rememberWindowState(width = 1100.dp, height = 680.dp),
-						undecorated = !decorated,
+						size = DpSize(1100.dp, 680.dp),
+						decorated = decorated,
 					) {
 						HostedBrowser(this.window, window.session, explorer.preferences, palette)
 					}
@@ -82,16 +81,13 @@ fun ExplorerWindows(explorer: Explorer, palette: Palette, decorated: Boolean) {
 					Window(
 						onCloseRequest = { window.session.send(BrowserEvent.Cancelled) },
 						title = window.title,
-						state = rememberWindowState(width = 900.dp, height = 600.dp),
-						undecorated = !decorated,
+						size = DpSize(900.dp, 600.dp),
+						decorated = decorated,
 					) {
 						// A dialog of the application that asked, where it is an X11 window prism can name; and in
 						// front, where the window manager lets it be, since it was asked for from elsewhere.
 						TransientFor(this.window, window.parent)
-						LaunchedEffect(Unit) {
-							this@Window.window.toFront()
-							this@Window.window.requestFocus()
-						}
+						LaunchedEffect(Unit) { this@Window.window.raise() }
 						HostedBrowser(this.window, window.session, explorer.preferences, palette)
 					}
 				is ExplorerWindow.Properties ->
@@ -114,8 +110,8 @@ fun ExplorerWindows(explorer: Explorer, palette: Palette, decorated: Boolean) {
 						decorated,
 						{ explorer.close(window) },
 						raised = window.raised,
-					) { composeWindow ->
-						SettingsWindow(explorer, composeWindow) { explorer.close(window) }
+					) {
+						SettingsWindow(explorer) { explorer.close(window) }
 					}
 			}
 		}
@@ -123,11 +119,7 @@ fun ExplorerWindows(explorer: Explorer, palette: Palette, decorated: Boolean) {
 
 /** The preferences window's edits, kept while it is open, and saved over the preferences as they are by then. */
 @Composable
-private fun SettingsWindow(
-	explorer: Explorer,
-	window: ComposeWindow,
-	onClose: () -> Unit,
-) {
+private fun SettingsWindow(explorer: Explorer, onClose: () -> Unit) {
 	val chords =
 		remember {
 			MutableSharedFlow<Chord>(
@@ -145,17 +137,18 @@ private fun SettingsWindow(
 		)
 	}
 
-	MouseChords(window) { chords.tryEmit(it) }
-	SettingsView(
-		settings,
-		onChange = { settings = it },
-		onSave = {
-			explorer.preferences.update(settings::over)
-			onClose()
-		},
-		onCancel = onClose,
-		mouseChords = chords,
-	)
+	Box(Modifier.fillMaxSize().mouseChords { chords.tryEmit(it) }) {
+		SettingsView(
+			settings,
+			onChange = { settings = it },
+			onSave = {
+				explorer.preferences.update(settings::over)
+				onClose()
+			},
+			onCancel = onClose,
+			mouseChords = chords,
+		)
+	}
 }
 
 /**
@@ -171,23 +164,21 @@ private fun Dialog(
 	decorated: Boolean,
 	onClose: () -> Unit,
 	raised: Int = 0,
-	content: @Composable (ComposeWindow) -> Unit,
+	content: @Composable (NativeWindow) -> Unit,
 ) {
 	Window(
 		onCloseRequest = onClose,
 		title = title,
-		state = rememberWindowState(size = size),
-		undecorated = !decorated,
+		size = size,
+		decorated = decorated,
 	) {
-		val composeWindow = window
+		val native = window
 
 		LaunchedEffect(raised) {
-			if (raised > 0) {
-				composeWindow.toFront()
-				composeWindow.requestFocus()
-			}
+			if (raised > 0)
+				native.raise()
 		}
-		HostedWindow(composeWindow, palette) {
+		HostedWindow(native, palette) {
 			Column(
 				Modifier
 					.fillMaxSize()
@@ -205,7 +196,7 @@ private fun Dialog(
 						style = LocalType.current.heading,
 						modifier = Modifier.padding(start = Dims.gap * 2, top = Dims.gap * 2),
 					)
-				Box(Modifier.weight(1f).fillMaxWidth()) { content(composeWindow) }
+				Box(Modifier.weight(1f).fillMaxWidth()) { content(native) }
 			}
 		}
 	}

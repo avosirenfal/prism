@@ -1,22 +1,14 @@
 package prism.browser
 
-import java.awt.HeadlessException
-import java.awt.Toolkit
-import java.awt.datatransfer.Clipboard
-import java.awt.datatransfer.ClipboardOwner
-import java.awt.datatransfer.DataFlavor
-import java.awt.datatransfer.Transferable
-import java.awt.datatransfer.UnsupportedFlavorException
-import java.io.File
-import java.io.IOException
-import java.io.InputStream
 import java.net.URI
 import java.nio.file.Path
 import java.util.concurrent.atomic.AtomicReference
+import prism.window.ClipOffer
+import prism.window.SystemClipboard
 
 /*
  * Files on the clipboard, as the desktop's file managers put them there, so a file copied here pastes in any of them and
- * one copied there pastes here: a list of files (which the JVM gives other applications as `text/uri-list`), GNOME's
+ * one copied there pastes here: a URI list (`text/uri-list`, which every desktop reads), GNOME's
  * `x-special/gnome-copied-files` (which says whether they were cut, and which most Linux file managers read), and the
  * paths as text, for anything else.
  */
@@ -38,56 +30,48 @@ class MemoryFileClipboard : FileClipboard {
 	override fun read(): FileClip? = held.get()
 }
 
-/** The desktop's clipboard, through AWT. */
+/** The desktop's clipboard, through the window's (prism.window), by MIME type. */
 object SystemFileClipboard : FileClipboard {
-	private val gnome = DataFlavor("x-special/gnome-copied-files;class=java.io.InputStream")
-
-	private fun system(): Clipboard? =
-		try {
-			Toolkit.getDefaultToolkit().systemClipboard
-		} catch (headless: HeadlessException) {
-			null
-		}
+	private const val GNOME = "x-special/gnome-copied-files"
+	private const val URI_LIST = "text/uri-list"
 
 	override fun put(clip: FileClip) {
-		val clipboard = system() ?: return
+		val paths = clip.paths.joinToString("\n").encodeToByteArray()
 
-		try {
-			clipboard.setContents(Files(clip), Files(clip))
-		} catch (busy: IllegalStateException) {
-			Unit
-		}
+		SystemClipboard.put(
+			ClipOffer(
+				ClipOffer.text(clip.paths.joinToString("\n")).types +
+					mapOf(
+						GNOME to gnomeText(clip).encodeToByteArray(),
+						URI_LIST to uriList(clip.paths).encodeToByteArray(),
+						"text/plain" to paths,
+					),
+			),
+		)
 	}
 
 	override fun read(): FileClip? {
-		val contents =
-			system()?.let { clipboard ->
-				try {
-					clipboard.getContents(null)
-				} catch (busy: IllegalStateException) {
-					null
-				}
-			} ?: return null
+		val types = SystemClipboard.types()
 
-		return try {
-			when {
-				contents.isDataFlavorSupported(
-					gnome,
-				) -> gnomeOf(String((contents.getTransferData(gnome) as InputStream).readAllBytes()))
-				contents.isDataFlavorSupported(DataFlavor.javaFileListFlavor) ->
-					(contents.getTransferData(DataFlavor.javaFileListFlavor) as List<*>)
-						.filterIsInstance<File>()
-						.map { it.toPath() }
-						.takeIf { it.isNotEmpty() }
-						?.let { FileClip(it, cut = false) }
-				else -> null
-			}
-		} catch (failed: IOException) {
-			null
-		} catch (wrong: UnsupportedFlavorException) {
-			null
+		return when {
+			GNOME in types -> SystemClipboard.read(GNOME)?.decodeToString()?.let(::gnomeOf)
+			URI_LIST in types ->
+				SystemClipboard
+					.read(URI_LIST)
+					?.decodeToString()
+					?.let(::pathsOfUris)
+					?.takeIf { it.isNotEmpty() }
+					?.let { FileClip(it, cut = false) }
+			else -> null
 		}
 	}
+
+	/** [paths] as a URI list, as every desktop names files: one a line, each line ended by CR and LF. */
+	fun uriList(paths: List<Path>): String =
+		paths.joinToString("") {
+			it.toUri().toString() +
+				"\r\n"
+		}
 
 	/** GNOME's form: `copy` or `cut`, then a URI a line. */
 	fun gnomeOf(text: String): FileClip? {
@@ -118,26 +102,4 @@ object SystemFileClipboard : FileClipboard {
 					it.toUri().toString()
 				}
 		).joinToString("\n")
-
-	/** [clip], in every form the clipboard offers it. */
-	private class Files(
-		private val clip: FileClip,
-	) : Transferable,
-		ClipboardOwner {
-		override fun getTransferDataFlavors(): Array<DataFlavor> =
-			arrayOf(gnome, DataFlavor.javaFileListFlavor, DataFlavor.stringFlavor)
-
-		override fun isDataFlavorSupported(flavor: DataFlavor): Boolean =
-			flavor in transferDataFlavors
-
-		override fun getTransferData(flavor: DataFlavor): Any =
-			when (flavor) {
-				gnome -> gnomeText(clip).byteInputStream()
-				DataFlavor.javaFileListFlavor -> clip.paths.map { it.toFile() }
-				DataFlavor.stringFlavor -> clip.paths.joinToString("\n")
-				else -> throw UnsupportedFlavorException(flavor)
-			}
-
-		override fun lostOwnership(clipboard: Clipboard, contents: Transferable) = Unit
-	}
 }

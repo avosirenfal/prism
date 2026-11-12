@@ -32,6 +32,7 @@ import androidx.compose.ui.scene.CanvasLayersComposeScene
 import androidx.compose.ui.scene.ComposeScene
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.DpSize
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import java.awt.Cursor
 import java.nio.file.Path
@@ -97,6 +98,7 @@ import org.lwjgl.sdl.SDLVideo.SDL_GetWindowID
 import org.lwjgl.sdl.SDLVideo.SDL_GetWindowPixelDensity
 import org.lwjgl.sdl.SDLVideo.SDL_GetWindowSizeInPixels
 import org.lwjgl.sdl.SDLVideo.SDL_RaiseWindow
+import org.lwjgl.sdl.SDLVideo.SDL_SetWindowPosition
 import org.lwjgl.sdl.SDLVideo.SDL_SetWindowSize
 import org.lwjgl.sdl.SDLVideo.SDL_SetWindowTitle
 import org.lwjgl.sdl.SDLVideo.SDL_ShowWindow
@@ -120,7 +122,9 @@ class NativeWindow internal constructor(
 	title: String,
 	size: DpSize,
 	decorated: Boolean,
+	at: IntOffset?,
 ) {
+	private val place = at
 	private val sdl: Long
 	internal val id: Int
 
@@ -204,6 +208,7 @@ class NativeWindow internal constructor(
 			(size.height.value * scale / perPoint).toInt(),
 		)
 
+		at?.let { SDL_SetWindowPosition(sdl, it.x, it.y) }
 		pixels = (
 			if (gpu)
 				Pixels.Gpu.of(sdl, video)
@@ -285,6 +290,8 @@ class NativeWindow internal constructor(
 		if (!shown) {
 			shown = true
 			SDL_ShowWindow(sdl)
+			// Placed again once shown: a window not yet on the screen is placed as the platform likes when it is.
+			place?.let { SDL_SetWindowPosition(sdl, it.x, it.y) }
 		}
 
 		if (scene.hasPendingDraw || scene.hasPendingMeasureOrLayout ||

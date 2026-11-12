@@ -6,9 +6,6 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import java.awt.HeadlessException
-import java.awt.Toolkit
-import java.awt.datatransfer.StringSelection
 import java.time.Instant
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CompletableDeferred
@@ -34,6 +31,8 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import prism.desktop.Launched
 import prism.desktop.Opening
+import prism.window.ClipOffer
+import prism.window.SystemClipboard
 
 /**
  * A browser running (a picker, or an explorer): its states, folded from its first [Step] by the reducer over every
@@ -301,18 +300,12 @@ class Session(
 
 /** [text] on the system's clipboard, where there is one: a picker with no display has none, and copies nothing. */
 fun toClipboard(text: String) {
-	try {
-		Toolkit.getDefaultToolkit().systemClipboard.setContents(StringSelection(text), null)
-	} catch (headless: HeadlessException) {
-		Unit
-	} catch (busy: IllegalStateException) {
-		Unit
-	}
+	SystemClipboard.put(ClipOffer.text(text))
 }
 
 /**
  * The browser [session] runs, drawn: its state as it changes, and what the user does sent to it; the mouse's buttons
- * read from AWT ([mouseChords]) bound as the keys are.
+ * ([mouseChords]) bound as the keys are.
  */
 @Composable
 fun SessionBrowser(
@@ -322,13 +315,9 @@ fun SessionBrowser(
 ) {
 	val state by session.state.collectAsState()
 
-	// Each browser drawn is a window of its own, told apart from the others by this.
-	val window = remember(session) { Any() }
-
 	CompositionLocalProvider(
 		LocalVolumes provides session::sameVolume,
 		LocalWorld provides session.world,
-		LocalWindowToken provides window,
 	) {
 		FileBrowser(state, modifier, mouseChords, session::send)
 	}

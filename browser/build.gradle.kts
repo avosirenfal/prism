@@ -13,7 +13,6 @@ tasks.test {
 	// `-Pbrowser.display` runs the tests that need real windows on a display (a drag from one to another), which the
 	// rest, drawn headless, do not: run under one, as `xvfb-run ./gradlew :browser:test -Pbrowser.display`.
 	if (providers.gradleProperty("browser.display").isPresent) {
-		jvmArgs("-Djava.awt.headless=false")
 		systemProperty("browser.display", "true")
 		// The display is this run's, read as an input: the environment a task was first configured with is otherwise
 		// kept with the configuration, and would name a display that is gone.
@@ -30,8 +29,8 @@ dependencies {
 	api(project(":preferences"))
 	// A session's states and outcome are coroutines' flows and deferreds.
 	api(libs.kotlinx.coroutines.core)
-	// AWT's event thread as a dispatcher, which headless drawing draws on, as a window does.
-	implementation(libs.kotlinx.coroutines.swing)
+	// The windows the browser is drawn in, and their clipboard and drag and drop: SDL's, native on every platform.
+	api(project(":window"))
 
 	// Compose's own test harness: the picker composed headless, and pressed and typed at as a user would.
 	@OptIn(org.jetbrains.compose.ExperimentalComposeLibrary::class)

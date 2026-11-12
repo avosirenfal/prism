@@ -361,31 +361,19 @@ An undo never loses anything. A folder is removed only if it is still empty, and
 only if nothing of its name has appeared where it was meanwhile. Otherwise the undo fails, says why ("Couldn't undo
 the new folder: “New folder” isn't empty any more"), and leaves the disk as it is.
 
-## The keyboard given back to the window
+## The keyboard
 
-AWT on X11 keeps the keyboard in a small window of its own inside each of its windows (its focus proxy), and takes it
-there itself when the window manager offers it (ICCCM's `WM_TAKE_FOCUS`). A compositor that instead sets the X input
-focus on the window itself, as niri does through xwayland-satellite (and as `xdotool windowfocus` does), gives AWT no
-event it reads as the window gaining focus: AWT goes on thinking the window is in the background and drops every key,
-so a picker switched away from and back to took no typing, Tab did nothing, and Ctrl+Shift+F on a picker just opened
-did nothing, until a click made AWT take the keyboard itself. This is a known way for AWT to fail under XWayland
-(it has been reported against mutter, Weston and others).
-
-So the picker watches its own window from an X connection of its own (`KeepsKeyboard`, `x11focus.kt`, libX11 through
-the FFM API). What it checks is a state rather than an event: whether the X input focus is anywhere in the window (the
-window itself, a frame around it, or AWT's proxy) while AWT does not think the window has the keyboard. If so, it asks
-AWT for the keyboard, which AWT then takes to its proxy as it does for a click, and so it asks once. It checks whenever
-focus changes on the window and four times a second besides, so focus given before the watch began, or in whatever
-order a compositor's events come in, is found too. `PRISM_FOCUS_LOG=1` has it say on standard error what it sees and
-does.
+A window has the keyboard when the platform gives it, and the control focused in it takes the keys. (AWT, which
+prism's windows were before they were SDL's, kept the keyboard in a window of its own inside each window, and lost
+it under compositors that focus the window itself, niri among them; docs/window.md says why that is gone.)
 
 A control draws its focus ring only while the window has the keyboard: Compose keeps its focused control while the
 window is in the background, which drew the ring of a field that could not be typed into.
 
 ## The title bar
 
-On X11 an application draws only inside its window; the bar with the title and the close button is the window
-manager's (under niri, xwayland-satellite's or niri's). So `prism pick` opens with none by default: the window asks for
+The bar with the title and the close button is the compositor's or the window manager's (on Wayland, niri's own,
+asked for by xdg-decoration). So `prism pick` opens with none by default: the window asks for
 no decorations (`_MOTIF_WM_HINTS`), and Escape or Cancel closes it. `--decorated` asks for the window manager's bar, and
 the picker asks for it in its own palette with GTK's way of asking, the window's `_GTK_THEME_VARIANT` property (`dark`
 or `light`), set again as the palette follows the desktop's (`TitleBarTone`, `x11title.kt`). A window manager that does
@@ -396,19 +384,8 @@ not read that property draws what it draws.
 Most mice have two buttons at the side, back and forward. They go back and forward in the picker as in a browser,
 wherever the pointer is over it.
 
-Compose cannot be asked for them on Linux, because the numbers for mouse buttons differ along the way:
-
-| the button | X numbers it | the JDK passes it on as AWT's | Compose reports |
-|---|---|---|---|
-| left, middle, right | 1, 2, 3 | 1, 2, 3 | primary, tertiary, secondary |
-| scroll up and down | 4, 5 | the wheel | a scroll |
-| scroll left and right (a tilted wheel, a touchpad) | 6, 7 | 4, 5 | **back, forward** |
-| back, forward | 8, 9 | 6, 7 | nothing |
-
-Compose takes AWT's 4 and 5 for back and forward, which is right on Windows. On Linux it reports a sideways scroll as
-back and forward, and the side buttons as nothing at all. So the picker reads the side buttons from AWT itself, by
-Linux's numbering (`SideButtons`, which the app puts in its window), and does nothing with what Compose calls back and
-forward. Both halves were checked on a real window: X's buttons 8 and 9 go back and forward, and 6 and 7 do nothing.
+The window gives Compose each button as the platform names it, so they arrive as Compose's own Back and Forward, and
+a sideways scroll (a tilted wheel, a touchpad) as a scroll (`mouseChords`, `browser/mousebuttons.kt`).
 
 ## Searching the index
 
@@ -675,7 +652,7 @@ list by one row, not a page, and a row far away is scrolled to directly (never b
 `prism pick` itself has been run in a real window on a virtual X display (Xvfb), driven by xdotool: opening a file
 from the keyboard, several with Ctrl-click and the Open button, saving under a typed name, choosing a folder, and
 cancelling with Escape, each printing what it should; the gallery over real pictures; the mouse's side buttons,
-which only a real window can test, since they come from AWT; and, in the dark palette, no ring left on a control once
+which only a real window can test, since they come from the platform; and, in the dark palette, no ring left on a control once
 the pointer has moved on, the filter menu with Ctrl-click, the folder's menu with a submenu turned to fit, sorting from
 it, renaming from a row's menu, Ctrl and the real wheel in the list and the gallery, and a click outside a submenu
 closing the whole menu. And since: Ctrl+2 typed in the search with real X key events, the search keeping what was

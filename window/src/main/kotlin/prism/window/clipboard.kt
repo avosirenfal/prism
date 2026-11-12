@@ -2,9 +2,12 @@
 
 package prism.window
 
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.platform.ClipEntry
 import androidx.compose.ui.platform.Clipboard
+import androidx.compose.ui.platform.LocalClipboard
 import java.awt.datatransfer.DataFlavor
 import java.awt.datatransfer.StringSelection
 import java.awt.datatransfer.Transferable
@@ -168,3 +171,11 @@ internal object ComposeClipboard : Clipboard {
 			null
 		}
 }
+
+/**
+ * [content] given the window's own clipboard again: what a popup's content needs, since Compose gives each popup the
+ * platform clipboard of its own making (AWT's, which has none here), whatever its window provides.
+ */
+@Composable
+fun WindowLocals(content: @Composable () -> Unit) =
+	CompositionLocalProvider(LocalClipboard provides ComposeClipboard, content = content)

@@ -16,6 +16,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.InternalComposeUiApi
 import androidx.compose.ui.platform.FrameRecomposer
 import androidx.compose.ui.unit.DpSize
+import androidx.compose.ui.unit.IntOffset
 import org.lwjgl.sdl.SDLEvents.SDL_EVENT_QUIT
 import org.lwjgl.sdl.SDLEvents.SDL_PollEvent
 import org.lwjgl.sdl.SDLEvents.SDL_WaitEventTimeout
@@ -169,7 +170,8 @@ private fun CompositionLocalApplication(
 
 /**
  * A window, open for as long as this is composed: [title], first [size] (in dp), with the platform's title bar where
- * [decorated], showing [content]. [onCloseRequest] is what closing it by its title bar (or the platform's own way)
+ * [decorated], showing [content]; [at] a place on the screen, in the platform's points, where the platform lets an
+ * application place its windows (not Wayland's), and where the platform likes otherwise. [onCloseRequest] is what closing it by its title bar (or the platform's own way)
  * asks for; whether it closes is the caller's, by composing it no longer.
  */
 @Composable
@@ -178,6 +180,7 @@ fun Window(
 	title: String,
 	size: DpSize,
 	decorated: Boolean = true,
+	at: IntOffset? = null,
 	content: @Composable WindowScope.() -> Unit,
 ) {
 	val app =
@@ -188,7 +191,7 @@ fun Window(
 
 	val window =
 		remember {
-			NativeWindow(app, title, size, decorated).also { window ->
+			NativeWindow(app, title, size, decorated, at).also { window ->
 				val scope =
 					object : WindowScope {
 						override val window: NativeWindow = window
