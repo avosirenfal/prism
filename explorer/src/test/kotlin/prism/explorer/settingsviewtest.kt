@@ -7,16 +7,18 @@ import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.hasAnyAncestor
+import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.isFocused
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performKeyInput
+import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.test.pressKey
 import androidx.compose.ui.test.runComposeUiTest
 import androidx.compose.ui.test.withKeyDown
-import java.nio.file.Path
 import kotlinx.coroutines.flow.MutableSharedFlow
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
@@ -25,7 +27,6 @@ import prism.browser.BrowserTheme
 import prism.browser.Chord
 import prism.browser.MouseButton
 import prism.browser.Trigger
-import prism.desktop.Place
 import prism.preferences.Preferences
 
 /**
@@ -40,11 +41,7 @@ class SettingsViewTest {
 	fun aBindingClickedTakesTheNextChordPressed() =
 		runComposeUiTest {
 			var settings by mutableStateOf(
-				Settings(
-					Preferences.DEFAULT,
-					listOf(Place("Home", Place.Kind.Home, Path.of("/home/avery"))),
-					page = Page.Bindings,
-				),
+				Settings(Preferences.DEFAULT, page = Page.Bindings),
 			)
 
 			val mouse = MutableSharedFlow<Chord>(extraBufferCapacity = 1)
@@ -108,5 +105,46 @@ class SettingsViewTest {
 				),
 				settings.over(Preferences.DEFAULT).bindings,
 			)
+		}
+
+	@Test
+	fun theBindingsAreFoundByTheirWordsOrByAKeyPressed_AndTheListsBarShowsItScrolls() =
+		runComposeUiTest {
+			var settings by mutableStateOf(Settings(Preferences.DEFAULT, page = Page.Bindings))
+
+			setContent {
+				BrowserTheme {
+					SettingsView(settings, { settings = it }, onSave = {}, onCancel = {})
+				}
+			}
+			onNodeWithTag("bindings-scrollbar").assertExists()
+
+			// Ctrl+F, from wherever the keyboard is, goes to the filter; words typed there leave the rest out.
+			onNode(isFocused()).performKeyInput { withKeyDown(Key.CtrlLeft) { pressKey(Key.F) } }
+			waitForIdle()
+			onNode(
+				isFocused() and
+					(hasTestTag("bindings-filter") or hasAnyAncestor(hasTestTag("bindings-filter"))),
+			).assertExists()
+			onNode(isFocused()).performTextReplacement("terminal")
+			waitForIdle()
+			onNodeWithText(Action.OpenTerminal.label).assertExists()
+			onNodeWithText(Action.Back.label).assertDoesNotExist()
+
+			// A key pressed, once the page listens for one, shows what it does, and binds nothing.
+			onNodeWithTag("find-by-key").performClick()
+			waitForIdle()
+			onNode(isFocused()).performKeyInput { withKeyDown(Key.CtrlLeft) { pressKey(Key.H) } }
+			waitForIdle()
+
+			assertEquals(Finding.Pressed(chord("Ctrl+H")), settings.rebinding.finding)
+			onNodeWithText(Action.ToggleHidden.label).assertExists()
+			onNodeWithText(Action.OpenTerminal.label).assertDoesNotExist()
+			assertEquals(Preferences.DEFAULT.bindings, settings.over(Preferences.DEFAULT).bindings)
+
+			// And all shown again.
+			onNodeWithTag("show-all").performClick()
+			waitForIdle()
+			onNodeWithText(Action.Back.label).assertExists()
 		}
 }

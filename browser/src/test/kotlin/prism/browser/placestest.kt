@@ -81,7 +81,7 @@ class PlacesTest {
 				Choosing.Exploring(),
 				folder,
 				root,
-				sidebarOf(XdgPlaces(), root, null),
+				sidebarOf(XdgPlaces(), root),
 			).settled(services),
 			Answer.Configured(shipped),
 		).state
@@ -760,7 +760,7 @@ class PlacesTest {
 
 			val session =
 				Session(
-					opened(Choosing.Exploring(), watched, root, sidebarOf(XdgPlaces(), root, null)),
+					opened(Choosing.Exploring(), watched, root, sidebarOf(XdgPlaces(), root)),
 					services.copy(watcher = JvmFolderWatcher),
 					scope,
 				)
@@ -808,7 +808,7 @@ class PlacesTest {
 
 			val session =
 				Session(
-					opened(Choosing.Exploring(), root, root, sidebarOf(XdgPlaces(), root, null)),
+					opened(Choosing.Exploring(), root, root, sidebarOf(XdgPlaces(), root)),
 					services.copy(temps = temps),
 					scope,
 				)

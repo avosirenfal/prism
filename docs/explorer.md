@@ -85,12 +85,26 @@ the D-Bus methods desktops use for that). That hosting is not written yet.
 Each window has the title bar the window manager draws only with `--decorated`; without it, the dialogs show their
 title at the top and close with their own buttons or Escape.
 
-## Pins, and preferences every window shares
+## Quick access, and preferences every window shares
 
-The places pinned to the sidebar's quick access are the user's preference, not a window's. Pinning a folder from its
-menu does not change the window's sidebar directly. The reducer asks for `Effect.Pin(newList)`, and the session writes
-it to the `PreferenceStore`. Every session collects the store's `StateFlow<Preferences>` and rebuilds its sidebar
-whenever it changes. The window that pinned the folder learns of the pin the same way every other window does.
+The sidebar's quick access is the user's preference, not a window's. It holds prism's own places (the home folder, its
+well-known folders, and the trash) and the folders the user pinned, in the user's order (`QuickAccess`, in
+`preferences/quick.kt`). Prism's own are always in it, each once: the user hides one, and moves it, but cannot remove
+it, so a place a later version adds reaches every user's list, at its end. That is kept by construction: a
+`QuickAccess` is made only by `QuickAccess.of`, which drops what is named twice and adds what is left out, whatever a
+file says. A folder's menu pins it ("Pin to sidebar"); the menu of something quick access shows takes it off ("Unpin
+from sidebar" for a folder pinned, "Hide from sidebar" for one of prism's own). A picker's sidebar leaves out the trash,
+whose entries it cannot give an application.
+
+The button beside the "Quick access" heading opens a window over the browser that arranges it (`quickaccess.kt`):
+every entry, shown or hidden, moved up or down; prism's own shown or hidden by their boxes, the folders pinned removed;
+a folder pinned by its path; and "Reset", prism's own in their own order, every one shown, before the folders pinned.
+Each change is made as it is made, so the sidebar behind shows it. The sidebar, and this window, are drawn as large as
+the preferences' sidebar size says (Display, "Sidebar"); Ctrl and the wheel do not zoom them.
+
+Arranging changes the window's sidebar at once, and asks for `Effect.Arrange(quick)`, which the session writes to the
+`PreferenceStore`. Every session collects the store's `StateFlow<Preferences>` and makes its sidebar again whenever it
+changes, so every other window follows.
 
 The store is a file, `$XDG_CONFIG_HOME/prism/preferences.json`, and the file is watched. A change written by another
 process (another `prism explore`, a `prism pick`, the daemon, or the user's editor) is read back and given to every
@@ -98,7 +112,12 @@ window here. So a folder pinned in the explorer is in the next picker's sidebar 
 
 ```json
 {
-    "pinned": ["/home/avery", "/home/avery/Documents", "/home/avery/Projects"],
+    "quickAccess": [
+        { "type": "builtin", "place": "Home" },
+        { "type": "folder", "path": "/home/avery/Projects" },
+        { "type": "builtin", "place": "Music", "shown": false },
+        { "type": "builtin", "place": "Trash" }
+    ],
     "bindings": {
         "SearchIndex": ["Ctrl+K"],
         "Up": ["Alt+Up", "Backspace", "Mouse Back"]
@@ -107,8 +126,11 @@ window here. So a folder pinned in the explorer is in the next picker's sidebar 
 }
 ```
 
-`pinned` is null until the user pins or unpins something; until then the sidebar shows the desktop's own places (the
-home folder and the well-known folders in it). `bindings` holds only the actions whose chords differ from their
+`quickAccess` is null until the user arranges it; until then the sidebar shows prism's own places, in their own order
+(and those of the list above that it leaves out after it, shown). An older version kept a list of paths, `pinned`, in
+its place: where only that is there, it is read as quick access (the paths in their order, prism's own among them, and
+those of prism's own it left out hidden, since the user had unpinned them; the trash, newer than it, shown), and it is
+dropped the first time quick access is arranged. `bindings` holds only the actions whose chords differ from their
 defaults; an action named with an empty list has no chord at all. `terminal` is null for the desktop's own terminal;
 otherwise the terminal chosen, in one of the forms "Choosing the terminal" (below) shows. A file that does not read as
 preferences leaves every default in place, and is copied beside itself with `.unreadable` after its name before
@@ -250,11 +272,36 @@ when the file's inode last changed. It is read behind the folder, a batch at a t
 rest in the folder's order, each answer asking for the next, so that what is scrolled to is read next. Ordered by it,
 those not known are last, by name. A search's results are not ordered by it.
 
-A new window lists a folder in the order the preferences give (`"sort": {"by": "Created", "ascending": false}`, say),
-and shows that time where it is ordered by one; a window then keeps the order and the date column it is given wherever
-it goes, and no other window is changed by it. The preferences size the text of the menus, the listing and the rest
-(`"text": {"menus": 15, "listing": 13, "general": 13}`), the menus a little larger by default; the Display page of the
-preferences window sets both.
+The headings' menu also shows or hides each column but the name's. A folder's listing and a search's results each have
+a look of their own (`FolderView`, `ResultsView` in `preferences/listing.kt`): the order, which time the date column
+shows (the time ordered by, where it is ordered by one), and the columns hidden; a search's results have one column a
+folder's do not, the folder each is in, and are ordered best first until the user says otherwise. A new window takes
+both from the preferences, and keeps what it is given wherever it goes; no other window is changed by it.
+
+```json
+{
+    "folders": { "sort": { "by": "Created", "ascending": false }, "hidden": [ "Type" ] },
+    "results": { "order": { "type": "relevance" }, "date": "Modified", "hidden": [ "Size" ] },
+    "text": { "menus": 15, "listing": 13, "general": 13 },
+    "scales": { "explorer": 1.25, "picker": 1.0, "sidebar": 1.0, "windows": { "Preferences": 1.1 } },
+    "dates": "Iso"
+}
+```
+
+The preferences size the text of the menus, the listing and the rest, the menus a little larger by default. `scales`
+says how large things are drawn, as many times their usual size: the listing of a new explorer's window and of a new
+picker's (the nearest of the steps Ctrl and the wheel zoom the listing through), the sidebar's quick access and the
+window that arranges it, and each of the other windows (the preferences, a file's properties, "Open with"), as Ctrl and
+the wheel last left one of its kind. In those windows Ctrl and the wheel zoom as a web browser zooms a page, through
+50 % to 300 %: text, and everything measured in dp, laid out again at that size; Ctrl with + and -, and Ctrl+0, do too.
+`dates` is how the listing writes a date: day, month, year (`12 Nov 2026, 14:03`, the default); month, day, year;
+ISO's year-month-day; day/month/year; month/day/year; day.month.year; or as the system's language writes it. A file's
+properties write dates in full, to the second, whatever it says.
+
+The preferences window's pages set all of these: Display (text sizes, sizes, dates), and Columns and order (each
+look). Its Key bindings page has a filter (Ctrl+F goes to it) that finds an action by its name, as shown or as the file
+writes it, or by its chords; and "Find by pressing a key", after which the next chord pressed shows what it does, and
+binds nothing. The list's scrollbar is drawn while there is more than fits.
 
 ## Open terminal here
 

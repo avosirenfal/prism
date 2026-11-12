@@ -269,6 +269,7 @@ with its application, as any file does.
 `menu.hidden` hides entries by id: an action's, or one of prism's own. Prism's ids are `builtin.open`,
 `builtin.open-in-new-window`, `builtin.open-with`, `builtin.cut`, `builtin.copy`, `builtin.paste`,
 `builtin.paste-into`, `builtin.rename`, `builtin.copy-path`, `builtin.pin`, `builtin.terminal`, `builtin.trash`,
+`builtin.erase`, `builtin.put-back`, `builtin.empty-trash`, `builtin.arrange`,
 `builtin.properties`, `builtin.new-folder`, `builtin.new-file`, `builtin.refresh`, `builtin.undo`, `builtin.redo`.
 
 ### One command under two names

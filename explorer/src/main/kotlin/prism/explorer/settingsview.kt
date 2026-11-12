@@ -1,6 +1,8 @@
 package prism.explorer
 
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.ScrollbarStyle
+import androidx.compose.foundation.VerticalScrollbar
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -17,10 +19,14 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.rememberScrollbarAdapter
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
@@ -35,8 +41,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isCtrlPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
@@ -44,24 +53,28 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import java.nio.file.Path
-import kotlin.io.path.Path
-import kotlin.io.path.isDirectory
+import kotlin.math.roundToInt
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
 import prism.browser.Actions
 import prism.browser.Bindable
 import prism.browser.Bindings
+import prism.browser.CheckBox
 import prism.browser.Chord
 import prism.browser.Dims
 import prism.browser.Emphasis
 import prism.browser.Field
+import prism.browser.Glyph
 import prism.browser.LocalPalette
 import prism.browser.LocalType
 import prism.browser.PushButton
 import prism.browser.Scope
 import prism.desktop.TerminalChoice
 import prism.desktop.TerminalCommand
+import prism.preferences.Column
+import prism.preferences.DateFormat
+import prism.preferences.DateShown
+import prism.preferences.Order
 import prism.preferences.Sort
 import prism.preferences.TextSizes
 
@@ -93,26 +106,43 @@ fun SettingsView(
 	val change by rememberUpdatedState(onChange)
 	val rebinding = settings.rebinding
 
+	val filter = remember { FocusRequester() }
+
 	LaunchedEffect(mouseChords) {
 		mouseChords.collect { chord ->
-			if (latest.rebinding.awaited != null)
+			if (latest.rebinding.listening)
 				change(latest.copy(rebinding = latest.rebinding.pressed(chord)))
 		}
 	}
-	LaunchedEffect(rebinding.awaited) {
-		if (rebinding.awaited != null)
-			root.requestFocus()
+	// The keyboard starts in the window, where its keys (Ctrl+F) are heard; and goes back there to wait for a chord.
+	LaunchedEffect(rebinding.listening) {
+		root.requestFocus()
 	}
 
 	Row(
 		Modifier
 			.fillMaxSize()
 			.focusRequester(root)
-			.focusable()
+			// Left on nothing (a button pressed that then goes, or can no longer be pressed), the keyboard comes back
+			// to the window, where Escape and Ctrl+F are heard.
+			.onFocusChanged {
+				if (!it.hasFocus)
+					root.requestFocus()
+			}.focusable()
 			.onPreviewKeyEvent { key ->
-				// While a chord is awaited, every key is it: none reaches a field, nor moves the keyboard on.
+				// While a chord is awaited, every key is it: none reaches a field, nor moves the keyboard on. Ctrl+F on
+				// the bindings page goes to its filter, as it does in a browser's page.
 				when {
-					rebinding.awaited == null -> false
+					!rebinding.listening ->
+						(
+							settings.page == Page.Bindings &&
+								key.type == KeyEventType.KeyDown &&
+								key.isCtrlPressed &&
+								key.key == Key.F
+						).also {
+							if (it)
+								filter.requestFocus()
+						}
 					key.type != KeyEventType.KeyDown -> true
 					key.key == Key.Escape ->
 						true.also {
@@ -141,10 +171,13 @@ fun SettingsView(
 		Column(Modifier.weight(1f).fillMaxHeight().padding(Dims.gap * 2)) {
 			Box(Modifier.weight(1f).fillMaxWidth()) {
 				when (settings.page) {
-					Page.Sidebar -> SidebarPage(settings, onChange)
 					Page.Display -> DisplayPage(settings, onChange)
+					Page.Listing -> ListingPage(settings, onChange)
 					Page.Terminal -> TerminalPage(settings, onChange, terminalPreview)
-					Page.Bindings -> BindingsPage(rebinding) { onChange(settings.copy(rebinding = it)) }
+					Page.Bindings ->
+						BindingsPage(rebinding, filter) {
+							onChange(settings.copy(rebinding = it))
+						}
 					Page.Actions -> ActionsPage(settings.actions)
 				}
 			}
@@ -189,88 +222,315 @@ private fun Heading(text: String, help: String) {
 	Spacer(Modifier.height(Dims.gap * 2))
 }
 
-/** How a new window orders a folder, and how large each part's text is. */
+/**
+ * How large things are drawn: each part's text, the listing of a new explorer's window and of a picker's, and the
+ * sidebar's quick access; and how dates are written.
+ */
 @Composable
 private fun DisplayPage(settings: Settings, onChange: (Settings) -> Unit) {
 	val type = LocalType.current
+	val text = settings.text
+	val scales = settings.scales
 
 	Column(Modifier.verticalScroll(rememberScrollState())) {
-		Heading(
-			"Order of a new window",
-			"How a new window lists a folder. A window ordered otherwise by its column headings keeps its order " +
-				"wherever it goes, and no other window is changed by it.",
-		)
-		Row(horizontalArrangement = Arrangement.spacedBy(Dims.gap)) {
-			Sort.Column.entries.forEach { column ->
-				PushButton(
-					labelOf(column),
-					if (settings.sort.by == column)
-						Emphasis.Primary
-					else
-						Emphasis.Secondary,
-					enabled = true,
-				) { onChange(settings.copy(sort = Sort(column, settings.sort.ascending))) }
-			}
-		}
-		Spacer(Modifier.height(Dims.gap))
-		Row(horizontalArrangement = Arrangement.spacedBy(Dims.gap)) {
-			listOf(true to "Ascending", false to "Descending").forEach { (ascending, label) ->
-				PushButton(
-					label,
-					if (settings.sort.ascending == ascending)
-						Emphasis.Primary
-					else
-						Emphasis.Secondary,
-					enabled = true,
-				) { onChange(settings.copy(sort = settings.sort.copy(ascending = ascending))) }
-			}
-		}
-		Spacer(Modifier.height(Dims.gap * 3))
 		Heading(
 			"Text",
 			"How large the text of each part of a window is, in points. The listing's rows and the menus' entries " +
 				"grow with their text; Ctrl and the wheel still zoom the listing from its size.",
 		)
-
-		val text = settings.text
-
-		SizeRow("Menus", text.menus) { onChange(settings.copy(text = text.copy(menus = it))) }
-		SizeRow("Listing", text.listing) {
-			onChange(settings.copy(text = text.copy(listing = it)))
+		StepRow(
+			"Menus",
+			"${text.menus.toInt()} pt",
+			text.menus > TextSizes.SMALLEST,
+			text.menus < TextSizes.LARGEST,
+		) {
+			onChange(
+				settings.copy(
+					text =
+						text.copy(
+							menus = (text.menus + it).coerceIn(TextSizes.SMALLEST, TextSizes.LARGEST),
+						),
+				),
+			)
 		}
-		SizeRow("Everything else", text.general) {
-			onChange(settings.copy(text = text.copy(general = it)))
+		StepRow(
+			"Listing",
+			"${text.listing.toInt()} pt",
+			text.listing > TextSizes.SMALLEST,
+			text.listing < TextSizes.LARGEST,
+		) {
+			onChange(
+				settings.copy(
+					text =
+						text.copy(
+							listing = (text.listing + it).coerceIn(TextSizes.SMALLEST, TextSizes.LARGEST),
+						),
+				),
+			)
+		}
+		StepRow(
+			"Everything else",
+			"${text.general.toInt()} pt",
+			text.general > TextSizes.SMALLEST,
+			text.general < TextSizes.LARGEST,
+		) {
+			onChange(
+				settings.copy(
+					text =
+						text.copy(
+							general = (text.general + it).coerceIn(TextSizes.SMALLEST, TextSizes.LARGEST),
+						),
+				),
+			)
+		}
+		Spacer(Modifier.height(Dims.gap * 3))
+		Heading(
+			"Size",
+			"How large a new window's listing is drawn, as a percentage of its usual size: Ctrl and the wheel zoom it " +
+				"from there, as they zoom every other window of prism's (the preferences, a file's properties) on its own. " +
+				"Quick access, and the window that arranges it, are drawn as large as the sidebar's size says.",
+		)
+		ZoomRow("Explorer's listing", scales.explorer, LISTING_STEPS) {
+			onChange(settings.copy(scales = scales.copy(explorer = it)))
+		}
+		ZoomRow("Picker's listing", scales.picker, LISTING_STEPS) {
+			onChange(settings.copy(scales = scales.copy(picker = it)))
+		}
+		ZoomRow("Sidebar", scales.sidebar, WINDOW_STEPS) {
+			onChange(settings.copy(scales = scales.copy(sidebar = it)))
+		}
+		Spacer(Modifier.height(Dims.gap * 3))
+		Heading(
+			"Dates",
+			"How a date and its time are written in the listing. A file's properties write them in full, to the second.",
+		)
+
+		val now = remember { java.time.Instant.now() }
+
+		DateFormat.entries.forEach { format ->
+			Row(
+				Modifier
+					.fillMaxWidth()
+					.clickable { onChange(settings.copy(dates = format)) }
+					.padding(vertical = Dims.gapSmall)
+					.testTag("dates:${format.name}"),
+				verticalAlignment = Alignment.CenterVertically,
+			) {
+				RadioDot(settings.dates == format)
+				Spacer(Modifier.width(Dims.gap))
+				Text(format.label, style = type.body, modifier = Modifier.width(220.dp))
+				Text(format.write(now), style = type.muted)
+			}
 		}
 		Spacer(Modifier.height(Dims.gap))
 		Text("Changes show once saved.", style = type.muted)
 	}
 }
 
-/** A part's text [size], made smaller or larger a point at a time, within what can be read. */
+/**
+ * How a new window lists a folder, and a search's results: the order, which time the date column shows, and which
+ * columns are shown.
+ */
 @Composable
-private fun SizeRow(label: String, size: Float, onSize: (Float) -> Unit) {
+private fun ListingPage(settings: Settings, onChange: (Settings) -> Unit) {
 	val type = LocalType.current
 
+	Column(Modifier.verticalScroll(rememberScrollState())) {
+		Heading(
+			"Folders",
+			"How a new window lists a folder. A window given another order or other columns keeps them wherever it goes, " +
+				"and no other window is changed by it.",
+		)
+
+		val folders = settings.folders
+
+		ChoiceRow("Order", Sort.Column.entries, folders.sort.by, ::labelOf) {
+			onChange(settings.copy(folders = folders.sorted(Sort(it, folders.sort.ascending))))
+		}
+		ChoiceRow("Direction", listOf(true, false), folders.sort.ascending, ::directionOf) {
+			onChange(settings.copy(folders = folders.sorted(folders.sort.copy(ascending = it))))
+		}
+		ChoiceRow("Date shows", DateShown.entries, folders.dateShown, ::labelOf) {
+			onChange(settings.copy(folders = folders.showing(it)))
+		}
+		ColumnsRow(Column.OF_FOLDERS, folders.hidden) { column, shown ->
+			onChange(settings.copy(folders = folders.showingColumn(column, shown)))
+		}
+		Spacer(Modifier.height(Dims.gap * 3))
+		Heading(
+			"Search results",
+			"How a new window lists what a search finds. Results ordered by best match are ordered as the search " +
+				"ranked them; when they were made is not known of results, so they are not ordered by it.",
+		)
+
+		val results = settings.results
+		val sort = results.order.sort
+
+		ChoiceRow(
+			"Order",
+			listOf<Sort.Column?>(null) + Sort.Column.entries.filter { it != Sort.Column.Created },
+			sort?.by,
+			{ it?.let(::labelOf) ?: "Best match" },
+		) { column ->
+			onChange(
+				settings.copy(
+					results =
+						results.ordered(
+							column?.let {
+								Order.By(Sort(it, sort?.ascending ?: true))
+							} ?: Order.Relevance,
+						),
+				),
+			)
+		}
+		if (sort != null)
+			ChoiceRow("Direction", listOf(true, false), sort.ascending, ::directionOf) {
+				onChange(
+					settings.copy(results = results.ordered(Order.By(sort.copy(ascending = it)))),
+				)
+			}
+		ChoiceRow("Date shows", DateShown.entries, results.dateShown, ::labelOf) {
+			onChange(settings.copy(results = results.showing(it)))
+		}
+		ColumnsRow(Column.OF_RESULTS, results.hidden) { column, shown ->
+			onChange(settings.copy(results = results.showingColumn(column, shown)))
+		}
+		Spacer(Modifier.height(Dims.gap))
+		Text("Changes show in windows opened once saved.", style = type.muted)
+	}
+}
+
+/** One of [choices], each a button, the one [chosen] marked. */
+@Composable
+private fun <T> ChoiceRow(
+	label: String,
+	choices: List<T>,
+	chosen: T,
+	name: (T) -> String,
+	onChoose: (T) -> Unit,
+) {
 	Row(
 		verticalAlignment = Alignment.CenterVertically,
 		modifier = Modifier.padding(vertical = Dims.gapSmall),
 	) {
-		Text(label, style = type.body, modifier = Modifier.width(160.dp))
-		PushButton("−", Emphasis.Secondary, enabled = size > TextSizes.SMALLEST) {
-			onSize((size - 1f).coerceAtLeast(TextSizes.SMALLEST))
-		}
-		Text(
-			"${size.toInt()} pt",
-			style = type.body.copy(fontSize = size.sp, lineHeight = (size * 1.4f).sp),
-			modifier = Modifier.width(72.dp).padding(horizontal = Dims.gap),
-		)
-		PushButton("+", Emphasis.Secondary, enabled = size < TextSizes.LARGEST) {
-			onSize((size + 1f).coerceAtMost(TextSizes.LARGEST))
+		Text(label, style = LocalType.current.body, modifier = Modifier.width(160.dp))
+		FlowRow(
+			horizontalArrangement = Arrangement.spacedBy(Dims.gap),
+			verticalArrangement = Arrangement.spacedBy(Dims.gap),
+		) {
+			choices.forEach { choice ->
+				PushButton(
+					name(choice),
+					if (choice == chosen)
+						Emphasis.Primary
+					else
+						Emphasis.Secondary,
+					enabled = true,
+					Modifier.testTag("$label:${name(choice)}"),
+				) { onChoose(choice) }
+			}
 		}
 	}
 }
 
-/** A column, as the order of a new window names it. */
+/** Which of [columns] are shown, each ticked or not; the name's is always shown. */
+@Composable
+private fun ColumnsRow(
+	columns: List<Column>,
+	hidden: Set<Column>,
+	onShown: (Column, Boolean) -> Unit,
+) {
+	Row(
+		verticalAlignment = Alignment.CenterVertically,
+		modifier = Modifier.padding(vertical = Dims.gapSmall),
+	) {
+		Text("Columns", style = LocalType.current.body, modifier = Modifier.width(160.dp))
+		Row(horizontalArrangement = Arrangement.spacedBy(Dims.gap * 2)) {
+			CheckBox("Name", checked = true, enabled = false) {}
+			columns.forEach { column ->
+				CheckBox(
+					labelOf(column),
+					column !in hidden,
+					Modifier.testTag("column:${labelOf(column)}"),
+				) {
+					onShown(column, it)
+				}
+			}
+		}
+	}
+}
+
+/** A value said as [shown], made smaller or larger a step at a time, as far as [smaller] and [larger] allow. */
+@Composable
+private fun StepRow(
+	label: String,
+	shown: String,
+	smaller: Boolean,
+	larger: Boolean,
+	onStep: (Float) -> Unit,
+) {
+	Row(
+		verticalAlignment = Alignment.CenterVertically,
+		modifier = Modifier.padding(vertical = Dims.gapSmall),
+	) {
+		Text(label, style = LocalType.current.body, modifier = Modifier.width(160.dp))
+		PushButton(
+			"−",
+			Emphasis.Secondary,
+			enabled = smaller,
+			Modifier.testTag("$label:smaller"),
+		) {
+			onStep(-1f)
+		}
+		Text(
+			shown,
+			style = LocalType.current.body,
+			modifier = Modifier.width(72.dp).padding(horizontal = Dims.gap),
+		)
+		PushButton(
+			"+",
+			Emphasis.Secondary,
+			enabled = larger,
+			Modifier.testTag("$label:larger"),
+		) {
+			onStep(1f)
+		}
+	}
+}
+
+/** A size, as a percentage, stepped through [steps]: from the nearest of them, to the next smaller or larger. */
+@Composable
+private fun ZoomRow(
+	label: String,
+	scale: Float,
+	steps: List<Float>,
+	onScale: (Float) -> Unit,
+) {
+	val at = steps.indices.minBy { kotlin.math.abs(steps[it] - scale) }
+
+	StepRow(label, "${(steps[at] * 100).roundToInt()} %", at > 0, at < steps.lastIndex) {
+		onScale(steps[(at + it.toInt()).coerceIn(0, steps.lastIndex)])
+	}
+}
+
+/** A dot, filled where it is the one chosen of its kind. */
+@Composable
+private fun RadioDot(chosen: Boolean) {
+	val palette = LocalPalette.current
+
+	Box(
+		Modifier
+			.size(16.dp)
+			.border(1.dp, if (chosen) palette.accent else palette.fieldEdge, CircleShape)
+			.padding(4.dp)
+			.background(if (chosen) palette.accent else Color.Transparent, CircleShape),
+	)
+}
+
+/** The sizes a listing starts at: the steps Ctrl and the wheel zoom a list through. */
+private val LISTING_STEPS = listOf(0.75f, 0.875f, 1f, 1.25f, 1.5f, 2f)
+
+/** A column, as the preferences name it. */
 private fun labelOf(column: Sort.Column): String =
 	when (column) {
 		Sort.Column.Name -> "Name"
@@ -280,59 +540,22 @@ private fun labelOf(column: Sort.Column): String =
 		Sort.Column.Size -> "Size"
 	}
 
-/** The places pinned to every sidebar, the pickers' too: moved, unpinned, typed in and pinned. */
-@Composable
-private fun SidebarPage(settings: Settings, onChange: (Settings) -> Unit) {
-	val type = LocalType.current
-	val palette = LocalPalette.current
-	var typed by remember { mutableStateOf("") }
-	val folder = typed.takeIf { it.isNotBlank() }?.let { Path(it.trim()) }
-	val pinnable = folder?.let { it.isAbsolute && it.isDirectory() } == true
-
-	Column {
-		Heading(
-			"Pinned places",
-			"What is pinned here is at the top of every window's sidebar, " +
-				"the file pickers' too. A folder's menu pins it, and a pinned " +
-				"place's menu unpins it.",
-		)
-		LazyColumn(Modifier.weight(1f, fill = false)) {
-			items(settings.pins.withIndex().toList(), key = {
-				it.value.toString()
-			}) { (index, path) ->
-				PinRow(
-					path,
-					settings.labelOf(path),
-					index,
-					settings.pins.lastIndex,
-					onChange = { onChange(it(settings)) },
-				)
-			}
-		}
-		Spacer(Modifier.height(Dims.gap))
-		Row(
-			verticalAlignment = Alignment.CenterVertically,
-			horizontalArrangement = Arrangement.spacedBy(Dims.gap),
-		) {
-			Field(typed, {
-				typed = it
-			}, Modifier.weight(1f), hint = "A folder to pin, as its whole path")
-			PushButton("Pin", Emphasis.Secondary, enabled = pinnable) {
-				folder?.let { onChange(settings.pinned(it)) }
-				typed = ""
-			}
-		}
-		if (folder != null && !pinnable)
-			Text(
-				"That is not a folder's whole path.",
-				style = type.muted.copy(color = palette.textFaint),
-			)
-		Spacer(Modifier.height(Dims.gap))
-		PushButton("Desktop's own", Emphasis.Secondary, enabled = settings.pinned != null) {
-			onChange(settings.copy(pinned = null))
-		}
+private fun labelOf(column: Column): String =
+	when (column) {
+		Column.Folder -> "Folder"
+		Column.Date -> "Date"
+		Column.Type -> "Type"
+		Column.Size -> "Size"
 	}
-}
+
+private fun labelOf(date: DateShown): String =
+	when (date) {
+		DateShown.Modified -> "When modified"
+		DateShown.Created -> "When made"
+	}
+
+private fun directionOf(ascending: Boolean): String =
+	if (ascending) "Ascending" else "Descending"
 
 /**
  * The actions the menus offer beyond prism's own, and the places they show: which there are, and, of those the
@@ -406,42 +629,6 @@ private fun ActionsPage(actions: Actions) {
 			items(actions.places.values.toList(), key = { "place:${it.id}" }) { place ->
 				Text(place.id, style = type.body, modifier = Modifier.padding(vertical = 3.dp))
 			}
-		}
-	}
-}
-
-@Composable
-private fun PinRow(
-	path: Path,
-	label: String,
-	index: Int,
-	last: Int,
-	onChange: ((Settings) -> Settings) -> Unit,
-) {
-	val type = LocalType.current
-
-	Row(
-		Modifier.fillMaxWidth().padding(vertical = 3.dp),
-		verticalAlignment = Alignment.CenterVertically,
-		horizontalArrangement = Arrangement.spacedBy(Dims.gap),
-	) {
-		Column(Modifier.weight(1f)) {
-			Text(label, style = type.body, maxLines = 1)
-			Text(
-				path.toString(),
-				style = type.muted,
-				maxLines = 1,
-				overflow = TextOverflow.Ellipsis,
-			)
-		}
-		PushButton("Move up", Emphasis.Secondary, enabled = index > 0) {
-			onChange { it.moved(index, -1) }
-		}
-		PushButton("Move down", Emphasis.Secondary, enabled = index < last) {
-			onChange { it.moved(index, 1) }
-		}
-		PushButton("Unpin", Emphasis.Secondary, enabled = true) {
-			onChange { it.unpinned(index) }
 		}
 	}
 }
@@ -535,12 +722,26 @@ private fun headingOf(scope: Scope): String =
 		Scope.Leftover -> "Wherever the keyboard is, once it is done with the key"
 	}
 
-/** Every action, with its chords, each one clicked to bind it anew, removed, or added to. */
+/**
+ * Every action, with its chords, each one clicked to bind it anew, removed, or added to: those [Finding] shows, found
+ * by words typed into the filter (Ctrl+F) or by a chord pressed, which shows what it does. The list scrolls, its
+ * scrollbar beside it.
+ */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun BindingsPage(rebinding: Rebinding, onChange: (Rebinding) -> Unit) {
+private fun BindingsPage(
+	rebinding: Rebinding,
+	filter: FocusRequester,
+	onChange: (Rebinding) -> Unit,
+) {
 	val type = LocalType.current
 	val palette = LocalPalette.current
+	val list = rememberLazyListState()
+	val finding = rebinding.finding
+	val shown =
+		rebinding.bindings.actions.filter {
+			finding.shows(it, rebinding.bindings.of(it))
+		}
 
 	Column {
 		Heading(
@@ -550,6 +751,54 @@ private fun BindingsPage(rebinding: Rebinding, onChange: (Rebinding) -> Unit) {
 				"Escape stops waiting. A chord does one thing, so one given " +
 				"here is taken from whatever had it.",
 		)
+		Row(
+			verticalAlignment = Alignment.CenterVertically,
+			horizontalArrangement = Arrangement.spacedBy(Dims.gap),
+		) {
+			Field(
+				(finding as? Finding.Words)?.text.orEmpty(),
+				{ onChange(rebinding.finding(Finding.Words(it))) },
+				Modifier.weight(1f).testTag("bindings-filter"),
+				hint = "Find an action, or a key (Ctrl+F)",
+				trailing = Glyph.Search,
+				focus = filter,
+			)
+			// Pressed, it listens: the next chord pressed shows what it does, and nothing else is done with it.
+			PushButton(
+				when (finding) {
+					Finding.Listening -> "Press a key…"
+					is Finding.Pressed -> "Pressed: ${finding.chord}"
+					is Finding.Words -> "Find by pressing a key"
+				},
+				if (finding is Finding.Words)
+					Emphasis.Secondary
+				else
+					Emphasis.Primary,
+				enabled = true,
+				Modifier.testTag("find-by-key"),
+			) {
+				onChange(
+					rebinding.finding(
+						if (finding ==
+							Finding.Listening
+						)
+							Finding.ALL
+						else
+							Finding.Listening,
+					),
+				)
+			}
+			// Always there, so that the keyboard, on it as it is pressed, is not left on nothing as it would go.
+			PushButton(
+				"Show all",
+				Emphasis.Secondary,
+				enabled = finding != Finding.ALL,
+				Modifier.testTag("show-all"),
+			) {
+				onChange(rebinding.finding(Finding.ALL))
+			}
+		}
+		Spacer(Modifier.height(Dims.gap))
 		rebinding.took?.let { took ->
 			Text(
 				"${took.chord} was taken from ${namesOf(took.from)}.",
@@ -557,29 +806,41 @@ private fun BindingsPage(rebinding: Rebinding, onChange: (Rebinding) -> Unit) {
 			)
 			Spacer(Modifier.height(Dims.gap))
 		}
-		LazyColumn(Modifier.weight(1f)) {
-			Scope.entries.forEach { scope ->
-				item(key = scope) {
-					Text(
-						headingOf(scope),
-						style = type.heading,
-						modifier =
-							Modifier.padding(
-								top =
-									Dims.gap * 2,
-								bottom = Dims.gap,
-							),
-					)
+		Row(Modifier.weight(1f)) {
+			LazyColumn(Modifier.weight(1f).testTag("bindings"), state = list) {
+				Scope.entries.forEach { scope ->
+					val here = shown.filter { it.scope == scope }
+
+					if (here.isNotEmpty())
+						item(key = scope) {
+							Text(
+								headingOf(scope),
+								style = type.heading,
+								modifier = Modifier.padding(top = Dims.gap * 2, bottom = Dims.gap),
+							)
+						}
+					items(here, key = { it.key }) { action ->
+						BindingRow(action, rebinding, onChange)
+					}
 				}
-				items(
-					rebinding.bindings.actions.filter {
-						it.scope == scope
-					},
-					key = { it.key },
-				) { action ->
-					BindingRow(action, rebinding, onChange)
-				}
+				if (shown.isEmpty())
+					item(key = "none") {
+						Text(
+							when (finding) {
+								is Finding.Pressed -> "${finding.chord} does nothing."
+								else -> "No action matches."
+							},
+							style = type.muted,
+							modifier = Modifier.padding(top = Dims.gap * 2),
+						)
+					}
 			}
+			// The list's own bar, always drawn while there is more than fits: that it scrolls is plain to see.
+			VerticalScrollbar(
+				rememberScrollbarAdapter(list),
+				Modifier.fillMaxHeight().padding(start = Dims.gapSmall).testTag("bindings-scrollbar"),
+				style = scrollbarStyleOf(palette),
+			)
 		}
 		Spacer(Modifier.height(Dims.gap))
 		PushButton(
@@ -592,6 +853,17 @@ private fun BindingsPage(rebinding: Rebinding, onChange: (Rebinding) -> Unit) {
 		}
 	}
 }
+
+/** A scrollbar in [palette]'s colours, seen without being hovered over. */
+private fun scrollbarStyleOf(palette: prism.browser.Palette): ScrollbarStyle =
+	ScrollbarStyle(
+		minimalHeight = 24.dp,
+		thickness = 8.dp,
+		shape = RoundedCornerShape(4.dp),
+		hoverDurationMillis = 200,
+		unhoverColor = palette.textFaint.copy(alpha = 0.5f),
+		hoverColor = palette.textMuted,
+	)
 
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable

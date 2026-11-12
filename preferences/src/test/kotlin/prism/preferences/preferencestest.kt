@@ -6,6 +6,7 @@ import kotlin.io.path.exists
 import kotlin.io.path.readText
 import kotlin.io.path.writeText
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertInstanceOf
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
@@ -38,8 +39,13 @@ class PreferencesTest {
 	fun preferencesWrittenAreReadBackAndTheFileShowsEverySetting() {
 		val set =
 			Preferences.DEFAULT
-				.pinning(listOf(Path.of("/home/avery/Projects"), Path.of("/mnt/data")))
-				.binding("SearchIndex", listOf("Ctrl+Space"))
+				.arranging(
+					QuickAccess.DEFAULT
+						.pinning(Path.of("/home/avery/Projects"))
+						.pinning(Path.of("/mnt/data"))
+						.showing(Builtin.Music, false)
+						.moved(7, -7),
+				).binding("SearchIndex", listOf("Ctrl+Space"))
 				.binding("Back", listOf("Mouse Back", "Alt+Left"))
 				.copy(
 					terminal = TerminalChoice.Named("foot"),
@@ -49,7 +55,7 @@ class PreferencesTest {
 
 		assertEquals(PreferencesRead.Read(set), PreferenceFile.read(file))
 		// Defaults are written too, for the file to say what can be set.
-		assertTrue("\"pinned\"" in file.readText())
+		assertTrue("\"quickAccess\"" in file.readText())
 		// And a binding put back to its default is no longer named.
 		assertEquals(
 			mapOf("Back" to listOf("Mouse Back", "Alt+Left")),
@@ -66,7 +72,7 @@ class PreferencesTest {
 			assertEquals(Preferences.DEFAULT, store.preferences.value)
 			assertNotNull(store.problem)
 
-			store.update { it.pinning(listOf(Path.of("/srv"))) }
+			store.update { it.arranging(QuickAccess.DEFAULT.pinning(Path.of("/srv"))) }
 
 			assertNull(store.problem)
 			assertEquals(
@@ -89,15 +95,21 @@ class PreferencesTest {
 	}
 
 	@Test
-	fun theDefaultOrderAndTheTextSizesAreWrittenAndReadBack() {
+	fun theDefaultLookAndTheTextSizesAreWrittenAndReadBack() {
 		Files.createDirectories(file.parent)
 		file.writeText(
-			"""{ "sort": { "by": "Modified", "ascending": false }, "text": { "menus": 18 } }""",
+			"""{ "folders": { "sort": { "by": "Modified", "ascending": false }, "hidden": [ "Type" ] },
+				"results": { "order": { "type": "by", "sort": { "by": "Name", "ascending": true } } },
+				"text": { "menus": 18 }, "dates": "Iso", "scales": { "sidebar": 1.25 } }""",
 		)
 
 		val read = PreferenceFile.read(file).preferences
 
-		assertEquals(Sort(Sort.Column.Modified, ascending = false), read.sort)
+		assertEquals(Sort(Sort.Column.Modified, ascending = false), read.folders.sort)
+		assertEquals(setOf(Column.Type), read.folders.hidden)
+		assertEquals(Order.By(Sort.BY_NAME), read.results.order)
+		assertEquals(DateFormat.Iso, read.dates)
+		assertEquals(1.25f, read.scales.sidebar)
 		assertEquals(TextSizes(menus = 18f), read.text)
 		// What is not said is the default: menus a little larger than the rest.
 		assertEquals(TextSizes.MENUS, Preferences().text.menus)
@@ -111,16 +123,20 @@ class PreferencesTest {
 	fun aChangeMadeThroughOneStoreReachesAnotherOfTheSameFile() {
 		PreferenceFile.open(file).use { one ->
 			PreferenceFile.open(file).use { other ->
-				one.update { it.pinning(listOf(Path.of("/srv/media"))) }
+				one.update { it.arranging(QuickAccess.DEFAULT.pinning(Path.of("/srv/media"))) }
 
 				val deadline = System.currentTimeMillis() + 10_000
 
-				while (other.preferences.value.pinned == null &&
+				while (other.preferences.value.quickAccess == null &&
 					System.currentTimeMillis() < deadline
 					)
 					Thread.sleep(20)
 
-				assertEquals(listOf(Path.of("/srv/media")), other.preferences.value.pinned)
+				assertEquals(
+					listOf(Path.of("/srv/media")),
+					other.preferences.value.quickAccess
+						?.pins,
+				)
 			}
 		}
 		assertTrue(file.exists())
@@ -135,5 +151,60 @@ class PreferencesTest {
 			TerminalChoice.Named("alacritty"),
 			store.preferences.value.terminal,
 		)
+	}
+
+	@Test
+	fun quickAccessAlwaysHoldsEachOfPrismsOwnOnce_AndEachFolderOnce() {
+		val projects = Path.of("/home/avery/Projects")
+
+		val read =
+			QuickAccess.of(
+				listOf(
+					QuickItem.Pinned(projects),
+					QuickItem.Own(Builtin.Trash, shown = false),
+					QuickItem.Own(Builtin.Trash),
+					QuickItem.Pinned(projects),
+				),
+			)
+
+		// The first of what is named twice; prism's own that were left out added, shown, in their own order.
+		assertEquals(
+			listOf(QuickItem.Pinned(projects), QuickItem.Own(Builtin.Trash, shown = false)) +
+				Builtin.entries.filter { it != Builtin.Trash }.map { QuickItem.Own(it) },
+			read.items,
+		)
+		// Pinned again, a folder is still there once; unpinned, it is gone; prism's own are only ever hidden.
+		assertEquals(read, read.pinning(projects))
+		assertEquals(emptyList<Path>(), read.unpinning(projects).pins)
+		assertFalse(read.shows(Builtin.Trash))
+		assertTrue(read.showing(Builtin.Trash, true).shows(Builtin.Trash))
+		// Moved as far as it can go, and no further.
+		assertEquals(QuickItem.Pinned(projects), read.moved(0, 100).items.last())
+		assertEquals(
+			QuickItem.Pinned(projects),
+			read
+				.moved(0, 100)
+				.moved(read.items.lastIndex, -100)
+				.items
+				.first(),
+		)
+	}
+
+	@Test
+	fun aListingOrderedByATimeShowsThatTime() {
+		val created = FolderView(Sort(Sort.Column.Created, ascending = false))
+
+		assertEquals(DateShown.Created, created.dateShown)
+		// Shown the other time, it is ordered by that one, the same way round.
+		assertEquals(
+			Sort(Sort.Column.Modified, ascending = false),
+			created.showing(DateShown.Modified).sort,
+		)
+		// Ordered by name, it shows whichever time it is told, and stays ordered by name.
+		assertEquals(DateShown.Created, FolderView().showing(DateShown.Created).dateShown)
+		assertEquals(Sort.BY_NAME, FolderView().showing(DateShown.Created).sort)
+		// Results ordered best first show whichever time they are told.
+		assertEquals(DateShown.Created, ResultsView().showing(DateShown.Created).dateShown)
+		assertEquals(Order.Relevance, ResultsView().showing(DateShown.Created).order)
 	}
 }

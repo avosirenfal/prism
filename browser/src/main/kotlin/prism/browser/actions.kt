@@ -666,6 +666,11 @@ sealed interface Where {
 		override val word: String get() = "results"
 	}
 
+	/** The trash, where nothing but putting back and deleting for good is done. */
+	data object Trash : Where {
+		override val word: String get() = "trash"
+	}
+
 	/** In [placed], in the folder of it at [within]. */
 	data class Place(
 		val placed: Placed,

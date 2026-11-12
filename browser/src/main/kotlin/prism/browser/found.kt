@@ -19,6 +19,7 @@ import prism.index.query.ReadQuery
 import prism.index.query.Term
 import prism.index.query.Test
 import prism.index.search
+import prism.preferences.Order
 import prism.preferences.Sort
 import prism.index.Kind as EntryKind
 
@@ -242,10 +243,10 @@ sealed interface Stat {
 	/** Asked of the disk, and not answered yet. */
 	data object Asked : Stat
 
-	/** Its size (none for a folder) and when it was last modified, each with the text its column shows. */
+	/** Its size (none for a folder, with the text its column shows) and when it was last modified. */
 	data class Read(
 		val size: Shown<Long>?,
-		val modified: Shown<Instant>?,
+		val modified: Instant?,
 	) : Stat
 
 	/** Not there any more: left out of the results shown. */
@@ -320,32 +321,6 @@ class Stats private constructor(
 	}
 }
 
-/** How a search's results are ordered. Folders come first whatever it is. */
-@Immutable
-sealed interface Order {
-	/** Best first, as the search ranked them. */
-	data object Relevance : Order
-
-	/** By a column, as a folder is. */
-	data class By(
-		val sort: Sort,
-	) : Order
-}
-
-/** The order after [column]'s header is clicked: the other way round if it is already the order, otherwise by it. */
-fun Order.toggled(column: Sort.Column): Order =
-	when (this) {
-		Order.Relevance ->
-			Order.By(
-				Sort(
-					column,
-					ascending =
-						column == Sort.Column.Name || column == Sort.Column.Type,
-				),
-			)
-		is Order.By -> Order.By(sort.toggled(column))
-	}
-
 /**
  * How many results are few enough to be read on disk every one, as soon as they are shown, and ordered by any column
  * at once, as a folder is. More are read as they come into sight, and ordered by name or type (which the index knows)
@@ -373,7 +348,7 @@ fun orderOf(matches: Matches, stats: Stats, column: Sort.Column): IntArray {
 			}
 			Sort.Column.Modified ->
 				compareBy<Int, Instant?>(nullsLast()) {
-					read(it)?.modified?.value
+					read(it)?.modified
 				}.then(byName)
 			Sort.Column.Size ->
 				compareBy<Int, Long?>(nullsLast()) {

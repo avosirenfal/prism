@@ -65,7 +65,7 @@ class DragTest {
 		val actions = Actions.read(listOf(Actions.SHIPPED))
 		val services = Services(JvmDisk(), home = root)
 		val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-		val sidebar = sidebarOf(XdgPlaces(), root, null)
+		val sidebar = sidebarOf(XdgPlaces(), root)
 
 		val archive =
 			Session(

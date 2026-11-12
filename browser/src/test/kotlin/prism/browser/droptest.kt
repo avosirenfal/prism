@@ -30,7 +30,7 @@ class DropTest {
 	@TempDir
 	lateinit var bin: Path
 
-	private val disk get() = JvmDisk(ZoneOffset.UTC, Trash(bin))
+	private val disk get() = JvmDisk(Trash(bin))
 
 	private fun made(vararg files: String) =
 		files.forEach { name ->
@@ -46,7 +46,7 @@ class DropTest {
 		choosing: Choosing = Choosing.Exploring(),
 		folder: Path = root,
 	): BrowserState =
-		opened(choosing, folder, root, sidebarOf(XdgPlaces(), root, null)).settled(disk)
+		opened(choosing, folder, root, sidebarOf(XdgPlaces(), root)).settled(disk)
 
 	private fun after(state: BrowserState, vararg inputs: Input): BrowserState =
 		inputs.fold(state) { at, input -> step(at, input).settled(disk) }

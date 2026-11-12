@@ -103,7 +103,7 @@ class Session(
 		if (places != null)
 			scope.launch(io) {
 				services.preferences.preferences.collect {
-					inputs.send(Answer.Placed(sidebarOf(places, home, it.pinned)))
+					inputs.send(Answer.Placed(sidebarOf(places, home, it)))
 				}
 			}
 
@@ -209,9 +209,9 @@ class Session(
 				}
 			is Effect.Carry -> services.carried.set(effect.carried)
 			is Effect.Stop -> stops[effect.task]?.invoke() ?: stopped.add(effect.task).let {}
-			is Effect.Pin ->
+			is Effect.Arrange ->
 				scope.launch(io) {
-					services.preferences.update { it.pinning(effect.paths) }
+					services.preferences.update { it.arranging(effect.quick) }
 				}
 			is Effect.Ask -> requests(effect.request)
 			is Effect.Finish -> {
@@ -261,6 +261,8 @@ class Session(
 						ChangeResult.Failed(why),
 						asking.doing,
 					)
+				is Effect.Erase -> Answer.Erased(asking.erasing, why)
+				Effect.ReadTrash -> Answer.TrashRead(Listing.Unreadable(why))
 				is Effect.Search -> Answer.Searched(Finding.Refused(asking.text, why), asking.purpose)
 				is Effect.Stat ->
 					Answer.Stated(

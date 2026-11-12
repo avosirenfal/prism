@@ -139,7 +139,7 @@ class ArchivesTest {
 				Choosing.Exploring(),
 				folder,
 				root,
-				sidebarOf(XdgPlaces(), root, null),
+				sidebarOf(XdgPlaces(), root),
 			).settled(services),
 			Answer.Configured(Actions.read(listOf(Actions.SHIPPED)) { it in programs }),
 		).state

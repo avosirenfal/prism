@@ -17,6 +17,7 @@ import org.junit.jupiter.api.io.TempDir
 import prism.browser.Fixtures.home
 import prism.browser.Fixtures.picker
 import prism.desktop.freedesktop.XdgPlaces
+import prism.preferences.DateFormat
 import prism.preferences.Sort
 
 /**
@@ -229,10 +230,10 @@ class PickerTest {
 			},
 		)
 		assertEquals(
-			listOf("File system", "etc"),
+			listOf("/", "etc"),
 			crumbsOf(Path("/etc"), home).map { it.label },
 		)
-		assertEquals(listOf("File system"), crumbsOf(Path("/"), home).map { it.label })
+		assertEquals(listOf("/"), crumbsOf(Path("/"), home).map { it.label })
 	}
 
 	@Test
@@ -241,7 +242,7 @@ class PickerTest {
 		work.resolve("photo.png").writeText("not really")
 		work.resolve(".hidden").writeText("")
 
-		val state = pickerOf(work, Choosing.OneFile(), JvmDisk(ZoneOffset.UTC), home = work)
+		val state = pickerOf(work, Choosing.OneFile(), JvmDisk(), home = work)
 		val rows = state.rows.list
 
 		// Hidden entries are shown until the user hides them.
@@ -300,10 +301,22 @@ class PickerTest {
 	}
 
 	@Test
-	fun datesAreSaidInTheZoneGiven() {
+	fun datesAreWrittenEachCommonWayInTheZoneGiven() {
+		val at = Instant.parse("2026-11-08T09:41:00Z")
+
 		assertEquals(
-			"8 Nov 2026, 09:41",
-			dateOf(Instant.parse("2026-11-08T09:41:00Z"), ZoneOffset.UTC),
+			listOf(
+				"8 Nov 2026, 09:41",
+				"Nov 8, 2026, 9:41 AM",
+				"2026-11-08 09:41",
+				"08/11/2026, 09:41",
+				"11/08/2026, 9:41 AM",
+				"08.11.2026, 09:41",
+			),
+			DateFormat.entries
+				.filter {
+					it != DateFormat.System
+				}.map { it.write(at, ZoneOffset.UTC) },
 		)
 	}
 }

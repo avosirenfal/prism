@@ -56,7 +56,7 @@ class BindingsTest {
 		assertEquals(Action.MoveDown, bindings.movement(chord("Shift+Down")))
 		assertEquals(Action.First, bindings.movement(chord("Ctrl+Home")))
 		// A row's own Shift chord before the move it would otherwise be.
-		assertEquals(Action.TrashNow, bindings.listing(chord("Shift+Delete")))
+		assertEquals(Action.Erase, bindings.listing(chord("Shift+Delete")))
 	}
 
 	@Test

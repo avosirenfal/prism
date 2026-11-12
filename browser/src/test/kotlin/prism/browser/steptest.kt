@@ -13,6 +13,11 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import prism.browser.Fixtures.home
 import prism.browser.Fixtures.picker
+import prism.preferences.Column
+import prism.preferences.DateShown
+import prism.preferences.FolderView
+import prism.preferences.Order
+import prism.preferences.ResultsView
 import prism.preferences.Sort
 
 /**
@@ -122,7 +127,7 @@ class StepTest {
 				.names,
 		)
 		assertEquals(
-			Created.At(Shown(made, dateOf(made, ZoneId.systemDefault()))),
+			Created.At(made),
 			read.state.rows[0].created,
 		)
 
@@ -195,17 +200,21 @@ class StepTest {
 
 		val created = step(byModified, BrowserEvent.ShowedDate(DateShown.Created)).state
 
-		assertEquals(DateShown.Created, created.arrangement.date)
-		assertEquals(Sort(Sort.Column.Created, ascending = false), created.arrangement.sort)
+		assertEquals(DateShown.Created, created.arrangement.folders.dateShown)
+		assertEquals(
+			Sort(Sort.Column.Created, ascending = false),
+			created.arrangement.folders.sort,
+		)
 		assertEquals(
 			Sort.Column.Modified,
 			step(created, BrowserEvent.ShowedDate(DateShown.Modified))
-				.state.arrangement.sort.by,
+				.state.arrangement.folders.sort.by,
 		)
 		// Ordered by name, it stays so whichever time is shown.
 		assertEquals(
 			Sort.BY_NAME,
-			step(state, BrowserEvent.ShowedDate(DateShown.Created)).state.arrangement.sort,
+			step(state, BrowserEvent.ShowedDate(DateShown.Created))
+				.state.arrangement.folders.sort,
 		)
 		// A window opened ordered by when files were made shows that time.
 		assertEquals(
@@ -215,8 +224,8 @@ class StepTest {
 				folder,
 				home,
 				Fixtures.sidebar,
-				sort = Sort(Sort.Column.Created, false),
-			).state.arrangement.date,
+				look = Look(FolderView(Sort(Sort.Column.Created, false))),
+			).state.arrangement.folders.dateShown,
 		)
 	}
 
@@ -230,19 +239,52 @@ class StepTest {
 				home.resolve("Documents"),
 				home,
 				Fixtures.sidebar,
-				sort = newest,
+				look = Look(FolderView(newest, hidden = setOf(Column.Type))),
 			).state
 
-		assertEquals(newest, first.arrangement.sort)
+		assertEquals(newest, first.arrangement.folders.sort)
+		assertEquals(setOf(Column.Type), first.arrangement.folders.hidden)
 
-		// Ordered otherwise by its headings, it keeps that order as it goes up, and on.
-		val bySize = step(first, BrowserEvent.Sorted(Sort.Column.Size)).state
+		// Ordered otherwise by its headings, and its columns shown otherwise, it keeps them as it goes up, and on.
+		val bySize =
+			step(
+				step(first, BrowserEvent.Sorted(Sort.Column.Size)).state,
+				BrowserEvent.ShowedColumn(Column.Type, true),
+			).state
 
-		assertEquals(Sort.Column.Size, bySize.arrangement.sort.by)
+		assertEquals(Sort.Column.Size, bySize.arrangement.folders.sort.by)
+		assertEquals(emptySet<Column>(), bySize.arrangement.folders.hidden)
 		assertEquals(
-			bySize.arrangement.sort,
-			step(bySize, BrowserEvent.Up).state.arrangement.sort,
+			bySize.arrangement.folders,
+			step(bySize, BrowserEvent.Up).state.arrangement.folders,
 		)
+	}
+
+	@Test
+	fun aSearchsResultsLookAsTheirOwnDefaultSays_ApartFromAFoldersListing() {
+		val look =
+			Look(
+				FolderView(hidden = setOf(Column.Size)),
+				ResultsView(
+					Order.By(Sort(Sort.Column.Name, ascending = false)),
+					hidden = setOf(Column.Folder),
+				),
+				zoom = 1.5f,
+			)
+
+		val first =
+			opened(
+				Choosing.Exploring(),
+				home,
+				home,
+				Fixtures.sidebar,
+				look = look,
+			).state
+
+		assertEquals(look.folders, first.arrangement.folders)
+		assertEquals(look.results, first.arrangement.results)
+		// The listing as large as the default says, the nearest the wheel's steps come to it.
+		assertEquals(1.5f, first.zooms.list.factor)
 	}
 
 	@Test
@@ -443,7 +485,7 @@ class StepTest {
 	fun aHeaderClickedSortsByItAndAgainTheOtherWay() {
 		val bySize = after(picker(), BrowserEvent.Sorted(Sort.Column.Size))
 
-		assertEquals(Sort(Sort.Column.Size, ascending = false), bySize.arrangement.sort)
+		assertEquals(Sort(Sort.Column.Size, ascending = false), bySize.arrangement.folders.sort)
 		assertEquals(
 			"backup.tar.gz",
 			bySize.rows.list
@@ -1067,7 +1109,7 @@ class StepTest {
 	}
 
 	@Test
-	fun theTrashIsUsedWithoutAsking() {
+	fun theDeleteKeyTrashesWithoutAsking() {
 		assertEquals(
 			listOf(
 				Effect.Make(Change.Trash(listOf(home.resolve("main.kt"), home.resolve("todo.txt")))),
@@ -1079,15 +1121,93 @@ class StepTest {
 	}
 
 	@Test
-	fun theDeleteKeyAsksBeforeTheTrash() {
-		val asked = after(picker(), BrowserEvent.AskedToTrash(listOf(id("main.kt"))))
+	fun whatHasNoTrashIsDeletedForGoodOnlyOnceTheUserSaysSo() {
+		val scratch = Path.of("/tmp/scratch.txt")
+		val notes = home.resolve("notes.md")
 
-		assertEquals(Notice.ConfirmTrash(listOf(home.resolve("main.kt"))), asked.notice)
+		val trashed =
+			step(
+				picker(),
+				Answer.Changed(
+					Change.Trash(listOf(scratch, notes)),
+					ChangeResult.Trashed(
+						Change.PutBack(listOf(Trashed(notes, "notes.md", Fixtures.Memory.TRASH))),
+						listOf(Untrashable(scratch, "/tmp is kept in memory (tmpfs), which has no trash")),
+					),
+				),
+			).state
+
+		// What went to the trash is undone as ever; what had none is asked about, and nothing more is done yet.
+		assertEquals(1, trashed.changes.undo.size)
 		assertEquals(
-			listOf(Effect.Make(Change.Trash(listOf(home.resolve("main.kt"))))),
+			Notice.ConfirmErase(
+				Erasing.Files(listOf(scratch)),
+				"/tmp is kept in memory (tmpfs), which has no trash",
+			),
+			trashed.notice,
+		)
+		assertEquals(
+			listOf(Effect.Erase(Erasing.Files(listOf(scratch)))),
+			effectsOf(trashed, BrowserEvent.Confirmed),
+		)
+		assertTrue(effectsOf(trashed, BrowserEvent.Dismissed).isEmpty())
+	}
+
+	@Test
+	fun shiftDeleteDeletesForGoodOnceAsked() {
+		val asked = after(picker(), BrowserEvent.AskedToErase(listOf(id("main.kt"))))
+
+		assertEquals(
+			Notice.ConfirmErase(Erasing.Files(listOf(home.resolve("main.kt")))),
+			asked.notice,
+		)
+		assertEquals(
+			listOf(Effect.Erase(Erasing.Files(listOf(home.resolve("main.kt"))))),
 			effectsOf(asked, BrowserEvent.Confirmed),
 		)
 		assertTrue(effectsOf(asked, BrowserEvent.Dismissed).isEmpty())
+
+		// Done: read again, and nothing to undo, since it cannot be.
+		val erased =
+			step(
+				asked.copy(notice = null),
+				Answer.Erased(Erasing.Files(listOf(home.resolve("main.kt"))), null),
+			)
+
+		assertEquals(listOf(Effect.Read(home)), erased.effects)
+		assertTrue(
+			erased.state.changes.undo
+				.isEmpty(),
+		)
+	}
+
+	@Test
+	fun theTrashShowsEveryTrashsEntries_PutBackOrDeletedForGood() {
+		val trash = step(picker(Choosing.Exploring()), BrowserEvent.OpenedTrash)
+
+		assertEquals(listOf(Effect.ReadTrash), trash.effects)
+
+		val shown = trash.settled(Fixtures.Memory)
+		val draft = shown.rows.list.single { it.name == "draft" }
+		val trashed = (draft.item as Item.InTrash).trashed
+
+		assertEquals(Location.Trash, shown.at)
+		assertEquals(listOf("draft", "old notes.md"), shown.rows.list.map { it.name })
+		assertEquals(
+			listOf(Effect.Make(Change.PutBack(listOf(trashed)))),
+			effectsOf(shown, BrowserEvent.PutBack(listOf(draft.id))),
+		)
+		// Delete, in the trash, deletes for good, once asked, as Shift+Delete does.
+		assertEquals(
+			Notice.ConfirmErase(Erasing.FromTrash(listOf(trashed))),
+			after(shown, BrowserEvent.Trashed(listOf(draft.id))).notice,
+		)
+		assertEquals(
+			Notice.ConfirmErase(Erasing.Everything),
+			after(shown, BrowserEvent.AskedToEmpty).notice,
+		)
+		// Back from it to where the window was.
+		assertEquals(home, after(shown, BrowserEvent.Back).folder)
 	}
 
 	@Test
@@ -1165,7 +1285,10 @@ class StepTest {
 
 	@Test
 	fun whatIsPutBackIsChosenAndAnUndoThatFailsIsSaidSo() {
-		val back = Change.PutBack(listOf(Trashed(home.resolve("main.kt"), "main.kt")))
+		val back =
+			Change.PutBack(
+				listOf(Trashed(home.resolve("main.kt"), "main.kt", Fixtures.Memory.TRASH)),
+			)
 
 		val put =
 			step(
@@ -1322,7 +1445,10 @@ class StepTest {
 	fun aMenuSortsAsItSays() {
 		val sort = Sort(Sort.Column.Size, ascending = true)
 
-		assertEquals(sort, after(picker(), BrowserEvent.SortedBy(sort)).arrangement.sort)
+		assertEquals(
+			sort,
+			after(picker(), BrowserEvent.SortedBy(sort)).arrangement.folders.sort,
+		)
 	}
 
 	// ---- cancelling ----

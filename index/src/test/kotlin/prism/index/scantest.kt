@@ -10,6 +10,7 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import prism.linux.FileKind
+import prism.linux.Mounts
 
 /**
  * The scanner over a tree made here: what it finds, what it leaves out, and that its two backends find the same
@@ -166,7 +167,7 @@ class ScanTest {
 
 		assertEquals(listOf("proc", "ext4", "vfat"), mounts.map { it.type })
 		assertEquals(Path.of("/media/My Disk"), mounts[2].at)
-		assertEquals(setOf(Path.of("/proc")), Mounts.ignored(IgnoreRules.DEFAULT, mounts))
+		assertEquals(setOf(Path.of("/proc")), mountsLeftOut(IgnoreRules.DEFAULT, mounts))
 	}
 }
 

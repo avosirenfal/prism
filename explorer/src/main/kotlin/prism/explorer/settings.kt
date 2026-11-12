@@ -1,6 +1,5 @@
 package prism.explorer
 
-import java.nio.file.Path
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -8,26 +7,28 @@ import prism.browser.Actions
 import prism.browser.Bindable
 import prism.browser.Bindings
 import prism.browser.Chord
-import prism.desktop.Place
 import prism.desktop.TerminalChoice
+import prism.preferences.DateFormat
+import prism.preferences.FolderView
 import prism.preferences.Preferences
-import prism.preferences.Sort
+import prism.preferences.ResultsView
+import prism.preferences.Scales
 import prism.preferences.TerminalChoiceSerializer
 import prism.preferences.TextSizes
 
 /*
- * The preferences as their window edits them, as one immutable value: the places pinned, the terminal, and every
+ * The preferences as their window edits them, as one immutable value: how windows look, the terminal, and every
  * binding, each as the user has made it, beside what they were when the window opened. Nothing is written until the
- * user saves; then only what they changed is written, over the preferences as they are by then, so a place pinned
- * from a window meanwhile is kept unless the pins were changed here too.
+ * user saves; then only what they changed is written, over the preferences as they are by then, so what was changed
+ * meanwhile elsewhere (quick access arranged from a window, a window zoomed) is kept unless it was changed here too.
  */
 
 /** Which of the window's pages is shown. */
 enum class Page(
 	val label: String,
 ) {
-	Sidebar("Sidebar"),
 	Display("Display"),
+	Listing("Columns and order"),
 	Terminal("Terminal"),
 	Bindings("Key bindings"),
 	Actions("Actions"),
@@ -46,29 +47,79 @@ data class Took(
 )
 
 /**
- * The bindings as the bindings page edits them: [bindings], the slot a chord is [awaited] for, where one is, and what
- * the last chord given was taken from. A chord pressed while one is awaited is put there and taken from any other
- * action that had it, since a chord does one thing.
+ * Which of the bindings page's actions are shown: those whose names or chords have [Words] in them (all, for none);
+ * those bound to a chord, once it is pressed ([Listening] for it, then [Pressed]).
+ */
+sealed interface Finding {
+	data class Words(
+		val text: String,
+	) : Finding
+
+	data object Listening : Finding
+
+	data class Pressed(
+		val chord: Chord,
+	) : Finding
+
+	/** Whether [action], bound to [chords], is shown. */
+	fun shows(action: Bindable, chords: List<Chord>): Boolean =
+		when (this) {
+			// By its name, as shown or as the preferences file writes it ("ZoomIn" is "Larger"), or by its chords.
+			is Words ->
+				text.isBlank() ||
+					action.label.contains(text.trim(), ignoreCase = true) ||
+					action.key.contains(text.trim().replace(" ", ""), ignoreCase = true) ||
+					chords.any { it.toString().contains(text.trim(), ignoreCase = true) }
+			// Every action shows until the chord is pressed.
+			Listening -> true
+			is Pressed -> chord in chords
+		}
+
+	companion object {
+		val ALL: Finding = Words("")
+	}
+}
+
+/**
+ * The bindings as the bindings page edits them: [bindings], the slot a chord is [awaited] for, where one is, what the
+ * last chord given was taken from, and which actions are shown ([finding]). A chord pressed while one is awaited is put
+ * there and taken from any other action that had it, since a chord does one thing; pressed while the page listens for
+ * one to find, it is found.
  */
 data class Rebinding(
 	val bindings: Bindings,
 	val awaited: Slot? = null,
 	val took: Took? = null,
+	val finding: Finding = Finding.ALL,
 ) {
+	/** Whether a chord pressed is taken, for a binding or for finding what has it: nothing else sees it then. */
+	val listening: Boolean get() = awaited != null || finding == Finding.Listening
+
 	/** These, awaiting a chord for [slot]. */
 	fun awaiting(slot: Slot): Rebinding = copy(awaited = slot, took = null)
 
-	/** These, no longer awaiting a chord. */
-	fun cancelled(): Rebinding = copy(awaited = null)
+	/** These, no longer awaiting a chord, nor listening for one to find. */
+	fun cancelled(): Rebinding =
+		copy(
+			awaited = null,
+			finding = finding.takeUnless { it == Finding.Listening } ?: Finding.ALL,
+		)
 
-	/** These, with [chord] in the slot awaited, if one is. */
+	/** These, finding as [finding] says. */
+	fun finding(finding: Finding): Rebinding = copy(finding = finding, awaited = null)
+
+	/** These, with [chord] in the slot awaited, if one is; or found, where the page listens for one. */
 	fun pressed(chord: Chord): Rebinding {
+		if (finding == Finding.Listening && awaited == null)
+			return copy(finding = Finding.Pressed(chord))
+
 		val slot = awaited ?: return this
 		val from = bindings.clashes(slot.action, chord)
 
 		return Rebinding(
 			bindings.bound(slot.action, slot.index, chord),
 			took = Took(chord, from).takeIf { from.isNotEmpty() },
+			finding = finding,
 		)
 	}
 
@@ -89,31 +140,25 @@ data class Rebinding(
 }
 
 /**
- * The preferences window's edits: [base], the preferences as they were when it opened; the places [pinned] (null for
- * the desktop's own, those of the [known] places); the [terminal] as its fields are typed; the bindings being rebound; and the
- * [page] shown.
+ * The preferences window's edits: [base], the preferences as they were when it opened; how a new window lists a
+ * folder ([folders]) and a search's results ([results]); how large text and things are drawn; how dates are written;
+ * the [terminal] as its fields are typed; the bindings being rebound; and the [page] shown.
  */
 data class Settings(
 	val base: Preferences,
-	val known: List<Place>,
-	val pinned: List<Path>? = base.pinned,
 	val terminal: TerminalForm = TerminalForm.of(base.terminal),
 	val rebinding: Rebinding = Rebinding(Bindings.of(base)),
-	/** The order new windows list folders in. */
-	val sort: Sort = base.sort,
+	val folders: FolderView = base.folders,
+	val results: ResultsView = base.results,
 	/** How large each part's text is. */
 	val text: TextSizes = base.text,
-	val page: Page = Page.Sidebar,
+	/** How large the listing of a new window is drawn, an explorer's and a picker's, and the sidebar's quick access. */
+	val scales: Scales = base.scales,
+	val dates: DateFormat = base.dates,
+	val page: Page = Page.Display,
 ) {
 	/** The actions and places there are, prism's own and those the preferences write, with what of them did not read. */
 	val actions: Actions by lazy { Actions.of(base) }
-
-	/** The places pinned, as the sidebar shows them. */
-	val pins: List<Path> get() = pinned ?: known.map { it.path }
-
-	/** What the sidebar calls the place pinned at [path]: a known place's name, or the folder's. */
-	fun labelOf(path: Path): String =
-		known.firstOrNull { it.path == path }?.label ?: (path.fileName ?: path).toString()
 
 	/** Whether anything is changed from what the window opened on. */
 	val changed: Boolean get() = over(base) != base
@@ -121,9 +166,7 @@ data class Settings(
 	/** [current], with what was changed here. */
 	fun over(current: Preferences): Preferences {
 		fun <T> kept(field: (Preferences) -> T, edited: T): T =
-			if (edited !=
-				field(base)
-			)
+			if (edited != field(base))
 				edited
 			else
 				field(current)
@@ -131,48 +174,21 @@ data class Settings(
 		val bindings = rebinding.bindings.takeIf { it != Bindings.of(base) }?.differences()
 
 		return current.copy(
-			pinned = kept(Preferences::pinned, pinned),
 			terminal = kept(Preferences::terminal, terminal.choice()),
-			sort = kept(Preferences::sort, sort),
+			folders = kept(Preferences::folders, folders),
+			results = kept(Preferences::results, results),
 			text = kept(Preferences::text, text),
+			dates = kept(Preferences::dates, dates),
+			// The other windows' sizes are each window's own, as Ctrl and the wheel leave them: never this window's.
+			scales =
+				current.scales.copy(
+					explorer = kept({ it.scales.explorer }, scales.explorer),
+					picker = kept({ it.scales.picker }, scales.picker),
+					sidebar = kept({ it.scales.sidebar }, scales.sidebar),
+				),
 			bindings = bindings ?: current.bindings,
 		)
 	}
-
-	/** These, with the place at [index] moved [by] places (up, for a negative [by]), as far as it can go. */
-	fun moved(index: Int, by: Int): Settings {
-		val to = (index + by).coerceIn(0, pins.lastIndex)
-		val place = pins[index]
-
-		// A path is a list of its names too: it is added to the list as one element, never as its names.
-		return copy(
-			pinned =
-				pins.filterIndexed { at, _ -> at != index }.let {
-					it.take(to) +
-						listOf(place) +
-						it.drop(to)
-				},
-		)
-	}
-
-	/** These, without the place at [index]. */
-	fun unpinned(index: Int): Settings =
-		copy(
-			pinned =
-				pins.filterIndexed { at, _ ->
-					at !=
-						index
-				},
-		)
-
-	/** These, with [path] pinned last, where it is not pinned already. */
-	fun pinned(path: Path): Settings =
-		if (path in
-			pins
-		)
-			this
-		else
-			copy(pinned = pins.plusElement(path))
 }
 
 /**

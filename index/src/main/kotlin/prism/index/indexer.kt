@@ -8,6 +8,8 @@ import prism.linux.AtFlags
 import prism.linux.Dev
 import prism.linux.Fd
 import prism.linux.FileKind
+import prism.linux.Mount
+import prism.linux.Mounts
 import prism.linux.Stat
 import prism.linux.Sys
 import prism.linux.statx
@@ -30,7 +32,7 @@ class Indexer(
 	val threads: Int = Runtime.getRuntime().availableProcessors(),
 	private val clock: java.time.Clock = java.time.Clock.systemUTC(),
 ) {
-	private val ignoredMounts: Set<Path> = Mounts.ignored(rules, mounts)
+	private val ignoredMounts: Set<Path> = mountsLeftOut(rules, mounts)
 	private val ignoredKeys: Set<String> = ignoredMounts.map(Where::keyOf).toSet()
 	private val scanner = Scanner(backend, rules, threads, ignoredMounts)
 
@@ -215,7 +217,7 @@ class Indexer(
 		val mount = mountsAt[where.key] ?: if (above == null) mountAbove() else null
 
 		return when {
-			mount != null -> Device(dev, Dev(mount.major, mount.minor), mount.type)
+			mount != null -> Device(dev, mount.dev, mount.type)
 			above != null -> Device(dev, above.kernel, above.type)
 			else -> Device(dev, dev, null)
 		}

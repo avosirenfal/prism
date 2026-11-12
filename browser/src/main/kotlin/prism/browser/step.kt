@@ -6,6 +6,13 @@ import java.time.Instant
 import java.time.ZoneId
 import prism.desktop.Launched
 import prism.index.query.QueryText
+import prism.preferences.Builtin
+import prism.preferences.DateShown
+import prism.preferences.FolderView
+import prism.preferences.Order
+import prism.preferences.Preferences
+import prism.preferences.QuickAccess
+import prism.preferences.ResultsView
 import prism.preferences.Sort
 
 /*
@@ -37,8 +44,8 @@ import prism.preferences.Sort
  */
 
 /**
- * The picker opened on [folder]: its first state, and the read of its folder that it waits for. It is ordered by
- * [sort], the user's default for a window, which the window keeps as its own from then on, whatever it goes to.
+ * The picker opened on [folder]: its first state, and the read of its folder that it waits for. It looks as [look]
+ * says, the user's default for a window, which the window keeps as its own from then on, whatever it goes to.
  */
 fun opened(
 	choosing: Choosing,
@@ -48,7 +55,7 @@ fun opened(
 	title: String = titleOf(choosing),
 	filters: List<TypeFilter> = listOf(TypeFilter.ALL_FILES),
 	search: Search = Search.Unavailable(BrowserState.NO_INDEX),
-	sort: Sort = Sort.BY_NAME,
+	look: Look = Look(),
 ): Step {
 	require(filters.isNotEmpty()) { "a picker offers at least one filter" }
 
@@ -65,8 +72,8 @@ fun opened(
 			listing = Listing.Reading,
 			arrangement =
 				Arrangement(
-					sort = sort,
-					date = DateShown.of(sort),
+					folders = look.folders,
+					results = look.results,
 					filter = filters.first(),
 				),
 			filters = filters,
@@ -75,9 +82,36 @@ fun opened(
 			notice = null,
 			waiting = null,
 			search = search,
+			zooms =
+				Zoom.nearest(look.zoom).let {
+					Zooms(list = Zoom.By(minOf(it.step, Zoom.LIST_LARGEST.step)), gallery = it)
+				},
 		)
 
 	return Step(state, listOf(Effect.Read(shown)))
+}
+
+/**
+ * How a window looks as it opens: a folder's listing as [folders] says, a search's results as [results] says, and its
+ * listing [zoom] times its usual size, the nearest the wheel's steps come to it.
+ */
+data class Look(
+	val folders: FolderView = FolderView(),
+	val results: ResultsView = ResultsView(),
+	val zoom: Float = 1f,
+) {
+	companion object {
+		/** The look [preferences] give a window of an explorer's, or of a picker's. */
+		fun of(preferences: Preferences, picker: Boolean): Look =
+			Look(
+				preferences.folders,
+				preferences.results,
+				if (picker)
+					preferences.scales.picker
+				else
+					preferences.scales.explorer,
+			)
+	}
 }
 
 /** An explorer opened on [placed]: its first state, and the listing of the place that it waits for. */
@@ -86,9 +120,9 @@ fun openedIn(
 	home: Path,
 	sidebar: Sidebar,
 	search: Search = Search.Unavailable(BrowserState.NO_INDEX),
-	sort: Sort = Sort.BY_NAME,
+	look: Look = Look(),
 ): Step =
-	opened(Choosing.Exploring(), home, home, sidebar, search = search, sort = sort).let {
+	opened(Choosing.Exploring(), home, home, sidebar, search = search, look = look).let {
 		it.state.copy(at = Location.Place(placed)).listing(placed)
 	}
 
@@ -137,21 +171,36 @@ private fun did(state: BrowserState, event: BrowserEvent): Step =
 			when (val listing = state.listing) {
 				is Listing.Found ->
 					if (listing.orders(event.by))
-						state.arranged { copy(results = results.toggled(event.by)) }
+						state.arranged { copy(results = results.ordered(results.order.toggled(event.by))) }
 					else
 						Step(state)
-				else -> state.arranged { copy(sort = sort.toggled(event.by)) }
+				else ->
+					state.arranged {
+						copy(
+							folders = folders.sorted(folders.sort.toggled(event.by)),
+						)
+					}
 			}
 		is BrowserEvent.SortedBy ->
 			when (val listing = state.listing) {
 				is Listing.Found ->
 					if (listing.orders(event.sort.by))
-						state.arranged { copy(results = Order.By(event.sort)) }
+						state.arranged { copy(results = results.ordered(Order.By(event.sort))) }
 					else
 						Step(state)
-				else -> state.arranged { copy(sort = event.sort) }
+				else -> state.arranged { copy(folders = folders.sorted(event.sort)) }
 			}
-		BrowserEvent.SortedByRelevance -> state.arranged { copy(results = Order.Relevance) }
+		BrowserEvent.SortedByRelevance ->
+			state.arranged {
+				copy(results = results.ordered(Order.Relevance))
+			}
+		is BrowserEvent.ShowedColumn ->
+			state.arranged {
+				if (state.results != null)
+					copy(results = results.showingColumn(event.column, event.shown))
+				else
+					copy(folders = folders.showingColumn(event.column, event.shown))
+			}
 		is BrowserEvent.Scrolled ->
 			state.copy(sight = event.first..event.last).let { seen ->
 				seen.scrolled(event.first, event.last).then { it.bornNext() }
@@ -212,20 +261,29 @@ private fun did(state: BrowserState, event: BrowserEvent): Step =
 			)
 		BrowserEvent.Renamed -> state.renamed()
 		BrowserEvent.RenameCancelled -> Step(state.copy(renaming = null))
+		// In the trash, what is trashed already can only be deleted for good, which is asked first.
 		is BrowserEvent.Trashed ->
+			if (state.inTrash)
+				state.askingToErase(event.rows)
+			else
+				state
+					.pathsOf(event.rows)
+					.takeIf { it.isNotEmpty() }
+					?.let { state.making(Change.Trash(it)) }
+					?: Step(state)
+		is BrowserEvent.AskedToErase -> state.askingToErase(event.rows)
+		is BrowserEvent.PutBack ->
 			state
-				.pathsOf(event.rows)
-				.takeIf {
-					it.isNotEmpty()
-				}?.let { state.making(Change.Trash(it)) }
+				.trashedOf(event.rows)
+				.takeIf { it.isNotEmpty() }
+				?.let { state.making(Change.PutBack(it)) }
 				?: Step(state)
-		is BrowserEvent.AskedToTrash ->
-			state
-				.pathsOf(event.rows)
-				.takeIf {
-					it.isNotEmpty()
-				}?.let { state.notice(Notice.ConfirmTrash(it)) }
-				?: Step(state)
+		BrowserEvent.AskedToEmpty -> state.notice(Notice.ConfirmErase(Erasing.Everything))
+		BrowserEvent.OpenedTrash ->
+			if (state.inTrash)
+				state.reread()
+			else
+				state.shown(Location.Trash, History(state.history.back + state.at, emptyList()), null)
 		BrowserEvent.MadeFolder ->
 			state.folder?.let {
 				state.making(Change.MakeFolder(it.resolve(state.freeName("New folder"))))
@@ -293,33 +351,27 @@ private fun did(state: BrowserState, event: BrowserEvent): Step =
 			(event.into ?: state.folder)?.let { Step(state, listOf(Effect.ReadClip(it))) }
 				?: state.pastingIn()
 		is BrowserEvent.Dropped -> state.dropped(event.paths, event.spot, event.transfer)
+		// One of prism's own folders is shown again, rather than pinned beside itself.
 		is BrowserEvent.Pinned ->
-			if (state.sidebar.pins(event.path))
-				Step(state)
-			else
-				Step(
-					state,
-					listOf(
-						Effect.Pin(
-							state.sidebar.pinned
-								.map {
-									it.path
-								}.plusElement(event.path),
-						),
-					),
+			state.sidebar.let { sidebar ->
+				state.arranging(
+					sidebar.known.entries
+						.firstOrNull { it.value.path == event.path }
+						?.let { sidebar.quick.showing(it.key, true) }
+						?: sidebar.quick.pinning(event.path),
 				)
+			}
 		is BrowserEvent.Unpinned ->
-			Step(
-				state,
-				listOf(
-					Effect.Pin(
-						state.sidebar.pinned
-							.map {
-								it.path
-							}.minusElement(event.path),
-					),
-				),
+			state.arranging(
+				when (val item = event.item) {
+					is SidebarItem.Own -> state.sidebar.quick.showing(item.builtin, false)
+					SidebarItem.Trash -> state.sidebar.quick.showing(Builtin.Trash, false)
+					is SidebarItem.Pinned -> state.sidebar.quick.unpinning(item.path)
+					is SidebarItem.Drive -> state.sidebar.quick
+				},
 			)
+		is BrowserEvent.Arranged -> state.arranging(event.quick)
+		is BrowserEvent.ArrangingQuickAccess -> Step(state.copy(arrangingQuick = event.open))
 		// Where the terminal chosen has no place for a folder, nothing opens one in a folder: its menu item is off.
 		is BrowserEvent.OpenedTerminal ->
 			(event.folder ?: state.folder)
@@ -359,7 +411,11 @@ private fun noticed(state: BrowserState, notice: Notice, event: BrowserEvent): S
 		BrowserEvent.Confirmed ->
 			when (notice) {
 				is Notice.Replace -> state.finished(listOf(notice.path))
-				is Notice.ConfirmTrash -> state.copy(notice = null).making(Change.Trash(notice.paths))
+				is Notice.ConfirmErase ->
+					Step(
+						state.copy(notice = null),
+						listOf(Effect.Erase(notice.erasing)),
+					)
 				is Notice.NotFound, is Notice.NotAFolder, is Notice.Failed, is Notice.NoFolder ->
 					Step(
 						state.copy(notice = null),
@@ -438,6 +494,11 @@ internal fun BrowserState.reread(landing: Landing? = null): Step =
 		}
 		// A place is listed again, what it shows staying until the new listing arrives.
 		is Location.Place -> copy(landing = landing ?: this.landing).listing(at.placed)
+		Location.Trash ->
+			Step(
+				copy(landing = landing ?: this.landing),
+				listOf(Effect.ReadTrash),
+			)
 	}
 
 private fun BrowserState.back(): Step =
@@ -494,6 +555,7 @@ internal fun BrowserState.shown(to: Location, history: History, landing: Landing
 		is Location.Place ->
 			to.tree?.let { Step(left.arrived(Listing.Shown(it.rows(to.within)))) }
 				?: left.listing(to.placed)
+		Location.Trash -> Step(left, listOf(Effect.ReadTrash))
 	}
 }
 
@@ -505,11 +567,17 @@ internal fun BrowserState.shown(to: Location, history: History, landing: Landing
 private fun BrowserState.showingResults(finding: Finding.Matched): Step {
 	val listing = Listing.Found(finding, Stats.none(finding.matches.size))
 	val order =
-		arrangement.results.takeIf {
-			(it as? Order.By)?.sort?.by?.let(listing::orders) !=
-				false
-		}
-	val shown = relisted(listing, arrangement.copy(results = order ?: Order.Relevance))
+		arrangement.results.order.takeIf { it.sort?.by?.let(listing::orders) != false }
+
+	val shown =
+		relisted(
+			listing,
+			arrangement.copy(
+				results =
+					arrangement.results.ordered(order ?: Order.Relevance),
+			),
+		)
+
 	val rows = shown.rows as Rows.Found
 	val first =
 		if (listing.few)
@@ -553,7 +621,7 @@ private fun BrowserState.ordering(): List<Effect> {
 	val listing = listing as? Listing.Found ?: return emptyList()
 
 	return listOfNotNull(
-		listing.pending(arrangement.results)?.let {
+		listing.pending(arrangement.results.order)?.let {
 			Effect.Order(listing.matches, it)
 		},
 	)
@@ -954,6 +1022,25 @@ private fun answered(state: BrowserState, answer: Answer): Step =
 			else
 				Step(state)
 		is Answer.Changed -> state.changed(answer.change, answer.result, answer.doing)
+		// Gone for good: whatever is shown read again, and where something could not be, why.
+		is Answer.Erased ->
+			state.reread().let {
+				Step(
+					it.state.copy(
+						notice =
+							answer.failed?.let { why ->
+								Notice.Failed("Couldn't delete ${erasedOf(answer.erasing)}", why)
+							}
+								?: it.state.notice,
+					),
+					it.effects,
+				)
+			}
+		is Answer.TrashRead ->
+			if (state.inTrash)
+				Step(state.arrived(answer.read))
+			else
+				Step(state)
 		is Answer.Searched -> state.searched(answer.finding, answer.purpose)
 		// What was read of results, or an order of them, for results no longer shown, is too late too.
 		is Answer.Stated ->
@@ -1370,6 +1457,44 @@ private fun BrowserState.changed(
 					it.effects,
 				)
 			}
+		// What had a trash went to it, and is put back by an undo; what had none is asked about, unless a move failed,
+		// which is said instead: the rest was not tried, and Delete again asks of all of it.
+		is ChangeResult.Trashed -> {
+			val moved =
+				if (result.undo.entries.isEmpty())
+					this
+				else
+					copy(changes = changes.after(change, result.undo, doing))
+
+			moved.reread().let {
+				Step(
+					it.state.copy(
+						notice =
+							when {
+								result.failed != null -> Notice.Failed(failingOf(change, doing), result.failed)
+								result.nowhere.isNotEmpty() ->
+									Notice.ConfirmErase(
+										Erasing.Files(result.nowhere.map { it.path }),
+										result.nowhere
+											.map { it.why }
+											.distinct()
+											.joinToString("; "),
+									)
+								else -> it.state.notice
+							},
+					),
+					it.effects,
+				)
+			}
+		}
+	}
+
+/** What [erasing] deletes, as what is said of it names it. */
+fun erasedOf(erasing: Erasing): String =
+	when (erasing) {
+		is Erasing.Files -> countOf(erasing.paths)
+		is Erasing.FromTrash -> countOf(erasing.entries.map { it.original })
+		Erasing.Everything -> "everything in the trash"
 	}
 
 /** The changes after [change] is done for [doing]: what takes it back, [by], kept to undo, or, for an undo, to redo. */
@@ -1689,7 +1814,6 @@ internal fun BrowserState.bornNext(): Step {
 /** The folder's rows with when they were made, as [times] says of those it names: each time, or none kept. */
 private fun BrowserState.born(times: Map<String, Instant?>): BrowserState {
 	val listing = listing as? Listing.Shown ?: return copy(bornReading = emptySet())
-	val zone = ZoneId.systemDefault()
 
 	val entries =
 		listing.entries.map { row ->
@@ -1698,7 +1822,7 @@ private fun BrowserState.born(times: Map<String, Instant?>): BrowserState {
 			else
 				row.copy(
 					created =
-						times[row.name]?.let { Created.At(Shown(it, dateOf(it, zone))) } ?: Created.Unkept,
+						times[row.name]?.let(Created::At) ?: Created.Unkept,
 				)
 		}
 
@@ -1708,22 +1832,51 @@ private fun BrowserState.born(times: Map<String, Instant?>): BrowserState {
 	)
 }
 
-/** The date column showing [date]; a listing ordered by the other time ordered by this one, the same way round. */
-private fun BrowserState.showedDate(date: DateShown): Step {
-	val sort = arrangement.sort
-	val other = DateShown.entries.single { it != date }.column
+/**
+ * The date column showing [date]; a listing ordered by the other time ordered by this one, the same way round: or, for
+ * a search's results that cannot be ordered by it, best first.
+ */
+private fun BrowserState.showedDate(date: DateShown): Step =
+	when (val listing = listing) {
+		is Listing.Found ->
+			arranged {
+				val shown = results.showing(date)
 
-	return arranged {
-		copy(
-			date = date,
-			sort =
-				if (sort.by == other)
-					sort.copy(by = date.column)
-				else
-					sort,
-		)
+				copy(
+					results =
+						if (shown.order.sort
+								?.by
+								?.let(listing::orders) == false
+						)
+							results.ordered(Order.Relevance).showing(date)
+						else
+							shown,
+				)
+			}
+		else -> arranged { copy(folders = folders.showing(date)) }
 	}
+
+/** Quick access arranged as [quick], shown so at once, and kept for every window. */
+private fun BrowserState.arranging(quick: QuickAccess): Step =
+	if (quick == sidebar.quick)
+		Step(this)
+	else
+		Step(copy(sidebar = sidebar.copy(quick = quick)), listOf(Effect.Arrange(quick)))
+
+/** The user asked whether to delete [rows] for good: entries of the trash, in the trash; files where they are elsewhere. */
+private fun BrowserState.askingToErase(rows: List<RowId>): Step {
+	val erasing =
+		if (inTrash)
+			trashedOf(rows).takeIf { it.isNotEmpty() }?.let(Erasing::FromTrash)
+		else
+			pathsOf(rows).takeIf { it.isNotEmpty() }?.let(Erasing::Files)
+
+	return erasing?.let { notice(Notice.ConfirmErase(it)) } ?: Step(this)
 }
+
+/** The entries of the trash [rows] are, of those shown. */
+private fun BrowserState.trashedOf(rows: List<RowId>): List<Trashed> =
+	rows.mapNotNull { (this.rows[it]?.item as? Item.InTrash)?.trashed }
 
 /** This step, and then what [next] makes of the state it leaves: both steps' effects, in order. */
 private fun Step.then(next: (BrowserState) -> Step): Step =

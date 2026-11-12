@@ -19,7 +19,9 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import prism.index.query.QueryBuilder
 import prism.index.query.query
+import prism.linux.Dev
 import prism.linux.Fd
+import prism.linux.Mount
 import prism.linux.orThrow
 import prism.linux.statx
 
@@ -264,7 +266,8 @@ class IndexTest {
 				listOf(Ignored.of(root.resolve("skip").toString())),
 			)
 
-		val mounts = listOf(Mount(root.resolve("fake-proc"), "proc", 0, 99))
+		val mounts =
+			listOf(Mount(1, Dev(0, 99), "/", root.resolve("fake-proc"), "proc", "proc"))
 		val index = Index.EMPTY.with(Indexer(rules, mounts).index(root))
 
 		assertEquals(

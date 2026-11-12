@@ -20,6 +20,7 @@ import prism.browser.FileClipboard
 import prism.browser.Finder
 import prism.browser.FolderWatcher
 import prism.browser.Landing
+import prism.browser.Look
 import prism.browser.Outcome
 import prism.browser.Request
 import prism.browser.RowId
@@ -164,7 +165,7 @@ class Explorer(
 	/** A window browsing from [start]: a folder, or a place; in a folder, [chosen] chosen where it is given. */
 	fun browse(start: Start, chosen: String? = null) {
 		val window = scope.child()
-		val sidebar = sidebarOf(desktop.places, home, preferences.preferences.value.pinned)
+		val sidebar = sidebarOf(desktop.places, home, preferences.preferences.value)
 
 		val first =
 			when (start) {
@@ -175,7 +176,7 @@ class Explorer(
 						home,
 						sidebar,
 						search = search,
-						sort = preferences.preferences.value.sort,
+						look = Look.of(preferences.preferences.value, picker = false),
 					).let { step ->
 						chosen?.let {
 							Step(step.state.copy(landing = Landing.On(RowId(it), choose = true)), step.effects)
@@ -188,7 +189,7 @@ class Explorer(
 						home,
 						sidebar,
 						search,
-						preferences.preferences.value.sort,
+						Look.of(preferences.preferences.value, picker = false),
 					)
 			}
 
@@ -266,9 +267,9 @@ class Explorer(
 						Choosing.Folder(),
 						request.start,
 						home,
-						sidebarOf(desktop.places, home, preferences.preferences.value.pinned),
+						sidebarOf(desktop.places, home, preferences.preferences.value),
 						title = request.title,
-						sort = preferences.preferences.value.sort,
+						look = Look.of(preferences.preferences.value, picker = true),
 						search = search,
 					),
 					services,
@@ -299,10 +300,10 @@ class Explorer(
 				asking.choosing,
 				asking.folder,
 				home,
-				sidebarOf(desktop.places, home, preferences.preferences.value.pinned),
+				sidebarOf(desktop.places, home, preferences.preferences.value),
 				title = asking.title,
 				filters = asking.filters,
-				sort = preferences.preferences.value.sort,
+				look = Look.of(preferences.preferences.value, picker = true),
 				search = search,
 			).let { step ->
 				Step(

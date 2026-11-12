@@ -19,7 +19,7 @@ a device, so a test that ran and a test that could not run are never confused.
 | the picker clicked and typed at, headless, around a running session (`InteractionTest`) | the JDK | never |
 | the gallery's thumbnails (`ThumbnailTest`) | the JDK | never |
 | the picker's menus, as values (`MenuTest`) | the JDK | never |
-| the browser exploring: files opened, or offered to an application; copied, cut and pasted, with undo; made; pinned (`ExploreTest`) | Linux | never |
+| the browser exploring: files opened, or offered to an application; copied, cut and pasted, with undo; made; quick access arranged, and an older version's pins read as it (`ExploreTest`) | Linux | never |
 | the user's actions: commands read and filled word by word, what is refused and why, conditions, the menus they are in, their keys, and each step of doing one (`ActionsTest`) | the JDK | never |
 | places: what a command prints read into a tree, files told from entries, and the archive tool listed, gone about, extracted from (by the menu, a drop, a paste, and to open), added to and removed from, on real archives (`PlacesTest`) | Linux | without `tar`, `zip`, `unzip` or `git`, the tests that run them |
 | a drag between two real windows, made by X's own pointer (xdotool): an archive's entry dropped on a folder's window and extracted there, and a click with an unsteady hand and the other buttons dragging nothing (`DragTest`) | an X display, xdotool, and `-Pbrowser.display`: `xvfb-run ./gradlew :browser:test --tests prism.browser.DragTest -Pbrowser.display` | unless asked for |
@@ -35,9 +35,10 @@ a device, so a test that ran and a test that could not run are never confused.
 | the preferences in memory and in a watched file, written by another process, unreadable and kept aside (`preferences`) | Linux | never |
 | file types, desktop entries, `Exec` lines, defaults in `mimeapps.list`, places, and a real launch left detached (`desktop`) | Linux, `setsid` | never |
 | the explorer's windows around real sessions, properties, the application chooser, the preferences' edits merged on saving (`ExplorerTest`, `PropertiesTest`, `OpenWithTest`, `SettingsTest`) | the JDK | never |
-| the bindings window clicked, typed and mouse-pressed at, headless (`SettingsViewTest`) | the JDK | never |
+| the bindings window clicked, typed and mouse-pressed at, headless; found by words (Ctrl+F) and by a chord pressed (`SettingsViewTest`) | the JDK | never |
 | drops: the default action's rule, the line under the listing, files read from what another application drags, drops on folders, an explorer's listing and a picker's, links on disk, undo, volumes told apart (`DropTest`) | Linux | never (the second volume, `/dev/shm`, where it is one) |
 | renaming, making and removing folders, and the trash both ways, on real files (`DiskTest`) | Linux | never |
+| a trash for each mount, over mounts made up of folders: the home trash, one made at a drive's top, a shared one used only where it is sticky, none on tmpfs; deleting for good, emptying, every trash's entries (`TrashTest`) | Linux | never |
 | every example of the search language, against a tree indexed from disk (`SearchTest`) | Linux | never |
 | the search language's text read: every example to the DSL's query, every prefix of one with nothing invalid, recovery, marks, and random text (`ParserTest`) | the JDK | never |
 | the index as changes are made to it, and its rules (`IndexTest`) | Linux | never |

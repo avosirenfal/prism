@@ -31,6 +31,7 @@ import prism.browser.subjectOf
 import prism.desktop.MimeType
 import prism.preferences.ActionsFile
 import prism.preferences.MemoryPreferences
+import prism.preferences.QuickAccess
 
 /**
  * The explorer's windows: a browser's opened on a folder, and closed as it ends; what a browser asks for opened beside
@@ -138,12 +139,11 @@ class ExplorerTest {
 
 			explorer.browse(root)
 			explorer.browse(projects)
-			preferences.update { it.pinning(listOf(root, projects)) }
+			preferences.update { it.arranging(QuickAccess.DEFAULT.pinning(projects)) }
 
 			for (browsing in explorer.browsers)
 				browsing.session.state.first { state ->
-					state.sidebar.pinned.map { it.path } ==
-						listOf(root, projects)
+					projects in state.sidebar.shown.map { it.path }
 				}
 		}
 

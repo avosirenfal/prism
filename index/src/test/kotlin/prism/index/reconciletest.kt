@@ -15,6 +15,7 @@ import org.junit.jupiter.api.io.TempDir
 import prism.index.query.Depth
 import prism.index.query.query
 import prism.linux.Dev
+import prism.linux.Mount
 
 /**
  * What keeping the index current rests on: a folder made to agree with the disk one level deep, whatever happened in
@@ -125,8 +126,8 @@ class ReconcileTest {
 			Indexer(
 				mounts =
 					listOf(
-						Mount(Path("/"), "ext4", disk.major, disk.minor),
-						Mount(Path("/home"), "btrfs", pool.major, pool.minor),
+						Mount(1, Dev(disk.major, disk.minor), "/", Path("/"), "ext4", "/dev/vda"),
+						Mount(2, Dev(pool.major, pool.minor), "/", Path("/home"), "btrfs", "/dev/vdb"),
 					),
 			)
 

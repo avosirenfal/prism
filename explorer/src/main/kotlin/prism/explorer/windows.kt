@@ -23,9 +23,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isAltPressed
+import androidx.compose.ui.input.key.isCtrlPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
@@ -40,9 +44,13 @@ import prism.browser.LocalPalette
 import prism.browser.LocalType
 import prism.browser.Location
 import prism.browser.Palette
+import prism.browser.Scaled
 import prism.browser.TransientFor
 import prism.browser.mouseChords
+import prism.browser.zoomedByWheel
+import prism.preferences.DateFormat
 import prism.preferences.TextSizes
+import prism.preferences.WindowKind
 import prism.window.NativeWindow
 import prism.window.Window
 
@@ -56,10 +64,14 @@ import prism.window.Window
 @Composable
 fun ExplorerWindows(explorer: Explorer, palette: Palette, decorated: Boolean) {
 	val windows by explorer.windows.collectAsState()
-	val sizes =
-		explorer.preferences.preferences
-			.collectAsState()
-			.value.text
+	val preferences by explorer.preferences.preferences.collectAsState()
+	val sizes = preferences.text
+
+	/** How large windows of [kind] are drawn, and what zooming one does: every one of its kind drawn so, from then on. */
+	fun zoomOf(kind: WindowKind): Zooming =
+		Zooming(preferences.scales.of(kind)) { scale ->
+			explorer.preferences.update { it.copy(scales = it.scales.with(kind, scale)) }
+		}
 
 	for (window in windows)
 		key(window.id) {
@@ -74,6 +86,7 @@ fun ExplorerWindows(explorer: Explorer, palette: Palette, decorated: Boolean) {
 								is Location.Folder -> (at.path.fileName ?: at.path).toString()
 								is Location.Results -> "Search"
 								is Location.Place -> at.placed.title
+								Location.Trash -> "Trash"
 							},
 						size = DpSize(1100.dp, 680.dp),
 						decorated = decorated,
@@ -98,13 +111,13 @@ fun ExplorerWindows(explorer: Explorer, palette: Palette, decorated: Boolean) {
 				is ExplorerWindow.Properties ->
 					Dialog(propertiesTitleOf(window.paths), DpSize(560.dp, 520.dp), palette, decorated, {
 						explorer.close(window)
-					}, sizes = sizes) {
+					}, sizes = sizes, dates = preferences.dates, zoom = zoomOf(WindowKind.Properties)) {
 						PropertiesView(window.paths, explorer) { explorer.close(window) }
 					}
 				is ExplorerWindow.OpenWith ->
 					Dialog(openWithTitleOf(window.choice), DpSize(620.dp, 560.dp), palette, decorated, {
 						explorer.close(window)
-					}, sizes = sizes) {
+					}, sizes = sizes, dates = preferences.dates, zoom = zoomOf(WindowKind.OpenWith)) {
 						OpenWithView(window.choice, explorer) { explorer.close(window) }
 					}
 				is ExplorerWindow.Settings ->
@@ -116,6 +129,8 @@ fun ExplorerWindows(explorer: Explorer, palette: Palette, decorated: Boolean) {
 						{ explorer.close(window) },
 						raised = window.raised,
 						sizes = sizes,
+						dates = preferences.dates,
+						zoom = zoomOf(WindowKind.Preferences),
 					) {
 						SettingsWindow(explorer) { explorer.close(window) }
 					}
@@ -135,12 +150,7 @@ private fun SettingsWindow(explorer: Explorer, onClose: () -> Unit) {
 		}
 
 	var settings by remember {
-		mutableStateOf(
-			Settings(
-				explorer.preferences.preferences.value,
-				explorer.desktop.places.known(explorer.home),
-			),
-		)
+		mutableStateOf(Settings(explorer.preferences.preferences.value))
 	}
 
 	Box(Modifier.fillMaxSize().mouseChords { chords.tryEmit(it) }) {
@@ -160,10 +170,28 @@ private fun SettingsWindow(explorer: Explorer, onClose: () -> Unit) {
 	}
 }
 
+/** How large a window is drawn ([scale] times its usual size), and what is done with a size it is zoomed to. */
+class Zooming(
+	val scale: Float,
+	val onScale: (Float) -> Unit,
+) {
+	/** The size [steps] of the zoom's steps from this one: from the nearest step to it, as far as there are steps. */
+	fun stepped(steps: Int): Float {
+		val at = WINDOW_STEPS.indices.minBy { kotlin.math.abs(WINDOW_STEPS[it] - scale) }
+
+		return WINDOW_STEPS[(at + steps).coerceIn(0, WINDOW_STEPS.lastIndex)]
+	}
+}
+
+/** The sizes a window is zoomed through, as a web browser's are: from half its usual size to three times it. */
+internal val WINDOW_STEPS =
+	listOf(0.5f, 0.67f, 0.75f, 0.8f, 0.9f, 1f, 1.1f, 1.25f, 1.5f, 1.75f, 2f, 2.5f, 3f)
+
 /**
  * A window of [size] for something the explorer shows beside its browsers, hosted as every prism window is, and closed
  * by [onClose] (its own buttons call it too) or by Escape where nothing in it uses the key. Each time [raised] changes,
- * it is brought to the front.
+ * it is brought to the front. It is drawn as large as [zoom] says, which Ctrl and the wheel change, as they zoom a
+ * page in a web browser (and Ctrl with + and -, and Ctrl+0 back to its usual size).
  */
 @Composable
 private fun Dialog(
@@ -174,6 +202,8 @@ private fun Dialog(
 	onClose: () -> Unit,
 	raised: Int = 0,
 	sizes: TextSizes = TextSizes(),
+	dates: DateFormat = DateFormat.Written,
+	zoom: Zooming = Zooming(1f) {},
 	content: @Composable (NativeWindow) -> Unit,
 ) {
 	Window(
@@ -188,11 +218,13 @@ private fun Dialog(
 			if (raised > 0)
 				native.raise()
 		}
-		HostedWindow(native, palette, sizes) {
+		HostedWindow(native, palette, sizes, dates) {
 			Column(
 				Modifier
 					.fillMaxSize()
 					.background(LocalPalette.current.window)
+					.zoomedByWheel { zoom.onScale(zoom.stepped(it)) }
+					.onPreviewKeyEvent { zoomKey(it, zoom) }
 					.onKeyEvent {
 						(it.type == KeyEventType.KeyDown && it.key == Key.Escape).also { escaped ->
 							if (escaped)
@@ -200,16 +232,38 @@ private fun Dialog(
 						}
 					},
 			) {
-				if (!decorated)
-					Text(
-						title,
-						style = LocalType.current.heading,
-						modifier = Modifier.padding(start = Dims.gap * 2, top = Dims.gap * 2),
-					)
-				Box(Modifier.weight(1f).fillMaxWidth()) { content(native) }
+				Scaled(zoom.scale) {
+					Column(Modifier.fillMaxSize()) {
+						if (!decorated)
+							Text(
+								title,
+								style = LocalType.current.heading,
+								modifier = Modifier.padding(start = Dims.gap * 2, top = Dims.gap * 2),
+							)
+						Box(Modifier.weight(1f).fillMaxWidth()) { content(native) }
+					}
+				}
 			}
 		}
 	}
+}
+
+/** Ctrl with + or - zooming a window a step, and Ctrl+0 back to its usual size: whether [key] was one of them. */
+private fun zoomKey(key: KeyEvent, zoom: Zooming): Boolean {
+	if (key.type != KeyEventType.KeyDown || !key.isCtrlPressed || key.isAltPressed)
+		return false
+
+	val scale =
+		when (key.key) {
+			Key.Equals, Key.Plus, Key.NumPadAdd -> zoom.stepped(1)
+			Key.Minus, Key.NumPadSubtract -> zoom.stepped(-1)
+			Key.Zero, Key.NumPad0 -> 1f
+			else -> return false
+		}
+
+	zoom.onScale(scale)
+
+	return true
 }
 
 /** A row of tabs, [chosen] among [tabs], each named by [label]. */

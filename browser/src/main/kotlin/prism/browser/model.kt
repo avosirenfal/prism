@@ -6,6 +6,13 @@ import java.time.Instant
 import java.util.concurrent.atomic.AtomicReference
 import prism.desktop.Place
 import prism.desktop.TerminalChoice
+import prism.preferences.Builtin
+import prism.preferences.DateShown
+import prism.preferences.FolderView
+import prism.preferences.Order
+import prism.preferences.QuickAccess
+import prism.preferences.QuickItem
+import prism.preferences.ResultsView
 import prism.preferences.Sort
 
 /*
@@ -36,6 +43,12 @@ sealed interface RowId {
 	/** An entry of the place shown, by what the place's command called it. */
 	data class Entry(
 		val key: String,
+	) : RowId
+
+	/** An entry of a trash: the trash's folder, and the name it keeps the entry under there. */
+	data class Trashed(
+		val bin: Path,
+		val name: String,
 	) : RowId
 }
 
@@ -70,9 +83,9 @@ data class Shown<T : Comparable<T>>(
 }
 
 /**
- * When a file was made: not read yet, read and kept by its file system ([At], said as the date column says it), or
- * read and not kept, which many file systems (FAT, NFS, and others) do not. Unix's "ctime" is another thing, when the
- * file's inode last changed; this is its birth time.
+ * When a file was made: not read yet, read and kept by its file system ([At]), or read and not kept, which many file
+ * systems (FAT, NFS, and others) do not. Unix's "ctime" is another thing, when the file's inode last changed; this is
+ * its birth time.
  */
 @Immutable
 sealed interface Created {
@@ -81,37 +94,11 @@ sealed interface Created {
 	data object Unkept : Created
 
 	data class At(
-		val time: Shown<Instant>,
+		val time: Instant,
 	) : Created
 
 	/** The time, where there is one. */
-	val at: Instant? get() = (this as? At)?.time?.value
-}
-
-/** Which time the date column shows: when a file was last modified, or when it was made. */
-enum class DateShown {
-	Modified,
-	Created,
-	;
-
-	/** The column a listing showing this is ordered by, by its date. */
-	val column: Sort.Column
-		get() =
-			when (this) {
-				Modified -> Sort.Column.Modified
-				Created -> Sort.Column.Created
-			}
-
-	companion object {
-		/** What a window ordered by [sort] shows: its time, where it is ordered by one. */
-		fun of(sort: Sort): DateShown =
-			if (sort.by ==
-				Sort.Column.Created
-			)
-				Created
-			else
-				Modified
-	}
+	val at: Instant? get() = (this as? At)?.time
 }
 
 /** One entry of the folder shown, or one result of a search, with everything the view shows of it worked out. */
@@ -126,8 +113,11 @@ data class Row(
 	val type: String,
 	/** The size in bytes, said as the size column says it ("4.2 KB"); null for a folder, or a result not read yet. */
 	val size: Shown<Long>?,
-	/** When it was last modified, said as the date column says it; null where that is not read, or could not be. */
-	val modified: Shown<Instant>?,
+	/**
+	 * When it was last modified; null where that is not read, or could not be. For an entry of the trash, when it was
+	 * trashed, which is what the trash's date column shows and orders by.
+	 */
+	val modified: Instant?,
 	val hidden: Boolean,
 	/** When it was made, read after the folder is (a listing's creation times are read behind, those in sight first). */
 	val created: Created = Created.Unread,
@@ -249,10 +239,10 @@ data class Hidden(
  */
 @Immutable
 data class Arrangement(
-	val sort: Sort = Sort.BY_NAME,
-	/** Which time the date column shows; a window keeps it, as it keeps its order, wherever it goes. */
-	val date: DateShown = DateShown.Modified,
-	val results: Order = Order.Relevance,
+	/** How a folder's listing looks: its order, its date column's time, its columns. A window keeps it wherever it goes. */
+	val folders: FolderView = FolderView(),
+	/** How a search's results look, likewise. */
+	val results: ResultsView = ResultsView(),
 	val hidden: Hidden = Hidden(),
 	/** The kinds shown: only these where any are chosen, every row where none is. */
 	val kinds: Set<Kind> = emptySet(),
@@ -324,6 +314,14 @@ sealed interface Zoom {
 
 		/** The list's largest: twice the usual, beyond which a row is larger than anyone reads. */
 		val LIST_LARGEST: By get() = By(5)
+
+		/** The step of [SCALE] nearest [factor] times the usual size. */
+		fun nearest(factor: Float): By =
+			By(
+				SCALE.indices.minBy {
+					kotlin.math.abs(SCALE[it] - factor)
+				},
+			)
 	}
 }
 
@@ -511,7 +509,7 @@ sealed interface Listing {
 	) : Read {
 		private val sortedBy = Memo<Sort, List<Row>> { sorted(entries, it) }
 		private val arranged =
-			Memo<Arrangement, Rows> { Rows(sortedBy(it.sort).filter(it::admits)) }
+			Memo<Arrangement, Rows> { Rows(sortedBy(it.folders.sort).filter(it::admits)) }
 
 		fun rows(arrangement: Arrangement): Rows = arranged(arrangement)
 
@@ -580,7 +578,7 @@ sealed interface Listing {
 
 		/** The rows shown: filtered as a folder's are, then in [Arrangement.results]' order, folders first. */
 		private fun arrange(arrangement: Arrangement): Rows {
-			val order = arrangement.results
+			val order = arrangement.results.order
 			val sorted = placesBy(order)
 			val places =
 				when {
@@ -643,6 +641,9 @@ sealed interface Location {
 		val within: List<String> = emptyList(),
 		val tree: PlaceTree? = null,
 	) : Location
+
+	/** The trash: every trash's entries, the home trash's and each drive's, together. */
+	data object Trash : Location
 }
 
 /** Where the keyboard's cursor goes when the next read of the folder shown arrives. */
@@ -767,9 +768,13 @@ sealed interface Notice {
 		val path: Path,
 	) : Notice
 
-	/** Entries to move to the trash, if the user says so: asked when the Delete key alone asks for it. */
-	data class ConfirmTrash(
-		val paths: List<Path>,
+	/**
+	 * Something to delete for good, if the user says so: asked for (Shift+Delete, the trash's own menus), or, where
+	 * [noTrash] says why, what the Delete key would have moved to a trash, on a drive that has none.
+	 */
+	data class ConfirmErase(
+		val erasing: Erasing,
+		val noTrash: String? = null,
 	) : Notice
 
 	/** Something the user asked for could not be done: what ("Couldn't rename “a.txt”"), and why. */
@@ -810,31 +815,119 @@ data class Crumb(
 	val path: Path,
 )
 
+/** Something the sidebar shows, to go to. */
+@Immutable
+sealed interface SidebarItem {
+	val label: String
+
+	/** Where it goes on disk; none for the trash, which is many folders. */
+	val path: Path?
+
+	/** One of prism's own folders: the home folder, or one of its well-known folders, at [place]. */
+	data class Own(
+		val builtin: Builtin,
+		val place: Place,
+	) : SidebarItem {
+		override val label: String get() = place.label
+		override val path: Path get() = place.path
+	}
+
+	/** A folder the user pinned. */
+	data class Pinned(
+		val place: Place,
+	) : SidebarItem {
+		override val label: String get() = place.label
+		override val path: Path get() = place.path
+	}
+
+	/** The trash. */
+	data object Trash : SidebarItem {
+		override val label: String get() = "Trash"
+		override val path: Path? get() = null
+	}
+
+	/** A drive. */
+	data class Drive(
+		val place: Place,
+	) : SidebarItem {
+		override val label: String get() = place.label
+		override val path: Path get() = place.path
+	}
+}
+
 /**
- * The sidebar: the places pinned to it (its quick access, which the user pins to and unpins from), then the drives,
- * each under its heading.
+ * The sidebar: its quick access ([quick], as the user arranged it, showing those of prism's own folders that are there,
+ * [known]), then the [drives], each under its heading.
  */
 @Immutable
 data class Sidebar(
-	val pinned: List<Place>,
+	val quick: QuickAccess,
+	val known: Map<Builtin, Place>,
 	val drives: List<Place>,
 ) {
 	@Immutable
 	data class Group(
 		val heading: String,
-		val places: List<Place>,
+		val items: List<SidebarItem>,
+		/** Whether the user arranges what it shows, in a window of its own. */
+		val arranged: Boolean,
 	)
 
-	val groups: List<Group> get() =
+	/** Quick access as the user arranged it, every entry of it, shown or hidden: what arranging it shows. */
+	val arranging: List<Arranged>
+		get() =
+			quick.items.mapNotNull { item ->
+				when (item) {
+					is QuickItem.Own -> Arranged(itemOf(item.place), item.place, item.shown)
+					is QuickItem.Pinned ->
+						Arranged(
+							SidebarItem.Pinned(pinnedPlaceOf(item.path)),
+							null,
+							shown = true,
+						)
+				}
+			}
+
+	/** What quick access shows, in order: each entry shown, of prism's own folders only those that are there. */
+	val shown: List<SidebarItem>
+		get() = arranging.filter { it.shown && it.item != null }.mapNotNull { it.item }
+
+	/** What the sidebar shows, under each heading: with the trash where it is [trash], where quick access shows it. */
+	fun groups(trash: Boolean = true): List<Group> =
 		listOf(
-			Group("Quick access", pinned),
-			Group("This computer", drives),
+			Group(
+				"Quick access",
+				shown.filter { trash || it != SidebarItem.Trash },
+				arranged = true,
+			),
+			Group("This computer", drives.map(SidebarItem::Drive), arranged = false),
 		)
 
-	val places: List<Place> get() = pinned + drives
+	/** Whether quick access shows [path]. */
+	fun shows(path: Path): Boolean = shown.any { it.path == path }
 
-	/** Whether [path] is pinned. */
-	fun pins(path: Path): Boolean = pinned.any { it.path == path }
+	/** The item [builtin] is: the trash, or one of prism's own folders where it is there; null where it is not. */
+	private fun itemOf(builtin: Builtin): SidebarItem? =
+		if (builtin == Builtin.Trash)
+			SidebarItem.Trash
+		else
+			known[builtin]?.let { SidebarItem.Own(builtin, it) }
+
+	/** A folder pinned, named as the desktop names it where it is one of its own, and by its own name otherwise. */
+	private fun pinnedPlaceOf(path: Path): Place =
+		known.values.firstOrNull { it.path == path }
+			?: Place(path.fileName?.toString() ?: "/", Place.Kind.Folder, path)
+
+	/**
+	 * An entry of quick access as its window shows it: [item], what it shows where it is there (null for one of prism's
+	 * own folders that is not); [builtin], where it is one of prism's own, which is hidden rather than removed.
+	 */
+	@Immutable
+	data class Arranged(
+		val item: SidebarItem?,
+		val builtin: Builtin?,
+		val shown: Boolean,
+	)
 }
 
 /** Everything the picker shows. */
@@ -888,6 +981,8 @@ data class BrowserState(
 	val running: List<Work> = emptyList(),
 	/** What the asking application calls the button that accepts ("Upload", "Attach"); its own words where null. */
 	val acceptLabel: String? = null,
+	/** Whether the window that arranges quick access is open over the browser. */
+	val arrangingQuick: Boolean = false,
 ) {
 	/** The folder shown; none among a search's results. */
 	val folder: Path? get() = (at as? Location.Folder)?.path
@@ -906,7 +1001,11 @@ data class BrowserState(
 				// Results of a search in a place are in that place, at its top: its actions are for them too.
 				is Location.Results -> at.within?.let { Where.Place(it.placed) } ?: Where.Results
 				is Location.Place -> Where.Place(at.placed, at.within)
+				Location.Trash -> Where.Trash
 			}
+
+	/** Whether the trash is shown. */
+	val inTrash: Boolean get() = at == Location.Trash
 
 	/** The search whose results are shown, where they are. */
 	val results: Finding.Matched? get() = (at as? Location.Results)?.finding
@@ -948,6 +1047,7 @@ data class BrowserState(
 				is Location.Folder -> crumbs.last().label
 				is Location.Results -> "results for “${at.finding.text}”"
 				is Location.Place -> at.within.lastOrNull() ?: at.placed.title
+				Location.Trash -> "the trash"
 			}
 
 	/** The rows chosen, in the order they are shown. */

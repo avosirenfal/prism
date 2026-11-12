@@ -12,7 +12,12 @@ import prism.browser.Chord
 import prism.desktop.Place
 import prism.desktop.TerminalChoice
 import prism.preferences.ActionsFile
+import prism.preferences.Column
+import prism.preferences.DateFormat
+import prism.preferences.FolderView
 import prism.preferences.Preferences
+import prism.preferences.QuickAccess
+import prism.preferences.WindowKind
 
 /**
  * The preferences window's edits: a chord given where one is awaited, and taken from whatever had it; the places pinned
@@ -86,17 +91,15 @@ class SettingsTest {
 	@Test
 	fun onlyWhatWasChangedHereIsSavedOverThePreferencesAsTheyAreBySaving() {
 		val base = Preferences(terminal = TerminalChoice.Named("foot"))
-		val opened = Settings(base, places)
+		val opened = Settings(base)
 
 		assertFalse(opened.changed)
-		assertEquals(known, opened.pins)
-		assertEquals(
-			listOf("Home", "Documents", "x"),
-			listOf(home, home.resolve("Documents"), home.resolve("x")).map(opened::labelOf),
-		)
 
-		// Meanwhile, a place pinned from a window, and the bindings changed here.
-		val elsewhere = base.pinning(listOf(home.resolve("Projects")))
+		// Meanwhile, quick access arranged from a window, and a window zoomed; and the bindings changed here.
+		val elsewhere =
+			base
+				.arranging(QuickAccess.DEFAULT.pinning(home.resolve("Projects")))
+				.copy(scales = base.scales.with(WindowKind.Properties, 1.5f))
 
 		val rebound =
 			opened.copy(
@@ -109,22 +112,21 @@ class SettingsTest {
 			rebound.over(elsewhere),
 		)
 
-		// The pins changed here too: these are the pins then.
-		val repinned = rebound.unpinned(1).moved(1, -1)
+		// A new window's look, and the sidebar's size, changed here: those are written, and the window zoomed kept.
+		val looked =
+			opened.copy(
+				folders = FolderView(hidden = setOf(Column.Size)),
+				scales = opened.scales.copy(sidebar = 1.25f),
+				dates = DateFormat.Iso,
+			)
 
-		assertEquals(listOf(home.resolve("Downloads"), home), repinned.pins)
-		assertEquals(repinned.pins, repinned.over(elsewhere).pinned)
+		val saved = looked.over(elsewhere)
 
-		// Pins of the user's, made the desktop's own again: written as none.
-		val own = Settings(base.pinning(known), places).copy(pinned = null)
-
-		assertNull(own.over(elsewhere).pinned)
-		// Pinning what is pinned changes nothing.
-		assertEquals(opened.pins, opened.pinned(home).pins)
-		assertEquals(
-			known.plusElement(home.resolve("x")),
-			opened.pinned(home.resolve("x")).pins,
-		)
+		assertEquals(setOf(Column.Size), saved.folders.hidden)
+		assertEquals(1.25f, saved.scales.sidebar)
+		assertEquals(1.5f, saved.scales.of(WindowKind.Properties))
+		assertEquals(DateFormat.Iso, saved.dates)
+		assertEquals(elsewhere.quickAccess, saved.quickAccess)
 
 		// The terminal emptied is the desktop's own.
 		assertEquals(
@@ -191,7 +193,7 @@ class SettingsTest {
 				]}""",
 			)
 
-		val settings = Settings(Preferences(actions = written.actions), emptyList())
+		val settings = Settings(Preferences(actions = written.actions))
 
 		assertEquals("Mine", settings.actions["mine"]?.label)
 		assertEquals(listOf("wrong"), settings.actions.broken.map { it.id })

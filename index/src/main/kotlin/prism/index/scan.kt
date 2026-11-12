@@ -537,7 +537,7 @@ class Scanner(
 	val rules: IgnoreRules = IgnoreRules.DEFAULT,
 	val threads: Int = Runtime.getRuntime().availableProcessors(),
 	/** Mount points not to go into: the file systems [rules] leave out, as they are mounted now. */
-	ignoredMounts: Set<Path> = Mounts.ignored(rules),
+	ignoredMounts: Set<Path> = mountsLeftOut(rules),
 ) {
 	private val ignoredMounts: Set<String> = ignoredMounts.map(Where::keyOf).toSet()
 

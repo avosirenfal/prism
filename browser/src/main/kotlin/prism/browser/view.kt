@@ -117,6 +117,9 @@ import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import prism.desktop.Place
+import prism.preferences.Builtin
+import prism.preferences.Column
+import prism.preferences.DateShown
 import prism.preferences.Sort
 import prism.window.WindowLocals
 
@@ -225,6 +228,8 @@ fun FileBrowser(
 					Footer(state, stops, onEvent)
 			}
 			state.search.takeIf { it.open }?.let { SearchLayer(it, state.home, onEvent) }
+			if (state.arrangingQuick)
+				QuickAccessLayer(state.sidebar, onEvent)
 			state.notice?.let { NoticeLayer(it, onEvent) }
 			// What is waited on, over everything, where nothing is asking: a notice is answered first.
 			if (state.notice == null)
@@ -365,6 +370,14 @@ private fun Toolbar(state: BrowserState, stops: Stops, onEvent: (BrowserEvent) -
 		verticalAlignment = Alignment.CenterVertically,
 		horizontalArrangement = Arrangement.spacedBy(Dims.gapSmall),
 	) {
+		// The window's own menu first, where a window's menu is on every desktop.
+		if (state.choosing is Choosing.Exploring) {
+			val bindings = LocalBindings.current
+
+			MenuButton(Glyph.Menu, "Menu", {
+				appMenuOf(state, bindings)
+			}, onEvent, Modifier.testTag("menu-button"))
+		}
 		ToolButton(
 			Glyph.Back,
 			"Back",
@@ -397,13 +410,6 @@ private fun Toolbar(state: BrowserState, stops: Stops, onEvent: (BrowserEvent) -
 			Modifier.testTag("filters"),
 			selected = state.arrangement.kinds.isNotEmpty(),
 		)
-		if (state.choosing is Choosing.Exploring) {
-			val bindings = LocalBindings.current
-
-			MenuButton(Glyph.Menu, "Menu", {
-				appMenuOf(state, bindings)
-			}, onEvent, Modifier.testTag("menu-button"))
-		}
 		Spacer(Modifier.width(Dims.gapSmall))
 		AddressBar(state, stops, Modifier.weight(1f), onEvent)
 		Spacer(Modifier.width(Dims.gapSmall))
@@ -473,6 +479,7 @@ private fun AddressBar(
 				is Location.Folder -> Crumbs(state.crumbs, modifier, onEvent)
 				is Location.Results -> ResultsBar(at.finding, modifier, onEvent)
 				is Location.Place -> PlaceBar(at, modifier, onEvent)
+				Location.Trash -> TrashBar(modifier)
 			}
 		is Address.Editing -> {
 			Field(
@@ -610,6 +617,31 @@ private fun ResultsBar(
 	}
 }
 
+/** In place of the path, that the window shows the trash: every trash's entries, which are on no one path. */
+@Composable
+private fun TrashBar(modifier: Modifier) {
+	val palette = LocalPalette.current
+	val shape = RoundedCornerShape(Dims.radius)
+
+	Row(
+		modifier
+			.height(Dims.control)
+			.background(palette.field, shape)
+			.border(1.dp, palette.fieldEdge, shape)
+			.testTag("trash-bar")
+			.padding(horizontal = Dims.gap),
+		verticalAlignment = Alignment.CenterVertically,
+	) {
+		GlyphIcon(Glyph.Trash, palette.text, 16.dp)
+		Spacer(Modifier.width(Dims.gap))
+		Text(
+			"Trash",
+			style = LocalType.current.body.copy(fontWeight = FontWeight.SemiBold),
+			maxLines = 1,
+		)
+	}
+}
+
 /**
  * In place of the path, where in a place the window is: what the place is called, then each folder of it gone into, as
  * steps to click, as a path's are.
@@ -697,7 +729,8 @@ private fun CrumbStep(
 
 /**
  * The places, as one stop of the keyboard: the arrows move through them, Enter opens one. Which place the arrows are
- * on is the sidebar's own, as a list's highlighted entry is on any desktop: it starts at the place shown.
+ * on is the sidebar's own, as a list's highlighted entry is on any desktop: it starts at the place shown. Quick access
+ * is drawn as large as the user set it, and a button beside its heading opens the window that arranges it.
  */
 @Composable
 private fun SidebarPane(
@@ -708,18 +741,31 @@ private fun SidebarPane(
 	val palette = LocalPalette.current
 	val type = LocalType.current
 	val sidebar = state.sidebar
-	val current = state.folder
-	val places = sidebar.places
+	// A picker chooses files for another application: the trash, whose entries it cannot give, is an explorer's.
+	val groups = sidebar.groups(trash = state.choosing is Choosing.Exploring)
+	val items = groups.flatMap { it.items }
 	val menus = rememberContextMenus<BrowserEvent>()
 	val bindings = LocalBindings.current
 	val source = remember { MutableInteractionSource() }
 	val felt = source.felt()
+
+	/** Whether [item] is what the window shows. */
+	fun isShown(item: SidebarItem): Boolean =
+		when (item) {
+			SidebarItem.Trash -> state.inTrash
+			else -> item.path == state.folder
+		}
+
+	/** What going to [item] is. */
+	fun openingOf(item: SidebarItem): BrowserEvent =
+		item.path?.let(BrowserEvent::Opened) ?: BrowserEvent.OpenedTrash
+
 	var at by remember(sidebar) {
-		mutableIntStateOf(places.indexOfFirst { it.path == current }.coerceAtLeast(0))
+		mutableIntStateOf(items.indexOfFirst(::isShown).coerceAtLeast(0))
 	}
 
 	fun key(key: KeyEvent): Boolean {
-		if (key.type != KeyEventType.KeyDown || places.isEmpty())
+		if (key.type != KeyEventType.KeyDown || items.isEmpty())
 			return false
 
 		val chord = Chord.of(key) ?: return false
@@ -727,62 +773,84 @@ private fun SidebarPane(
 		// The listing's moves and its Open, as the user has bound them, move through the places and open one.
 		when (bindings.movement(chord) ?: bindings.listing(chord)) {
 			Action.MoveUp, Action.PageUp -> at = (at - 1).coerceAtLeast(0)
-			Action.MoveDown, Action.PageDown -> at = (at + 1).coerceAtMost(places.lastIndex)
+			Action.MoveDown, Action.PageDown -> at = (at + 1).coerceAtMost(items.lastIndex)
 			Action.First -> at = 0
-			Action.Last -> at = places.lastIndex
-			Action.Open, Action.Toggle -> onEvent(BrowserEvent.Opened(places[at].path))
+			Action.Last -> at = items.lastIndex
+			Action.Open, Action.Toggle -> onEvent(openingOf(items[at]))
 			else -> return false
 		}
 
 		return true
 	}
 
-	Column(
-		Modifier
-			.width(Dims.sidebar)
-			.fillMaxHeight()
-			.background(palette.pane)
-			.focusRequester(stops.places)
-			.onKeyEvent(::key)
-			.focusable(interactionSource = source)
-			.testTag("places")
-			.padding(Dims.gap),
-		verticalArrangement = Arrangement.spacedBy(2.dp),
-	) {
-		for (group in sidebar.groups) {
-			Text(
-				group.heading,
-				style = type.heading,
-				modifier = Modifier.padding(start = Dims.gap, top = Dims.gap, bottom = Dims.gapSmall),
-			)
-			for (place in group.places) {
-				val index = places.indexOf(place)
-
-				PlaceRow(
-					place,
-					current = place.path == current,
-					keyed = felt.ringed && index == at,
-					Modifier
-						.folderDrop(
-							place.path,
-							{ onEvent(BrowserEvent.Opened(place.path)) }.takeIf { place.path != current },
-							onEvent,
-						).contextMenu(menus) { contextMenuOf(state, Target.Place(place), bindings) },
+	Scaled(LocalSidebarScale.current) {
+		Column(
+			Modifier
+				.width(Dims.sidebar)
+				.fillMaxHeight()
+				.background(palette.pane)
+				.focusRequester(stops.places)
+				.onKeyEvent(::key)
+				.focusable(interactionSource = source)
+				.testTag("places")
+				.verticalScroll(rememberScrollState())
+				.padding(Dims.gap),
+			verticalArrangement = Arrangement.spacedBy(2.dp),
+		) {
+			for (group in groups) {
+				Row(
+					Modifier.fillMaxWidth().padding(
+						start = Dims.gap,
+						top = Dims.gap,
+						bottom = Dims.gapSmall,
+					),
+					verticalAlignment = Alignment.CenterVertically,
 				) {
-					// A place clicked takes the keyboard to the places, as a list clicked does on any desktop.
-					at = index
-					stops.places.requestFocus()
-					onEvent(BrowserEvent.Opened(place.path))
+					Text(group.heading, style = type.heading, modifier = Modifier.weight(1f))
+					if (group.arranged)
+						ToolButton(
+							Glyph.Settings,
+							"Arrange ${group.heading.lowercase()}",
+							enabled = true,
+							Modifier.testTag("arrange-quick-access"),
+							size = 24.dp,
+							icon = 16.dp,
+						) { onEvent(BrowserEvent.ArrangingQuickAccess(true)) }
+				}
+				for (item in group.items) {
+					val index = items.indexOf(item)
+					val path = item.path
+
+					PlaceRow(
+						item,
+						current = isShown(item),
+						keyed = felt.ringed && index == at,
+						Modifier
+							.then(
+								path?.let {
+									Modifier.folderDrop(
+										it,
+										{ onEvent(BrowserEvent.Opened(it)) }.takeIf { path != state.folder },
+										onEvent,
+									)
+								} ?: Modifier,
+							).contextMenu(menus) { contextMenuOf(state, Target.Sidebar(item), bindings) },
+					) {
+						// A place clicked takes the keyboard to the places, as a list clicked does on any desktop.
+						at = index
+						stops.places.requestFocus()
+						onEvent(openingOf(item))
+					}
 				}
 			}
+			ContextMenuHost(menus, onEvent)
 		}
-		ContextMenuHost(menus, onEvent)
 	}
 }
 
 @Composable
 private fun PlaceRow(
-	place: Place,
+	item: SidebarItem,
 	current: Boolean,
 	keyed: Boolean,
 	modifier: Modifier,
@@ -808,7 +876,7 @@ private fun PlaceRow(
 			.background(background, RoundedCornerShape(Dims.radius))
 			.focusProperties { canFocus = false }
 			.clickable(source, indication = null, onClick = onOpen)
-			.testTag("place:${place.label}")
+			.testTag("place:${item.label}")
 			.padding(horizontal = Dims.gap),
 		verticalAlignment = Alignment.CenterVertically,
 	) {
@@ -824,7 +892,7 @@ private fun PlaceRow(
 		)
 		Spacer(Modifier.width(Dims.gap))
 		GlyphIcon(
-			glyphOf(place.kind),
+			glyphOf(item),
 			if (current)
 				palette.accent
 			else
@@ -832,9 +900,31 @@ private fun PlaceRow(
 			Dims.icon,
 		)
 		Spacer(Modifier.width(Dims.gap + 2.dp))
-		Text(place.label, style = type.body, maxLines = 1, overflow = TextOverflow.Ellipsis)
+		Text(item.label, style = type.body, maxLines = 1, overflow = TextOverflow.Ellipsis)
 	}
 }
+
+/** The icon of what the sidebar shows. */
+internal fun glyphOf(item: SidebarItem): Glyph =
+	when (item) {
+		SidebarItem.Trash -> Glyph.Trash
+		is SidebarItem.Own -> glyphOf(item.place.kind)
+		is SidebarItem.Pinned -> glyphOf(item.place.kind)
+		is SidebarItem.Drive -> glyphOf(item.place.kind)
+	}
+
+/** The icon of one of prism's own places. */
+internal fun glyphOf(builtin: Builtin): Glyph =
+	when (builtin) {
+		Builtin.Home -> Glyph.Home
+		Builtin.Desktop -> Glyph.Desktop
+		Builtin.Documents -> Glyph.Documents
+		Builtin.Downloads -> Glyph.Downloads
+		Builtin.Pictures -> Glyph.Pictures
+		Builtin.Music -> Glyph.Music
+		Builtin.Videos -> Glyph.Videos
+		Builtin.Trash -> Glyph.Trash
+	}
 
 private fun glyphOf(kind: Place.Kind): Glyph =
 	when (kind) {
@@ -909,6 +999,8 @@ private fun ListingPane(
 	val hint = LocalDropHint.current
 	val exploring = state.choosing is Choosing.Exploring
 	val world = LocalWorld.current
+	val headings = headingsOf(state, gallery = false).mapNotNull { it.column }.toSet()
+	val view = viewOf(state)
 
 	/** What the user's action bound to a chord, or done by a double click, is done to: the rows, or the folder shown. */
 	fun subjectOf(rows: List<Row>): Subject =
@@ -1099,6 +1191,8 @@ private fun ListingPane(
 		val real = targets().all { it.path != null }
 		val ids = targets().map { it.id }.takeIf { real }.orEmpty()
 		val copied = targets().map { it.id }
+		// What is in the trash is deleted for good from it, by either key, once asked.
+		val trashed = targets().filter { it.item is Item.InTrash }.map { it.id }
 
 		val event =
 			when (action) {
@@ -1106,9 +1200,19 @@ private fun ListingPane(
 				Action.Toggle -> BrowserEvent.Toggled
 				Action.SelectAll -> BrowserEvent.ChoseAll
 				Action.Rename -> ids.singleOrNull()?.let { BrowserEvent.StartedRenaming(it) }
-				// The trash: Delete asks first, since it is easily pressed by mistake; Shift+Delete does not.
-				Action.Trash -> ids.takeIf { it.isNotEmpty() }?.let { BrowserEvent.AskedToTrash(it) }
-				Action.TrashNow -> ids.takeIf { it.isNotEmpty() }?.let { BrowserEvent.Trashed(it) }
+				// Delete moves to the trash, at once, where there is one; Shift+Delete deletes for good, once asked.
+				Action.Trash ->
+					(
+						ids.takeIf {
+							it.isNotEmpty()
+						} ?: trashed.takeIf { it.isNotEmpty() }
+					)?.let { BrowserEvent.Trashed(it) }
+				Action.Erase ->
+					(
+						ids.takeIf {
+							it.isNotEmpty()
+						} ?: trashed.takeIf { it.isNotEmpty() }
+					)?.let { BrowserEvent.AskedToErase(it) }
 				Action.CopyPaths ->
 					BrowserEvent.CopiedPaths(
 						targets()
@@ -1393,8 +1497,9 @@ private fun ListingPane(
 
 									EntryRow(
 										row,
+										columns = headings,
 										where = whereOf(row, state),
-										date = state.arrangement.date,
+										date = view.date,
 										chosen = row.id in chosen,
 										cursor = felt.ringed && row.id == cursor,
 										zoom = zoom,
@@ -1482,7 +1587,7 @@ private fun Gallery(
  * Ctrl and the mouse's wheel reported as steps of zoom: up larger, down smaller, a step a notch. A touchpad's small
  * scrolls are added up until they make a notch. Seen before the list inside sees it, which then does not scroll.
  */
-private fun Modifier.zoomedByWheel(onZoom: (Int) -> Unit): Modifier =
+fun Modifier.zoomedByWheel(onZoom: (Int) -> Unit): Modifier =
 	pointerInput(Unit) {
 		awaitPointerEventScope {
 			var turned = 0f
@@ -1760,33 +1865,115 @@ private fun clickOf(keys: PointerKeyboardModifiers): Click =
 	}
 
 /**
- * A column of the list: its heading, the order it sorts by (none, for one that sorts nothing), its share of the width,
- * and which side it keeps to.
+ * A column of the listing: its [heading], the order clicking it puts the listing in ([sort]; none for the folder a
+ * result is in), its [share] of the width, and whether it keeps to the end of its space ([end]).
  */
 private data class Heading(
+	val column: Column?,
 	val label: String,
-	val column: Sort.Column?,
+	val sort: Sort.Column?,
 	val share: Float,
 	val end: Boolean = false,
 )
 
-/** The listing's headings, the date column's as [date] says: a folder's, and a search's, which says where each is. */
-private fun headingsOf(date: DateShown, found: Boolean): List<Heading> =
-	listOfNotNull(
-		Heading("Name", Sort.Column.Name, Dims.nameColumn),
-		Heading("Folder", null, Dims.folderColumn).takeIf { found },
-		Heading(headingOf(date.column), date.column, Dims.dateColumn),
-		Heading("Type", Sort.Column.Type, Dims.typeColumn),
-		Heading("Size", Sort.Column.Size, Dims.sizeColumn, end = true),
-	)
-
-/** The menu of the listing's headings: which time the date column shows. */
-private fun headingsMenuOf(state: BrowserState): Menu<BrowserEvent> =
-	menu {
-		DateShown.entries.forEach {
-			radio(headingOf(it.column), state.arrangement.date == it, BrowserEvent.ShowedDate(it))
+/**
+ * The listing's columns as [state] shows them: the name's always, then those of the others not hidden, the date's
+ * saying which time it shows. A search's results, and the trash's entries, have the folder each is in (in the trash,
+ * was in) as well; the trash's date is when each was trashed. A gallery's tiles have no columns: its headings are only
+ * the orders it can be put in, by every column but the folder's.
+ */
+private fun headingsOf(state: BrowserState, gallery: Boolean): List<Heading> {
+	val trash = state.inTrash
+	val results = state.listing is Listing.Found
+	val view = viewOf(state)
+	val date = view.date
+	val offered =
+		when {
+			gallery -> listOf(Column.Date, Column.Type, Column.Size)
+			trash || results -> Column.OF_RESULTS
+			else -> Column.OF_FOLDERS
 		}
+
+	return listOf(Heading(null, "Name", Sort.Column.Name, Dims.nameColumn)) +
+		offered
+			.filter { gallery || it !in view.hidden || (trash && it == Column.Folder) }
+			.map { column ->
+				when (column) {
+					Column.Folder ->
+						Heading(
+							column,
+							if (trash) "Original location" else "Folder",
+							null,
+							Dims.folderColumn,
+						)
+					Column.Date ->
+						Heading(
+							column,
+							if (trash)
+								"Date deleted"
+							else
+								headingOf(date.column),
+							// In the trash, a row's date is when it was trashed, which it is ordered by as by a modification.
+							if (trash) Sort.Column.Modified else date.column,
+							Dims.dateColumn,
+						)
+					Column.Type -> Heading(column, "Type", Sort.Column.Type, Dims.typeColumn)
+					Column.Size -> Heading(column, "Size", Sort.Column.Size, Dims.sizeColumn, end = true)
+				}
+			}
+}
+
+/** What [state]'s listing shows: its date column's time and the columns it hides, as a folder's or a search's. */
+@Immutable
+private data class View(
+	val date: DateShown,
+	val hidden: Set<Column>,
+)
+
+private fun viewOf(state: BrowserState): View =
+	if (state.listing is Listing.Found)
+		View(state.arrangement.results.dateShown, state.arrangement.results.hidden)
+	else
+		View(state.arrangement.folders.dateShown, state.arrangement.folders.hidden)
+
+/**
+ * The menu of the listing's headings: which time the date column shows (but in the trash, whose date is when each was
+ * trashed), and which columns are shown.
+ */
+private fun headingsMenuOf(state: BrowserState): Menu<BrowserEvent> {
+	val view = viewOf(state)
+	val results = state.listing is Listing.Found
+
+	return menu {
+		if (!state.inTrash) {
+			DateShown.entries.forEach {
+				radio(headingOf(it.column), view.date == it, BrowserEvent.ShowedDate(it))
+			}
+			separator()
+		}
+		(
+			if (results)
+				Column.OF_RESULTS
+			else
+				Column.OF_FOLDERS
+		).filterNot { state.inTrash && it == Column.Folder }
+			.forEach { column ->
+				val shown = column !in view.hidden
+
+				check(
+					when (column) {
+						Column.Folder -> "Folder"
+						Column.Date -> "Date"
+						Column.Type -> "Type"
+						Column.Size -> "Size"
+					},
+					shown,
+					BrowserEvent.ShowedColumn(column, !shown),
+					alternate = BrowserEvent.ShowedColumn(column, !shown),
+				)
+			}
 	}
+}
 
 /**
  * The headings that sort the listing, each by its column, the other way round when clicked again: over the list's
@@ -1805,16 +1992,11 @@ private fun Header(
 	val found = state.listing as? Listing.Found
 	val sort =
 		if (found == null)
-			state.arrangement.sort
+			state.arrangement.folders.sort
 		else
-			(state.arrangement.results as? Order.By)?.sort
+			state.arrangement.results.order.sort
 
-	val headings =
-		headingsOf(
-			state.arrangement.date,
-			found =
-				found != null && layout != Layout.Gallery,
-		)
+	val headings = headingsOf(state, gallery = layout == Layout.Gallery)
 
 	Row(
 		Modifier
@@ -1844,7 +2026,7 @@ private fun Header(
 					Layout.Gallery -> Modifier
 				},
 				end = heading.end && layout == Layout.List,
-				enabled = heading.column != null && found?.orders(heading.column) != false,
+				enabled = heading.sort != null && found?.orders(heading.sort) != false,
 				onEvent,
 			)
 	}
@@ -1864,7 +2046,7 @@ private fun HeaderCell(
 	val source = remember { MutableInteractionSource() }
 	val felt = source.felt()
 
-	val sorted = sort != null && sort.by == heading.column
+	val sorted = sort != null && sort.by == heading.sort
 
 	Row(
 		modifier
@@ -1876,7 +2058,7 @@ private fun HeaderCell(
 					Color.Transparent,
 			).focusProperties { canFocus = false }
 			.clickable(source, indication = null, enabled = enabled) {
-				heading.column?.let { onEvent(BrowserEvent.Sorted(it)) }
+				heading.sort?.let { onEvent(BrowserEvent.Sorted(it)) }
 			}.testTag("column:${heading.label}")
 			.padding(horizontal = Dims.gapSmall),
 		verticalAlignment = Alignment.CenterVertically,
@@ -1887,7 +2069,7 @@ private fun HeaderCell(
 			style =
 				when {
 					sorted -> type.muted.copy(color = palette.text)
-					enabled || heading.column == null -> type.muted
+					enabled || heading.sort == null -> type.muted
 					else -> type.muted.copy(color = palette.textFaint)
 				},
 			maxLines = 1,
@@ -1904,20 +2086,23 @@ private fun HeaderCell(
 	}
 }
 
-/** Where [row] is, as a search's results say it; nothing in a folder, where every row is in the folder shown. */
+/**
+ * Where [row] is, as a search's results say it, or where it was, as the trash says it; nothing in a folder, where every
+ * row is in the folder shown.
+ */
 private fun whereOf(row: Row, state: BrowserState): String? =
-	if (state.results == null)
-		null
-	else
-		when (val item = row.item) {
-			is Item.OnDisk -> folderOf(item.path, state.home)
-			// An entry of a place is in the place: the folders it sits under there.
-			is Item.InPlace ->
+	when (val item = row.item) {
+		is Item.InTrash -> folderOf(item.trashed.original, state.home)
+		is Item.OnDisk -> state.results?.let { folderOf(item.path, state.home) }
+		// An entry of a place is in the place: the folders it sits under there.
+		is Item.InPlace ->
+			state.results?.let {
 				Part.Parent
 					.of(item.key)
 					.trimStart('/')
 					.ifEmpty { "/" }
-		}
+			}
+	}
 
 /** The folder [path] is in, from `~` where it is under [home]. */
 internal fun folderOf(path: Path, home: Path): String {
@@ -1932,6 +2117,7 @@ internal fun folderOf(path: Path, home: Path): String {
 @Composable
 private fun EntryRow(
 	row: Row,
+	columns: Set<Column>,
 	where: String?,
 	date: DateShown,
 	chosen: Boolean,
@@ -1947,6 +2133,7 @@ private fun EntryRow(
 ) {
 	val palette = LocalPalette.current
 	val type = LocalType.current
+	val dates = LocalDateFormat.current
 	val hover = remember { MutableInteractionSource() }
 	val hovered by hover.collectIsHoveredAsState()
 	val pressed by rememberUpdatedState(onPress)
@@ -1994,44 +2181,46 @@ private fun EntryRow(
 			Spacer(Modifier.width(Dims.gap + 2.dp))
 			NameOf(row, renamed, body, stops, onEvent, Modifier.weight(1f, fill = renamed != null))
 		}
-		where?.let {
+		if (Column.Folder in columns)
 			Text(
-				it,
+				where.orEmpty(),
 				style = muted,
 				maxLines = 1,
 				overflow = TextOverflow.Ellipsis,
 				modifier = Modifier.weight(Dims.folderColumn).padding(end = Dims.gap),
 			)
-		}
-		Text(
-			when (date) {
-				DateShown.Modified -> row.modified?.text.orEmpty()
-				DateShown.Created ->
-					when (val created = row.created) {
-						is Created.At -> created.time.text
-						// Read behind, those in sight first: blank until it is; a dash where the file system keeps none.
-						Created.Unread -> ""
-						Created.Unkept -> "—"
-					}
-			},
-			style = muted,
-			maxLines = 1,
-			modifier = Modifier.weight(Dims.dateColumn),
-		)
-		Text(
-			row.type,
-			style = muted,
-			maxLines = 1,
-			overflow = TextOverflow.Ellipsis,
-			modifier = Modifier.weight(Dims.typeColumn),
-		)
-		Text(
-			row.size?.text.orEmpty(),
-			style = muted,
-			maxLines = 1,
-			textAlign = TextAlign.End,
-			modifier = Modifier.weight(Dims.sizeColumn),
-		)
+		if (Column.Date in columns)
+			Text(
+				when (date) {
+					DateShown.Modified -> row.modified?.let(dates::write).orEmpty()
+					DateShown.Created ->
+						when (val created = row.created) {
+							is Created.At -> dates.write(created.time)
+							// Read behind, those in sight first: blank until it is; a dash where the file system keeps none.
+							Created.Unread -> ""
+							Created.Unkept -> "—"
+						}
+				},
+				style = muted,
+				maxLines = 1,
+				modifier = Modifier.weight(Dims.dateColumn),
+			)
+		if (Column.Type in columns)
+			Text(
+				row.type,
+				style = muted,
+				maxLines = 1,
+				overflow = TextOverflow.Ellipsis,
+				modifier = Modifier.weight(Dims.typeColumn),
+			)
+		if (Column.Size in columns)
+			Text(
+				row.size?.text.orEmpty(),
+				style = muted,
+				maxLines = 1,
+				textAlign = TextAlign.End,
+				modifier = Modifier.weight(Dims.sizeColumn),
+			)
 	}
 }
 
@@ -2127,7 +2316,7 @@ private fun Picture(row: Row, path: Path?, zoom: Float) {
 			produceState<ImageBitmap?>(null, row.modified, Thumbnails.sideFor(side)) {
 				value =
 					if (drawable)
-						thumbnails.of(path, row.modified?.value, side)
+						thumbnails.of(path, row.modified, side)
 					else
 						null
 			}
@@ -2299,7 +2488,7 @@ private fun statusOf(state: BrowserState): String {
 
 	val ordering =
 		found?.let {
-			when (val column = it.pending(state.arrangement.results)) {
+			when (val column = it.pending(state.arrangement.results.order)) {
 				null -> null
 				else -> "ordering by ${headingOf(column).lowercase()}…"
 			}
@@ -2364,11 +2553,14 @@ private fun wordsOf(notice: Notice): Words =
 				"Replace",
 				"Cancel",
 			)
-		is Notice.ConfirmTrash ->
+		is Notice.ConfirmErase ->
 			Words(
-				"Move ${countOf(notice.paths)} to the trash?",
-				"It can be put back from the trash.",
-				"Move to trash",
+				"Delete ${erasedOf(notice.erasing)} permanently?",
+				listOfNotNull(
+					notice.noTrash?.let { "There is no trash to move it to: $it." },
+					"It can't be put back once it is deleted.",
+				).joinToString(" "),
+				"Delete permanently",
 				"Cancel",
 			)
 		is Notice.Failed -> Words(notice.doing, notice.why, "OK", null)
@@ -2599,12 +2791,15 @@ private fun NoticeLayer(notice: Notice, onEvent: (BrowserEvent) -> Unit) {
 								onEvent(BrowserEvent.CopiedText("${notice.doing}\n\n${notice.why}"))
 							}
 
+						// What cannot be undone starts with the keyboard on the way out of it, so Enter alone does nothing.
+						val wary = notice is Notice.ConfirmErase
+
 						PushButton(
 							words.yes,
 							Emphasis.Primary,
 							enabled = true,
 							Modifier.testTag("yes"),
-							if (notice is Notice.Asking)
+							if (notice is Notice.Asking || wary)
 								remember { FocusRequester() }
 							else
 								first,
@@ -2617,7 +2812,16 @@ private fun NoticeLayer(notice: Notice, onEvent: (BrowserEvent) -> Unit) {
 							)
 						}
 						words.no?.let {
-							PushButton(it, Emphasis.Secondary, enabled = true, Modifier.testTag("no")) {
+							PushButton(
+								it,
+								Emphasis.Secondary,
+								enabled = true,
+								Modifier.testTag("no"),
+								if (wary)
+									first
+								else
+									remember { FocusRequester() },
+							) {
 								onEvent(BrowserEvent.Dismissed)
 							}
 						}

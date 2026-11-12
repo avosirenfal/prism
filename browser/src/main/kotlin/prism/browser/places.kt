@@ -59,6 +59,11 @@ sealed interface Item {
 	data class InPlace(
 		val key: String,
 	) : Item
+
+	/** An entry of a trash, which is put back or deleted for good, and nothing else. */
+	data class InTrash(
+		val trashed: Trashed,
+	) : Item
 }
 
 /** One entry of a place, as its command printed it. */
@@ -174,7 +179,7 @@ class PlaceTree(
 			category = category,
 			type = typeOf(name, category),
 			size = entry.size?.takeUnless { entry.folder }?.let { Shown(it, sizeOf(it)) },
-			modified = entry.modified?.let { Shown(it, dateOf(it, zone)) },
+			modified = entry.modified,
 			hidden = name.startsWith("."),
 		)
 	}

@@ -28,6 +28,7 @@ enum class Glyph {
 	Back,
 	Forward,
 	Up,
+	Down,
 	Chevron,
 	ChevronDown,
 	Search,
@@ -46,6 +47,8 @@ enum class Glyph {
 	ViewGrid,
 	Filter,
 	Menu,
+	Trash,
+	Settings,
 }
 
 /** [glyph] at [size], in [tint]; a file's icon is marked with [category]'s colour. */
@@ -68,6 +71,7 @@ fun GlyphIcon(
 			Glyph.Back -> arrow(unit, tint, Offset(-1f, 0f))
 			Glyph.Forward -> arrow(unit, tint, Offset(1f, 0f))
 			Glyph.Up -> arrow(unit, tint, Offset(0f, -1f))
+			Glyph.Down -> arrow(unit, tint, Offset(0f, 1f))
 			Glyph.Chevron -> stroked(unit, tint, listOf(9f to 6f, 15f to 12f, 9f to 18f))
 			Glyph.ChevronDown -> stroked(unit, tint, listOf(6f to 9f, 12f to 15f, 18f to 9f))
 			Glyph.Search -> search(unit, tint)
@@ -102,11 +106,41 @@ fun GlyphIcon(
 			Glyph.Menu ->
 				for (y in listOf(6.5f, 12f, 17.5f))
 					stroked(unit, tint, listOf(4.5f to y, 19.5f to y))
+			Glyph.Trash -> trash(unit, tint)
+			Glyph.Settings -> gear(unit, tint)
 		}
 	}
 }
 
 private fun DrawScope.at(unit: Float, x: Float, y: Float) = Offset(x * unit, y * unit)
+
+/** A bin with its lid on, and its handle. */
+private fun DrawScope.trash(unit: Float, tint: Color) {
+	stroked(unit, tint, listOf(4f to 6.5f, 20f to 6.5f))
+	stroked(unit, tint, listOf(9.5f to 6.5f, 9.5f to 4f, 14.5f to 4f, 14.5f to 6.5f))
+	stroked(unit, tint, listOf(6f to 6.5f, 7f to 20f, 17f to 20f, 18f to 6.5f))
+	stroked(unit, tint, listOf(10f to 10f, 10f to 16.5f))
+	stroked(unit, tint, listOf(14f to 10f, 14f to 16.5f))
+}
+
+/** A cog: a ring with eight teeth, and its hole. */
+private fun DrawScope.gear(unit: Float, tint: Color) {
+	drawCircle(tint, 6.5f * unit, at(unit, 12f, 12f), style = line(unit))
+	drawCircle(tint, 2.5f * unit, at(unit, 12f, 12f), style = line(unit))
+	for (tooth in 0 until 8) {
+		val angle = Math.PI * tooth / 4
+		val (dx, dy) = kotlin.math.cos(angle).toFloat() to kotlin.math.sin(angle).toFloat()
+
+		stroked(
+			unit,
+			tint,
+			listOf(
+				12f + 6.5f * dx to 12f + 6.5f * dy,
+				12f + 9.5f * dx to 12f + 9.5f * dy,
+			),
+		)
+	}
+}
 
 private fun DrawScope.line(unit: Float) =
 	Stroke(width = 1.7f * unit, cap = StrokeCap.Round, join = StrokeJoin.Round)
@@ -136,6 +170,7 @@ private fun DrawScope.arrow(unit: Float, tint: Color, toward: Offset) {
 		when {
 			toward.x < 0 -> 180f
 			toward.y < 0 -> 270f
+			toward.y > 0 -> 90f
 			else -> 0f
 		}
 

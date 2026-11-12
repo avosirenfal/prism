@@ -464,6 +464,7 @@ class ActionsTest {
 				"Copy path",
 				"—",
 				"Move to trash",
+				"Delete permanently",
 				"—",
 				"Properties",
 			),

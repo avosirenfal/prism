@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -188,7 +189,8 @@ fun PushButton(
 		modifier
 			.ring(felt.ringed, palette.focus)
 			.alpha(if (enabled) 1f else 0.45f)
-			.width(Dims.button)
+			// As wide as a button is, or as its words need, whichever is wider: words are never broken over lines.
+			.widthIn(min = Dims.button)
 			.height(Dims.control)
 			.background(fill, shape)
 			.border(
@@ -208,6 +210,9 @@ fun PushButton(
 		Text(
 			label,
 			style = type.button.copy(color = if (primary) palette.onAccent else palette.text),
+			maxLines = 1,
+			softWrap = false,
+			modifier = Modifier.padding(horizontal = Dims.gap * 1.5f),
 		)
 	}
 }
@@ -224,6 +229,8 @@ fun ToolButton(
 	enabled: Boolean,
 	modifier: Modifier = Modifier,
 	selected: Boolean = false,
+	size: Dp = Dims.control,
+	icon: Dp = Dims.icon,
 	onClick: () -> Unit,
 ) {
 	val palette = LocalPalette.current
@@ -241,8 +248,8 @@ fun ToolButton(
 	Box(
 		modifier
 			.alpha(if (enabled) 1f else 0.35f)
-			.width(Dims.control)
-			.height(Dims.control)
+			.width(size)
+			.height(size)
 			.background(fill, RoundedCornerShape(Dims.radius))
 			.focusProperties { canFocus = false }
 			.clickable(
@@ -261,7 +268,7 @@ fun ToolButton(
 				palette.accent
 			else
 				palette.text,
-			Dims.icon,
+			icon,
 		)
 	}
 }

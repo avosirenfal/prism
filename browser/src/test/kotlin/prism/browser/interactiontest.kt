@@ -58,7 +58,9 @@ import org.junit.jupiter.api.Assumptions.assumeTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import prism.desktop.freedesktop.XdgPlaces
+import prism.preferences.Builtin
 import prism.preferences.Preferences
+import prism.preferences.QuickItem
 import prism.preferences.Sort
 
 /**
@@ -112,7 +114,7 @@ class InteractionTest {
 							choosing,
 							folder,
 							work,
-							sidebarOf(XdgPlaces(), work, null),
+							sidebarOf(XdgPlaces(), work),
 							search =
 								finder?.let { Search.Ready() } ?: Search.Unavailable(
 									BrowserState.NO_INDEX,
@@ -671,21 +673,18 @@ class InteractionTest {
 		}
 
 	@Test
-	fun deleteAsksBeforeTheTrashAndCtrlZPutsBack() =
+	fun deleteTrashesWithoutAskingAndCtrlZPutsBack() =
 		picking { session ->
 			row("todo.txt").performClick()
 			press(Key.Delete)
 
-			waitUntil(timeoutMillis = TIMEOUT) { asked() }
-			assertTrue(work.resolve("todo.txt").exists())
-			onNodeWithTag("yes").performClick()
-
 			waitUntil(timeoutMillis = TIMEOUT) { !work.resolve("todo.txt").exists() }
+			assertFalse(asked())
 			assertEquals("everything", bin.resolve("files/todo.txt").readText())
 			waitUntil(timeoutMillis = TIMEOUT) {
 				onAllNodes(hasTestTag("row:todo.txt")).fetchSemanticsNodes().isEmpty()
 			}
-			// The keyboard is back in the listing, where Ctrl+Z puts the file back, chosen, and Ctrl+Shift+Z moves it
+			// The keyboard is still in the listing, where Ctrl+Z puts the file back, chosen, and Ctrl+Shift+Z moves it
 			// to the trash again.
 			focusIsIn("listing")
 			ctrl(Key.Z)
@@ -698,21 +697,83 @@ class InteractionTest {
 			}
 			ctrlShift(Key.Z)
 			waitUntil(timeoutMillis = TIMEOUT) { !work.resolve("todo.txt").exists() }
-		}
 
-	@Test
-	fun shiftDeleteAndTheMenuMoveToTheTrashWithoutAsking() =
-		picking {
-			row("todo.txt").performClick()
-			focused().performKeyInput { withKeyDown(Key.ShiftLeft) { pressKey(Key.Delete) } }
-			waitUntil(timeoutMillis = TIMEOUT) { !work.resolve("todo.txt").exists() }
-			assertFalse(asked())
-
+			// The menu's "Move to trash" is the same.
 			row("main.kt").performMouseInput { rightClickName() }
 			onNodeWithTag("menu:Move to trash").performClick()
 			waitUntil(timeoutMillis = TIMEOUT) { !work.resolve("main.kt").exists() }
 			assertFalse(asked())
 			assertEquals("fun main() {}", bin.resolve("files/main.kt").readText())
+		}
+
+	@Test
+	fun theTrashIsInQuickAccess_ItsEntriesPutBackFromIt() =
+		picking(Choosing.Exploring()) { session ->
+			row("todo.txt").performClick()
+			press(Key.Delete)
+			waitUntil(timeoutMillis = TIMEOUT) { !work.resolve("todo.txt").exists() }
+
+			onNodeWithTag("place:Trash").performClick()
+			waitUntil(timeoutMillis = TIMEOUT) {
+				onAllNodes(hasTestTag("row:todo.txt")).fetchSemanticsNodes().isNotEmpty()
+			}
+			assertTrue(session.state.value.inTrash)
+			onNodeWithTag("trash-bar").assertExists()
+
+			row("todo.txt").performMouseInput { rightClickName() }
+			onNodeWithTag("menu:Put back").performClick()
+			waitUntil(timeoutMillis = TIMEOUT) { work.resolve("todo.txt").exists() }
+			assertEquals("everything", work.resolve("todo.txt").readText())
+		}
+
+	@Test
+	fun quickAccessIsArrangedInAWindowOfItsOwn_WhereOneOfPrismsOwnIsHiddenNotRemoved() =
+		picking(Choosing.Exploring()) { session ->
+			onNodeWithTag("place:Music").assertExists()
+
+			// The button beside quick access's heading opens its window.
+			onNodeWithTag("arrange-quick-access").performClick()
+			onNodeWithTag("quick-access").assertExists()
+			// Prism's own have boxes, and no way to remove them; unticked, one goes from the sidebar.
+			onNodeWithTag("remove:Music").assertDoesNotExist()
+			onNodeWithTag("shown:Music").performClick()
+			waitUntil(timeoutMillis = TIMEOUT) {
+				onAllNodes(hasTestTag("place:Music")).fetchSemanticsNodes().isEmpty()
+			}
+			assertFalse(
+				session.state.value.sidebar.quick
+					.shows(Builtin.Music),
+			)
+			// Moved, it is moved in what the sidebar shows from.
+			onNodeWithTag("up:Trash").performClick()
+			waitUntil(timeoutMillis = TIMEOUT) {
+				session.state.value.sidebar.quick.items
+					.indexOf(QuickItem.Own(Builtin.Trash)) == Builtin.entries.size - 2
+			}
+			onNodeWithTag("done").performClick()
+			waitUntil(timeoutMillis = TIMEOUT) {
+				onAllNodes(hasTestTag("quick-access")).fetchSemanticsNodes().isEmpty()
+			}
+		}
+
+	@Test
+	fun shiftDeleteDeletesForGoodOnlyOnceAsked_TheKeyboardStartingOnCancel() =
+		picking {
+			row("todo.txt").performClick()
+			focused().performKeyInput { withKeyDown(Key.ShiftLeft) { pressKey(Key.Delete) } }
+
+			waitUntil(timeoutMillis = TIMEOUT) { asked() }
+			// Enter, as the notice opens, cancels: what cannot be undone is not done by a key pressed in passing.
+			press(Key.Enter)
+			waitUntil(timeoutMillis = TIMEOUT) { !asked() }
+			assertTrue(work.resolve("todo.txt").exists())
+
+			focused().performKeyInput { withKeyDown(Key.ShiftLeft) { pressKey(Key.Delete) } }
+			waitUntil(timeoutMillis = TIMEOUT) { asked() }
+			onNodeWithTag("yes").performClick()
+			waitUntil(timeoutMillis = TIMEOUT) { !work.resolve("todo.txt").exists() }
+			// Gone for good: not in the trash.
+			assertFalse(bin.resolve("files/todo.txt").exists())
 		}
 
 	/** Whether each of [programs] is on the `PATH`: what the archive actions that ship need, to be offered. */
@@ -1015,7 +1076,7 @@ class InteractionTest {
 			onNodeWithTag("menu:Sort by").performMouseInput { moveTo(center) }
 			onNodeWithTag("menu:Size").performClick()
 			waitUntil(timeoutMillis = TIMEOUT) {
-				session.state.value.arrangement.sort.by ==
+				session.state.value.arrangement.folders.sort.by ==
 					Sort.Column.Size
 			}
 			noMenu()

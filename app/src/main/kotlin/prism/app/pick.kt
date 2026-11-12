@@ -21,6 +21,7 @@ import prism.browser.Finder
 import prism.browser.HostedBrowser
 import prism.browser.JvmDisk
 import prism.browser.JvmFolderWatcher
+import prism.browser.Look
 import prism.browser.Search
 import prism.browser.Services
 import prism.browser.Session
@@ -135,9 +136,9 @@ object PickCommand : Command(
 				picking.choosing(args),
 				picking.folder(args),
 				home,
-				sidebarOf(desktop.places, home, preferences.preferences.value.pinned),
+				sidebarOf(desktop.places, home, preferences.preferences.value),
 				search = search,
-				sort = preferences.preferences.value.sort,
+				look = Look.of(preferences.preferences.value, picker = true),
 			)
 
 		val services =

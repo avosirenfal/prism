@@ -22,7 +22,13 @@ fun BrowserState.subjectOf(target: Target): Subject =
 		is Target.Rows -> Subject(On.Files, target.rows.map(Thing::of), where)
 		// The folder shown is what its own menu is for; a place, or a search's results, is no folder to name.
 		Target.Folder -> Subject(On.Folder, listOfNotNull(folder?.let(Thing::folder)), where)
-		is Target.Place -> Subject(On.Place, listOf(Thing.folder(target.place.path)), where)
+		// The trash is no one folder: an action is given nothing of it.
+		is Target.Sidebar ->
+			Subject(
+				On.Place,
+				listOfNotNull(target.item.path?.let(Thing::folder)),
+				where,
+			)
 	}
 
 /** [pending] taken a step further: its next question asked, or its confirmation, or, with nothing left to ask, done. */

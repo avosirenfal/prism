@@ -8,10 +8,13 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import prism.preferences.DateFormat
 import prism.preferences.TextSizes
 
 /*
@@ -199,6 +202,26 @@ val LocalTextSizes = staticCompositionLocalOf { TextSizes() }
 
 /** How much larger [size] is than the text the parts are measured for: what a part's heights are scaled by. */
 fun scaleOf(size: Float): Float = size / TextSizes.DEFAULT
+
+/** How dates are written, as the user's preferences say. */
+val LocalDateFormat = staticCompositionLocalOf { DateFormat.Written }
+
+/** How many times its usual size the sidebar's quick access, and the window that arranges it, are drawn. */
+val LocalSidebarScale = staticCompositionLocalOf { 1f }
+
+/**
+ * [content] drawn [scale] times its usual size, as a web browser zooms a page: its text, and everything measured in dp,
+ * so that it lays itself out again at that size rather than being stretched.
+ */
+@Composable
+fun Scaled(scale: Float, content: @Composable () -> Unit) {
+	val density = LocalDensity.current
+
+	CompositionLocalProvider(
+		LocalDensity provides Density(density.density * scale, density.fontScale),
+		content = content,
+	)
+}
 
 /** The dimensions the parts share. */
 object Dims {

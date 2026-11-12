@@ -18,6 +18,7 @@ import prism.index.Index
 import prism.index.Indexer
 import prism.index.Searched
 import prism.index.query.QueryText
+import prism.preferences.Order
 import prism.preferences.Sort
 
 /**
@@ -30,7 +31,7 @@ class FindTest {
 	@TempDir
 	lateinit var root: Path
 
-	private val disk get() = JvmDisk(ZoneOffset.UTC)
+	private val disk get() = JvmDisk()
 
 	private lateinit var finder: Finder
 
@@ -56,7 +57,7 @@ class FindTest {
 			choosing,
 			root,
 			root,
-			sidebarOf(XdgPlaces(), root, null),
+			sidebarOf(XdgPlaces(), root),
 			search = Search.Ready(),
 		).settled(disk, finder)
 
@@ -87,7 +88,7 @@ class FindTest {
 				Choosing.OneFile(),
 				root,
 				root,
-				sidebarOf(XdgPlaces(), root, null),
+				sidebarOf(XdgPlaces(), root),
 			).settled(disk)
 
 		val asked = after(without, BrowserEvent.OpenedSearch)
@@ -266,7 +267,7 @@ class FindTest {
 
 		assertEquals(
 			Order.By(Sort(Sort.Column.Size, ascending = false)),
-			bySize.arrangement.results,
+			bySize.arrangement.results.order,
 		)
 		assertEquals("plans", bySize.shown().first())
 		assertEquals(shown.shown(), after(bySize, BrowserEvent.SortedByRelevance).shown())
@@ -383,14 +384,18 @@ class FindTest {
 
 		assertEquals(
 			Sort.Column.Name,
-			(byName.state.listing as Listing.Found).pending(byName.state.arrangement.results),
+			(byName.state.listing as Listing.Found).pending(
+				byName.state.arrangement.results.order,
+			),
 		)
 		assertEquals(listOf(Effect.Order(listing.matches, Sort.Column.Name)), byName.effects)
 
 		val ordered = byName.settled(disk, finder)
 
 		assertEquals("file-%05d.txt".format(FEW_RESULTS), ordered.rows[0].name)
-		assertNull((ordered.listing as Listing.Found).pending(ordered.arrangement.results))
+		assertNull(
+			(ordered.listing as Listing.Found).pending(ordered.arrangement.results.order),
+		)
 	}
 
 	@Test

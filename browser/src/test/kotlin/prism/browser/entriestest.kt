@@ -299,7 +299,7 @@ class EntriesTest {
 
 								fun opened(folder: Path) =
 									step(
-										opened(Choosing.Exploring(), folder, work, sidebarOf(XdgPlaces(), work, null))
+										opened(Choosing.Exploring(), folder, work, sidebarOf(XdgPlaces(), work))
 											.settled(services),
 										Answer.Configured(actions),
 									).state
@@ -454,7 +454,7 @@ class EntriesTest {
 										Choosing.Exploring(),
 										work,
 										work,
-										sidebarOf(XdgPlaces(), work, null),
+										sidebarOf(XdgPlaces(), work),
 									).settled(services),
 									Answer.Configured(actions),
 								).state.let {

@@ -26,7 +26,11 @@ import prism.desktop.Place
 import prism.desktop.Places
 import prism.desktop.Read
 import prism.desktop.TerminalChoice
+import prism.preferences.Builtin
 import prism.preferences.MemoryPreferences
+import prism.preferences.Preferences
+import prism.preferences.QuickAccess
+import prism.preferences.QuickItem
 
 /**
  * The browser as the explorer has it: nothing to give back, a file accepted opened with its application (or, where
@@ -116,7 +120,7 @@ class ExploreTest {
 
 	private fun services() =
 		Services(
-			JvmDisk(ZoneOffset.UTC, Trash(bin)),
+			JvmDisk(Trash(bin)),
 			desktop = desktop,
 			clipboard = clipboard,
 			preferences = preferences,
@@ -132,7 +136,7 @@ class ExploreTest {
 			Choosing.Exploring(),
 			folder,
 			root,
-			sidebarOf(desktop.places, root, null),
+			sidebarOf(desktop.places, root),
 		).settled(services())
 
 	private fun after(state: BrowserState, vararg inputs: Input): BrowserState =
@@ -276,39 +280,80 @@ class ExploreTest {
 
 		val explorer = explorer()
 		val pinning = step(explorer, BrowserEvent.Pinned(root.resolve("projects")))
+		val pinned = QuickAccess.DEFAULT.pinning(root.resolve("projects"))
 
-		assertEquals(
-			listOf(Effect.Pin(listOf(root, root.resolve("projects")))),
-			pinning.effects,
-		)
+		assertEquals(listOf(Effect.Arrange(pinned)), pinning.effects)
 		pinning.settled(services())
-		assertEquals(
-			listOf(root, root.resolve("projects")),
-			preferences.preferences.value.pinned,
-		)
+		assertEquals(pinned, preferences.preferences.value.quickAccess)
 
-		// A window is given the sidebar the preference makes, a folder pinned named as it is.
+		// A window is given the sidebar the preference makes: prism's own places that are here, then the folder pinned.
 		val placed =
 			step(
 				explorer,
-				Answer.Placed(sidebarOf(desktop.places, root, preferences.preferences.value.pinned)),
+				Answer.Placed(sidebarOf(desktop.places, root, preferences.preferences.value)),
 			).state
 
-		assertEquals(listOf("Home", "projects"), placed.sidebar.pinned.map { it.label })
-		assertEquals(
-			Place.Kind.Folder,
-			placed.sidebar.pinned
-				.last()
-				.kind,
-		)
+		val shown = placed.sidebar.shown
 
-		// Unpinned, even a place the desktop pinned.
+		assertEquals(listOf("Home", "Trash", "projects"), shown.map { it.label })
+		assertInstanceOf(SidebarItem.Pinned::class.java, shown.last())
+
+		// One of prism's own is hidden, never removed; a folder pinned is unpinned.
 		assertEquals(
-			listOf(Effect.Pin(listOf(root.resolve("projects")))),
-			step(placed, BrowserEvent.Unpinned(root)).effects,
+			listOf(Effect.Arrange(pinned.showing(Builtin.Home, false))),
+			step(placed, BrowserEvent.Unpinned(shown.first())).effects,
 		)
-		// Pinning what is pinned changes nothing.
+		assertEquals(
+			listOf(Effect.Arrange(pinned.unpinning(root.resolve("projects")))),
+			step(placed, BrowserEvent.Unpinned(shown.last())).effects,
+		)
+		// Pinning what quick access shows changes nothing; pinning one of prism's own that is hidden shows it again.
 		assertEquals(emptyList<Effect>(), step(placed, BrowserEvent.Pinned(root)).effects)
+
+		val hidden = step(placed, BrowserEvent.Unpinned(shown.first())).state
+
+		assertEquals(
+			listOf(Effect.Arrange(pinned)),
+			step(hidden, BrowserEvent.Pinned(root)).effects,
+		)
+	}
+
+	@Test
+	fun anOlderVersionsPinsAreReadAsQuickAccess() {
+		val known = Fixtures.known
+
+		val older =
+			Preferences(
+				pinned =
+					listOf(
+						Fixtures.home.resolve("Documents"),
+						Path.of("/srv/media"),
+						Fixtures.home,
+					),
+			)
+
+		val quick = quickAccessOf(older, known)
+
+		// The pins in their order, prism's own among them; those of prism's own they left out, hidden, since the user
+		// had unpinned them; and the trash, which is newer than they are, shown.
+		assertEquals(
+			listOf(
+				QuickItem.Own(Builtin.Documents),
+				QuickItem.Pinned(Path.of("/srv/media")),
+				QuickItem.Own(Builtin.Home),
+				QuickItem.Own(Builtin.Desktop, shown = false),
+				QuickItem.Own(Builtin.Downloads, shown = false),
+				QuickItem.Own(Builtin.Pictures, shown = false),
+				QuickItem.Own(Builtin.Music, shown = false),
+				QuickItem.Own(Builtin.Videos, shown = false),
+				QuickItem.Own(Builtin.Trash),
+			),
+			quick.items,
+		)
+		// Nothing written by an older version: prism's own, every one shown.
+		assertEquals(QuickAccess.DEFAULT, quickAccessOf(Preferences(), known))
+		// Once arranged, what the older version wrote is forgotten.
+		assertEquals(null, older.arranging(quick).pinned)
 	}
 
 	@Test
@@ -331,6 +376,7 @@ class ExploreTest {
 				"Copy path",
 				"—",
 				"Move to trash",
+				"Delete permanently",
 				"—",
 				"Properties",
 			),
@@ -351,6 +397,7 @@ class ExploreTest {
 				"Open terminal here",
 				"—",
 				"Move to trash",
+				"Delete permanently",
 				"—",
 				"Properties",
 			),

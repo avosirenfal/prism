@@ -2,8 +2,8 @@ package prism.index
 
 import java.nio.file.Path
 import kotlin.io.path.Path
-import kotlin.io.path.exists
-import kotlin.io.path.readLines
+import prism.linux.Mount
+import prism.linux.Mounts
 
 /**
  * A directory the index leaves out, with everything in it, written as a person writes one:
@@ -27,7 +27,9 @@ sealed interface Ignored {
 		val path: Path,
 	) : Ignored {
 		init {
-			require(path.isAbsolute && path == path.normalize()) { "$path is not an absolute, normal path" }
+			require(path.isAbsolute && path == path.normalize()) {
+				"$path is not an absolute, normal path"
+			}
 		}
 	}
 
@@ -92,16 +94,30 @@ data class IgnoreRules(
 				directories.filter { rule ->
 					when (rule) {
 						is Ignored.At -> Where.keyOf(rule.path) == place.key
-						is Ignored.Anywhere -> place.key.endsWith(rule.ending.joinToString("") { "/" + keyOf(it) })
+						is Ignored.Anywhere ->
+							place.key.endsWith(
+								rule.ending.joinToString("") {
+									"/" +
+										keyOf(it)
+								},
+							)
 					}
 				}
 			}.toSet()
 
 	/** These rules with [more] directories left out as well. */
-	fun alsoIgnoring(more: Collection<Ignored>): IgnoreRules = copy(directories = directories + more)
+	fun alsoIgnoring(more: Collection<Ignored>): IgnoreRules =
+		copy(
+			directories =
+				directories + more,
+		)
 
 	/** These rules with [rules] no longer leaving anything out. */
-	fun notIgnoring(rules: Collection<Ignored>): IgnoreRules = copy(directories = directories - rules.toSet())
+	fun notIgnoring(rules: Collection<Ignored>): IgnoreRules =
+		copy(
+			directories =
+				directories - rules.toSet(),
+		)
 
 	companion object {
 		private fun keyOf(name: Name): String = String(name.bytes(), Charsets.ISO_8859_1)
@@ -265,47 +281,6 @@ data class IgnoreRules(
 	}
 }
 
-/** One mounted file system, as `/proc/self/mountinfo` describes it. */
-data class Mount(
-	val at: Path,
-	val type: String,
-	val major: Int,
-	val minor: Int,
-)
-
-/** The file systems mounted where this process sees them. */
-object Mounts {
-	private val MOUNTINFO = Path("/proc/self/mountinfo")
-
-	/** What is mounted now; empty where the kernel does not say (a system without /proc). */
-	fun current(): List<Mount> = if (MOUNTINFO.exists()) parse(MOUNTINFO.readLines()) else emptyList()
-
-	/**
-	 * `mountinfo`'s lines: `ID PARENT MAJOR:MINOR ROOT MOUNT_POINT OPTIONS [OPTIONAL...] - TYPE SOURCE ...`. A mount
-	 * point's spaces and tabs are written as octal escapes (`\040`).
-	 */
-	fun parse(lines: List<String>): List<Mount> =
-		lines.mapNotNull { line ->
-			val fields = line.split(' ')
-			val separator = fields.indexOf("-")
-			val device = fields.getOrNull(2)?.split(':')
-
-			if (separator < 0 || fields.size <= separator + 1 || device?.size != 2)
-				null
-			else
-				Mount(
-					Path(unescaped(fields[4])),
-					fields[separator + 1],
-					device[0].toInt(),
-					device[1].toInt(),
-				)
-		}
-
-	/** The mount points of file systems [rules] leave out: read once, and looked up as each directory is met. */
-	fun ignored(rules: IgnoreRules, mounts: List<Mount> = current()): Set<Path> =
-		mounts.filter { it.type in rules.fileSystems }.map { it.at }.toSet()
-
-	private val ESCAPE = Regex("\\\\([0-7]{3})")
-
-	private fun unescaped(field: String): String = ESCAPE.replace(field) { it.groupValues[1].toInt(8).toChar().toString() }
-}
+/** The mount points of file systems [rules] leave out: read once, and looked up as each directory is met. */
+fun mountsLeftOut(rules: IgnoreRules, mounts: List<Mount> = Mounts.current()): Set<Path> =
+	mounts.filter { it.type in rules.fileSystems }.map { it.at }.toSet()

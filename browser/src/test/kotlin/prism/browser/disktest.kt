@@ -77,7 +77,10 @@ class DiskTest {
 		val notes = work.resolve("notes.md").also { it.writeText("first") }
 
 		assertEquals(
-			ChangeResult.Done(Change.PutBack(listOf(Trashed(notes, "notes.md")))),
+			ChangeResult.Trashed(
+				Change.PutBack(listOf(Trashed(notes, "notes.md", bin))),
+				emptyList(),
+			),
 			disk.make(Change.Trash(listOf(notes))),
 		)
 		assertFalse(notes.exists())
@@ -95,7 +98,10 @@ class DiskTest {
 		// A second of the same name is kept beside the first.
 		work.resolve("notes.md").writeText("second")
 		assertEquals(
-			ChangeResult.Done(Change.PutBack(listOf(Trashed(notes, "notes.md.2")))),
+			ChangeResult.Trashed(
+				Change.PutBack(listOf(Trashed(notes, "notes.md.2", bin))),
+				emptyList(),
+			),
 			disk.make(Change.Trash(listOf(work.resolve("notes.md")))),
 		)
 		assertEquals("second", bin.resolve("files/notes.md.2").readText())
@@ -105,7 +111,7 @@ class DiskTest {
 	@Test
 	fun whatIsTrashedIsPutBackWhereItWasButNeverOverWhatIsThereNow() {
 		val notes = work.resolve("notes.md").also { it.writeText("mine") }
-		val back = (disk.make(Change.Trash(listOf(notes))) as ChangeResult.Done).undo
+		val back = (disk.make(Change.Trash(listOf(notes))) as ChangeResult.Trashed).undo
 
 		// Something of the same name made meanwhile: putting back would replace it, so it is refused.
 		notes.writeText("newer")
@@ -138,7 +144,10 @@ class DiskTest {
 		val notes = work.resolve("notes.md").also { it.writeText("mine") }
 
 		assertEquals(
-			ChangeResult.Done(Change.PutBack(listOf(Trashed(notes, "notes.md.2")))),
+			ChangeResult.Trashed(
+				Change.PutBack(listOf(Trashed(notes, "notes.md.2", bin))),
+				emptyList(),
+			),
 			disk.make(Change.Trash(listOf(notes))),
 		)
 		assertEquals("left behind", bin.resolve("files/notes.md").readText())
@@ -149,7 +158,10 @@ class DiskTest {
 		assertEquals("/home/a%20b/%C3%A9t%C3%A9%2B1.txt", Trash.escaped("/home/a b/été+1.txt"))
 		assertEquals(
 			"[Trash Info]\nPath=/tmp/x\nDeletionDate=2026-11-09T10:20:30\n",
-			Trash.infoOf(Path.of("/tmp/x"), LocalDateTime.of(2026, 11, 9, 10, 20, 30, 500)),
+			Trash.infoOf(
+				Trash.writtenPathOf(Path.of("/tmp/x"), Bin.Home(bin)),
+				LocalDateTime.of(2026, 11, 9, 10, 20, 30, 500),
+			),
 		)
 	}
 

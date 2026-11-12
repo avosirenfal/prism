@@ -7,6 +7,9 @@ import prism.desktop.Launched
 import prism.desktop.Opening
 import prism.desktop.TerminalChoice
 import prism.index.query.Query
+import prism.preferences.Column
+import prism.preferences.DateShown
+import prism.preferences.QuickAccess
 import prism.preferences.Sort
 
 /*
@@ -146,6 +149,12 @@ sealed interface BrowserEvent : Input {
 		val date: DateShown,
 	) : BrowserEvent
 
+	/** [column] shown in the listing, or left out. */
+	data class ShowedColumn(
+		val column: Column,
+		val shown: Boolean,
+	) : BrowserEvent
+
 	// ---- the search of the index ----
 
 	/** The search's window opened over the picker, with what was typed into it before (Ctrl+Shift+F). */
@@ -192,15 +201,29 @@ sealed interface BrowserEvent : Input {
 	/** The name left as it was (Escape). */
 	data object RenameCancelled : BrowserEvent
 
-	/** Rows moved to the trash at once: from their menu, or Shift+Delete. */
+	/**
+	 * Rows moved to their trashes (Delete, or their menu): at once, where each is on a drive with a trash; those on a
+	 * drive with none are deleted for good once the user says so.
+	 */
 	data class Trashed(
 		val rows: List<RowId>,
 	) : BrowserEvent
 
-	/** Rows to move to the trash once the user says yes (Delete, a key easily pressed by mistake). */
-	data class AskedToTrash(
+	/** Rows deleted for good once the user says so (Shift+Delete, or their menu): in the trash's window, from the trash. */
+	data class AskedToErase(
 		val rows: List<RowId>,
 	) : BrowserEvent
+
+	/** Entries of the trash put back where they were (the trash's window). */
+	data class PutBack(
+		val rows: List<RowId>,
+	) : BrowserEvent
+
+	/** Every trash emptied, once the user says so. */
+	data object AskedToEmpty : BrowserEvent
+
+	/** The trash shown: every trash's entries together. */
+	data object OpenedTrash : BrowserEvent
 
 	/** A folder made in the folder shown, its name then typed over (Ctrl+Shift+N). */
 	data object MadeFolder : BrowserEvent
@@ -245,14 +268,24 @@ sealed interface BrowserEvent : Input {
 
 	// ---- the desktop, and the application around the browser ----
 
-	/** [path] pinned to the sidebar, after the places pinned already. */
+	/** [path] pinned to the sidebar, after the places pinned already; shown, where it is one of prism's own hidden. */
 	data class Pinned(
 		val path: Path,
 	) : BrowserEvent
 
-	/** [path] taken off the sidebar. */
+	/** [item] taken off the sidebar: unpinned, where it is a folder the user pinned; hidden, where it is prism's own. */
 	data class Unpinned(
-		val path: Path,
+		val item: SidebarItem,
+	) : BrowserEvent
+
+	/** Quick access arranged anew, as its window arranges it. */
+	data class Arranged(
+		val quick: QuickAccess,
+	) : BrowserEvent
+
+	/** The window that arranges quick access opened, or closed. */
+	data class ArrangingQuickAccess(
+		val open: Boolean,
 	) : BrowserEvent
 
 	/** A terminal opened in [folder]: the folder shown, where null. */
@@ -410,6 +443,17 @@ sealed interface Answer : Input {
 		val change: Change,
 		val result: ChangeResult,
 		val doing: Doing = Doing.New,
+	) : Answer
+
+	/** What [erasing] deleted for good: all of it, or, where [failed] says why, what came before it. */
+	data class Erased(
+		val erasing: Erasing,
+		val failed: String?,
+	) : Answer
+
+	/** Every trash's entries, read for the trash's window. */
+	data class TrashRead(
+		val read: Listing.Read,
 	) : Answer
 
 	/** What a search asked for [purpose] found. */
@@ -818,12 +862,37 @@ data class Moved(
 	val to: Path,
 )
 
-/** An entry in the trash: where it was, and the name the trash keeps it under. */
+/** An entry of a trash: where it was, the name the trash keeps it under, and the trash ([bin], its folder). */
 @Immutable
 data class Trashed(
 	val original: Path,
 	val name: String,
+	val bin: Path,
 )
+
+/** A file the trash could not take, on a drive with none: and why there is none. */
+@Immutable
+data class Untrashable(
+	val path: Path,
+	val why: String,
+)
+
+/** What is deleted for good. */
+@Immutable
+sealed interface Erasing {
+	/** Files where they are. */
+	data class Files(
+		val paths: List<Path>,
+	) : Erasing
+
+	/** Entries of the trash. */
+	data class FromTrash(
+		val entries: List<Trashed>,
+	) : Erasing
+
+	/** Everything in every trash. */
+	data object Everything : Erasing
+}
 
 /** What came of a [Change]. */
 sealed interface ChangeResult {
@@ -835,6 +904,17 @@ sealed interface ChangeResult {
 	/** Not done, or not all of it: why, as the system said. */
 	data class Failed(
 		val why: String,
+	) : ChangeResult
+
+	/**
+	 * Moved to the trash as far as there were trashes to move to: [undo] puts back what was (none, where nothing was);
+	 * [nowhere] were on drives with no trash, and were left as they are; and where a move failed for another reason,
+	 * [failed] says why, and what came after it was not tried.
+	 */
+	data class Trashed(
+		val undo: Change.PutBack,
+		val nowhere: List<Untrashable>,
+		val failed: String? = null,
 	) : ChangeResult
 }
 
@@ -889,6 +969,14 @@ sealed interface Effect {
 		val change: Change,
 		val doing: Doing = Doing.New,
 	) : Asking
+
+	/** [erasing] deleted for good, and what came of it sent back as [Answer.Erased]. */
+	data class Erase(
+		val erasing: Erasing,
+	) : Asking
+
+	/** Every trash's entries read, and sent back as [Answer.TrashRead]. */
+	data object ReadTrash : Asking
 
 	/**
 	 * [query] searched for, as [text] was read, and what it found sent back as [Answer.Searched]. A search for the
@@ -976,9 +1064,9 @@ sealed interface Effect {
 		val clip: FileClip,
 	) : Effect
 
-	/** The sidebar's pinned places made [paths]: a preference, so every window is given them. */
-	data class Pin(
-		val paths: List<Path>,
+	/** Quick access arranged as [quick]: a preference, so every window is given it. */
+	data class Arrange(
+		val quick: QuickAccess,
 	) : Effect
 
 	/** [request] made of the application around the browser. */

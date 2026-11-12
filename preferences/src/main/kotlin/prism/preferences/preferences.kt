@@ -1,6 +1,8 @@
 package prism.preferences
 
 import java.nio.file.Path
+import kotlinx.serialization.EncodeDefault
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.descriptors.PrimitiveKind
@@ -20,9 +22,16 @@ import prism.desktop.TerminalChoice
 @Serializable
 data class Preferences(
 	/**
-	 * The places pinned to the sidebar's quick access, in order; null for the desktop's own (the home folder and its
-	 * well-known folders), which is what it is until the user pins or unpins something.
+	 * The sidebar's quick access, as the user arranged it; null where they have not, which is prism's own places, in
+	 * their own order, unless an older version's [pinned] says otherwise.
 	 */
+	val quickAccess: QuickAccess? = null,
+	/**
+	 * What an older version kept in place of [quickAccess]: the places pinned, in order, the desktop's own among them.
+	 * Read where [quickAccess] is not, and written no more.
+	 */
+	@OptIn(ExperimentalSerializationApi::class)
+	@EncodeDefault(EncodeDefault.Mode.NEVER)
 	val pinned: List<
 		@Serializable(with = PathSerializer::class)
 		Path,
@@ -49,18 +58,23 @@ data class Preferences(
 	/** What of the menus is left out. */
 	val menu: MenuSpec = MenuSpec(),
 	/**
-	 * The order a new window lists a folder in. A window keeps the order the user gives it as its own from then on,
-	 * wherever it goes, and this changes no window already open.
+	 * How a new window lists a folder ([folders]) and a search's results ([results]). A window keeps the look the user
+	 * gives it as its own from then on, wherever it goes, and these change no window already open.
 	 */
-	val sort: Sort = Sort.BY_NAME,
+	val folders: FolderView = FolderView(),
+	val results: ResultsView = ResultsView(),
 	/** How large the text of each part of a window is. */
 	val text: TextSizes = TextSizes(),
+	/** How large the listing, the sidebar and the other windows are drawn. */
+	val scales: Scales = Scales(),
+	/** How dates are written. */
+	val dates: DateFormat = DateFormat.Written,
 ) {
 	/** The actions and places written here. */
 	val written: ActionsFile get() = ActionsFile(actions, places)
 
-	/** These, with [pinned] in place of the places pinned. */
-	fun pinning(pinned: List<Path>): Preferences = copy(pinned = pinned)
+	/** These, with quick access as [quick]: what an older version kept in its place forgotten. */
+	fun arranging(quick: QuickAccess): Preferences = copy(quickAccess = quick, pinned = null)
 
 	/** These, with [action]'s chords set to [chords], or put back to its defaults where [chords] is null. */
 	fun binding(action: String, chords: List<String>?): Preferences =

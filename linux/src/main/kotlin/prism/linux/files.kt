@@ -346,3 +346,8 @@ class DirentBuffer(
 		internal const val DOT = '.'.code.toByte()
 	}
 }
+
+private val getuidHandle = Libc.plain("getuid", FunctionDescriptor.of(JAVA_INT))
+
+/** `getuid(2)`: the user this process runs as, which cannot fail. */
+fun uid(): Int = getuidHandle.invokeExact() as Int

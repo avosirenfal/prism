@@ -74,7 +74,7 @@ whether it is on the same volume, is known only once it is dropped.
 | running the daemon | a systemd user service | a launchd agent | a scheduled task, or a service |
 | the picker for other applications | the portal, over D-Bus | none: the command line | none: the command line |
 | file types, applications, defaults, launching | freedesktop's: shared-mime-info, desktop entries, `mimeapps.list`, `setsid` | uniform type identifiers, Launch Services, `open -a` | the registry, `ShellExecuteEx` |
-| the trash | freedesktop's trash (`Trash`) | the system's (`NSFileManager trashItemAtURL`, which says where each item went, for undo) | the Recycle Bin |
+| the trash | freedesktop's trash, one for each mount (`Trash`) | the system's (`NSFileManager trashItemAtURL`, which says where each item went, for undo) | the Recycle Bin |
 | the colour scheme | the portal's | the system's appearance | the registry's app theme |
 | keys | Ctrl | Cmd, as the defaults' "primary" modifier | Ctrl |
 | windows | no decorations by default, `--decorated` for the window manager's | the system's title bar, made transparent, and the menu bar | the system's title bar |
@@ -83,7 +83,8 @@ whether it is on the same volume, is known only once it is dropped.
 
 Where the code already stands apart from the platform, a port is an implementation: the `Desktop` interfaces
 (docs/explorer.md, "Across platforms"), `Disk`, the `Places`, and drag and drop. Where it does not yet, it has to be
-made to first: the trash is freedesktop's in the browser itself, and wants to move behind `Desktop`; the default
+made to first: the trash is freedesktop's in the browser itself (its mounts read from Linux's mountinfo and statx),
+and wants to move behind `Desktop`; the default
 bindings say Ctrl, and want a "primary" modifier that is Cmd on macOS; and the index's watcher and reader are
 Linux's, behind the daemon.
 

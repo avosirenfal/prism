@@ -63,7 +63,7 @@ part of it.
 | `source.kt` | `Disk`, and `JvmDisk`: a folder read into rows, a typed path looked up, a change made, results read for their sizes and dates; the rows' text worked out |
 | `found.kt` | the search of the index: `Finder` (what searches) and `StaticFinder`, `Search` (the window's state), `Finding`, `Matches` (results as rows made when asked for), `Stats`, `Order` |
 | `searchview.kt` | `SearchLayer`: the search's window, its field coloured as the query is read |
-| `trash.kt` | `Trash`: the desktop's own trash, as the freedesktop.org specification lays it out |
+| `trash.kt` | `Trash`: the desktop's own trashes, one for each mount, as the freedesktop.org specification lays them out; `erased`, deleting for good |
 | `menu.kt` | `Menu`: menus as data, and `menu { }` to build one |
 | `menuview.kt` | `MenuPopup`, `ContextMenus`, `Modifier.contextMenu`, `MenuButton`: any menu drawn and opened |
 | `menus.kt` | the picker's own menus: each target's context menu, and the filter menu, from the state |
@@ -251,6 +251,7 @@ Right-click a file in the listing, and a menu opens at the pointer:
 | Copy path | Ctrl+Shift+C |
 | — | |
 | Move to trash | Delete |
+| Delete permanently | Shift+Delete |
 
 Right-click a folder instead, and "Open" goes into it (and a folder picker adds "Select folder"). Right-click one of
 several chosen rows, and the menu is of all of them, with nothing that takes only one ("Copy paths", the trash).
@@ -260,8 +261,9 @@ path", "Refresh". Once the picker has changed something on disk, the folder's me
 each saying what it will undo or redo: "Undo the rename", "Redo the move to the trash". Shift+F10, or the keyboard's
 menu key, opens the same menu at the cursor's row.
 
-"Move to trash" chosen from the menu moves at once: choosing it from a menu is already deliberate. The Delete key asks
-first (below, under "Changing what is on disk").
+"Move to trash", by the menu or the Delete key, moves at once, where there is a trash; "Delete permanently" asks first
+(below, under "Changing what is on disk"). In the trash's own window, a row's menu offers "Put back" and "Delete
+permanently", and the folder's menu "Empty trash".
 
 What makes this easy to grow is that **a menu is data**. Here is the file's menu above as the picker writes it
 (`menus.kt`):
@@ -319,16 +321,31 @@ the desktop's own dialogs can:
   name but not its extension. Enter, or clicking away, gives the new name; Escape leaves it as it was. A name with a
   slash in it, or `.` or `..`, is refused before the disk is asked. The disk never renames onto something already
   there.
-- **Move to trash** (Delete, Shift+Delete, or the menu): into the desktop's own trash, as the freedesktop.org trash
-  specification lays it out (`~/.local/share/Trash`: the entry in `files`, and an `info` file saying where it was and
-  when), so the desktop's file manager can put it back. Delete alone asks first ("Move “notes.md” to the trash?"),
-  since a key is easier to press by mistake than a menu item is to choose; Shift+Delete and the menu do not ask. An
-  entry on another drive than the trash is refused, with why, since a trash only takes what can be moved into it
-  without copying.
+- **Move to trash** (Delete, or the menu): into the trash of the drive the entry is on, as the freedesktop.org trash
+  specification lays them out, so any file manager can put it back. A trash is a folder of two: `files`, the entry,
+  and `info`, a record of where it was and when. An entry is moved into a trash, never copied (a move within one mount
+  is a rename: instant, and never half done), so each mount has a trash of its own. What is on the home trash's mount
+  goes to the home trash (`$XDG_DATA_HOME/Trash`, `~/.local/share/Trash`); what is on another to the trash at its top:
+  `$top/.Trash/$uid`, where an administrator made a `.Trash` for every user (used only where it is sticky and not a
+  link, so no user can take another's trash away), or else the user's own `$top/.Trash-$uid`, made, readable by the
+  user alone, as it is first needed. Its records name paths from the mount's top, so a drive mounted elsewhere next
+  time still puts its entries back where they were. What is kept in memory (tmpfs, ramfs, a zram or ram disk) has no
+  trash, and nor has what the kernel shows of itself (/proc, /sys). Which mount an entry is on is the one statx says
+  its folder was reached through, among those /proc/self/mountinfo lists. Delete does not ask where there is a trash;
+  where there is none, it asks whether to delete for good, saying why ("/dev/shm is kept in memory (tmpfs), which has
+  no trash"), and nothing is deleted unless the user says so. Of several, those with a trash are trashed, and only
+  those without are asked about.
+- **Delete permanently** (Shift+Delete, or the menu): deleted for good, with all a folder holds, once the user says so
+  (a link is deleted itself, never what it leads to). The notice starts with the keyboard on Cancel, so Enter pressed
+  in passing does nothing. It cannot be undone.
+- **The trash** (quick access's "Trash"): every trash's entries together, the home trash's and each mounted drive's,
+  with where each was ("Original location") and when it was trashed ("Date deleted"). An entry is put back where it
+  was, never over something there now (undone, it is trashed again), or deleted for good, once asked; Delete there
+  deletes for good, as Shift+Delete does. "Empty trash" deletes every entry of every trash, once asked.
 - **New folder** (Ctrl+Shift+N): "New folder", or "New folder 2" where that is taken, its name then typed over.
 
-Nothing is ever deleted for good: the picker has no way to. Whatever it removes goes to the trash, from which Ctrl+Z,
-or the desktop's file manager, can put it back.
+Nothing is deleted for good without the user saying so. Whatever is trashed can be put back, by Ctrl+Z, from the
+trash's window, or by the desktop's file manager.
 
 Each is an effect the disk carries out (`Change`), and whatever came of it, the folder is read again, since a change
 half done is a change; what failed is said, with why. The cursor lands on what the change made: the renamed entry,
@@ -588,8 +605,8 @@ keyboard is on the listing, or on the name for a picker that saves.
 | Backspace | listing | the folder above |
 | Ctrl+A | listing | every row chosen |
 | F2 | listing | rename the row chosen |
-| Delete | listing | the rows chosen to the trash, asking first |
-| Shift+Delete | listing | the rows chosen to the trash, without asking |
+| Delete | listing | the rows chosen to their trashes; asked first only where a drive has none, to delete them for good |
+| Shift+Delete | listing | the rows chosen deleted for good, once asked |
 | Ctrl+Shift+C | listing | the paths of the rows chosen (or of the folder) copied |
 | Shift+F10, the menu key | listing | the menu of the rows chosen, or of the folder |
 | Alt+Left, Alt+Right, Alt+Up | anywhere | back, forward, up |
@@ -625,11 +642,18 @@ list by one row, not a page, and a row far away is scrolled to directly (never b
   where there is nothing, and removed only while empty; the trash as the desktop's own (its `files` and `info`, a
   second of a name kept beside the first, paths written as a URL's); what is trashed put back where it was, never over
   something there now; and a name the trash holds without its record passed over.
+- **The trashes** (`TrashTest`): over mounts made up for the test, what is on the home mount goes to the home trash;
+  what is on another to a `.Trash-$uid` made at its top, readable by the user alone, its records from the top, and put
+  back from there; a shared `.Trash` used only where it is sticky and not a link; none on a tmpfs, where nothing is
+  made; the disk trashing what has a trash and saying what has none; deleting for good with all a folder holds, but
+  not what a link in it leads to; every trash's entries listed, deleted, and emptied.
 - **The picker as a user meets it** (`InteractionTest`): composed headless around a running `Session` over a real
   temporary folder, then clicked, double-clicked, Ctrl- and Shift-clicked, typed at and tabbed through with
   Compose's own test input, and what it shows and how it ends checked: the filter menu by pointer, by Ctrl-click and
-  by keyboard; a row's menu renaming it on disk; F2 and Escape; the trash, asked about by Delete and not by
-  Shift+Delete or the menu, and Ctrl+Z and Ctrl+Shift+Z putting back and trashing again; the folder's menu sorting
+  by keyboard; a row's menu renaming it on disk; F2 and Escape; the trash, without asking, by Delete and by the menu,
+  and Ctrl+Z and Ctrl+Shift+Z putting back and trashing again; Shift+Delete asking first, Enter on its notice
+  cancelling, and deleting for good once confirmed; the trash in quick access, an entry put back from it; quick
+  access's own window, one of prism's own hidden there and not removable, and moved; the folder's menu sorting
   through a submenu and making a folder, then the rename and the folder undone and redone, by the menu and by keys;
   Shift+F10; Ctrl and the wheel, over the listing and over the places while a search is typed; Ctrl+1, Ctrl+2 and
   Ctrl+= in the search, typing nothing into it; the gallery with a real picture, its keys and its double click; and the
@@ -682,3 +706,8 @@ key behind. A field now keeps what it typed while the state is only catching up 
 - Pictures of videos and documents (ffmpeg, poppler), and the pictures the desktop has already made
   (`~/.cache/thumbnails`), before making its own.
 - A preview pane, column widths kept, drag and drop out of the picker, and a menu on a row (a new folder, rename).
+- **The trash**: entries trashed from a drive mounted after the trash's window opened appear once it is read again
+  (F5); a trashed folder is not gone into; the `directorysizes` cache the specification asks for is not written, so
+  other file managers add up a trashed folder's size themselves; trashes on network mounts are listed as any other,
+  and a mount that does not answer holds the trash's window until it does.
+- **Quick access**: entries are moved by their buttons, not dragged.

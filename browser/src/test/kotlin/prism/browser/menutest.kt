@@ -141,8 +141,8 @@ class MenuTest {
 				"—",
 				"New folder",
 				"Copy path",
-				// The home folder is pinned to the sidebar, as it is until the user unpins it.
-				"Unpin from sidebar",
+				// The home folder is one of prism's own in quick access: hidden from it, never removed.
+				"Hide from sidebar",
 				"Refresh",
 			),
 			menu.labels(),

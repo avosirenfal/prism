@@ -2,9 +2,10 @@ package prism.browser
 
 import java.nio.file.Path
 import java.time.Instant
-import java.time.ZoneOffset
 import kotlin.io.path.Path
 import prism.desktop.Place
+import prism.preferences.Builtin
+import prism.preferences.QuickAccess
 
 /** What the picker's tests share: rows made as the source makes them, a home folder of them, and a disk in memory. */
 object Fixtures {
@@ -38,7 +39,7 @@ object Fixtures {
 			else
 				typeOf(name, category),
 			bytes?.let { Shown(it, sizeOf(it)) },
-			Shown(instant, dateOf(instant, ZoneOffset.UTC)),
+			instant,
 			name.startsWith("."),
 		)
 	}
@@ -86,18 +87,24 @@ object Fixtures {
 						home.resolve(it.name) !in setOf(home.resolve("Documents"), home.resolve("Pictures"))
 				}.associate { home.resolve(it.name) to emptyList() }
 
+	/** Prism's own folders, as a desktop finds them in [home]. */
+	val known: Map<Builtin, Place> =
+		mapOf(
+			Builtin.Home to Place("Home", Place.Kind.Home, home),
+			Builtin.Desktop to Place("Desktop", Place.Kind.Desktop, home.resolve("Desktop")),
+			Builtin.Documents to
+				Place("Documents", Place.Kind.Documents, home.resolve("Documents")),
+			Builtin.Downloads to
+				Place("Downloads", Place.Kind.Downloads, home.resolve("Downloads")),
+			Builtin.Pictures to Place("Pictures", Place.Kind.Pictures, home.resolve("Pictures")),
+			Builtin.Music to Place("Music", Place.Kind.Music, home.resolve("Music")),
+			Builtin.Videos to Place("Videos", Place.Kind.Videos, home.resolve("Videos")),
+		)
+
 	val sidebar: Sidebar =
 		Sidebar(
-			pinned =
-				listOf(
-					Place("Home", Place.Kind.Home, home),
-					Place("Desktop", Place.Kind.Desktop, home.resolve("Desktop")),
-					Place("Documents", Place.Kind.Documents, home.resolve("Documents")),
-					Place("Downloads", Place.Kind.Downloads, home.resolve("Downloads")),
-					Place("Pictures", Place.Kind.Pictures, home.resolve("Pictures")),
-					Place("Music", Place.Kind.Music, home.resolve("Music")),
-					Place("Videos", Place.Kind.Videos, home.resolve("Videos")),
-				),
+			quick = QuickAccess.DEFAULT,
+			known = known,
 			drives =
 				listOf(
 					Place("File system", Place.Kind.Drive, Path("/")),
@@ -148,35 +155,84 @@ object Fixtures {
 		 * what would undo it, the trash keeping each entry under its own name.
 		 */
 		override fun make(change: Change): ChangeResult =
-			ChangeResult.Done(
-				when (change) {
-					is Change.Rename -> Change.Rename(change.to, change.from)
-					is Change.MakeFolder -> Change.RemoveFolder(change.path)
-					is Change.RemoveFolder -> Change.MakeFolder(change.path)
-					is Change.Trash ->
-						Change.PutBack(
-							change.paths.map {
-								Trashed(it, it.fileName.toString())
-							},
-						)
-					is Change.PutBack -> Change.Trash(change.entries.map { it.original })
-					is Change.MakeFile -> Change.RemoveFile(change.path)
-					is Change.RemoveFile -> Change.MakeFile(change.path)
-					// Copies and moves keep their names: the tree holds nothing to clash with.
-					is Change.Copy ->
-						Change.Trash(
-							change.sources.map { change.into.resolve(it.fileName) },
-						)
-					is Change.Link ->
-						Change.Trash(
-							change.sources.map { change.into.resolve(it.fileName) },
-						)
-					is Change.Move ->
-						Change.Relocate(change.sources.map { Moved(change.into.resolve(it.fileName), it) })
-					is Change.Relocate -> Change.Relocate(change.moves.map { Moved(it.to, it.from) })
-				},
-			)
+			if (change is Change.Trash)
+				ChangeResult.Trashed(
+					Change.PutBack(
+						change.paths
+							.filterNot { it.startsWith(NO_TRASH) }
+							.map { Trashed(it, it.fileName.toString(), TRASH) },
+					),
+					change.paths
+						.filter { it.startsWith(NO_TRASH) }
+						.map { Untrashable(it, "$NO_TRASH is kept in memory (tmpfs), which has no trash") },
+				)
+			else
+				ChangeResult.Done(
+					when (change) {
+						is Change.Rename -> Change.Rename(change.to, change.from)
+						is Change.MakeFolder -> Change.RemoveFolder(change.path)
+						is Change.RemoveFolder -> Change.MakeFolder(change.path)
+						// Answered apart, below.
+						is Change.Trash -> error("trashed apart")
+						is Change.PutBack -> Change.Trash(change.entries.map { it.original })
+						is Change.MakeFile -> Change.RemoveFile(change.path)
+						is Change.RemoveFile -> Change.MakeFile(change.path)
+						// Copies and moves keep their names: the tree holds nothing to clash with.
+						is Change.Copy ->
+							Change.Trash(
+								change.sources.map { change.into.resolve(it.fileName) },
+							)
+						is Change.Link ->
+							Change.Trash(
+								change.sources.map { change.into.resolve(it.fileName) },
+							)
+						is Change.Move ->
+							Change.Relocate(change.sources.map { Moved(change.into.resolve(it.fileName), it) })
+						is Change.Relocate -> Change.Relocate(change.moves.map { Moved(it.to, it.from) })
+					},
+				)
+
+		/** Everything deleted, as far as a disk held in code can say. */
+		override fun erase(erasing: Erasing): String? = null
+
+		/** A trash holding [trashRows]. */
+		override fun trash(): Listing.Read = Listing.Shown(trashRows)
+
+		/** Where the trash keeps what is trashed, and the folder (kept in memory) that has none. */
+		val TRASH: Path = home.resolve(".local/share/Trash")
+		val NO_TRASH: Path = Path("/tmp")
 	}
+
+	/** What the trash of [Memory] holds: a file and a folder, from two folders, trashed on two days. */
+	val trashRows: List<Row> =
+		listOf(
+			Trashed(home.resolve("old notes.md"), "old notes.md", Memory.TRASH) to
+				"2026-11-01T10:00:00Z",
+			Trashed(home.resolve("Projects/draft"), "draft", Memory.TRASH) to
+				"2026-11-03T09:30:00Z",
+		).map { (trashed, at) ->
+			val folder = trashed.name == "draft"
+
+			Row(
+				RowId.Trashed(trashed.bin, trashed.name),
+				Item.InTrash(trashed),
+				trashed.original.fileName.toString(),
+				if (folder)
+					Category.Folder
+				else
+					categoryOf(trashed.name),
+				if (folder)
+					"Folder"
+				else
+					typeOf(trashed.name, categoryOf(trashed.name)),
+				if (folder)
+					null
+				else
+					Shown(512L, sizeOf(512L)),
+				Instant.parse(at),
+				hidden = false,
+			)
+		}
 
 	/**
 	 * A picker opened on [folder] over [Memory], choosing [choosing], settled. A picker shows hidden files until the

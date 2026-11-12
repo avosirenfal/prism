@@ -40,8 +40,12 @@ import prism.desktop.currentDesktop
 import prism.index.SearchContext
 import prism.index.Searched
 import prism.index.search
+import prism.preferences.Builtin
 import prism.preferences.MemoryPreferences
 import prism.preferences.PreferenceStore
+import prism.preferences.Preferences
+import prism.preferences.QuickAccess
+import prism.preferences.QuickItem
 import prism.preferences.Sort
 
 /*
@@ -60,6 +64,12 @@ interface Disk {
 
 	/** [change] made, and what came of it. */
 	fun make(change: Change): ChangeResult
+
+	/** [erasing] deleted for good: null where all of it was, or why what came after what was could not be. */
+	fun erase(erasing: Erasing): String?
+
+	/** Every trash's entries, as rows, in no particular order. */
+	fun trash(): Listing.Read
 
 	/** What each of [paths] is on disk now: its size and date, as a row of its folder would show them; or gone. */
 	fun stat(paths: List<Path>): List<Stat>
@@ -238,6 +248,8 @@ fun Services.answer(
 		is Effect.Read -> Answer.Arrived(asking.folder, disk.read(asking.folder))
 		is Effect.Look -> Answer.Looked(asking.lookup, disk.look(asking.lookup.paths))
 		is Effect.Make -> Answer.Changed(asking.change, disk.make(asking.change), asking.doing)
+		is Effect.Erase -> Answer.Erased(asking.erasing, disk.erase(asking.erasing))
+		Effect.ReadTrash -> Answer.TrashRead(disk.trash())
 		is Effect.Search ->
 			Answer.Searched(
 				asking.within?.let { findingIn(it, asking) } ?: finder.findingOf(asking),
@@ -341,12 +353,11 @@ fun Finder?.findingOf(search: Effect.Search): Finding =
 		is Searched.Refused -> Finding.Refused(search.text, found.why)
 	}
 
-/** The file system through the JVM, its times said in [zone]. */
+/** The file system through the JVM, with [trash], the user's trashes. */
 class JvmDisk(
-	private val zone: ZoneId = ZoneId.systemDefault(),
 	private val trash: Trash = Trash.ofUser(),
 ) : Disk {
-	override fun read(folder: Path): Listing.Read = listingOf(folder, zone)
+	override fun read(folder: Path): Listing.Read = listingOf(folder)
 
 	override fun look(paths: List<Path>): Map<Path, Found> = paths.associateWith(::foundAt)
 
@@ -355,35 +366,88 @@ class JvmDisk(
 	 * several stops at the first that fails, and what was trashed before it is still put back by the undo.
 	 */
 	override fun make(change: Change): ChangeResult =
-		attempted {
-			when (change) {
-				// Never over what is there: the JVM refuses to move onto an existing entry without being told to.
-				is Change.Rename -> Change.Rename(Files.move(change.from, change.to), change.from)
-				is Change.MakeFolder -> Change.RemoveFolder(Files.createDirectory(change.path))
-				// Only an empty folder: what is in it would be lost, and an undo should lose nothing.
-				is Change.RemoveFolder -> Change.MakeFolder(change.path.also(Files::delete))
-				is Change.Trash -> Change.PutBack(change.paths.map(trash::put))
-				is Change.PutBack -> Change.Trash(change.entries.map(trash::putBack))
-				is Change.MakeFile -> Change.RemoveFile(Files.createFile(change.path))
-				// Only an empty file: what was written into it since would be lost.
-				is Change.RemoveFile -> {
-					if (Files.size(change.path) != 0L)
-						throw IOException("“${change.path.fileName}” has something in it now")
-					Files.delete(change.path)
-					Change.MakeFile(change.path)
+		if (change is Change.Trash)
+			trashed(change.paths)
+		else
+			attempted {
+				when (change) {
+					// Never over what is there: the JVM refuses to move onto an existing entry without being told to.
+					is Change.Rename -> Change.Rename(Files.move(change.from, change.to), change.from)
+					is Change.MakeFolder -> Change.RemoveFolder(Files.createDirectory(change.path))
+					// Only an empty folder: what is in it would be lost, and an undo should lose nothing.
+					is Change.RemoveFolder -> Change.MakeFolder(change.path.also(Files::delete))
+					// Answered apart, below: a trash is not every path's to go to.
+					is Change.Trash -> error("trashed apart")
+					is Change.PutBack -> Change.Trash(change.entries.map(trash::putBack))
+					is Change.MakeFile -> Change.RemoveFile(Files.createFile(change.path))
+					// Only an empty file: what was written into it since would be lost.
+					is Change.RemoveFile -> {
+						if (Files.size(change.path) != 0L)
+							throw IOException("“${change.path.fileName}” has something in it now")
+						Files.delete(change.path)
+						Change.MakeFile(change.path)
+					}
+					// What undoes copies is trashing them, which can be undone in turn; links likewise.
+					is Change.Copy -> Change.Trash(change.sources.map { copied(it, change.into) })
+					is Change.Link -> Change.Trash(change.sources.map { linked(it, change.into) })
+					is Change.Move ->
+						Change.Relocate(
+							change.sources
+								.filter { it.parent != change.into }
+								.map { Moved(moved(it, change.into), it) },
+						)
+					is Change.Relocate ->
+						Change.Relocate(change.moves.map { Moved(Files.move(it.from, it.to), it.from) })
 				}
-				// What undoes copies is trashing them, which can be undone in turn; links likewise.
-				is Change.Copy -> Change.Trash(change.sources.map { copied(it, change.into) })
-				is Change.Link -> Change.Trash(change.sources.map { linked(it, change.into) })
-				is Change.Move ->
-					Change.Relocate(
-						change.sources
-							.filter { it.parent != change.into }
-							.map { Moved(moved(it, change.into), it) },
-					)
-				is Change.Relocate ->
-					Change.Relocate(change.moves.map { Moved(Files.move(it.from, it.to), it.from) })
 			}
+
+	/**
+	 * [paths] moved each to its drive's trash, in turn, until one fails; those on a drive with no trash left as they
+	 * are, and said so, for the user to say whether to delete them for good. What was moved before a failure is still
+	 * put back by the undo.
+	 */
+	private fun trashed(paths: List<Path>): ChangeResult {
+		data class Going(
+			val moved: List<Trashed> = emptyList(),
+			val failed: String? = null,
+		)
+
+		val wheres = paths.map { it to trash.binFor(it) }
+		val nowhere =
+			wheres.mapNotNull { (path, where) ->
+				(where as? TrashFor.Nowhere)?.let { Untrashable(path, it.why) }
+			}
+
+		val gone =
+			wheres.fold(Going()) { going, (path, where) ->
+				if (going.failed != null || where !is TrashFor.In)
+					going
+				else
+					when (val put = tried { trash.put(path, where.bin) }) {
+						is Tried.Did -> going.copy(moved = going.moved + put.value)
+						is Tried.Failed -> going.copy(failed = put.why)
+					}
+			}
+
+		return ChangeResult.Trashed(Change.PutBack(gone.moved), nowhere, gone.failed)
+	}
+
+	override fun erase(erasing: Erasing): String? =
+		(
+			tried {
+				when (erasing) {
+					is Erasing.Files -> erasing.paths.forEach(::erased)
+					is Erasing.FromTrash -> erasing.entries.forEach(trash::erase)
+					Erasing.Everything -> trash.entries().forEach { trash.erase(it.trashed) }
+				}
+			} as? Tried.Failed
+		)?.why
+
+	override fun trash(): Listing.Read =
+		try {
+			Listing.Shown(trash.entries().map(::rowOf))
+		} catch (failed: IOException) {
+			Listing.Unreadable(failed.message ?: failed.toString())
 		}
 
 	/** [source] copied into [into], with all it holds, under a name free there; where it went. */
@@ -425,7 +489,7 @@ class JvmDisk(
 			throw IOException("“${source.fileName}” can't go inside itself")
 	}
 
-	override fun stat(paths: List<Path>): List<Stat> = paths.map { statOf(it, zone) }
+	override fun stat(paths: List<Path>): List<Stat> = paths.map(::statOf)
 
 	/**
 	 * By the device each is on, where the platform says (Linux and macOS, through the JVM's unix view), or else by the
@@ -449,7 +513,7 @@ class JvmDisk(
 }
 
 /** What [path] is now, its link followed, with its size and date said as its row would say them; gone if it is not there. */
-private fun statOf(path: Path, zone: ZoneId): Stat =
+private fun statOf(path: Path): Stat =
 	try {
 		val read = Files.readAttributes(path, BasicFileAttributes::class.java)
 
@@ -458,7 +522,7 @@ private fun statOf(path: Path, zone: ZoneId): Stat =
 				null
 			else
 				read.size().let { Shown(it, sizeOf(it)) },
-			read.lastModifiedTime().toInstant().let { Shown(it, dateOf(it, zone)) },
+			read.lastModifiedTime().toInstant(),
 		)
 	} catch (gone: IOException) {
 		Stat.Gone
@@ -488,24 +552,40 @@ fun freeLinkName(folder: Path, name: String): String =
 			generateSequence(2) { it + 1 }.map { "Link to $name ($it)" }
 	).first { !Files.exists(folder.resolve(it), LinkOption.NOFOLLOW_LINKS) }
 
-/** [work] done, answered with what undoes it, or why it was not done, in the words a person reads. */
-private fun attempted(work: () -> Change): ChangeResult =
+/** What came of work on the disk: what it gave, or why it was not done, in the words a person reads. */
+private sealed interface Tried<out T> {
+	data class Did<T>(
+		val value: T,
+	) : Tried<T>
+
+	data class Failed(
+		val why: String,
+	) : Tried<Nothing>
+}
+
+/** [work] done, or why it was not. */
+private fun <T> tried(work: () -> T): Tried<T> =
 	try {
-		ChangeResult.Done(work())
+		Tried.Did(work())
 	} catch (taken: FileAlreadyExistsException) {
-		ChangeResult.Failed(
-			"There is already something called “${Path(taken.file).fileName}” here.",
-		)
+		Tried.Failed("There is already something called “${Path(taken.file).fileName}” here.")
 	} catch (gone: NoSuchFileException) {
-		ChangeResult.Failed("“${Path(gone.file).fileName}” isn't there any more.")
+		Tried.Failed("“${Path(gone.file).fileName}” isn't there any more.")
 	} catch (denied: AccessDeniedException) {
-		ChangeResult.Failed("You aren't allowed to change “${Path(denied.file).fileName}”.")
+		Tried.Failed("You aren't allowed to change “${Path(denied.file).fileName}”.")
 	} catch (full: DirectoryNotEmptyException) {
-		ChangeResult.Failed("“${Path(full.file).fileName}” isn't empty any more.")
+		Tried.Failed("“${Path(full.file).fileName}” isn't empty any more.")
 	} catch (failed: IOException) {
-		ChangeResult.Failed(failed.message ?: failed.toString())
+		Tried.Failed(failed.message ?: failed.toString())
 	} catch (denied: SecurityException) {
-		ChangeResult.Failed(denied.message ?: "Not allowed.")
+		Tried.Failed(denied.message ?: "Not allowed.")
+	}
+
+/** [work] done, answered with what undoes it, or why it was not done. */
+private fun attempted(work: () -> Change): ChangeResult =
+	when (val result = tried(work)) {
+		is Tried.Did -> ChangeResult.Done(result.value)
+		is Tried.Failed -> ChangeResult.Failed(result.why)
 	}
 
 /**
@@ -515,15 +595,15 @@ private fun attempted(work: () -> Change): ChangeResult =
 fun Step.settled(disk: Disk, finder: Finder? = null): BrowserState =
 	settled(Services(disk, finder))
 
-/** As [settled], with everything asked answered by [services]: a clip and a pin are made there too, at once. */
+/** As [settled], with everything asked answered by [services]: a clip and quick access arranged are made there too, at once. */
 tailrec fun Step.settled(services: Services): BrowserState {
 	effects.filterIsInstance<Effect.Clip>().forEach {
 		services.carried.set(null)
 		services.clipboard.put(it.clip)
 	}
 	effects.filterIsInstance<Effect.Carry>().forEach { services.carried.set(it.carried) }
-	effects.filterIsInstance<Effect.Pin>().forEach { pin ->
-		services.preferences.update { it.pinning(pin.paths) }
+	effects.filterIsInstance<Effect.Arrange>().forEach { arrange ->
+		services.preferences.update { it.arranging(arrange.quick) }
 	}
 
 	val asking = effects.filterIsInstance<Effect.Asking>()
@@ -542,14 +622,14 @@ fun pickerOf(
 	title: String = titleOf(choosing),
 	places: Places = currentDesktop().places,
 ): BrowserState =
-	opened(choosing, folder, home, sidebarOf(places, home, null), title).settled(disk)
+	opened(choosing, folder, home, sidebarOf(places, home), title).settled(disk)
 
 /** What [folder] holds, as rows in no particular order, or why it cannot be read. */
-fun listingOf(folder: Path, zone: ZoneId = ZoneId.systemDefault()): Listing.Read =
+fun listingOf(folder: Path): Listing.Read =
 	try {
 		Listing.Shown(
 			Files.newDirectoryStream(folder).use { entries ->
-				entries.mapNotNull { rowOf(it, zone) }
+				entries.mapNotNull(::rowOf)
 			},
 		)
 	} catch (failed: IOException) {
@@ -572,8 +652,39 @@ private fun foundAt(path: Path): Found =
 		Found.Nothing(inFolder = false)
 	}
 
+/**
+ * An entry of a trash as a row: named as it was, with when it was trashed for its date, and where it was for its
+ * folder, as a search's result says where it is.
+ */
+private fun rowOf(entry: TrashEntry): Row {
+	val name =
+		entry.trashed.original.fileName
+			?.toString() ?: entry.trashed.name
+
+	val category =
+		if (entry.folder)
+			Category.Folder
+		else
+			categoryOf(name)
+
+	return Row(
+		id = RowId.Trashed(entry.trashed.bin, entry.trashed.name),
+		item = Item.InTrash(entry.trashed),
+		name = name,
+		category = category,
+		type =
+			if (entry.folder)
+				"Folder"
+			else
+				typeOf(name, category),
+		size = entry.size?.let { Shown(it, sizeOf(it)) },
+		modified = entry.deleted,
+		hidden = false,
+	)
+}
+
 /** One entry as a row, its symlink followed for what it is and left as it is otherwise; null if it vanished. */
-private fun rowOf(entry: Path, zone: ZoneId): Row? {
+private fun rowOf(entry: Path): Row? {
 	val own =
 		try {
 			Files.readAttributes(entry, BasicFileAttributes::class.java, LinkOption.NOFOLLOW_LINKS)
@@ -611,7 +722,7 @@ private fun rowOf(entry: Path, zone: ZoneId): Row? {
 				null
 			else
 				target.size().let { Shown(it, sizeOf(it)) },
-		modified = target.lastModifiedTime().toInstant().let { Shown(it, dateOf(it, zone)) },
+		modified = target.lastModifiedTime().toInstant(),
 		hidden = name.startsWith("."),
 	)
 }
@@ -755,15 +866,11 @@ fun sizeOf(bytes: Long): String {
 	}
 }
 
-private val DATE = DateTimeFormatter.ofPattern("d MMM yyyy, HH:mm", Locale.ENGLISH)
-
-fun dateOf(instant: Instant, zone: ZoneId): String = DATE.format(instant.atZone(zone))
-
 /** The path to [folder] as crumbs, from the home folder where it is under it and from the root otherwise. */
 fun crumbsOf(folder: Path, home: Path): List<Crumb> {
 	val underHome = folder.startsWith(home)
 	val start = if (underHome) home else folder.root
-	val first = Crumb(if (underHome) "Home" else "File system", start)
+	val first = Crumb(if (underHome) "Home" else start.toString(), start)
 	val rest = start.relativize(folder).filter { it.toString().isNotEmpty() }
 
 	return rest.runningFold(
@@ -771,19 +878,59 @@ fun crumbsOf(folder: Path, home: Path): List<Crumb> {
 	) { previous, part -> Crumb(part.toString(), previous.path.resolve(part)) }
 }
 
-/**
- * The sidebar: the places [pinned] (where the user has pinned or unpinned any; each named as [places] names it where it
- * is one of the desktop's, and by its own name otherwise), or the desktop's own; then the drives.
- */
-fun sidebarOf(places: Places, home: Path, pinned: List<Path>?): Sidebar {
-	val known = places.known(home)
+/** The sidebar: quick access as [preferences] arrange it, with the folders of prism's own [places] has; then the drives. */
+fun sidebarOf(
+	places: Places,
+	home: Path,
+	preferences: Preferences = Preferences.DEFAULT,
+): Sidebar {
+	val known =
+		places
+			.known(home)
+			.mapNotNull { place ->
+				builtinOf(place.kind)?.let {
+					it to
+						place
+				}
+			}.toMap()
 
-	return Sidebar(
-		pinned?.map { path ->
-			known.firstOrNull { it.path == path }
-				?: Place(path.name.ifEmpty { "/" }, Place.Kind.Folder, path)
-		}
-			?: known,
-		places.drives(home),
-	)
+	return Sidebar(quickAccessOf(preferences, known), known, places.drives(home))
 }
+
+/**
+ * Quick access as [preferences] arrange it; or, where only an older version's pins say how, as they had it: the folders
+ * pinned in their order, prism's own folders among them where they are [known], and those of prism's own folders the
+ * pins left out hidden, since the user had unpinned them. The trash is newer than those pins, and shown.
+ */
+fun quickAccessOf(preferences: Preferences, known: Map<Builtin, Place>): QuickAccess =
+	preferences.quickAccess
+		?: preferences.pinned?.let { pins ->
+			val items =
+				pins.map { path ->
+					known.entries.firstOrNull { it.value.path == path }?.let { QuickItem.Own(it.key) }
+						?: QuickItem.Pinned(path)
+				}
+			val named = items.filterIsInstance<QuickItem.Own>().map { it.place }.toSet()
+
+			QuickAccess.of(
+				items +
+					known.keys
+						.filterNot {
+							it in named
+						}.map { QuickItem.Own(it, shown = false) },
+			)
+		}
+		?: QuickAccess.DEFAULT
+
+/** Which of prism's own places a place of the desktop's [kind] is; none for a folder pinned, or a drive. */
+private fun builtinOf(kind: Place.Kind): Builtin? =
+	when (kind) {
+		Place.Kind.Home -> Builtin.Home
+		Place.Kind.Desktop -> Builtin.Desktop
+		Place.Kind.Documents -> Builtin.Documents
+		Place.Kind.Downloads -> Builtin.Downloads
+		Place.Kind.Pictures -> Builtin.Pictures
+		Place.Kind.Music -> Builtin.Music
+		Place.Kind.Videos -> Builtin.Videos
+		Place.Kind.Folder, Place.Kind.Drive -> null
+	}

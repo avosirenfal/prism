@@ -3,6 +3,7 @@ package prism.browser
 import androidx.compose.runtime.Immutable
 import java.nio.file.Path
 import prism.desktop.TerminalChoice
+import prism.preferences.Order
 import prism.preferences.Sort
 
 /*
@@ -30,9 +31,9 @@ sealed interface Target {
 	/** The folder shown: the listing pressed where there is no row. */
 	data object Folder : Target
 
-	/** A place in the sidebar. */
-	data class Place(
-		val place: prism.desktop.Place,
+	/** Something the sidebar shows. */
+	data class Sidebar(
+		val item: SidebarItem,
 	) : Target
 }
 
@@ -74,7 +75,7 @@ fun contextMenuOf(
 				},
 			)
 		Target.Folder -> folderMenuOf(state, bindings, own)
-		is Target.Place -> placeMenuOf(state, target.place, own)
+		is Target.Sidebar -> sidebarMenuOf(state, target.item, own)
 	}.without(state.actions.hidden)
 }
 
@@ -124,6 +125,20 @@ private fun rowsMenuOf(
 ): Menu<BrowserEvent> {
 	val one = rows.singleOrNull()
 	val ids = rows.map { it.id }
+
+	// What is in the trash is put back, or deleted for good, and nothing else.
+	if (rows.all { it.item is Item.InTrash })
+		return menu {
+			item("Put back", BrowserEvent.PutBack(ids), id = "builtin.put-back")
+			separator()
+			item(
+				"Delete permanently",
+				BrowserEvent.AskedToErase(ids),
+				keys = bindings.keys(Action.Erase),
+				id = "builtin.erase",
+			)
+		}
+
 	// What prism does itself, it does to files on disk: where any row is not one, there are no paths to do it to.
 	val paths = rows.mapNotNull { it.path }.takeIf { it.size == rows.size }
 	val exploring = state.choosing is Choosing.Exploring
@@ -229,16 +244,23 @@ private fun rowsMenuOf(
 					id = "builtin.terminal",
 				)
 			}
-		// The trash apart from the rest, last, where it is not pressed in passing. Chosen from a menu, it is meant: the
-		// trash at once, as Shift+Delete does; Delete alone asks first.
+		// The trash apart from the rest, last, where it is not pressed in passing; deleting for good is asked first.
 		separator()
-		if (paths != null)
+		if (paths != null) {
 			item(
 				"Move to trash",
 				BrowserEvent.Trashed(ids),
 				keys = bindings.keys(Action.Trash),
 				id = "builtin.trash",
 			)
+			if (exploring)
+				item(
+					"Delete permanently",
+					BrowserEvent.AskedToErase(ids),
+					keys = bindings.keys(Action.Erase),
+					id = "builtin.erase",
+				)
+		}
 		if (exploring)
 			paths?.let {
 				separator()
@@ -252,12 +274,31 @@ private fun rowsMenuOf(
 	}
 }
 
-/** Pinning [path] to the sidebar, or taking it off where it is pinned. */
+/** Pinning [path] to the sidebar, or taking it off where quick access shows it. */
 private fun MenuBuilder<BrowserEvent>.pinning(state: BrowserState, path: Path) {
-	if (state.sidebar.pins(path))
-		item("Unpin from sidebar", BrowserEvent.Unpinned(path), id = "builtin.pin")
-	else
-		item("Pin to sidebar", BrowserEvent.Pinned(path), id = "builtin.pin")
+	when (val shown = state.sidebar.shown.firstOrNull { it.path == path }) {
+		null -> item("Pin to sidebar", BrowserEvent.Pinned(path), id = "builtin.pin")
+		else -> unpinning(shown)
+	}
+}
+
+/** Taking [item] off the sidebar: a folder pinned, unpinned; one of prism's own, hidden, since it is never removed. */
+private fun MenuBuilder<BrowserEvent>.unpinning(item: SidebarItem) {
+	when (item) {
+		is SidebarItem.Pinned ->
+			item(
+				"Unpin from sidebar",
+				BrowserEvent.Unpinned(item),
+				id = "builtin.pin",
+			)
+		is SidebarItem.Own, SidebarItem.Trash ->
+			item(
+				"Hide from sidebar",
+				BrowserEvent.Unpinned(item),
+				id = "builtin.pin",
+			)
+		is SidebarItem.Drive -> Unit
+	}
 }
 
 private fun folderMenuOf(
@@ -288,6 +329,15 @@ private fun folderMenuOf(
 			)
 		}
 		separator()
+		if (state.inTrash) {
+			item(
+				"Empty trash",
+				BrowserEvent.AskedToEmpty,
+				enabled = state.entryCount > 0,
+				id = "builtin.empty-trash",
+			)
+			separator()
+		}
 		if (exploring && (state.folder != null || takes)) {
 			item(
 				"Paste",
@@ -412,32 +462,49 @@ fun appMenuOf(
 		item("Close window", BrowserEvent.Cancelled, keys = bindings.keys(Action.CloseWindow))
 	}
 
-/** A sidebar place's menu: open it, here or in a window of its own, and unpin it where it is pinned. */
-private fun placeMenuOf(
+/**
+ * The menu of something the sidebar shows: open it, here or in a window of its own; the trash emptied; and, for what
+ * quick access shows, taken off it, or quick access arranged.
+ */
+private fun sidebarMenuOf(
 	state: BrowserState,
-	place: prism.desktop.Place,
+	item: SidebarItem,
 	own: List<MenuEntry<BrowserEvent>>,
 ): Menu<BrowserEvent> =
 	menu {
-		item("Open", BrowserEvent.Opened(place.path), id = "builtin.open")
-		if (state.choosing is Choosing.Exploring) {
-			item(
-				"Open in new window",
-				BrowserEvent.Requested(Request.NewWindow(place.path)),
-				id = "builtin.open-in-new-window",
-			)
-			separator()
-			own.forEach(::add)
-			separator()
-			item(
-				"Properties",
-				BrowserEvent.Requested(Request.Properties(listOf(place.path))),
-				id = "builtin.properties",
-			)
+		when (val path = item.path) {
+			null -> {
+				item("Open", BrowserEvent.OpenedTrash, id = "builtin.open")
+				if (state.choosing is Choosing.Exploring)
+					item("Empty trash", BrowserEvent.AskedToEmpty, id = "builtin.empty-trash")
+			}
+			else -> {
+				item("Open", BrowserEvent.Opened(path), id = "builtin.open")
+				if (state.choosing is Choosing.Exploring) {
+					item(
+						"Open in new window",
+						BrowserEvent.Requested(Request.NewWindow(path)),
+						id = "builtin.open-in-new-window",
+					)
+					separator()
+					own.forEach(::add)
+					separator()
+					item(
+						"Properties",
+						BrowserEvent.Requested(Request.Properties(listOf(path))),
+						id = "builtin.properties",
+					)
+				}
+			}
 		}
-		if (state.sidebar.pinned.contains(place)) {
+		if (item !is SidebarItem.Drive) {
 			separator()
-			item("Unpin from sidebar", BrowserEvent.Unpinned(place.path), id = "builtin.pin")
+			unpinning(item)
+			item(
+				"Arrange quick access…",
+				BrowserEvent.ArrangingQuickAccess(true),
+				id = "builtin.arrange",
+			)
 		}
 	}
 
@@ -449,10 +516,10 @@ private fun MenuBuilder<BrowserEvent>.sorts(state: BrowserState) {
 	val found = state.listing as? Listing.Found
 	val order =
 		if (found == null)
-			Order.By(state.arrangement.sort)
+			Order.By(state.arrangement.folders.sort)
 		else
-			state.arrangement.results
-	val sort = (order as? Order.By)?.sort
+			state.arrangement.results.order
+	val sort = order.sort
 
 	if (found != null) {
 		radio("Best match", order == Order.Relevance, BrowserEvent.SortedByRelevance)

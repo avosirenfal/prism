@@ -89,7 +89,8 @@ internal class Drags(
 		// Told how it ended later, on the windows' thread, by which time it is made; told of a drag no longer the
 		// active one, it does nothing (finish).
 		lateinit var drag: Active
-		val native = app.nativeDrags?.start(from, outgoing.offer) { how -> finish(drag, how) } == true
+		val native =
+			app.nativeDrags?.start(from, outgoing.offer) { how -> finish(drag, how) } == true
 
 		drag = Active(from, outgoing, onEnd, if (native) Way.Native else Way.Local, null)
 		Log.say { "drag: ${drag.way}" }
