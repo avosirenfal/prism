@@ -181,6 +181,12 @@ class NativeWindow internal constructor(
 
 	private val scene: ComposeScene
 
+	/** Whether the window is on the screen yet. */
+	private var shown = false
+
+	/** Whether a frame has ever been put on the screen: a window none can be put on is said to be so, not left blank. */
+	private var drawn = false
+
 	init {
 		val gpu = app.sdl.drawer == Drawer.Gpu
 		val flags =
@@ -209,12 +215,23 @@ class NativeWindow internal constructor(
 		)
 
 		at?.let { SDL_SetWindowPosition(sdl, it.x, it.y) }
-		pixels = (
-			if (gpu)
-				Pixels.Gpu.of(sdl, video)
-			else
-				null
-		) ?: Pixels.Cpu(sdl)
+		pixels =
+			(
+				if (gpu)
+					Pixels.Gpu.of(sdl, video)
+				else
+					null
+			)
+				// Drawn by the CPU: on Wayland into buffers of prism's own, since SDL has none there but through EGL.
+				?: (handle as? NativeHandle.Wayland)?.let(WaylandPixels::of)
+				?: Pixels.Cpu(sdl)
+		Log.say { "window $id: ${pixels.javaClass.simpleName}" }
+
+		// A Wayland window takes a buffer only once the compositor has said how it is to be: shown first, then drawn.
+		if (pixels is WaylandPixels) {
+			SDL_ShowWindow(sdl)
+			shown = true
+		}
 		density = Density(scale)
 		pixelSize = pixelSizeOf()
 
@@ -271,20 +288,33 @@ class NativeWindow internal constructor(
 		SDL_RaiseWindow(sdl)
 	}
 
-	private var shown = false
-
 	/** A frame drawn, if one was asked for: the scene's frame, its layout and its drawing, into the window's pixels. */
 	internal fun frame(nanos: Long) {
 		if (closed || !wantsFrame)
 			return
 
 		wantsFrame = false
-		pixels.frame(pixelSize.width, pixelSize.height) { canvas ->
-			canvas.clear(0)
-			recomposer.performFrame(nanos)
-			scene.measureAndLayout()
-			scene.draw(canvas.asComposeCanvas())
-		}
+
+		val drew =
+			pixels.frame(pixelSize.width, pixelSize.height) { canvas ->
+				canvas.clear(0)
+				recomposer.performFrame(nanos)
+				scene.measureAndLayout()
+				scene.draw(canvas.asComposeCanvas())
+			}
+
+		if (drew)
+			drawn = true
+		else if (!drawn)
+			throw CannotDraw(
+				"window $id cannot be drawn (${pixels.javaClass.simpleName}): " +
+					(
+						org.lwjgl.sdl.SDLError
+							.SDL_GetError()
+							?.takeIf { it.isNotEmpty() }
+							?: "SDL says nothing of why"
+					),
+			)
 
 		// Shown once there is something in it, rather than empty first.
 		if (!shown) {

@@ -8,12 +8,15 @@
       system = "x86_64-linux";
       pkgs = import nixpkgs { inherit system; };
 
-      # What the JVM loads at run time: libbpf for the watcher, and what Compose Desktop's windows draw with.
+      # What the JVM loads at run time: libbpf for the watcher, and what SDL's windows (prism.window) speak and draw
+      # with: Wayland and its keyboard, X11, OpenGL and EGL through glvnd, and libdecor for title bars where the
+      # compositor draws none.
       runtimeLibs = with pkgs; [
         libbpf
         libGL
         wayland
         libxkbcommon
+        libdecor
         fontconfig
         xorg.libX11
         xorg.libXext
@@ -38,7 +41,10 @@
 
         JAVA_HOME = pkgs.jdk25.home;
         PRISM_CLANG = "${pkgs.llvmPackages.clang-unwrapped}/bin/clang";
-        LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath runtimeLibs;
+        # NixOS's graphics drivers (/run/opengl-driver/lib) first: glvnd finds NVIDIA's EGL and GL there by name, as
+        # NixOS's own packages do through their run path, and without them only Mesa's is found, which cannot drive
+        # an NVIDIA card ("failed to create dri2 screen").
+        LD_LIBRARY_PATH = "${pkgs.addDriverRunpath.driverLink}/lib:" + pkgs.lib.makeLibraryPath runtimeLibs;
       };
     };
 }

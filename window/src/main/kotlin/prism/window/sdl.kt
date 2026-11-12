@@ -3,6 +3,7 @@ package prism.window
 import org.lwjgl.sdl.SDLError.SDL_GetError
 import org.lwjgl.sdl.SDLHints.SDL_HINT_APP_ID
 import org.lwjgl.sdl.SDLHints.SDL_HINT_APP_NAME
+import org.lwjgl.sdl.SDLHints.SDL_HINT_FRAMEBUFFER_ACCELERATION
 import org.lwjgl.sdl.SDLHints.SDL_HINT_MOUSE_FOCUS_CLICKTHROUGH
 import org.lwjgl.sdl.SDLHints.SDL_HINT_VIDEO_ALLOW_SCREENSAVER
 import org.lwjgl.sdl.SDLHints.SDL_HINT_VIDEO_DRIVER
@@ -96,6 +97,21 @@ class NoDisplay(
 	message: String,
 ) : RuntimeException(message)
 
+/** A window was made, but nothing could be put in it: no way of drawing works here. */
+class CannotDraw(
+	message: String,
+) : RuntimeException(message)
+
+/** What the window module says of itself on standard error, where `PRISM_WINDOW_LOG` is set: how it draws, and why. */
+internal object Log {
+	private val on = System.getenv("PRISM_WINDOW_LOG") != null
+
+	fun say(what: () -> String) {
+		if (on)
+			System.err.println("prism.window: " + what())
+	}
+}
+
 /** What SDL was started with, for as long as it runs. */
 internal class Sdl private constructor(
 	val video: Video,
@@ -127,7 +143,15 @@ internal class Sdl private constructor(
 
 			Pixels.Gpu.configure()
 
-			return Sdl(video, drawerOf(drawing, video))
+			val drawer = drawerOf(drawing, video)
+
+			// Drawn by the CPU on X11, the pixels go to the X server as they are (shared memory), not through a GPU
+			// renderer SDL would otherwise try first, copying them into a texture.
+			if (drawer == Drawer.Cpu && video == Video.X11)
+				SDL_SetHint(SDL_HINT_FRAMEBUFFER_ACCELERATION, "0")
+			Log.say { "$video, drawn by the $drawer (asked for: $drawing)" }
+
+			return Sdl(video, drawer)
 		}
 	}
 }

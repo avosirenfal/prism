@@ -95,7 +95,15 @@ internal fun drawerOf(wanted: Drawing, video: Video): Drawer =
 		Drawing.Cpu -> Drawer.Cpu
 		Drawing.Gpu -> Drawer.Gpu
 		Drawing.Auto ->
-			when (val renderer = probeRenderer(video)) {
+			when (
+				val renderer =
+					probeRenderer(video).also { found ->
+						Log.say {
+							"OpenGL's renderer: " +
+								(found ?: "none")
+						}
+					}
+			) {
 				null -> Drawer.Cpu
 				else ->
 					if (isSoftware(renderer))

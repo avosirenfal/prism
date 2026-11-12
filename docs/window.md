@@ -43,7 +43,14 @@ and the loop sleeps until an event comes.
 | | where it draws | when |
 |---|---|---|
 | the GPU | Skia's OpenGL backend, into the window's own framebuffer, which is then swapped onto the screen | there is a GPU, integrated or not |
-| the CPU | Skia's CPU backend, into the very pixels SDL hands the platform (an X11 shared-memory image, a Wayland shared-memory buffer, a GDI or Quartz bitmap), which are then presented | there is no GPU, or OpenGL runs on the CPU (llvmpipe and the like, which Skia's own CPU drawing beats) |
+| the CPU | Skia's CPU backend, into memory the platform presents as it is: on Wayland, shared-memory buffers of prism's own, attached to SDL's surface (`WaylandPixels`); on X11, SDL's shared-memory image; on Windows and macOS, SDL's window surface | there is no GPU, OpenGL cannot be had, or OpenGL runs on the CPU (llvmpipe and the like, which Skia's own CPU drawing beats) |
+
+SDL has no way of its own to put a CPU's pixels on a Wayland window: it would draw them through a GPU renderer (EGL
+again), copying them into a texture first. So on Wayland prism speaks to the compositor itself, through
+libwayland-client on SDL's own connection: it binds `wl_shm` on an event queue of its own (so nothing of SDL's is read
+there), makes buffers in a memfd that Skia draws into, and attaches, damages and commits them to the surface SDL made,
+using a buffer again once the compositor has let it go. On X11, SDL is told to give its shared-memory image to the X
+server as it is, rather than first trying a GPU renderer.
 
 Which one is found by a hidden OpenGL window, asked for its renderer's name. `PRISM_DRAWING=gpu` or `cpu` (or
 `-Dprism.window.drawing=`) says otherwise. Skia is given OpenGL's functions as SDL finds them, so it draws with
@@ -75,6 +82,17 @@ platform's own protocol (XDND, Wayland's data device, OLE, macOS's dragging). A 
 drags as itself (`Outgoing`): to the same window always, and to another of prism's windows where the platform says
 where windows are on the screen (X11, Windows, macOS).
 
+## When no window opens
+
+`PRISM_WINDOW_LOG=1` says on standard error which display server SDL speaks to, what OpenGL's renderer is (or that
+there is none), how windows are drawn, and with what. A window that cannot be drawn at all stops the application, with
+SDL's reason, rather than staying empty: a Wayland window shows nothing until it is given a buffer.
+
+On NixOS, NVIDIA's EGL and GL are in `/run/opengl-driver/lib`, which glvnd finds them in by name; a program that is not
+NixOS's own (a JVM loading SDL from LWJGL) finds them only with that folder on `LD_LIBRARY_PATH`, which the flake's
+shell puts there. Without it only Mesa's EGL is found, which cannot drive an NVIDIA card (`libEGL warning: egl: failed
+to create dri2 screen`), and prism draws on the CPU.
+
 ## Not yet
 
 - **Dragging out to other programs**, and on Wayland between prism's own windows. SDL takes drops but does not start
@@ -91,7 +109,9 @@ where windows are on the screen (X11, Windows, macOS).
 
 - `KeysTest`: keys by layout and by place, modifiers, typed text, and which OpenGL renderers are the CPU's.
 - `WindowTest` (`-Pwindow.display`): a real window clicked, typed in, dropped on from another program, and copied
-  from, through SDL's own events; it passes under Xvfb and under weston's headless Wayland.
+  from, through SDL's own events. It passes under Xvfb and under weston's headless Wayland, drawn by the GPU, by the
+  CPU, and with no EGL at all (`__EGL_VENDOR_LIBRARY_FILENAMES=/nonexistent.json`); the clipboard is left out under
+  weston's, which has no seat to give the input serial Wayland's clipboard asks for.
 - prism's `DragTest` and `SelectionTest` (`-Pbrowser.display`, X11): an archive's entry dragged by X's own pointer
   from one prism window to another and extracted there; and a failure's text selected and copied with Ctrl+C.
 - By hand, in the development container: `prism explore` on X11, and as a native Wayland client under weston
