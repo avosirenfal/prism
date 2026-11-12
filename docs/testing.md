@@ -105,6 +105,13 @@ keep the pictures:
 ./gradlew :browser:test -Pbrowser.screenshots=build/shots
 ```
 
+The explorer's tests draw its Renderer page the same way, for a GPU whose OpenGL library is missing and for one that
+draws:
+
+```bash
+./gradlew :explorer:test -Pexplorer.screenshots=build/shots
+```
+
 To draw it over a real folder:
 
 ```bash

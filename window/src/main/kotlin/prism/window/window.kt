@@ -134,6 +134,9 @@ class NativeWindow internal constructor(
 	/** The platform this window is on. */
 	val video: Video get() = app.sdl.video
 
+	/** How prism's windows are drawn, and why: on the GPU or the CPU, and what OpenGL is here. */
+	val rendering: Rendering get() = app.sdl.rendering
+
 	private val pixels: Pixels
 
 	/** What closing the window by its title bar, or the platform's own means, asks for. */
@@ -188,7 +191,7 @@ class NativeWindow internal constructor(
 	private var drawn = false
 
 	init {
-		val gpu = app.sdl.drawer == Drawer.Gpu
+		val gpu = app.sdl.rendering.onGpu
 		val flags =
 			SDL_WINDOW_RESIZABLE or SDL_WINDOW_HIGH_PIXEL_DENSITY or SDL_WINDOW_HIDDEN or
 				(if (gpu) SDL_WINDOW_OPENGL else 0L) or

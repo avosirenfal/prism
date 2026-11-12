@@ -65,6 +65,8 @@ import prism.desktop.Permissions
 data class Line(
 	val label: String,
 	val value: String,
+	/** Whether what it says is wrong, and is drawn in red: what keeps something from working. */
+	val wrong: Boolean = false,
 )
 
 /** What [facts] add up to: each file one file of its size, and each folder one folder and all that is in it. */
@@ -403,7 +405,16 @@ internal val LABEL = 120.dp
 internal fun FactRow(line: Line) =
 	FactRow(line.label) {
 		SelectionContainer(Modifier.weight(1f)) {
-			Text(line.value, style = LocalType.current.body)
+			Text(
+				line.value,
+				style =
+					LocalType.current.body.let {
+						if (line.wrong)
+							it.copy(color = LocalPalette.current.dangerText)
+						else
+							it
+					},
+			)
 		}
 	}
 

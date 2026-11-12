@@ -50,11 +50,15 @@ import prism.browser.Scaled
 import prism.browser.Space
 import prism.browser.TransientFor
 import prism.browser.mouseChords
+import prism.browser.toClipboard
 import prism.browser.zoomedByWheel
 import prism.desktop.TerminalOptions
 import prism.preferences.DateFormat
 import prism.preferences.Typography
 import prism.preferences.WindowKind
+import prism.window.Graphics
+import prism.window.GraphicsReport
+import prism.window.LocalNativeWindow
 import prism.window.NativeWindow
 import prism.window.Window
 
@@ -184,6 +188,13 @@ private fun SettingsWindow(explorer: Explorer, onClose: () -> Unit) {
 	val terminals by produceState(TerminalOptions.NONE) {
 		value = withContext(Dispatchers.IO) { explorer.desktop.launcher.terminals() }
 	}
+	// How the windows are drawn, and the graphics devices, looked at afresh each time the Renderer page is opened.
+	val rendering = LocalNativeWindow.current?.rendering
+	val examining = settings.page == Page.Renderer
+	val graphics by produceState<GraphicsReport?>(null, rendering, examining) {
+		if (examining && rendering != null)
+			value = withContext(Dispatchers.IO) { Graphics.examine(rendering) }
+	}
 
 	Box(Modifier.fillMaxSize().mouseChords { chords.tryEmit(it) }) {
 		SettingsView(
@@ -200,6 +211,8 @@ private fun SettingsWindow(explorer: Explorer, onClose: () -> Unit) {
 				explorer.desktop.launcher.terminalCommand(explorer.home, choice, command)
 			},
 			terminals = terminals,
+			graphics = graphics,
+			onCopy = ::toClipboard,
 		)
 	}
 }

@@ -64,12 +64,6 @@ enum class Drawing {
 	}
 }
 
-/** What a window is drawn by, once it is decided: [Gpu] or [Cpu]. */
-internal enum class Drawer {
-	Gpu,
-	Cpu,
-}
-
 /** An OpenGL implementation that runs on the CPU, by the names drivers give themselves. */
 private val SOFTWARE_GL =
 	listOf(
@@ -87,55 +81,50 @@ internal fun isSoftware(renderer: String): Boolean =
 	SOFTWARE_GL.any { renderer.contains(it, ignoreCase = true) }
 
 /**
- * What [wanted] comes to here: for [Drawing.Auto], what a window of OpenGL's own, never shown, says its renderer is.
- * Asked once, before the first window, since a window is made for one way of drawing or the other.
+ * What OpenGL is here, for drawing as [wanted]: what a window of OpenGL's own, never shown, says it is, asked once
+ * before the first window (a window is made for one way of drawing or the other). Not asked where the CPU is asked for,
+ * which may be because OpenGL is broken here.
  */
-internal fun drawerOf(wanted: Drawing, video: Video): Drawer =
-	when (wanted) {
-		Drawing.Cpu -> Drawer.Cpu
-		Drawing.Gpu -> Drawer.Gpu
-		Drawing.Auto ->
-			when (
-				val renderer =
-					probeRenderer(video).also { found ->
-						Log.say {
-							"OpenGL's renderer: " +
-								(found ?: "none")
-						}
-					}
-			) {
-				null -> Drawer.Cpu
-				else ->
-					if (isSoftware(renderer))
-						Drawer.Cpu
-					else
-						Drawer.Gpu
-			}
-	}
+internal fun openGlFor(wanted: Drawing): OpenGl =
+	if (wanted == Drawing.Cpu)
+		OpenGl.NotAsked
+	else
+		probe().also { Log.say { "OpenGL: $it" } }
 
-/** The OpenGL renderer a window would be drawn by, or null where OpenGL cannot be had at all. */
-private fun probeRenderer(video: Video): String? {
+/** What OpenGL says it is, or why it could not be started, as SDL says. */
+private fun probe(): OpenGl {
+	fun failed(what: String) =
+		OpenGl.Unavailable(
+			org.lwjgl.sdl.SDLError
+				.SDL_GetError()
+				?.takeIf { it.isNotBlank() } ?: what,
+		)
+
 	val window = SDL_CreateWindow("probe", 1, 1, SDL_WINDOW_OPENGL or SDL_WINDOW_HIDDEN)
 
 	if (window == 0L)
-		return null
+		return failed("no window could be made for OpenGL")
 
 	return try {
 		val context = SDL_GL_CreateContext(window)
 
 		if (context == 0L)
-			return null
+			return failed("no OpenGL context could be made")
 
 		try {
 			SDL_GL_MakeCurrent(window, context)
 			GL.createCapabilities()
-			GL11.glGetString(GL11.GL_RENDERER)
+			OpenGl.Running(
+				GL11.glGetString(GL11.GL_RENDERER).orEmpty(),
+				GL11.glGetString(GL11.GL_VENDOR).orEmpty(),
+				GL11.glGetString(GL11.GL_VERSION).orEmpty(),
+			)
 		} finally {
 			SDL_GL_MakeCurrent(window, 0L)
 			SDL_GL_DestroyContext(context)
 		}
 	} catch (unusable: IllegalStateException) {
-		null
+		OpenGl.Unavailable(unusable.message ?: "OpenGL's functions could not be found")
 	} finally {
 		SDL_DestroyWindow(window)
 	}

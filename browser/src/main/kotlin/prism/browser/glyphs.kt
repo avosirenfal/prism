@@ -77,6 +77,12 @@ enum class Glyph {
 
 	/** A triangle with a mark in it: something is wrong. */
 	Warning,
+
+	/** An i in a ring: something said, neither right nor wrong. */
+	Info,
+
+	/** A chip with its pins: what draws a window, a GPU or a CPU. */
+	Chip,
 }
 
 /** [glyph] at [size], in [tint]; a file's icon is marked with [category]'s colour. */
@@ -201,6 +207,27 @@ fun GlyphIcon(
 				stroked(unit, tint, listOf(12f to 4f, 21f to 19.5f, 3f to 19.5f, 12f to 4f))
 				stroked(unit, tint, listOf(12f to 10f, 12f to 14f))
 				drawCircle(tint, 1.1f * unit, at(unit, 12f, 16.8f))
+			}
+			Glyph.Info -> {
+				drawCircle(tint, 8.5f * unit, at(unit, 12f, 12f), style = line(unit))
+				drawCircle(tint, 1.1f * unit, at(unit, 12f, 8f))
+				stroked(unit, tint, listOf(12f to 11f, 12f to 16.5f))
+			}
+			Glyph.Chip -> {
+				drawRoundRect(
+					tint,
+					at(unit, 6f, 6f),
+					Size(12f * unit, 12f * unit),
+					CornerRadius(1.5f * unit),
+					style = line(unit),
+				)
+				drawRect(tint, at(unit, 9.5f, 9.5f), Size(5f * unit, 5f * unit), style = line(unit))
+				for (pin in listOf(9.5f, 14.5f)) {
+					stroked(unit, tint, listOf(pin to 3f, pin to 6f))
+					stroked(unit, tint, listOf(pin to 18f, pin to 21f))
+					stroked(unit, tint, listOf(3f to pin, 6f to pin))
+					stroked(unit, tint, listOf(18f to pin, 21f to pin))
+				}
 			}
 			Glyph.FindKey -> {
 				drawRoundRect(

@@ -57,6 +57,31 @@ Which one is found by a hidden OpenGL window, asked for its renderer's name. `PR
 whichever of EGL, GLX, WGL or CGL made the context; skiko's own lookup is GLX's alone, and finds nothing under Wayland's
 EGL.
 
+**Why a window is drawn as it is** (`graphics.kt`, `sysfs.kt`, `libraries.kt`). Drawing on a GPU takes three things,
+and the preferences' Renderer page looks at each, for each graphics device, so that a user can see why the GPU is not
+used without knowing where to look:
+
+1. A driver in the kernel bound to the device. On Linux, the display controllers on the PCI bus are read from sysfs
+   (`/sys/bus/pci/devices/*`, class `0x03`), each with the driver its `driver` link names and that module's version;
+   those on no PCI bus (a system on a chip's) from `/sys/class/drm`. Each is named from the PCI ids' list where the
+   system has one. A device with no driver, or one handed to a virtual machine (`vfio-pci`), goes no further.
+2. Its nodes, open to this user: its DRM nodes (`/dev/dri/renderD128`), and NVIDIA's own (`/dev/nvidiactl`, and the
+   device's, by the minor number NVIDIA's driver gives it under `/proc/driver/nvidia`). A node the user may not open
+   is said to be, with the group that may.
+3. The library through which OpenGL reaches the driver, loaded as the system's loader loads it (`dlopen`), so that one
+   that cannot be is said not to be in the loader's own words, and one that can is said to be from where (the
+   process's own map of its files). On Linux these are glvnd's names, which every distribution has: the loader
+   (`libEGL.so.1` under Wayland, `libGL.so.1` under X11), and the driver's vendor library (`libEGL_nvidia.so.0` or
+   `libGLX_nvidia.so.0` for NVIDIA's driver, `libEGL_mesa.so.0` or `libGLX_mesa.so.0` for every other). NVIDIA's
+   libraries are of one version with its driver and their files say which, so a library of another version than the
+   driver (after an update, before a restart) is said to be.
+
+The first of these missing is the device's verdict; a device that OpenGL draws on is drawing, whatever else is said of
+it. What draws the windows is said in one (`Summary`): the GPU, as OpenGL found it; or the CPU, and why, by the device
+held back that got furthest toward drawing, since what stopped it is all that is left in the way. Where devices are
+found and which libraries a driver draws through are each platform's (`GraphicsDevices`, `DriverLibraries`); only
+Linux's are looked for yet, and the others say so. Loading is `dlopen` on Linux and macOS, `LoadLibrary` on Windows.
+
 **Keys.** Compose for the desktop knows a key by AWT's key code and where on the keyboard it is (`Key.ShiftLeft` is
 AWT's Shift on the left), reads text typed from AWT's "typed" events, and asks an event for its modifiers as AWT keeps
 them. So SDL's keys are made into AWT's key events, which are only values: nothing of AWT's toolkit runs, and the app

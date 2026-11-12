@@ -165,7 +165,8 @@ object Placeholders {
 			words.any {
 				COMMAND in it && it != COMMAND
 			} -> "$COMMAND is a word of its own: a command's words take its place"
-			!command && COMMAND in words -> "it says $COMMAND, which a terminal opened in a folder is not given"
+			!command && COMMAND in words ->
+				"it says $COMMAND, which a terminal opened in a folder is not given"
 			command && words.count {
 				it == COMMAND
 			} != 1 -> "it says $COMMAND ${if (COMMAND !in words)

@@ -77,6 +77,7 @@ import prism.browser.ListHeading
 import prism.browser.ListRow
 import prism.browser.LocalPalette
 import prism.browser.LocalType
+import prism.browser.Notice
 import prism.browser.OptionGroup
 import prism.browser.Radio
 import prism.browser.Radius
@@ -90,6 +91,7 @@ import prism.browser.SettingRow
 import prism.browser.Space
 import prism.browser.Stepper
 import prism.browser.Switch
+import prism.browser.Tone
 import prism.browser.ToolButton
 import prism.browser.mouseChords
 import prism.browser.systemFontFamilies
@@ -112,6 +114,7 @@ import prism.preferences.Rows
 import prism.preferences.Sort
 import prism.preferences.TextPart
 import prism.preferences.Typography
+import prism.window.GraphicsReport
 import prism.window.WindowLocals
 import prism.browser.Page as PageLayout
 
@@ -127,6 +130,7 @@ import prism.browser.Page as PageLayout
 /**
  * The preferences window over [settings], each change reported to [onChange]: applied by [onApply], and left by
  * [onClose]. [mouseChords] are the mouse's buttons pressed over the window, which a binding waiting for a chord takes.
+ * The Renderer page shows [graphics] (while it is looked at, null), and copies its report by [onCopy].
  */
 @Composable
 fun SettingsView(
@@ -139,6 +143,8 @@ fun SettingsView(
 		TerminalCommand.Failed("a terminal", "there is no desktop")
 	},
 	terminals: TerminalOptions = TerminalOptions.NONE,
+	graphics: GraphicsReport? = null,
+	onCopy: (String) -> Unit = {},
 ) {
 	val palette = LocalPalette.current
 	val type = LocalType.current
@@ -221,6 +227,7 @@ fun SettingsView(
 			Box(Modifier.weight(1f).fillMaxWidth()) {
 				when (settings.page) {
 					Page.Display -> DisplayPage(settings, onChange)
+					Page.Renderer -> RendererPage(graphics, onCopy)
 					Page.Listings -> ListingsPage(settings, onChange)
 					Page.Terminal -> TerminalPage(settings, onChange, terminalPreview, terminals)
 					Page.Bindings ->
@@ -261,6 +268,7 @@ fun SettingsView(
 private fun glyphOf(page: Page): Glyph =
 	when (page) {
 		Page.Display -> Glyph.Desktop
+		Page.Renderer -> Glyph.Chip
 		Page.Listings -> Glyph.ViewList
 		Page.Terminal -> Glyph.Terminal
 		Page.Bindings -> Glyph.Keyboard
@@ -835,23 +843,12 @@ private fun ActionsPage(actions: Actions) {
 			) {
 				Card {
 					actions.broken.forEach { broken ->
-						Row(
-							Modifier
-								.fillMaxWidth()
-								.padding(
-									prism.browser.CardInsets,
-								).testTag("broken:${broken.id}"),
-							horizontalArrangement = Arrangement.spacedBy(Space.m),
-						) {
-							GlyphIcon(Glyph.Warning, palette.dangerText, type.icon)
-							Column(verticalArrangement = Arrangement.spacedBy(Space.xxs)) {
-								Text(
-									"The ${broken.what} ${broken.id?.let { "“$it”" } ?: "with no id"}",
-									style = type.body.copy(color = palette.dangerText),
-								)
-								Text(broken.why, style = type.muted)
-							}
-						}
+						Notice(
+							"The ${broken.what} ${broken.id?.let { "“$it”" } ?: "with no id"}",
+							Tone.Bad,
+							Modifier.testTag("broken:${broken.id}"),
+							detail = broken.why,
+						)
 					}
 				}
 			}

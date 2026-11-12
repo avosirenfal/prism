@@ -32,6 +32,7 @@ enum class Page(
 	val label: String,
 ) {
 	Display("Display"),
+	Renderer("Renderer"),
 	Listings("Listings"),
 	Terminal("Terminal"),
 	Bindings("Key bindings"),

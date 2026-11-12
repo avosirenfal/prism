@@ -11,3 +11,10 @@ dependencies {
 	@OptIn(org.jetbrains.compose.ExperimentalComposeLibrary::class)
 	testImplementation(compose.uiTest)
 }
+
+tasks.test {
+	// `-Pexplorer.screenshots=DIR` has the screenshot tests write their renders there.
+	providers.gradleProperty("explorer.screenshots").orNull?.let {
+		systemProperty("explorer.screenshots", it)
+	}
+}

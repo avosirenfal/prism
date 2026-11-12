@@ -89,6 +89,8 @@ while the keyboard was used last.
 
 - `Page`: a headline, what the page is for, then its sections, scrolled with a bar beside them.
 - `Section`, `Card`, `CardItem`, `SettingRow`, `Labelled`, `ListRow` and `ListHeading`.
+- `Notice`: a line of a card that says how something is, rather than setting it: a glyph for its `Tone` (a tick where
+  it is as it should be, a warning, in red, where it is not, an i otherwise), its title, and what more there is to say.
 - `ButtonRow`: the buttons at a dialog's foot. They are given as what they are, not where they go: what is aside (Reset,
   Copy) at its start; then the ways out (Cancel, Close); and what the dialog is for last, at the far end. Every
   dialog's buttons are in that order.

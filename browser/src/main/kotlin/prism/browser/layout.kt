@@ -313,6 +313,60 @@ fun ListRow(
 	}
 }
 
+/** How a [Notice] reads: as it should be ([Good]), as it should not be ([Bad]), or neither ([Plain]). */
+enum class Tone {
+	Good,
+	Bad,
+	Plain,
+}
+
+/**
+ * A line of a card that says how something is, rather than setting it: a glyph for its [tone] (a tick, a warning, an
+ * i), its [title], in red where it is [Tone.Bad], what more there is to say ([detail]), and under them whatever
+ * [content] adds.
+ */
+@Composable
+fun Notice(
+	title: String,
+	tone: Tone,
+	modifier: Modifier = Modifier,
+	detail: String? = null,
+	content: @Composable ColumnScope.() -> Unit = {},
+) {
+	val palette = LocalPalette.current
+	val type = LocalType.current
+	val (glyph, tint) =
+		when (tone) {
+			Tone.Good -> Glyph.Check to palette.accentText
+			Tone.Bad -> Glyph.Warning to palette.dangerText
+			Tone.Plain -> Glyph.Info to palette.textMuted
+		}
+
+	Row(
+		modifier.fillMaxWidth().padding(CardInsets),
+		horizontalArrangement = Arrangement.spacedBy(Space.m),
+	) {
+		GlyphIcon(glyph, tint, type.icon)
+		Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(Space.xs)) {
+			Text(
+				title,
+				style =
+					type.strong.copy(
+						color =
+							if (tone ==
+								Tone.Bad
+							)
+								palette.dangerText
+							else
+								palette.text,
+					),
+			)
+			detail?.let { Text(it, style = type.muted) }
+			content()
+		}
+	}
+}
+
 /** A group's heading in a list: small and faint, with room above it to set it apart from the group before. */
 @Composable
 fun ListHeading(text: String, modifier: Modifier = Modifier) {

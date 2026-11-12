@@ -114,9 +114,10 @@ internal object Log {
 
 /** What SDL was started with, for as long as it runs. */
 internal class Sdl private constructor(
-	val video: Video,
-	val drawer: Drawer,
+	val rendering: Rendering,
 ) : AutoCloseable {
+	val video: Video get() = rendering.video
+
 	override fun close() = SDL_Quit()
 
 	companion object {
@@ -143,15 +144,17 @@ internal class Sdl private constructor(
 
 			Pixels.Gpu.configure()
 
-			val drawer = drawerOf(drawing, video)
+			val rendering = Rendering(video, drawing, openGlFor(drawing))
 
 			// Drawn by the CPU on X11, the pixels go to the X server as they are (shared memory), not through a GPU
 			// renderer SDL would otherwise try first, copying them into a texture.
-			if (drawer == Drawer.Cpu && video == Video.X11)
+			if (!rendering.onGpu && video == Video.X11)
 				SDL_SetHint(SDL_HINT_FRAMEBUFFER_ACCELERATION, "0")
-			Log.say { "$video, drawn by the $drawer (asked for: $drawing)" }
+			Log.say {
+				"$video, drawn on the ${if (rendering.onGpu) "GPU" else "CPU"} (asked for: $drawing)"
+			}
 
-			return Sdl(video, drawer)
+			return Sdl(rendering)
 		}
 	}
 }

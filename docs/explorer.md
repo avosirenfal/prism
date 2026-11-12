@@ -357,7 +357,10 @@ day, year; ISO's year-month-day; day/month/year; month/day/year; day.month.year;
 it. A file's properties write dates in full, to the second, whatever it says.
 
 **The preferences window** sets all of these, and Apply makes them so without closing it. Display: each part's font
-and size, the rows, the sizes, the dates. Listings: every kind of listing down the page's side (prism's own, then each
+and size, the rows, the sizes, the dates. Renderer: whether prism's windows are drawn on the GPU or the CPU, and why,
+first, in a sentence and what to do about it; then each graphics device the computer has, with its driver, its nodes and
+the library OpenGL reaches its driver through, and why it is used or not (docs/window.md, "Why a window is drawn as it
+is"). Copy report copies all of it as text, to paste where someone can help. Listings: every kind of listing down the page's side (prism's own, then each
 type of place), narrowed by a field over them so that any of however many places is found, each marked where it has
 anything of its own; and beside them the one chosen, in an explorer or a file picker: its order, its columns, dragged
 by their grips into order, ticked shown or not, and aligned; and its filters, for a list and for a gallery. A picker's
