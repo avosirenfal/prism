@@ -241,8 +241,8 @@ drag through, and says what each platform does with it.
 
 ## Not done yet
 
-- **Hosting in the daemon**, and the `org.freedesktop.FileManager1` interface that would let applications ask it to
-  show a folder or a file.
+- **Hosting in the daemon.** `prism portal serve` hosts the explorer and answers `org.freedesktop.FileManager1`
+  (docs/portal.md), in a process of its own; the daemon, which keeps the index, does not host it yet.
 - **The rest of the context menus the user configures**: docs/menus.md says what is built (actions, places, the
   archive tool made of them) and what is not (the menu's order, items made as it opens, an editor).
 - **Renaming from the properties window** (rename from the listing, with F2, as before), and the properties of several

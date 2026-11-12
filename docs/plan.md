@@ -212,9 +212,10 @@ searched for while the rest is still being typed.
 
 ## The portal
 
-prism becomes a portal backend by implementing `org.freedesktop.impl.portal.FileChooser` (`OpenFile`, `SaveFile`,
-`SaveFiles`) on the session bus, with a `prism.portal` file in xdg-desktop-portal's portals directory that says so,
-and the user choosing it in `portals.conf` (`org.freedesktop.impl.portal.FileChooser=prism`). Each request becomes a
+prism is a portal backend (docs/portal.md): it implements `org.freedesktop.impl.portal.FileChooser` (`OpenFile`,
+`SaveFile`, `SaveFiles`) on the session bus, with a `prism.portal` file in xdg-desktop-portal's portals directory that
+says so, and the user choosing it in `portals.conf` (`org.freedesktop.impl.portal.FileChooser=prism`), all of which
+`prism portal install` writes. Each request becomes a
 `BrowserState` (its title, whether it chooses one file or many or a folder, its filters, its current folder and name),
 and the chosen files go back as URIs.
 

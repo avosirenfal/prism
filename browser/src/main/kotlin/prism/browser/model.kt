@@ -852,6 +852,8 @@ data class BrowserState(
 	val pending: Pending? = null,
 	/** What is under way and waited on (an action's commands, a place being listed): shown, and to be stopped. */
 	val running: List<Work> = emptyList(),
+	/** What the asking application calls the button that accepts ("Upload", "Attach"); its own words where null. */
+	val acceptLabel: String? = null,
 ) {
 	/** The folder shown; none among a search's results. */
 	val folder: Path? get() = (at as? Location.Folder)?.path
@@ -935,8 +937,20 @@ data class BrowserState(
 				Listing.Reading, is Listing.Unreadable -> 0
 			}
 
-	/** The button that accepts, worked out from what has been chosen and typed. */
+	/**
+	 * The button that accepts, worked out from what has been chosen and typed, in the asking application's words
+	 * where it gave any; but for a folder chosen while saving, which the button opens, and says so.
+	 */
 	val accept: Accept
+		get() =
+			ownAccept.let { own ->
+				if (acceptLabel == null || (own.label == "Open" && choosing is Choosing.SaveAs))
+					own
+				else
+					own.copy(label = acceptLabel)
+			}
+
+	private val ownAccept: Accept
 		get() =
 			when (choosing) {
 				is Choosing.OneFile ->

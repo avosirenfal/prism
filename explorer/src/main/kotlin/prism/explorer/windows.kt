@@ -44,6 +44,7 @@ import prism.browser.LocalType
 import prism.browser.Location
 import prism.browser.MouseChords
 import prism.browser.Palette
+import prism.browser.TransientFor
 
 /*
  * Every window the explorer has open, drawn from its list: a browser's in a window of its own, and each of the rest
@@ -84,6 +85,13 @@ fun ExplorerWindows(explorer: Explorer, palette: Palette, decorated: Boolean) {
 						state = rememberWindowState(width = 900.dp, height = 600.dp),
 						undecorated = !decorated,
 					) {
+						// A dialog of the application that asked, where it is an X11 window prism can name; and in
+						// front, where the window manager lets it be, since it was asked for from elsewhere.
+						TransientFor(this.window, window.parent)
+						LaunchedEffect(Unit) {
+							this@Window.window.toFront()
+							this@Window.window.requestFocus()
+						}
 						HostedBrowser(this.window, window.session, explorer.preferences, palette)
 					}
 				is ExplorerWindow.Properties ->

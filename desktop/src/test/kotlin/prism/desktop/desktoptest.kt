@@ -150,6 +150,17 @@ class DesktopTest {
 			types.lineage(MimeType("text/x-kotlin")).map { it.name },
 		)
 		assertEquals("image/png", types.canonical(MimeType("image/x-png")).name)
+
+		// A type's name patterns, with those of every type that is a kind of it; an alias is its type.
+		assertEquals(listOf("*.png"), types.patternsOf(MimeType("image/x-png")))
+		assertTrue(
+			types
+				.patternsOf(
+					MimeType("text/plain"),
+				).containsAll(listOf("*.kt", "Makefile", "*.c")),
+		)
+		assertTrue("*.png" in types.patternsOf(MimeType("image/*")))
+		assertEquals(emptyList<String>(), types.patternsOf(MimeType("video/x-nothing")))
 		assertEquals("PNG image", types.describe(MimeType("image/png")))
 		assertNull(types.describe(MimeType("text/x-mine")))
 	}

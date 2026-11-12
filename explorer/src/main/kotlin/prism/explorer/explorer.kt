@@ -19,12 +19,16 @@ import prism.browser.Disk
 import prism.browser.FileClipboard
 import prism.browser.Finder
 import prism.browser.FolderWatcher
+import prism.browser.Landing
 import prism.browser.Outcome
 import prism.browser.Request
+import prism.browser.RowId
 import prism.browser.Search
 import prism.browser.Services
 import prism.browser.Session
 import prism.browser.Start
+import prism.browser.Step
+import prism.browser.TypeFilter
 import prism.browser.opened
 import prism.browser.openedIn
 import prism.browser.sidebarOf
@@ -61,6 +65,8 @@ sealed interface ExplorerWindow {
 		val title: String,
 		val session: Session,
 		internal val scope: CoroutineScope,
+		/** The X11 window of the application that asked, which this is a dialog of; none for the explorer's own. */
+		val parent: Long? = null,
 	) : ExplorerWindow
 
 	/** What can be known of [paths], and their permissions to change. */
@@ -81,6 +87,31 @@ sealed interface ExplorerWindow {
 		val raised: Int = 0,
 	) : ExplorerWindow
 }
+
+/** A picker another application asks for. */
+data class Asking(
+	val title: String,
+	val choosing: Choosing,
+	/** Where it opens. */
+	val folder: Path,
+	/** The filters it offers: at least one; the first, unless [filter] is one of them, is the one in use at first. */
+	val filters: List<TypeFilter>,
+	val filter: TypeFilter? = null,
+	/** What the button that accepts says, in the application's words. */
+	val acceptLabel: String? = null,
+	/** The X11 window of the application that asked, which the picker is a dialog of. */
+	val parent: Long? = null,
+) {
+	init {
+		require(filters.isNotEmpty()) { "a picker offers at least one filter" }
+	}
+}
+
+/** What a picker another application asked for ended with, and the filter in use as it did. */
+data class Answered(
+	val outcome: Outcome,
+	val filter: TypeFilter,
+)
 
 /** What an application is chosen for. */
 sealed interface Choice {
@@ -127,11 +158,11 @@ class Explorer(
 	/** How many defaults have been set: what shows an application a type opens with reads it again as this changes. */
 	val defaults: StateFlow<Int> = defaultsSet.asStateFlow()
 
-	/** A window browsing [folder]. */
-	fun browse(folder: Path) = browse(Start.Folder(folder))
+	/** A window browsing [folder]; with [chosen], the entry of that name chosen in it, the cursor on it. */
+	fun browse(folder: Path, chosen: String? = null) = browse(Start.Folder(folder), chosen)
 
-	/** A window browsing from [start]: a folder, or a place. */
-	fun browse(start: Start) {
+	/** A window browsing from [start]: a folder, or a place; in a folder, [chosen] chosen where it is given. */
+	fun browse(start: Start, chosen: String? = null) {
 		val window = scope.child()
 		val sidebar = sidebarOf(desktop.places, home, preferences.preferences.value.pinned)
 
@@ -144,7 +175,12 @@ class Explorer(
 						home,
 						sidebar,
 						search = search,
-					)
+					).let { step ->
+						chosen?.let {
+							Step(step.state.copy(landing = Landing.On(RowId(it), choose = true)), step.effects)
+						}
+							?: step
+					}
 				is Start.Place -> openedIn(start.placed, home, sidebar, search)
 			}
 
@@ -237,6 +273,56 @@ class Explorer(
 			val outcome = picking.session.outcome.await()
 
 			reply(BrowserEvent.Answered((outcome as? Outcome.Chosen)?.paths?.firstOrNull()))
+			close(picking)
+		}
+	}
+
+	/**
+	 * A picker for another application, as [asking] says, in a window of its own until it ends: what it ends with,
+	 * and the filter in use as it did. Cancelled from outside (the application went, or the portal took it away), its
+	 * window is closed as it is.
+	 */
+	suspend fun choose(asking: Asking): Answered {
+		val window = scope.child()
+
+		val first =
+			opened(
+				asking.choosing,
+				asking.folder,
+				home,
+				sidebarOf(desktop.places, home, preferences.preferences.value.pinned),
+				title = asking.title,
+				filters = asking.filters,
+				search = search,
+			).let { step ->
+				Step(
+					step.state.copy(
+						acceptLabel = asking.acceptLabel,
+						arrangement =
+							step.state.arrangement.copy(
+								filter = asking.filter?.takeIf { it in asking.filters } ?: asking.filters.first(),
+							),
+					),
+					step.effects,
+				)
+			}
+
+		val picking =
+			ExplorerWindow.Picking(
+				ids.incrementAndGet(),
+				asking.title,
+				Session(first, services, window),
+				window,
+				asking.parent,
+			)
+
+		open.update { it.plusElement(picking) }
+
+		return try {
+			val outcome = picking.session.outcome.await()
+
+			Answered(outcome, picking.session.state.value.arrangement.filter)
+		} finally {
 			close(picking)
 		}
 	}

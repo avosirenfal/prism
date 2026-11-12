@@ -22,12 +22,6 @@ import prism.dbus.method
 import prism.dbus.orThrow
 import prism.dbus.signal
 
-@Serializable
-data class NameRequest(
-	val name: String,
-	val flags: UInt,
-)
-
 private val requestName =
 	method<NameRequest, UInt>(
 		"org.freedesktop.DBus",

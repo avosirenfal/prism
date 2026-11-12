@@ -172,6 +172,26 @@ class SharedMimeInfo(
 			MimeType.BINARY
 		}
 
+	override fun patternsOf(type: MimeType): List<String> {
+		val wanted = canonical(type)
+		val every = wanted.name.endsWith("/*")
+		val all =
+			(
+				database.literals.values + database.exactExtensions.values +
+					database.extensions.values +
+					database.others
+			)
+
+		return all
+			.filter { glob ->
+				if (every)
+					glob.type.media == wanted.media
+				else
+					wanted in lineage(glob.type)
+			}.map { it.pattern }
+			.distinct()
+	}
+
 	/** [type] by its own name rather than an alias. */
 	fun canonical(type: MimeType): MimeType = database.aliases[type] ?: type
 

@@ -6,10 +6,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.window.application
+import java.nio.file.Path
 import kotlin.io.path.Path
 import kotlinx.coroutines.flow.first
+import prism.browser.Finder
 import prism.browser.JvmDisk
 import prism.browser.JvmFolderWatcher
+import prism.browser.Search
 import prism.browser.SystemFileClipboard
 import prism.cli.Args
 import prism.cli.Command
@@ -43,44 +46,62 @@ object ExploreCommand : Command(
 	override fun run(args: Args): Outcome {
 		val home = Path(System.getProperty("user.home"))
 		val (search, finder) = indexing.searchOf(args, home)
-		val desktop = currentDesktop()
 
-		PreferenceFile.open().use { preferences ->
-			preferences.problem?.let {
-				warn(this, "the preferences can't be read ($it); every default is used meanwhile")
-			}
-
-			Appearance.follow(args[theme]).use { appearance ->
-				application(exitProcessOnExit = false) {
-					val scheme by appearance.changes.collectAsState(appearance.first)
-					val scope = rememberCoroutineScope()
-
-					val explorer =
-						remember {
-							Explorer(
-								JvmDisk(),
-								finder,
-								desktop,
-								SystemFileClipboard,
-								preferences,
-								scope,
-								home,
-								search,
-								JvmFolderWatcher,
-							).also { it.browse(args[folder]) }
-						}
-
-					// Run on its own, the explorer is done when its last window is.
-					LaunchedEffect(explorer) {
-						explorer.windows.first { it.isEmpty() }
-						exitApplication()
-					}
-
-					ExplorerWindows(explorer, paletteOf(args[theme], scheme), args[decorated])
-				}
-			}
-		}
+		explored(this, args[folder], null, home, search, finder, args[theme], args[decorated])
 
 		return Outcome("")
+	}
+}
+
+/**
+ * The explorer, run in this process on [folder] ([chosen] chosen in it, where given), until its last window is closed:
+ * what `prism explore` is, and what `prism portal show` falls back to where no file manager answers on the bus.
+ */
+internal fun explored(
+	command: Command,
+	folder: Path,
+	chosen: String?,
+	home: Path,
+	search: Search,
+	finder: Finder?,
+	theme: Theme,
+	decorated: Boolean,
+) {
+	val desktop = currentDesktop()
+
+	PreferenceFile.open().use { preferences ->
+		preferences.problem?.let {
+			warn(command, "the preferences can't be read ($it); every default is used meanwhile")
+		}
+
+		Appearance.follow(theme).use { appearance ->
+			application(exitProcessOnExit = false) {
+				val scheme by appearance.changes.collectAsState(appearance.first)
+				val scope = rememberCoroutineScope()
+
+				val explorer =
+					remember {
+						Explorer(
+							JvmDisk(),
+							finder,
+							desktop,
+							SystemFileClipboard,
+							preferences,
+							scope,
+							home,
+							search,
+							JvmFolderWatcher,
+						).also { it.browse(folder, chosen) }
+					}
+
+				// Run on its own, the explorer is done when its last window is.
+				LaunchedEffect(explorer) {
+					explorer.windows.first { it.isEmpty() }
+					exitApplication()
+				}
+
+				ExplorerWindows(explorer, paletteOf(theme, scheme), decorated)
+			}
+		}
 	}
 }

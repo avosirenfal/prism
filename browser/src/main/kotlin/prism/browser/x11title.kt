@@ -52,3 +52,36 @@ fun TitleBarTone(window: ComposeWindow, dark: Boolean) {
 internal fun onX11(): Boolean =
 	!GraphicsEnvironment.isHeadless() &&
 		Toolkit.getDefaultToolkit().javaClass.name == "sun.awt.X11.XToolkit"
+
+/**
+ * For as long as this is composed, [window] a dialog of the X11 window [parent]: the window manager keeps it over
+ * that window, and puts it with it, as a dialog of an application's own would be. What the portal asks a file chooser
+ * to be, of the application that asked for it; on Wayland the parent is a surface prism's X11 window cannot name.
+ */
+@Composable
+fun TransientFor(window: ComposeWindow, parent: Long?) {
+	LaunchedEffect(window, parent) {
+		if (parent == null || !onX11())
+			return@LaunchedEffect
+
+		val x = X11.instance ?: return@LaunchedEffect
+		var handle = window.windowHandle
+
+		repeat(100) {
+			if (handle != 0L)
+				return@repeat
+			delay(50)
+			handle = window.windowHandle
+		}
+		if (handle == 0L)
+			return@LaunchedEffect
+
+		withContext(Dispatchers.IO) {
+			val display = x.openDisplay() ?: return@withContext
+
+			x.setWindow(display, handle, "WM_TRANSIENT_FOR", parent)
+			x.flush(display)
+			x.closeDisplay(display)
+		}
+	}
+}

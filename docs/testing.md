@@ -26,6 +26,8 @@ a device, so a test that ran and a test that could not run are never confused.
 | an index of a tree that was given, held and searched as one read from disk (`GivenTest`) | the JDK | never |
 | every shape of entry (file, folder, nested, empty, several, names with `[x]`, `*`, `?`) brought out of every kind of archive, with and without folder entries, by every program that reads it; and removed from every kind that can be changed (`EntriesTest`) | Linux | each case, without the programs it is of |
 | what a notice says, selected with the pointer and copied with Ctrl+C, in a real window with the system's clipboard (`SelectionTest`) | a display, and `-Pbrowser.display` | unless asked for |
+| the file chooser backend and the file manager served on a bus of the tests' own, called by prism's library and by GLib's `gdbus`: requests read, choices answered, the portal's Close, names owned and replaced (`FileChooserTest`) | dbus-daemon, and gdbus for its case | without them |
+| a portal request made into a picker, and the picker's ending into the answer; install's edits of `portals.conf` and its files (`PortalTest`) | the JDK | never |
 | the archives that ship: each kind listed, extracted whole and by entry, searched, and changed, by each program that can, made the only one installed in turn; archives made; single files decompressed; and a kind none of whose programs is there (`ArchivesTest`) | Linux | each case, without the programs it is of |
 | chords read and written, where each action acts, the user's bindings, and clashes (`BindingsTest`) | the JDK | never |
 | the preferences in memory and in a watched file, written by another process, unreadable and kept aside (`preferences`) | Linux | never |
@@ -221,3 +223,23 @@ and the watcher's own:
 ```bash
 ./gradlew :app:run --args="probe c"
 ```
+
+## The portal, end to end
+
+`tools/portal/check.sh` runs prism as the desktop's file chooser with the real pieces, in a home of its own on a
+virtual display: installed; an application (`tools/portal/ask.py`, as GTK asks) asking the real xdg-desktop-portal for
+a file; D-Bus starting prism from the service file install wrote; a file double-clicked in prism's picker; the
+application answered with it. Then the file manager is asked to show a file, and everything is uninstalled. It says
+PASSED or FAILED, and leaves screenshots of the picker and the explorer:
+
+```bash
+./gradlew :app:createDistributable
+```
+
+```bash
+tools/portal/check.sh
+```
+
+It needs Xvfb, dbus-daemon, xdg-desktop-portal, xdotool, xprop and xwininfo, ImageMagick's `import`, and Python with
+GLib's bindings
+(`PYTHON=python3.12` where the default Python is not the one they were built for).

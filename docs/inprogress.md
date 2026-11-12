@@ -73,16 +73,14 @@ In the order they unblock each other:
 1. **Run the watcher on a real machine**, with the privileges it needs, and read what it sends for a `mkdir`, a
    `touch`, a `mv`, an `rm -r`, a `git checkout` and an `npm install`. Fix what the verifier says about any hook.
    Then `prism daemon` there, and the same changes seen made in its index.
-2. **The portal backend**: `org.freedesktop.impl.portal.FileChooser` served on the session bus with
-   `Connection.serve`, each request a `BrowserState`, the daemon opening a window per request and handing it a `Finder`
-   over its live index (the picker's search already takes one), and writing the usage as things are picked; and a
-   D-Bus method of the daemon's to read places again from outside it.
+2. **The portal backend, with the daemon's index.** The backend is served (`prism portal serve`, docs/portal.md),
+   end to end through the real xdg-desktop-portal; what is left is the daemon hosting it and handing it a `Finder` over
+   its live index, writing the usage as things are picked, and a D-Bus method of the daemon's to read places again.
 3. **The picker reading its folders from the index** (an index-backed `Disk`), with the picker's kinds and `type:`
    from one table of extensions; and a search that asks for a place the rules leave out waiting for it to be read.
 4. **A Graal native command line** that talks to the running daemon: queries in a terminal, jumping to places.
-5. **The daemon hosting the explorer**, as it will the picker, and answering `org.freedesktop.FileManager1`
-   (`ShowFolders`, `ShowItems`) so applications can ask it to show a file; then context menus the user configures,
-   in the steps docs/menus.md gives.
+5. **The daemon hosting the explorer**, as `prism portal serve` already does, and answering
+   `org.freedesktop.FileManager1` there.
 6. **Filtering in the kernel**: a bounded loop in the DSL, so the watcher drops a change under an ignored directory
    before it is sent; and the privileged loader service that hands the ring to the user's daemon.
 

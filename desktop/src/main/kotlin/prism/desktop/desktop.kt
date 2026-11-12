@@ -91,6 +91,12 @@ interface FileTypes {
 
 	/** [type], then each type it is a kind of, nearest first: `text/x-kotlin`, then `text/plain`. */
 	fun lineage(type: MimeType): List<MimeType>
+
+	/**
+	 * The name patterns of files of [type] (`*.png`), and of every type that is a kind of it; `image/` and a star is
+	 * every image. What a filter by type is, to something that filters by name. None where the desktop does not say.
+	 */
+	fun patternsOf(type: MimeType): List<String> = emptyList()
 }
 
 /** An application the desktop knows: one a file can be opened with. */

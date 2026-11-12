@@ -127,6 +127,27 @@ internal class X11(
 		}
 	}
 
+	/** [window]'s property [name] set to the window [value], replacing what it was: `WM_TRANSIENT_FOR`, say. */
+	fun setWindow(display: MemorySegment, window: Long, name: String, value: Long) {
+		Arena.ofConfined().use { arena ->
+			val property = atom.invokeExact(display, arena.allocateFrom(name), 0) as Long
+			val type = atom.invokeExact(display, arena.allocateFrom("WINDOW"), 0) as Long
+			// Xlib takes 32-bit properties as an array of C longs, whatever their size.
+			val data = arena.allocate(JAVA_LONG).also { it.set(JAVA_LONG, 0, value) }
+
+			change.invokeExact(
+				display,
+				window,
+				property,
+				type,
+				32,
+				PROP_MODE_REPLACE,
+				data,
+				1,
+			) as Int
+		}
+	}
+
 	/** The window the X input focus is on now. */
 	fun inputFocus(display: MemorySegment): Long =
 		Arena.ofConfined().use { arena ->
