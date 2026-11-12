@@ -317,12 +317,26 @@ they do not say for the explorer is prism's own.
 
 **How it is drawn.** The list's rows are larger, with icons as large as Thunar draws them, or compact (`rows`); either
 is as tall as its text and its icon need, so text made larger never outgrows its row. Each column has room either side
-of what it shows, and the list room at its edges. A date column sets a date's date and its time apart: its dates in a
-width every date the format writes fits (measured once, of a day of each month), its times after them in another, each
-digit as wide as the next (tabular figures), so every row's line up, whatever the font. A date column is exactly that
-wide (`Width.Date`), in its heading as in its rows; the other columns share what is left (`Width.Share`), so a listing
-drawn larger takes its room from them, the name's first, and never cuts a date. A gallery's tiles have room between
-them, and around them, for a rectangle to be started or the folder's menu opened.
+of what it shows, and the list room at its edges.
+
+A date column is a table of its dates' parts. `Nov 2, 2026, 9:05 AM` is read from its format's pattern (`MMM d, yyyy`
+and `h:mm a`, `DateFormat`) into fields and the words between them (`DatePart`): the month's name, a space, the day, a
+comma, the year; the hour, a colon, the minutes, a space, AM or PM. Each field is drawn in a width the widest it ever
+writes fits (measured once, of a day of each month at hours that write widest), a number at the end of its width and a
+word at its start, its digits each as wide as the next (tabular figures). So down a column every month's name starts
+in one place, every day ends in one place, and every year and every time line up, whatever the font, though "May" is
+narrower than "Nov" and the 2nd than the 12th. The system's own format is read the same way, from the pattern its
+language and country write.
+
+A date column is exactly as wide as that (`Width.Date`). The other columns each have a least width, in characters of
+the listing's text (`Width.Share`: the name's sixteen, and its icon), and share what room is left by their shares, so a
+listing drawn larger takes its room from them, the name's first. Where even their least is more than the listing has,
+nothing is cut down further: the rows are as wide as their columns need, and they and their headings scroll across
+together, with a bar under them, by the wheel with Shift held or a touchpad's sideways scroll. Every column's width is
+worked out in one place (`layoutOf`), which the headings and the rows both draw from, so a heading is always over its
+column.
+
+A gallery's tiles have room between them, and around them, for a rectangle to be started or the folder's menu opened.
 
 `typography` names the font of the menus, the listing and the rest (a family the system has, by name), and its size in
 points, as desktops measure type (11 points by default, 12 for the menus: GNOME's and KDE's body text is 10 to 11).

@@ -13,6 +13,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.test.ComposeUiTest
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.MouseButton
@@ -1259,6 +1260,54 @@ class InteractionTest {
 			wheel(1)
 			assertEquals(first, top("dir 07"), 1.5f)
 		}
+
+	@Test
+	fun aListingTooWideForItsWindowScrollsAcross_ItsHeadingsWithItsRows() {
+		val wide = mutableStateOf(1000.dp)
+
+		picking(width = wide) {
+			val listing = onNodeWithTag("listing").fetchSemanticsNode().boundsInRoot
+
+			// Where something is laid out across, in sight or not: what is out of sight is clipped from its bounds.
+			fun across(tag: String): ClosedFloatingPointRange<Float> =
+				onNodeWithTag(tag).fetchSemanticsNode().layoutInfo.coordinates.let {
+					val left = it.positionInRoot().x
+
+					left..(left + it.size.width)
+				}
+
+			// At its usual size, every column is in sight.
+			assertTrue(across("column:Size").endInclusive <= listing.right)
+
+			// Drawn twice as large, the columns are wider than the listing: the last is past its edge, not cut down.
+			zoomByWheel(4)
+			waitForIdle()
+			assertTrue(
+				across("column:Size").start >= listing.right,
+				"the size's heading is out of sight",
+			)
+			assertTrue(
+				across("row:Documents").endInclusive > listing.right,
+				"the rows are wider than the listing",
+			)
+
+			// Shift and the wheel bring it in, the rows with it.
+			val before = across("row:Documents").start
+
+			focused().performKeyInput { keyDown(Key.ShiftLeft) }
+			onNodeWithTag("listing").performMouseInput {
+				moveTo(center)
+				scroll(10f)
+			}
+			focused().performKeyInput { keyUp(Key.ShiftLeft) }
+			waitForIdle()
+			assertTrue(
+				across("column:Size").endInclusive <= listing.right,
+				"the size's heading is in sight",
+			)
+			assertTrue(across("row:Documents").start < before, "the rows moved across with it")
+		}
+	}
 
 	@Test
 	fun theGalleryZoomsInToOneTileAtATimeAndAWindowMadeSmallerMakesItSmaller() {

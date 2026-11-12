@@ -273,4 +273,41 @@ class PreferencesTest {
 		assertEquals("Original location", ListingKind.Trash.labelOf(ColumnId.Location))
 		assertEquals(ListingKind.Place("archive"), ListingKind.of("place:archive"))
 	}
+
+	@Test
+	fun aDateIsWrittenPartByPart_EachFieldANumberOrAWord() {
+		val at = java.time.Instant.parse("2026-11-02T14:03:00Z")
+		val utc = java.time.ZoneOffset.UTC
+
+		assertEquals("2 Nov 2026, 14:03", DateFormat.Written.write(at, utc))
+		assertEquals("Nov 2, 2026, 2:03 PM", DateFormat.WrittenMonthFirst.write(at, utc))
+		assertEquals("2026-11-02 14:03", DateFormat.Iso.write(at, utc))
+
+		// The parts a listing lines up: each field, and the words between them.
+		val parts = DateFormat.WrittenMonthFirst.dateParts
+
+		assertEquals(
+			listOf(
+				DatePart.Field("MMM"),
+				DatePart.Words(" "),
+				DatePart.Field("d"),
+				DatePart.Words(", "),
+				DatePart.Field("yyyy"),
+			),
+			parts,
+		)
+		// A month's name is a word, lined up at its start; a day and a year are numbers, lined up at their ends.
+		assertEquals(
+			listOf(false, true, true),
+			parts.filterIsInstance<DatePart.Field>().map {
+				it.numeric
+			},
+		)
+		assertEquals("Nov", DateFormat.WrittenMonthFirst.write(parts[0], at, utc))
+		// Words in quotes are words, and two quotes are a quote.
+		assertEquals(
+			listOf(DatePart.Field("HH"), DatePart.Words(" o'clock")),
+			DatePart.of("HH 'o''clock'"),
+		)
+	}
 }

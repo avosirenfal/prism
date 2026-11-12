@@ -3,6 +3,7 @@ package prism.browser
 import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.HorizontalScrollbar
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.ScrollbarStyle
 import androidx.compose.foundation.VerticalScrollbar
@@ -29,6 +30,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.isCtrlPressed
+import androidx.compose.ui.input.pointer.isShiftPressed
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.Dp
@@ -53,7 +55,10 @@ const val LINES_A_NOTCH = 3f
  * distance that knows nothing of what is shown: at any size, a notch moves as many rows. A touchpad's small scrolls
  * move it as much less as they are smaller. Ctrl with the wheel is left alone, for whatever zooms.
  *
- * It is put on what holds the list and its bar, and the list's own scrolling by the wheel is turned off: the wheel is
+ * Where what is shown is wider than its room too, the wheel with Shift held, and a touchpad's sideways scrolls, move it
+ * [across] as far a notch.
+ *
+ * It is put on what holds the list and its bars, and the list's own scrolling by the wheel is turned off: the wheel is
  * heard as it comes back up from what it is over, so a list inside another scrolls first, and the one around it only
  * where the inner one was not under the pointer.
  */
@@ -61,23 +66,36 @@ fun Modifier.wheelScrolled(
 	state: ScrollableState,
 	line: Dp,
 	lines: Float = LINES_A_NOTCH,
+	across: ScrollableState? = null,
 ): Modifier =
-	pointerInput(state, line, lines) {
-		val gliding = Glide(state)
+	pointerInput(state, line, lines, across) {
+		val down = Glide(state)
+		val sideways = across?.let(::Glide)
 
 		coroutineScope {
 			awaitPointerEventScope {
 				while (true) {
 					val event = awaitPointerEvent(PointerEventPass.Main)
-					val turned = event.changes.fold(0f) { sum, change -> sum + change.scrollDelta.y }
+					val x = event.changes.fold(0f) { sum, change -> sum + change.scrollDelta.x }
+					val y = event.changes.fold(0f) { sum, change -> sum + change.scrollDelta.y }
+					// With Shift, the wheel turns across, as a desktop's lists have it.
+					val (by, along) =
+						when {
+							sideways == null -> 0f to y
+							event.keyboardModifiers.isShiftPressed && x == 0f -> y to 0f
+							else -> x to y
+						}
 
 					if (event.type == PointerEventType.Scroll &&
 						!event.keyboardModifiers.isCtrlPressed &&
-						turned != 0f &&
+						(by != 0f || along != 0f) &&
 						event.changes.none { it.isConsumed }
 					) {
 						event.changes.forEach { it.consume() }
-						gliding.by(this@coroutineScope, turned * lines * line.toPx())
+						if (along != 0f)
+							down.by(this@coroutineScope, along * lines * line.toPx())
+						if (by != 0f)
+							sideways?.by(this@coroutineScope, by * lines * line.toPx())
 					}
 				}
 			}
@@ -156,6 +174,20 @@ fun ScrollbarBeside(
 					else
 						Modifier.testTag(tag),
 				),
+			style = scrollbarStyle(),
+		)
+	}
+}
+
+/** [adapter]'s bar across the foot of the box it is drawn in, short of the bar beside it. */
+@Composable
+fun ScrollbarBelow(adapter: ScrollbarAdapter, modifier: Modifier = Modifier) {
+	Box(modifier, contentAlignment = Alignment.BottomStart) {
+		HorizontalScrollbar(
+			adapter,
+			Modifier
+				.fillMaxWidth()
+				.padding(start = Space.xxs, end = Dims.scrollbarRoom, bottom = Space.xxs),
 			style = scrollbarStyle(),
 		)
 	}

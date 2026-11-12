@@ -2,6 +2,7 @@ package prism.browser
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -29,10 +30,12 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -65,6 +68,7 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
@@ -130,6 +134,7 @@ import prism.preferences.ColumnId
 import prism.preferences.ColumnSetting
 import prism.preferences.Columns
 import prism.preferences.DateFormat
+import prism.preferences.DatePart
 import prism.preferences.Kind
 import prism.preferences.Layout
 import prism.preferences.Sort
@@ -1005,7 +1010,14 @@ private fun ListingPane(
 	val exploring = state.choosing is Choosing.Exploring
 	val world = LocalWorld.current
 	val columns = state.columns.shown
-	val widths = rememberDateWidths(LocalDateFormat.current, LocalType.current.muted)
+	// Each part of a date as wide as its widest, and a character of the rows' text, at the size the rows are drawn.
+	val dates = rememberDateWidths(LocalDateFormat.current, LocalType.current.muted) * zoom
+	val character = rememberCharacterWidth(LocalType.current.body) * zoom
+	// The space before a row's name: its icon, and the room after it.
+	val beforeName =
+		(rowIconOf(LocalRows.current, LocalType.current) + Space.s + Space.xxs) * zoom
+	// How far across the rows are scrolled, where they are wider than the listing.
+	val across = remember(state.at) { ScrollState(0) }
 
 	/** What the user's action bound to a chord, or done by a double click, is done to: the rows, or the folder shown. */
 	fun subjectOf(rows: List<Row>): Subject =
@@ -1401,12 +1413,21 @@ private fun ListingPane(
 	}
 
 	val nowhere =
-		Modifier.pressedNowhere(
-			onPress = { pressedNowhere(it) },
-			onBand = { bandedNowhere(it) },
-		)
+		Modifier
+			.pressedNowhere(
+				onPress = { pressedNowhere(it) },
+				onBand = { bandedNowhere(it) },
+			)
+			// The rectangle being dragged out, over the rows, where they are laid out.
+			.drawWithContent {
+				drawContent()
+				band?.takeIf { state.choosing.many }?.let {
+					drawRect(palette.accent.copy(alpha = 0.14f), it.topLeft, it.size)
+					drawRect(palette.accent, it.topLeft, it.size, style = Stroke(1.dp.toPx()))
+				}
+			}
 
-	Column(
+	BoxWithConstraints(
 		modifier
 			.fillMaxHeight()
 			.background(palette.surface)
@@ -1415,135 +1436,154 @@ private fun ListingPane(
 			.focusable(interactionSource = source)
 			.testTag("listing"),
 	) {
-		Header(state, widths, menus, onEvent)
-		Line(palette.divider)
+		// The columns as wide as the rows' room shares out, or as their least where that is more: the rows are then
+		// wider than the listing, and they and their headings scroll across together.
+		val layout =
+			layoutOf(
+				columns,
+				maxWidth - LIST_INSET * 2 - Dims.scrollbarRoom,
+				dates,
+				character,
+				beforeName,
+			)
 
-		Box(
-			Modifier
-				.weight(1f)
-				.fillMaxWidth()
-				.onGloballyPositioned { area.coordinates = it }
-				// The rectangle being dragged out, over the rows.
-				.drawWithContent {
-					drawContent()
-					band?.takeIf { state.choosing.many }?.let {
-						drawRect(palette.accent.copy(alpha = 0.14f), it.topLeft, it.size)
-						drawRect(palette.accent, it.topLeft, it.size, style = Stroke(1.dp.toPx()))
-					}
-				}.contextMenu(menus) { folderMenu() }
-				// Files dropped between the rows: given to the folder shown, or, in a picker, gone to.
-				.filesDropped(
-					DropSpot.Here,
-					state.folder,
-					onHover = { hint.over(DropSpot.Here, it) },
-					onEntries =
-						{ entries: EntriesOut ->
-							onEvent(BrowserEvent.DroppedEntries(entries, DropSpot.Here))
-						}.takeIf { state.folder != null },
-					onDrop = {
-						paths,
-						transfer,
-						->
-						onEvent(BrowserEvent.Dropped(paths, DropSpot.Here, transfer))
-					},
-				),
-		) {
-			when (val listing = state.listing) {
-				// A folder that reads quickly would only flash a message, so a folder being read shows nothing yet.
-				Listing.Reading -> Box(Modifier.fillMaxSize())
-				is Listing.Unreadable ->
-					Message(
-						Glyph.Warning,
-						state.place?.let { "“${it.placed.title}” can't be listed" }
-							?: "This folder can't be opened",
-						listing.why,
-					)
-				is Listing.Shown, is Listing.Found ->
-					when {
-						rows.isEmpty() -> {
-							val none = state.entryCount == 0
+		val wide = layout.row + LIST_INSET * 2 + Dims.scrollbarRoom
+		val sideways = wide > maxWidth
 
-							Message(
-								when {
-									query.isNotBlank() || listing is Listing.Found -> Glyph.Search
-									none -> Glyph.Folder
-									else -> Glyph.Filter
-								},
-								when {
-									query.isNotBlank() -> "Nothing here matches “$query”"
-									none && listing is Listing.Found -> "Nothing matches “${listing.finding.text}”"
-									none && state.place != null -> "Nothing is here"
-									none -> "This folder is empty"
-									else -> "Nothing here is shown"
-								},
-								if (none || query.isNotBlank())
-									null
-								else
-									"The filters leave out everything here.",
-							)
-						}
-						gallery ->
-							Gallery(state, grid, nowhere, onEvent) { row, scale ->
-								Tile(
-									row,
-									row.path,
-									chosen = row.id in chosen,
-									cursor = felt.ringed && row.id == cursor,
-									zoom = scale,
-									renamed = renaming?.takeIf { it.row == row.id }?.text,
-									stops = stops,
-									onPress = { press(row.id, it) },
-									onRelease = { release(row.id) },
-									onEvent = onEvent,
-									modifier = dragging(row).contextMenu(menus) { menuOf(row) },
+		Column(Modifier.fillMaxSize()) {
+			if (gallery)
+				SortHeadings(state, menus, onEvent)
+			else
+				ColumnHeadings(state, layout, wide, across, menus, onEvent)
+			Line(palette.divider)
+
+			Box(
+				Modifier
+					.weight(1f)
+					.fillMaxWidth()
+					.onGloballyPositioned { area.coordinates = it }
+					.contextMenu(menus) { folderMenu() }
+					// Files dropped between the rows: given to the folder shown, or, in a picker, gone to.
+					.filesDropped(
+						DropSpot.Here,
+						state.folder,
+						onHover = { hint.over(DropSpot.Here, it) },
+						onEntries =
+							{ entries: EntriesOut ->
+								onEvent(BrowserEvent.DroppedEntries(entries, DropSpot.Here))
+							}.takeIf { state.folder != null },
+						onDrop = {
+							paths,
+							transfer,
+							->
+							onEvent(BrowserEvent.Dropped(paths, DropSpot.Here, transfer))
+						},
+					),
+			) {
+				when (val listing = state.listing) {
+					// A folder that reads quickly would only flash a message, so a folder being read shows nothing yet.
+					Listing.Reading -> Box(Modifier.fillMaxSize())
+					is Listing.Unreadable ->
+						Message(
+							Glyph.Warning,
+							state.place?.let { "“${it.placed.title}” can't be listed" }
+								?: "This folder can't be opened",
+							listing.why,
+						)
+					is Listing.Shown, is Listing.Found ->
+						when {
+							rows.isEmpty() -> {
+								val none = state.entryCount == 0
+
+								Message(
+									when {
+										query.isNotBlank() || listing is Listing.Found -> Glyph.Search
+										none -> Glyph.Folder
+										else -> Glyph.Filter
+									},
+									when {
+										query.isNotBlank() -> "Nothing here matches “$query”"
+										none && listing is Listing.Found -> "Nothing matches “${listing.finding.text}”"
+										none && state.place != null -> "Nothing is here"
+										none -> "This folder is empty"
+										else -> "Nothing here is shown"
+									},
+									if (none || query.isNotBlank())
+										null
+									else
+										"The filters leave out everything here.",
 								)
 							}
-						else ->
-							// A notch of the wheel moves the list three rows, however large they are drawn.
-							Box(Modifier.fillMaxSize().wheelScrolled(list, rowHeight)) {
-								LazyColumn(
-									nowhere
-										.fillMaxSize()
-										.padding(
-											start = LIST_INSET,
-											top = LIST_INSET,
-											bottom = LIST_INSET,
-											end = LIST_INSET + Dims.scrollbarRoom,
-										),
-									state = list,
-									userScrollEnabled = false,
-								) {
-									items(rows.size, key = rows::idAt, contentType = { "row" }) { index ->
-										val row = rows[index]
-
-										EntryRow(
-											row,
-											columns = columns,
-											home = state.home,
-											widths = widths,
-											chosen = row.id in chosen,
-											cursor = felt.ringed && row.id == cursor,
-											zoom = zoom,
-											renamed = renaming?.takeIf { it.row == row.id }?.text,
-											stops = stops,
-											onPress = { press(row.id, it) },
-											onRelease = { release(row.id) },
-											onEvent = onEvent,
-											modifier = dragging(row),
-											// The row's menu over its name, and the space after it in the name's column; the other
-											// columns are the listing's, whose menu is the folder's.
-											nameMenu = Modifier.contextMenu(menus) { menuOf(row) },
-										)
-									}
+							gallery ->
+								Gallery(state, grid, nowhere, onEvent) { row, scale ->
+									Tile(
+										row,
+										row.path,
+										chosen = row.id in chosen,
+										cursor = felt.ringed && row.id == cursor,
+										zoom = scale,
+										renamed = renaming?.takeIf { it.row == row.id }?.text,
+										stops = stops,
+										onPress = { press(row.id, it) },
+										onRelease = { release(row.id) },
+										onEvent = onEvent,
+										modifier = dragging(row).contextMenu(menus) { menuOf(row) },
+									)
 								}
-								ScrollbarBeside(rememberScrollbarAdapter(list), Modifier.matchParentSize())
-							}
-					}
+							else ->
+								// A notch of the wheel moves the list three rows, however large they are drawn; with Shift, or a
+								// touchpad's sideways, it moves the rows across, where they are wider than the listing.
+								Box(Modifier.fillMaxSize().wheelScrolled(list, rowHeight, across = across)) {
+									Box(Modifier.fillMaxSize().horizontalScroll(across, enabled = false)) {
+										LazyColumn(
+											nowhere
+												.width(wide)
+												.fillMaxHeight()
+												.padding(
+													start = LIST_INSET,
+													top = LIST_INSET,
+													bottom = LIST_INSET + if (sideways) Dims.scrollbarRoom else 0.dp,
+													end = LIST_INSET + Dims.scrollbarRoom,
+												),
+											state = list,
+											userScrollEnabled = false,
+										) {
+											items(rows.size, key = rows::idAt, contentType = { "row" }) { index ->
+												val row = rows[index]
+
+												EntryRow(
+													row,
+													columns = columns,
+													home = state.home,
+													layout = layout,
+													dates = dates,
+													chosen = row.id in chosen,
+													cursor = felt.ringed && row.id == cursor,
+													zoom = zoom,
+													renamed = renaming?.takeIf { it.row == row.id }?.text,
+													stops = stops,
+													onPress = { press(row.id, it) },
+													onRelease = { release(row.id) },
+													onEvent = onEvent,
+													modifier = dragging(row),
+													// The row's menu over its name, and the space after it in the name's column; the other
+													// columns are the listing's, whose menu is the folder's.
+													nameMenu = Modifier.contextMenu(menus) { menuOf(row) },
+												)
+											}
+										}
+									}
+									ScrollbarBeside(rememberScrollbarAdapter(list), Modifier.matchParentSize())
+									if (sideways)
+										ScrollbarBelow(rememberScrollbarAdapter(across), Modifier.matchParentSize())
+								}
+						}
+				}
 			}
+			// What a drop where files are dragged would make of them.
+			hint.shown?.let { DropLine(wordsOf(it, exploring)) }
+			ContextMenuHost(menus, onEvent)
 		}
-		// What a drop where files are dragged would make of them.
-		hint.shown?.let { DropLine(wordsOf(it, exploring)) }
-		ContextMenuHost(menus, onEvent)
 	}
 }
 
@@ -1909,84 +1949,151 @@ private fun clickOf(keys: PointerKeyboardModifiers): Click =
 	}
 
 /**
- * The headings that sort the listing, each by its column, the other way round when clicked again: over the list's
- * columns, as the window's look for what it shows has them (which, in what order, aligned how), or, over a gallery's
- * tiles, which have no columns, as a row of the same choices after "Sort by". A search's results are best first until
- * a heading is clicked, and a column they cannot be ordered by (too many to read every one's size or date) is drawn
- * faint and does nothing. A heading's menu shows and hides columns, and aligns its own.
+ * The headings over a list's columns, as the window's look for what it shows has them (which, in what order, aligned
+ * how), each as wide as its column ([layout]) and scrolled across with the rows ([across]). Clicked, a heading orders
+ * the list by its column, the other way round when clicked again. A search's results are best first until a heading is
+ * clicked, and a column they cannot be ordered by (too many to read every one's size or date) is drawn faint and does
+ * nothing. The headings' menu shows and hides columns, and aligns the one pressed.
  */
 @Composable
-private fun Header(
+private fun ColumnHeadings(
 	state: BrowserState,
-	widths: DateWidths,
+	layout: ColumnLayout,
+	wide: Dp,
+	across: ScrollState,
 	menus: ContextMenus<BrowserEvent>,
 	onEvent: (BrowserEvent) -> Unit,
 ) {
 	val type = LocalType.current
-	val gallery = state.layout == Layout.Gallery
-	val sort = state.look.order.sort
-	val kind = state.kind
-	// A gallery is ordered by any column it offers; a list shows its own, and is ordered by any of those.
-	val headings =
-		if (gallery)
-			kind.offered.filter { it != ColumnId.Location }.map { ColumnSetting(it) }
-		else
-			state.columns.shown
+
+	Box(
+		Modifier
+			.fillMaxWidth()
+			.height(type.row)
+			.clipToBounds()
+			.contextMenu(menus) { headingsMenuOf(state, null) },
+	) {
+		Row(
+			Modifier
+				.wrapContentWidth(Alignment.Start, unbounded = true)
+				.width(wide)
+				.fillMaxHeight()
+				// Read as the headings are placed, so scrolling moves them without composing them again.
+				.offset { IntOffset(-across.value, 0) }
+				// Each heading over its column: as far in as the rows' values are.
+				.padding(
+					start = LIST_INSET + Dims.edge,
+					end =
+						LIST_INSET + Dims.scrollbarRoom + Dims.edge,
+				),
+			verticalAlignment = Alignment.CenterVertically,
+		) {
+			for (heading in state.columns.shown)
+				HeaderCell(
+					heading,
+					state.kind.labelOf(heading.id),
+					state.look.order.sort,
+					Modifier.width(layout.of(heading.id)),
+					align = heading.aligned,
+					enabled = (state.listing as? Listing.Found)?.orders(heading.id) != false,
+					menu = Modifier.contextMenu(menus) { headingsMenuOf(state, heading.id) },
+					onEvent,
+				)
+		}
+	}
+}
+
+/**
+ * Over a gallery's tiles, which have no columns, the same choices of order in a row after "Sort by": every column the
+ * listing offers but where an entry is.
+ */
+@Composable
+private fun SortHeadings(
+	state: BrowserState,
+	menus: ContextMenus<BrowserEvent>,
+	onEvent: (BrowserEvent) -> Unit,
+) {
+	val type = LocalType.current
 
 	Row(
 		Modifier
 			.fillMaxWidth()
 			.height(type.row)
 			.contextMenu(menus) { headingsMenuOf(state, null) }
-			// Each heading over its column: as far in as the rows' values are.
-			.padding(
-				start =
-					if (gallery)
-						Dims.tilePad
-					else
-						LIST_INSET + Dims.edge,
-				end =
-					if (gallery)
-						Dims.tilePad
-					else
-						LIST_INSET + Dims.scrollbarRoom + Dims.edge,
-			),
+			.padding(horizontal = Dims.tilePad),
 		verticalAlignment = Alignment.CenterVertically,
-		horizontalArrangement =
-			if (gallery)
-				Arrangement.spacedBy(Space.s)
-			else
-				Arrangement.Start,
+		horizontalArrangement = Arrangement.spacedBy(Space.s),
 	) {
-		if (gallery)
-			Text("Sort by", style = type.muted, maxLines = 1)
-		for (heading in headings)
+		Text("Sort by", style = type.muted, maxLines = 1)
+		for (column in state.kind.offered.filter { it != ColumnId.Location })
 			HeaderCell(
-				heading,
-				kind.labelOf(heading.id),
-				sort,
-				if (gallery)
-					Modifier
-				else
-					widthOf(heading.id, widths * state.scale),
-				align = if (gallery) Align.Start else heading.aligned,
-				enabled = (state.listing as? Listing.Found)?.orders(heading.id) != false,
-				menu = Modifier.contextMenu(menus) { headingsMenuOf(state, heading.id) },
+				ColumnSetting(column),
+				state.kind.labelOf(column),
+				state.look.order.sort,
+				Modifier,
+				align = Align.Start,
+				enabled = (state.listing as? Listing.Found)?.orders(column) != false,
+				menu = Modifier.contextMenu(menus) { headingsMenuOf(state, column) },
 				onEvent,
 			)
 	}
 }
 
 /**
- * How wide [column] is, the same in its heading as in each row: a date's as wide as the widest date and time it shows
- * ([widths], at the size the rows are drawn), so that neither is ever cut and every row's line up; the rest share what
- * is left, each its part of it, so that a listing drawn larger takes its room from them, the name's first.
+ * How wide each column shown is, in its heading and in every row ([of]), and how wide the rows are ([row]). Made only by
+ * [layoutOf], from the rows' room and what each column needs.
  */
-private fun RowScope.widthOf(column: ColumnId, widths: DateWidths): Modifier =
-	when (val width = column.width) {
-		Width.Date -> Modifier.width(widths.whole + Dims.cell * 2)
-		is Width.Share -> Modifier.weight(width.of)
-	}
+@Immutable
+private class ColumnLayout(
+	private val widths: Map<ColumnId, Dp>,
+	val row: Dp,
+) {
+	fun of(column: ColumnId): Dp = widths.getValue(column)
+}
+
+/**
+ * [columns] laid out in [room]: a date's as wide as its date and time ([DateWidths.whole]); the rest at least their
+ * least in [character]s (the name's with what is before it, [beforeName]), and the room left shared out among them by
+ * their shares. Where their least is more than the room, the rows are as wide as that, and scroll across.
+ */
+private fun layoutOf(
+	columns: List<ColumnSetting>,
+	room: Dp,
+	dates: DateWidths,
+	character: Dp,
+	beforeName: Dp,
+): ColumnLayout {
+	fun leastOf(column: ColumnId, width: Width.Share): Dp =
+		character * width.least + (if (column == ColumnId.Name) beforeName else 0.dp) +
+			Dims.cell * 2
+
+	val dated = dates.whole + Dims.cell * 2
+	val fixed = columns.map { it.id }.filter { it.width == Width.Date }
+	val shared =
+		columns.map { it.id }.mapNotNull { id ->
+			(id.width as? Width.Share)?.let {
+				id to
+					it
+			}
+		}
+
+	val least =
+		shared.fold(dated * fixed.size) { sum, (id, width) ->
+			sum +
+				leastOf(id, width)
+		}
+	val left = (room - Dims.edge * 2 - least).coerceAtLeast(0.dp)
+	val shares =
+		shared.sumOf { (_, width) -> width.of.toDouble() }.toFloat().takeIf { it > 0f } ?: 1f
+
+	return ColumnLayout(
+		fixed.associateWith { dated } +
+			shared.associate { (id, width) ->
+				id to leastOf(id, width) + left * (width.of / shares)
+			},
+		maxOf(room, least + Dims.edge * 2),
+	)
+}
 
 @Composable
 private fun HeaderCell(
@@ -2126,16 +2233,26 @@ internal fun folderOf(path: Path, home: Path): String {
 }
 
 /**
- * How wide the widest date, and the widest time, the listing's date columns show are, as [format] writes them in
- * [style]: each column's dates are set in one width, and its times in another after them, so that every row's line up,
- * whatever the font. Measured once, of a day of each month that writes widest.
+ * How wide each part of the listing's dates is drawn, as [DateFormat] writes them: each field (the day, the month's
+ * name, the hour) as wide as the widest it writes, of a day of each month at hours that write widest, so that the same
+ * field of every row's date lines up; the words between them as wide as they are; and the room between a date and its
+ * time ([gap]).
  */
 @Immutable
 data class DateWidths(
-	val date: Dp,
-	val time: Dp,
+	val date: List<Dp>,
+	val gap: Dp,
+	val time: List<Dp>,
 ) {
-	val whole: Dp get() = date + Space.s + time
+	val whole: Dp get() = (date + gap + time).fold(0.dp) { sum, width -> sum + width }
+
+	/** These, drawn [factor] times as large. */
+	operator fun times(factor: Float): DateWidths =
+		DateWidths(
+			date.map { it * factor },
+			gap * factor,
+			time.map { it * factor },
+		)
 }
 
 @Composable
@@ -2144,27 +2261,57 @@ private fun rememberDateWidths(format: DateFormat, style: TextStyle): DateWidths
 	val density = LocalDensity.current
 
 	return remember(format, style, density) {
+		val zone = java.time.ZoneId.systemDefault()
+
+		// A day of each month, with one digit and with two, at hours with one and with two, morning and afternoon.
 		val samples =
 			(1..12).flatMap { month ->
-				listOf(28 to 22, 28 to 12).map { (day, hour) ->
+				listOf(1 to 9, 28 to 12, 28 to 22, 1 to 0).map { (day, hour) ->
 					java.time.LocalDateTime
-						.of(
-							2026,
-							month,
-							day,
-							hour,
-							58,
-						).atZone(java.time.ZoneId.systemDefault())
+						.of(2026, month, day, hour, 58)
+						.atZone(zone)
 						.toInstant()
 				}
 			}
 
-		val parts = samples.map(format::parts)
+		val tabular = style.tabular()
 
-		fun widest(texts: List<String>): Dp =
-			with(density) { texts.maxOf { measurer.measure(it, style).size.width }.toDp() + 1.dp }
+		fun widthOf(text: String): Dp =
+			with(density) {
+				measurer
+					.measure(text, tabular)
+					.size.width
+					.toDp()
+			}
 
-		DateWidths(widest(parts.map { it.first }), widest(parts.map { it.second }))
+		// Words are measured between two marks, so that a space at either end is counted as the room it is.
+		fun widthsOf(parts: List<DatePart>): List<Dp> =
+			parts.map { part ->
+				when (part) {
+					is DatePart.Field -> samples.maxOf { widthOf(format.write(part, it, zone)) } + 1.dp
+					is DatePart.Words -> widthOf("|${part.text}|") - widthOf("||")
+				}
+			}
+
+		DateWidths(widthsOf(format.dateParts), Space.m, widthsOf(format.timeParts))
+	}
+}
+
+/** How wide a character of [style]'s text is, on average: what a column's least width is counted in. */
+@Composable
+private fun rememberCharacterWidth(style: TextStyle): Dp {
+	val measurer = rememberTextMeasurer()
+	val density = LocalDensity.current
+
+	return remember(style, density) {
+		val sample = "abcdefghijklmnopqrstuvwxyz0123456789"
+
+		with(density) {
+			measurer
+				.measure(sample, style)
+				.size.width
+				.toDp()
+		} / sample.length
 	}
 }
 
@@ -2173,7 +2320,8 @@ private fun EntryRow(
 	row: Row,
 	columns: List<ColumnSetting>,
 	home: Path,
-	widths: DateWidths,
+	layout: ColumnLayout,
+	dates: DateWidths,
 	chosen: Boolean,
 	cursor: Boolean,
 	zoom: Float,
@@ -2216,13 +2364,14 @@ private fun EntryRow(
 		verticalAlignment = Alignment.CenterVertically,
 	) {
 		for (column in columns) {
-			val cell = widthOf(column.id, widths * zoom).padding(horizontal = Dims.cell)
+			val cell = Modifier.width(layout.of(column.id)).padding(horizontal = Dims.cell)
 
 			when (column.id) {
 				// The row's menu over its name, and the space after it in the name's column.
 				ColumnId.Name ->
 					Row(
-						widthOf(column.id, widths * zoom)
+						Modifier
+							.width(layout.of(column.id))
 							.fillMaxHeight()
 							.then(nameMenu)
 							.padding(horizontal = Dims.cell),
@@ -2254,7 +2403,7 @@ private fun EntryRow(
 						row.modified,
 						null,
 						column.aligned,
-						widths * zoom,
+						dates,
 						muted,
 						cell,
 					)
@@ -2263,7 +2412,7 @@ private fun EntryRow(
 						row.deleted,
 						null,
 						column.aligned,
-						widths * zoom,
+						dates,
 						muted,
 						cell,
 					)
@@ -2274,13 +2423,13 @@ private fun EntryRow(
 								created.time,
 								null,
 								column.aligned,
-								widths * zoom,
+								dates,
 								muted,
 								cell,
 							)
 						// Read behind, those in sight first: blank until it is; a dash where the file system keeps none.
-						Created.Unread -> DateCell(null, null, column.aligned, widths * zoom, muted, cell)
-						Created.Unkept -> DateCell(null, "—", column.aligned, widths * zoom, muted, cell)
+						Created.Unread -> DateCell(null, null, column.aligned, dates, muted, cell)
+						Created.Unkept -> DateCell(null, "—", column.aligned, dates, muted, cell)
 					}
 				ColumnId.Location -> TextCell(whereOf(row, home), column.aligned, muted, cell)
 				ColumnId.Type -> TextCell(row.type, column.aligned, muted, cell)
@@ -2303,10 +2452,6 @@ private fun EntryRow(
 	}
 }
 
-/** [widths] drawn [factor] times as large. */
-private operator fun DateWidths.times(factor: Float): DateWidths =
-	DateWidths(date * factor, time * factor)
-
 @Composable
 private fun RowScope.TextCell(
 	text: String,
@@ -2325,9 +2470,10 @@ private fun RowScope.TextCell(
 }
 
 /**
- * A date, in two parts set apart: its date, in a width every row's date fits, and its time, to the right of a width
- * every row's time fits, its digits each as wide as the next; the two together sit as [align] says. Nothing where there
- * is no date, or [instead] where something stands for one.
+ * A date as a row of a table: each of its parts in the width every row's same part fits ([widths]), a number at the end
+ * of its width and a word at its start, its digits each as wide as the next, so that every row's day, month, year, hour
+ * and minute line up under each other whatever the font; the date, then room, then its time. The whole sits as [align]
+ * says. Nothing where there is no date, or [instead] where something stands for one.
  */
 @Composable
 private fun RowScope.DateCell(
@@ -2341,6 +2487,25 @@ private fun RowScope.DateCell(
 	val format = LocalDateFormat.current
 	val tabular = style.tabular()
 
+	@Composable
+	fun Parts(parts: List<DatePart>, widths: List<Dp>, at: Instant) =
+		parts.forEachIndexed { index, part ->
+			Text(
+				format.write(part, at),
+				style = tabular,
+				maxLines = 1,
+				softWrap = false,
+				textAlign =
+					if ((part as? DatePart.Field)?.numeric ==
+						true
+					)
+						TextAlign.End
+					else
+						TextAlign.Start,
+				modifier = Modifier.width(widths[index]),
+			)
+		}
+
 	Row(
 		modifier,
 		horizontalArrangement = arrangementOf(align),
@@ -2348,24 +2513,9 @@ private fun RowScope.DateCell(
 	) {
 		when {
 			instant != null -> {
-				val (date, time) = format.parts(instant)
-
-				Text(
-					date,
-					style = tabular,
-					maxLines = 1,
-					softWrap = false,
-					modifier = Modifier.width(widths.date),
-				)
-				Spacer(Modifier.width(Space.s))
-				Text(
-					time,
-					style = tabular,
-					maxLines = 1,
-					softWrap = false,
-					textAlign = TextAlign.End,
-					modifier = Modifier.width(widths.time),
-				)
+				Parts(format.dateParts, widths.date, instant)
+				Spacer(Modifier.width(widths.gap))
+				Parts(format.timeParts, widths.time, instant)
 			}
 			instead != null -> Text(instead, style = tabular, maxLines = 1)
 		}

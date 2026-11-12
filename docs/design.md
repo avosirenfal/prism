@@ -95,7 +95,8 @@ None of them takes padding from its caller.
 `LazyScrollArea` (a lazy list), each with its bar drawn whenever there is more than fits. The wheel scrolls either by
 `LINES_A_NOTCH` (three) of its own lines a notch, gliding there, rather than by a distance that knows nothing of what
 is shown. The listing and the gallery use the same rule with their rows and lines of tiles (`wheelScrolled`), so a
-notch moves three rows at any zoom.
+notch moves three rows at any zoom. What is wider than its room (the listing, zoomed in far) scrolls across too, with a
+bar under it, by the wheel with Shift held or a touchpad's sideways scroll; nothing is cut off out of reach.
 
 The wheel is handled by what holds the list and its bar, and the list's own scrolling by the wheel is off. The wheel
 is heard as it comes back up from what it is over, so a list inside another scrolls first.

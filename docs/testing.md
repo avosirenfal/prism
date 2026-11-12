@@ -16,7 +16,7 @@ a device, so a test that ran and a test that could not run are never confused.
 | libc's calls (`FilesTest`) | Linux | never |
 | the picker's model, source and headless drawing (`PickerTest`) | the JDK | never |
 | the picker's rules (`StepTest`) | the JDK | never |
-| the picker clicked, typed and scrolled at, headless, around a running session: among the rest, a notch of the wheel moving the list three rows at any zoom, and a modal put away by Escape (`InteractionTest`) | the JDK | never |
+| the picker clicked, typed and scrolled at, headless, around a running session: among the rest, a notch of the wheel moving the list three rows at any zoom, a listing zoomed wider than its window scrolled across with its headings, and a modal put away by Escape (`InteractionTest`) | the JDK | never |
 | the gallery's thumbnails (`ThumbnailTest`) | the JDK | never |
 | the picker's menus, as values (`MenuTest`) | the JDK | never |
 | the browser exploring: files opened, or offered to an application; copied, cut and pasted, with undo; made; quick access arranged, and an older version's pins read as it (`ExploreTest`) | Linux | never |

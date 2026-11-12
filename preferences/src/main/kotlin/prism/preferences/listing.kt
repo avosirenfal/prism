@@ -46,12 +46,15 @@ enum class Align {
 }
 
 /**
- * How wide a column is: a [Share] of the room the fixed columns leave, which a listing drawn larger takes its room from;
- * or as wide as a [Date] and its time are written, so that neither is ever cut and every row's line up.
+ * How wide a column is: a [Share] of the room the fixed columns leave, never less than its [least][Share.least]; or as
+ * wide as a [Date] and its time are written, so that neither is ever cut and every row's line up. A listing whose
+ * columns' least is more than its window has scrolls across, rather than cutting any off.
  */
 sealed interface Width {
+	/** [of] the room left, and at least [least] characters of the listing's text. */
 	data class Share(
 		val of: Float,
+		val least: Int,
 	) : Width
 
 	data object Date : Width
@@ -67,10 +70,10 @@ enum class ColumnId(
 	val width: Width,
 	val align: Align = Align.Start,
 ) {
-	Name("Name", Width.Share(0.44f)),
+	Name("Name", Width.Share(0.44f, least = 16)),
 
 	/** Where an entry is: a search's result's folder; in the trash, where it was. */
-	Location("Folder", Width.Share(0.3f)),
+	Location("Folder", Width.Share(0.3f, least = 14)),
 	Modified("Date modified", Width.Date),
 
 	/** When it was made: its birth time, where the file system keeps one. */
@@ -78,11 +81,11 @@ enum class ColumnId(
 
 	/** When it was trashed: the trash's own. */
 	Deleted("Date deleted", Width.Date),
-	Type("Type", Width.Share(0.18f)),
-	Size("Size", Width.Share(0.12f), Align.End),
+	Type("Type", Width.Share(0.18f, least = 10)),
+	Size("Size", Width.Share(0.12f, least = 8), Align.End),
 
 	/** What its name ends in, after its last dot. */
-	Extension("Extension", Width.Share(0.13f)),
+	Extension("Extension", Width.Share(0.13f, least = 6)),
 }
 
 /** A column as a listing shows it: [shown] or left out, its values sitting as [align] says (the column's own, where null). */
