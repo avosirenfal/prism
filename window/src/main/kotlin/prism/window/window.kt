@@ -137,6 +137,9 @@ class NativeWindow internal constructor(
 	/** How prism's windows are drawn, and why: on the GPU or the CPU, and what OpenGL is here. */
 	val rendering: Rendering get() = app.sdl.rendering
 
+	/** How this window turned out to be drawn: by OpenGL, or on the CPU, and why. */
+	val drawnOn: Drawn
+
 	private val pixels: Pixels
 
 	/** What closing the window by its title bar, or the platform's own means, asks for. */
@@ -218,16 +221,28 @@ class NativeWindow internal constructor(
 		)
 
 		at?.let { SDL_SetWindowPosition(sdl, it.x, it.y) }
-		pixels =
-			(
-				if (gpu)
-					Pixels.Gpu.of(sdl, video)
-				else
-					null
+
+		// Drawn by the CPU: on Wayland into buffers of prism's own, since SDL has none there but through EGL.
+		fun onCpu(): Pixels =
+			(handle as? NativeHandle.Wayland)?.let(WaylandPixels::of) ?: Pixels.Cpu(sdl)
+
+		val made =
+			if (gpu)
+				when (val gpu = Pixels.Gpu.of(sdl, video)) {
+					is Pixels.Made.Drawing -> gpu.gpu to Drawn.ByOpenGl
+					is Pixels.Made.Failed -> onCpu() to Drawn.FellBack(gpu.why)
+				}
+			else
+				onCpu() to Drawn.OnCpu
+
+		pixels = made.first
+		drawnOn = made.second
+		// Said whatever the log says: a window that should have been drawn on the GPU and is not costs the CPU dearly.
+		(drawnOn as? Drawn.FellBack)?.let {
+			System.err.println(
+				"prism: window $id is drawn on the CPU, since OpenGL could not draw it: ${it.why}",
 			)
-				// Drawn by the CPU: on Wayland into buffers of prism's own, since SDL has none there but through EGL.
-				?: (handle as? NativeHandle.Wayland)?.let(WaylandPixels::of)
-				?: Pixels.Cpu(sdl)
+		}
 		Log.say { "window $id: ${pixels.javaClass.simpleName}" }
 
 		// A Wayland window takes a buffer only once the compositor has said how it is to be: shown first, then drawn.

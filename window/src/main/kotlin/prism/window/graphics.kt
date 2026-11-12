@@ -96,6 +96,8 @@ data class GraphicsDevice(
 	val slot: String,
 	val driver: KernelDriver?,
 	val nodes: List<DeviceNode>,
+	/** Whether [name] is the device's own, as the system lists it, rather than its maker's and a number. */
+	val named: Boolean = true,
 )
 
 /** The graphics devices the system says are there; or why they are not known. */
@@ -165,6 +167,11 @@ sealed interface Verdict {
 		val driver: String,
 	) : Verdict
 
+	/** OpenGL runs on it, but could not draw this window, for [why], which is drawn on the CPU instead. */
+	data class Refused(
+		val why: String,
+	) : Verdict
+
 	/** OpenGL could not be started at all, for [why]. */
 	data class NoOpenGl(
 		val why: String,
@@ -191,6 +198,7 @@ val Verdict.reach: Int?
 			is Verdict.NoLibrary -> 3
 			is Verdict.Mismatched -> 4
 			is Verdict.NoOpenGl -> 5
+			is Verdict.Refused -> 6
 		}
 
 /** Whether a verdict is something missing, which keeps a device from drawing. */
@@ -220,6 +228,12 @@ sealed interface Summary {
 		val why: String,
 	) : Summary
 
+	/** OpenGL runs as [renderer], on the GPU, but could not draw this window, for [why]: it is drawn on the CPU. */
+	data class FellBack(
+		val renderer: String,
+		val why: String,
+	) : Summary
+
 	/** A device that could draw them does not, for what its [examined] verdict says. */
 	data class HeldBack(
 		val examined: Examined,
@@ -244,6 +258,7 @@ sealed interface Summary {
  */
 data class GraphicsReport(
 	val rendering: Rendering,
+	val drawn: Drawn,
 	val loader: Library?,
 	val devices: DevicesFound,
 	val examined: List<Examined>,
@@ -263,6 +278,9 @@ data class GraphicsReport(
 
 			return when {
 				rendering.asked == Drawing.Cpu -> Summary.CpuAsked
+				drawn is Drawn.FellBack ->
+					examined.firstOrNull { it.verdict is Verdict.Refused }?.let(Summary::HeldBack)
+						?: Summary.FellBack((opengl as? OpenGl.Running)?.renderer.orEmpty(), drawn.why)
 				opengl is OpenGl.Running && !opengl.software ->
 					Summary.OnGpu(
 						opengl.renderer,
@@ -325,6 +343,7 @@ object Graphics {
 	/** Every device, examined for [rendering]. Reads the disk and loads libraries: not for the windows' thread. */
 	fun examine(
 		rendering: Rendering,
+		drawn: Drawn,
 		devices: GraphicsDevices = platformDevices(),
 		libraries: Libraries = SystemLibraries,
 		needs: DriverLibraries = platformNeeds(),
@@ -350,11 +369,23 @@ object Graphics {
 							}
 						}.orEmpty()
 
-				Examined(device, drawnThrough, verdictOf(device, drawnThrough, rendering))
+				val verdict = verdictOf(device, drawnThrough, rendering, drawn)
+				// A device the system does not name is named as OpenGL names it, where OpenGL runs on it.
+				val renderer = (rendering.openGl as? OpenGl.Running)?.renderer
+				val shown =
+					if (!device.named && renderer != null &&
+						(verdict == Verdict.Drawing || verdict is Verdict.Refused)
+					)
+						device.copy(name = modelOf(renderer), named = true)
+					else
+						device
+
+				Examined(shown, drawnThrough, verdict)
 			}
 
 		return GraphicsReport(
 			rendering,
+			drawn,
 			needs.loader(rendering.api)?.let { Library(it, libraries.load(it)) },
 			found,
 			examined,
@@ -400,6 +431,7 @@ fun verdictOf(
 	device: GraphicsDevice,
 	libraries: List<Library>,
 	rendering: Rendering,
+	drawn: Drawn,
 ): Verdict {
 	val driver = device.driver
 	val opengl = rendering.openGl
@@ -430,7 +462,8 @@ fun verdictOf(
 		rendering.asked == Drawing.Cpu -> Verdict.CpuAsked
 		opengl is OpenGl.Running &&
 			!opengl.software &&
-			device.vendor.named("${opengl.vendor} ${opengl.renderer}") -> Verdict.Drawing
+			device.vendor.named("${opengl.vendor} ${opengl.renderer}") ->
+			(drawn as? Drawn.FellBack)?.let { Verdict.Refused(it.why) } ?: Verdict.Drawing
 		driver == null -> Verdict.NoDriver
 		driver.name in SET_ASIDE -> Verdict.SetAside(driver.name)
 		else ->
@@ -441,6 +474,17 @@ fun verdictOf(
 				?: Verdict.Passed((opengl as? OpenGl.Running)?.renderer.orEmpty())
 	}
 }
+
+/**
+ * A GPU's name, as OpenGL's renderer says it: up to what it adds after a slash or in brackets (`NVIDIA GeForce RTX 4070`
+ * of `NVIDIA GeForce RTX 4070/PCIe/SSE2`, `AMD Radeon RX 7800 XT` of `AMD Radeon RX 7800 XT (radeonsi, navi32, …)`).
+ */
+internal fun modelOf(renderer: String): String =
+	renderer
+		.substringBefore('/')
+		.substringBefore(" (")
+		.trim()
+		.ifEmpty { renderer }
 
 /** The drivers that hand a device to something else to draw with: a virtual machine, or no one. */
 private val SET_ASIDE = setOf("vfio-pci", "pci-stub", "pciback", "xen-pciback")

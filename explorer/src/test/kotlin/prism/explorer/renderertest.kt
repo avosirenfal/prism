@@ -21,6 +21,7 @@ import prism.window.Access
 import prism.window.DeviceNode
 import prism.window.DevicesFound
 import prism.window.Drawing
+import prism.window.Drawn
 import prism.window.Graphics
 import prism.window.GraphicsDevice
 import prism.window.GraphicsDevices
@@ -58,6 +59,29 @@ class RendererTest {
 		assertEquals(
 			"OpenGL draws prism's windows on the NVIDIA GeForce RTX 4070.",
 			explained(drawing()).why,
+		)
+	}
+
+	@Test
+	fun aWindowOpenGlCouldNotDrawSaysSoFirst_AndWhy() {
+		val report = fellBack()
+		val explained = explained(report)
+
+		assertEquals("Drawn on the CPU", explained.title)
+		assertTrue(
+			explained.why.startsWith(
+				"The NVIDIA GeForce RTX 4070 isn't used. OpenGL runs on it, but couldn't draw this window",
+			),
+			explained.why,
+		)
+		assertTrue(explained.why.endsWith("“$REFUSED”"), explained.why)
+		assertTrue(
+			reportText(
+				report,
+			).lines().contains(
+				"This window: Drawn on the CPU, since OpenGL couldn't draw it: $REFUSED",
+			),
+			reportText(report),
 		)
 	}
 
@@ -104,7 +128,8 @@ class RendererTest {
 				}
 			}
 
-			onNodeWithText("Drawn on the CPU").assertExists()
+			// The headline, and the window's own line among the facts.
+			assertEquals(2, onAllNodesWithText("Drawn on the CPU").fetchSemanticsNodes().size)
 			onNodeWithTag("device:0000:01:00.0").assertExists()
 			// Why is said once, at the top; the device's card says what it is, and the loader's words in its facts.
 			onNodeWithText("Its OpenGL library can't be loaded.").assertExists()
@@ -140,7 +165,11 @@ class RendererTest {
 	 */
 	@Test
 	fun thePageIsDrawn() {
-		for ((name, report) in listOf("missing" to missingLibrary(), "drawing" to drawing()))
+		for ((name, report) in listOf(
+			"missing" to missingLibrary(),
+			"drawing" to drawing(),
+			"fell-back" to fellBack(),
+		))
 			for ((tone, palette) in listOf("light" to Palette.Light, "dark" to Palette.Dark)) {
 				val png =
 					renderedPng(960, 980, palette, scale = 2f) {
@@ -184,17 +213,44 @@ class RendererTest {
 			),
 		)
 
-	private fun examined(opengl: OpenGl, loads: Map<String, Loading>): GraphicsReport =
-		Graphics.examine(
-			Rendering(Video.Wayland, Drawing.Auto, opengl),
+	/** The same GPU, which OpenGL runs on, but which could not draw the window: drawn on the CPU instead. */
+	private fun fellBack(): GraphicsReport =
+		examined(
+			OpenGl.Running(
+				"NVIDIA GeForce RTX 4070/PCIe/SSE2",
+				"NVIDIA Corporation",
+				"4.6.0 NVIDIA 550.78",
+			),
+			mapOf(
+				"libEGL_nvidia.so.0" to Loading.Loads(Path.of("/usr/lib/libEGL_nvidia.so.550.78")),
+			),
+			Drawn.FellBack(REFUSED),
+		)
+
+	private fun examined(
+		opengl: OpenGl,
+		loads: Map<String, Loading>,
+		drawn: Drawn? = null,
+	): GraphicsReport {
+		val rendering = Rendering(Video.Wayland, Drawing.Auto, opengl)
+
+		return Graphics.examine(
+			rendering,
+			drawn ?: if (rendering.onGpu)
+				Drawn.ByOpenGl
+			else
+				Drawn.OnCpu,
 			GraphicsDevices { DevicesFound.Found(listOf(NVIDIA)) },
 			{ name -> loads[name] ?: Loading.Loads(Path.of("/usr/lib/libEGL.so.1.1.0")) },
 			LinuxLibraries,
 			SearchPath("LD_LIBRARY_PATH", null),
 		)
+	}
 
 	private companion object {
 		const val LLVMPIPE = "llvmpipe (LLVM 20.1.8, 256 bits)"
+		const val REFUSED =
+			"no OpenGL context could be made for it: Could not create EGL context"
 		const val NOT_FOUND =
 			"libEGL_nvidia.so.0: cannot open shared object file: No such file or directory"
 

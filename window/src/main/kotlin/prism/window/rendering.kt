@@ -70,3 +70,20 @@ data class Rendering(
 	/** How OpenGL is reached on this display. */
 	val api: GlApi get() = GlApi.of(video)
 }
+
+/**
+ * How a window turned out to be drawn, once it was made: OpenGL found to run on the GPU is tried for each window, and a
+ * window that cannot be drawn with it is drawn on the CPU instead, and says why.
+ */
+sealed interface Drawn {
+	/** By OpenGL. */
+	data object ByOpenGl : Drawn
+
+	/** On the CPU, as [Rendering] chose. */
+	data object OnCpu : Drawn
+
+	/** On the CPU, since OpenGL, which runs here, could not draw this window, for [why]. */
+	data class FellBack(
+		val why: String,
+	) : Drawn
+}

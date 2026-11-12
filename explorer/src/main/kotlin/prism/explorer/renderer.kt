@@ -20,6 +20,7 @@ import prism.browser.Tone
 import prism.window.Access
 import prism.window.DevicesFound
 import prism.window.Drawing
+import prism.window.Drawn
 import prism.window.Examined
 import prism.window.GraphicsReport
 import prism.window.Library
@@ -221,6 +222,16 @@ fun explained(report: GraphicsReport): Explained {
 				Tone.Bad,
 				"OpenGL couldn't be started. It says: “${summary.why}”",
 			)
+		is Summary.FellBack ->
+			Explained(
+				onCpu,
+				Tone.Bad,
+				said(
+					"OpenGL runs on the GPU here, as ${summary.renderer}, but couldn't draw this window,",
+					"so it's drawn on the CPU. The reason given: “${summary.why}”",
+				),
+				FELL_BACK_FIX,
+			)
 		is Summary.Software ->
 			Explained(
 				onCpu,
@@ -334,6 +345,16 @@ fun explained(examined: Examined, report: GraphicsReport): Explained {
 					"Otherwise, install its libraries of version ${verdict.driver}.",
 				),
 			)
+		is Verdict.Refused ->
+			Explained(
+				"Couldn't draw this window",
+				Tone.Bad,
+				said(
+					"OpenGL runs on it, but couldn't draw this window,",
+					"so it's drawn on the CPU. The reason given: “${verdict.why}”",
+				),
+				FELL_BACK_FIX,
+			)
 		is Verdict.NoOpenGl ->
 			Explained(
 				"OpenGL couldn't start",
@@ -383,6 +404,16 @@ fun factsOf(report: GraphicsReport): List<Line> {
 		},
 		(rendering.openGl as? OpenGl.Running)?.let { Line("Version", it.version) },
 		Line("Display", "${videoName(rendering.video)}, through ${rendering.api}"),
+		when (val drawn = report.drawn) {
+			Drawn.ByOpenGl -> Line("This window", "Drawn by OpenGL")
+			Drawn.OnCpu -> Line("This window", "Drawn on the CPU")
+			is Drawn.FellBack ->
+				Line(
+					"This window",
+					"Drawn on the CPU, since OpenGL couldn't draw it: ${drawn.why}",
+					wrong = true,
+				)
+		},
 		report.loader?.let {
 			Line("Loader", libraryText(it), wrong = it.loading is Loading.Fails)
 		},
@@ -501,6 +532,13 @@ private fun videoName(video: Video): String =
 		Video.Cocoa -> "macOS"
 		Video.Other -> "Another display"
 	}
+
+/** What to do where OpenGL runs, but couldn't draw a window: nothing the user can mend, but much that can be told. */
+private val FELL_BACK_FIX =
+	said(
+		"This is likely a fault in prism or in the driver: copy this report, with what",
+		"PRISM_WINDOW_LOG=1 prints, into an issue. PRISM_DRAWING=cpu skips trying.",
+	)
 
 /** A PCI address, as Linux writes one: domain, bus, device and function. */
 private val PCI = Regex("[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\\.[0-9a-f]")

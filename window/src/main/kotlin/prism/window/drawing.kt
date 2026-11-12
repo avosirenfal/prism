@@ -135,6 +135,17 @@ internal sealed interface Pixels : AutoCloseable {
 	/** A frame of [width] by [height] pixels drawn by [draw] and put on the screen; false where it could not be. */
 	fun frame(width: Int, height: Int, draw: (Canvas) -> Unit): Boolean
 
+	/** OpenGL and Skia for a window, made; or why they could not be. */
+	sealed interface Made {
+		data class Drawing(
+			val gpu: Gpu,
+		) : Made
+
+		data class Failed(
+			val why: String,
+		) : Made
+	}
+
 	/**
 	 * OpenGL, its framebuffer drawn into by Skia on the GPU. Skia is given OpenGL's functions as SDL finds them, so
 	 * it draws with whichever of EGL, GLX, WGL or CGL made the context, which skiko's own lookup (GLX's alone, on
@@ -227,16 +238,29 @@ internal sealed interface Pixels : AutoCloseable {
 				SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, STENCIL_BITS)
 			}
 
-			/** OpenGL for [window] (made for OpenGL), and Skia over it; null where either cannot be had. */
-			fun of(window: Long, video: Video): Gpu? {
+			/** OpenGL for [window] (made for OpenGL), and Skia over it; or why either cannot be had. */
+			fun of(window: Long, video: Video): Made {
 				val gl = SDL_GL_CreateContext(window)
 
 				if (gl == 0L)
-					return null
+					return Made.Failed("no OpenGL context could be made for it: ${sdlError()}")
 
-				SDL_GL_MakeCurrent(window, gl)
+				fun failed(why: String): Made {
+					SDL_GL_MakeCurrent(window, 0L)
+					SDL_GL_DestroyContext(gl)
 
-				val functions = GL.createCapabilities()
+					return Made.Failed(why)
+				}
+
+				if (!SDL_GL_MakeCurrent(window, gl))
+					return failed("its OpenGL context could not be made current: ${sdlError()}")
+
+				val functions =
+					try {
+						GL.createCapabilities()
+					} catch (unusable: IllegalStateException) {
+						return failed("OpenGL's functions could not be found: ${unusable.message}")
+					}
 
 				// Swapped on the display's refresh, where the platform lets it be; adaptively where it can.
 				if (!SDL_GL_SetSwapInterval(-1))
@@ -249,13 +273,18 @@ internal sealed interface Pixels : AutoCloseable {
 							GLAssembledInterface.createFromNativePointers(0L, GlLookup.stub.address()),
 						)
 					} catch (unusable: RuntimeException) {
-						SDL_GL_DestroyContext(gl)
-
-						return null
+						return failed(
+							"Skia could not draw with its OpenGL: ${unusable.message ?: unusable.javaClass.simpleName}",
+						)
 					}
 
-				return Gpu(window, gl, functions, skia)
+				return Made.Drawing(Gpu(window, gl, functions, skia))
 			}
+
+			private fun sdlError(): String =
+				org.lwjgl.sdl.SDLError
+					.SDL_GetError()
+					?.takeIf { it.isNotBlank() } ?: "SDL said nothing more"
 		}
 	}
 
