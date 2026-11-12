@@ -1,28 +1,37 @@
 package prism.browser
 
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.TooltipArea
+import androidx.compose.foundation.TooltipPlacement
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
@@ -34,10 +43,13 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
@@ -47,12 +59,13 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.input.key.KeyEventType
-import androidx.compose.ui.input.key.isAltPressed
 import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalWindowInfo
@@ -66,21 +79,24 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 
 /*
- * The controls the picker is made of: a button, a tool button, a text field, a choice from a list, and the ring that
- * shows where the keyboard is. Each draws its own looks (hovered, pressed, focused, disabled) from the palette, takes
- * the keys a desktop's controls take, and reports only what it is for: pressed, typed, chosen. None knows the picker.
+ * The controls prism is made of: buttons, icon buttons, a text field, a check box, a switch, a radio, a segmented
+ * choice, a stepper, a chip, tabs, and the ring that shows where the keyboard is. Each is built from the theme's tokens
+ * alone (theme.kt): its height from the type of its text, its room from the spacing scale, its colours from the
+ * palette, so no caller sizes or pads one. Each draws its own looks (hovered, pressed, focused, disabled), takes the
+ * keys a desktop's controls take, and reports only what it is for: pressed, typed, chosen.
  *
  * What a control keeps of its own is what a control keeps on any desktop: whether the pointer is over it, whether
  * its menu is open, where the caret is in its text. What it shows and what it does are its caller's.
  */
 
 /**
- * Whether the keyboard, rather than the pointer, was used last in the picker. The ring that shows where the keyboard
+ * Whether the keyboard, rather than the pointer, was used last in the window. The ring that shows where the keyboard
  * is, is drawn only then, as a browser draws its focus ring only for the keyboard (`:focus-visible`): a control
- * clicked keeps the keyboard, but shows no ring for it once the pointer has gone on to something else. The picker
+ * clicked keeps the keyboard, but shows no ring for it once the pointer has gone on to something else. The window
  * says which was used last ([FileBrowser]); a control only reads it.
  */
 @Stable
@@ -124,7 +140,7 @@ fun MutableInteractionSource.felt(): Felt {
 fun Modifier.ring(
 	shown: Boolean,
 	color: Color,
-	corner: Dp = Dims.radius,
+	corner: Dp = Radius.medium,
 	outset: Dp = Dims.ring,
 	width: Dp = 2.dp,
 ): Modifier =
@@ -146,10 +162,56 @@ fun Modifier.ring(
 		}
 	}
 
-/** How a button stands out among others: the one that does what the picker is for, or the rest. */
+/**
+ * How a button stands out among others: the one that does what a dialog is for ([Primary]), one that does that and
+ * cannot be undone ([Danger]), the rest ([Secondary]), and one that is only a word to click ([Quiet]).
+ */
 enum class Emphasis {
 	Primary,
+	Danger,
 	Secondary,
+	Quiet,
+}
+
+/** A control's fill, edge and text, as it is felt. */
+@Immutable
+private data class ControlLooks(
+	val fill: Color,
+	val edge: Color,
+	val text: Color,
+)
+
+private fun looksOf(emphasis: Emphasis, felt: Felt, palette: Palette): ControlLooks {
+	fun quiet() =
+		when {
+			felt.pressed -> palette.pressed
+			felt.hovered -> palette.hover
+			else -> Color.Transparent
+		}
+
+	return when (emphasis) {
+		Emphasis.Primary ->
+			ControlLooks(
+				when {
+					felt.pressed -> palette.accentPressed
+					felt.hovered -> palette.accentHover
+					else -> palette.accent
+				},
+				Color.Transparent,
+				palette.onAccent,
+			)
+		Emphasis.Danger ->
+			ControlLooks(
+				if (felt.hovered || felt.pressed)
+					palette.dangerHover
+				else
+					palette.danger,
+				Color.Transparent,
+				palette.onDanger,
+			)
+		Emphasis.Secondary -> ControlLooks(quiet(), palette.borderStrong, palette.text)
+		Emphasis.Quiet -> ControlLooks(quiet(), Color.Transparent, palette.text)
+	}
 }
 
 /** A button with words on it, pressed by the pointer, or by Enter or Space when the keyboard is on it. */
@@ -160,67 +222,88 @@ fun PushButton(
 	enabled: Boolean,
 	modifier: Modifier = Modifier,
 	focus: FocusRequester = remember { FocusRequester() },
+	glyph: Glyph? = null,
 	onClick: () -> Unit,
 ) {
 	val palette = LocalPalette.current
 	val type = LocalType.current
 	val source = remember { MutableInteractionSource() }
 	val felt = source.felt()
-	val shape = RoundedCornerShape(Dims.radius)
-	val strong =
-		when (emphasis) {
-			Emphasis.Primary -> palette.accent
-			Emphasis.Secondary -> null
-		}
-	val primary = strong != null
+	val shape = RoundedCornerShape(Radius.medium)
 
-	val fill =
-		when {
-			strong != null && felt.pressed -> strong.copy(alpha = 0.8f)
-			strong != null && felt.hovered -> strong.copy(alpha = 0.9f)
-			strong != null -> strong
-			felt.pressed -> palette.pressed
-			felt.hovered -> palette.hover
-			else -> palette.field
-		}
+	val looks =
+		looksOf(
+			emphasis,
+			felt.takeIf { enabled } ?: felt.copy(hovered = false, pressed = false),
+			palette,
+		)
 
 	// The ring first, so it is not dimmed; dimmed next, so a button that cannot be pressed is dimmed whole.
-	Box(
+	Row(
 		modifier
 			.ring(felt.ringed, palette.focus)
 			.alpha(if (enabled) 1f else 0.45f)
 			// As wide as a button is, or as its words need, whichever is wider: words are never broken over lines.
-			.widthIn(min = Dims.button)
-			.height(Dims.control)
-			.background(fill, shape)
-			.border(
-				1.dp,
-				strong ?: palette.fieldEdge,
-				shape,
-			).focusRequester(focus)
+			.widthIn(min = 84.dp)
+			.height(type.control)
+			.background(looks.fill, shape)
+			.border(1.dp, looks.edge, shape)
+			.focusRequester(focus)
 			.clickable(
 				source,
 				indication = null,
 				enabled = enabled,
 				role = Role.Button,
 				onClick = onClick,
-			),
-		contentAlignment = Alignment.Center,
+			).padding(horizontal = Space.l),
+		verticalAlignment = Alignment.CenterVertically,
+		horizontalArrangement = Arrangement.spacedBy(Space.s, Alignment.CenterHorizontally),
 	) {
+		glyph?.let { GlyphIcon(it, looks.text, type.icon * 0.85f) }
 		Text(
 			label,
-			style = type.button.copy(color = if (primary) palette.onAccent else palette.text),
+			style = type.button.copy(color = looks.text),
 			maxLines = 1,
 			softWrap = false,
-			modifier = Modifier.padding(horizontal = Dims.gap * 1.5f),
 		)
 	}
 }
 
 /**
- * A button with a glyph on it, for the toolbar: pressed by the pointer only, since each has a key of its own (Alt
- * and an arrow, Ctrl and a number), so the keyboard's Tab passes over it. One of a set that shows which is in use
- * (the list or the gallery) is [selected].
+ * [content] that says [tip] when the pointer rests on it: what a button with no words on it does, and its key, where
+ * it has one.
+ */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun Tip(tip: String, modifier: Modifier = Modifier, content: @Composable () -> Unit) {
+	val palette = LocalPalette.current
+	val type = LocalType.current
+	val shape = RoundedCornerShape(Radius.medium)
+
+	TooltipArea(
+		tooltip = {
+			Text(
+				tip,
+				style = type.muted.copy(color = palette.text),
+				modifier =
+					Modifier
+						.shadow(6.dp, shape, ambientColor = palette.shadow, spotColor = palette.shadow)
+						.background(palette.overlay, shape)
+						.border(1.dp, palette.border, shape)
+						.padding(horizontal = Space.s, vertical = Space.xs),
+			)
+		},
+		modifier = modifier,
+		delayMillis = 600,
+		tooltipPlacement = TooltipPlacement.CursorPoint(offset = DpOffset(0.dp, 20.dp)),
+		content = content,
+	)
+}
+
+/**
+ * A button with a glyph on it, for a toolbar: pressed by the pointer only, since each has a key of its own (Alt and an
+ * arrow, Ctrl and a number), so the keyboard's Tab passes over it. It says what it does ([label]) when the pointer
+ * rests on it. One of a set that shows which is in use is [selected].
  */
 @Composable
 fun ToolButton(
@@ -229,8 +312,8 @@ fun ToolButton(
 	enabled: Boolean,
 	modifier: Modifier = Modifier,
 	selected: Boolean = false,
-	size: Dp = Dims.control,
-	icon: Dp = Dims.icon,
+	size: Dp = LocalType.current.control,
+	icon: Dp = LocalType.current.icon,
 	onClick: () -> Unit,
 ) {
 	val palette = LocalPalette.current
@@ -245,31 +328,32 @@ fun ToolButton(
 			else -> Color.Transparent
 		}
 
-	Box(
-		modifier
-			.alpha(if (enabled) 1f else 0.35f)
-			.width(size)
-			.height(size)
-			.background(fill, RoundedCornerShape(Dims.radius))
-			.focusProperties { canFocus = false }
-			.clickable(
-				source,
-				indication = null,
-				enabled = enabled,
-				onClickLabel = label,
-				role = Role.Button,
-				onClick = onClick,
-			).semantics { this.selected = selected },
-		contentAlignment = Alignment.Center,
-	) {
-		GlyphIcon(
-			glyph,
-			if (selected)
-				palette.accent
-			else
-				palette.text,
-			icon,
-		)
+	Tip(label) {
+		Box(
+			modifier
+				.alpha(if (enabled) 1f else 0.35f)
+				.size(size)
+				.background(fill, RoundedCornerShape(Radius.medium))
+				.focusProperties { canFocus = false }
+				.clickable(
+					source,
+					indication = null,
+					enabled = enabled,
+					onClickLabel = label,
+					role = Role.Button,
+					onClick = onClick,
+				).semantics { this.selected = selected },
+			contentAlignment = Alignment.Center,
+		) {
+			GlyphIcon(
+				glyph,
+				if (selected)
+					palette.accentText
+				else
+					palette.textMuted,
+				icon,
+			)
+		}
 	}
 }
 
@@ -286,9 +370,10 @@ fun Field(
 	onText: (String) -> Unit,
 	modifier: Modifier = Modifier,
 	hint: String = "",
+	leading: Glyph? = null,
 	trailing: Glyph? = null,
 	readOnly: Boolean = false,
-	height: Dp = Dims.control,
+	height: Dp = LocalType.current.control,
 	focus: FocusRequester = remember { FocusRequester() },
 	selecting: (String) -> TextRange = { TextRange(0, it.length) },
 	onLeave: () -> Unit = {},
@@ -300,7 +385,7 @@ fun Field(
 	val type = LocalType.current
 	val source = remember { MutableInteractionSource() }
 	val felt = source.felt()
-	val shape = RoundedCornerShape(Dims.radius)
+	val shape = RoundedCornerShape(Radius.medium)
 	var typed by remember { mutableStateOf(TextFieldValue(text, TextRange(text.length))) }
 	var visited by remember { mutableStateOf(false) }
 	// What this field has said was typed that the caller's text has not come round to yet. The caller's text is the
@@ -327,18 +412,26 @@ fun Field(
 
 	Row(
 		modifier
-			.ring(felt.active, palette.accent, outset = 0.dp, width = 1.5.dp)
+			.ring(felt.active, palette.focus, outset = 0.dp, width = 2.dp)
 			.height(height)
 			.background(palette.field, shape)
-			.border(1.dp, palette.fieldEdge, shape)
-			.padding(horizontal = Dims.gap),
+			.border(
+				1.dp,
+				if (felt.hovered)
+					palette.fieldEdgeHover
+				else
+					palette.fieldEdge,
+				shape,
+			).padding(horizontal = Space.m),
 		verticalAlignment = Alignment.CenterVertically,
+		horizontalArrangement = Arrangement.spacedBy(Space.s),
 	) {
+		leading?.let { GlyphIcon(it, palette.textMuted, type.icon * 0.85f) }
 		Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
 			if (text.isEmpty() && hint.isNotEmpty())
 				Text(
 					hint,
-					style = type.muted.copy(fontSize = style.fontSize),
+					style = style.copy(color = palette.textFaint),
 					maxLines = 1,
 					overflow = TextOverflow.Ellipsis,
 				)
@@ -369,86 +462,7 @@ fun Field(
 				visualTransformation = colouring,
 			)
 		}
-		trailing?.let {
-			Spacer(Modifier.width(Dims.gapSmall))
-			GlyphIcon(it, palette.textMuted, 16.dp)
-		}
-	}
-}
-
-/**
- * One of [options], chosen from a menu that opens below it: by the pointer, or from the keyboard by Enter, Space or
- * Alt+Down to open it and the arrows to choose without opening it, as a desktop's drop-down lists are.
- */
-@Composable
-fun <T> Select(
-	options: List<T>,
-	chosen: T,
-	label: (T) -> String,
-	modifier: Modifier = Modifier,
-	onChoose: (T) -> Unit,
-) {
-	val palette = LocalPalette.current
-	val type = LocalType.current
-	val source = remember { MutableInteractionSource() }
-	val felt = source.felt()
-	val shape = RoundedCornerShape(Dims.radius)
-	var open by remember { mutableStateOf(false) }
-	val at = options.indexOf(chosen)
-
-	fun choose(index: Int): Boolean {
-		options.getOrNull(index)?.takeIf { index != at }?.let(onChoose)
-
-		return true
-	}
-
-	Box(modifier) {
-		Row(
-			Modifier
-				.fillMaxWidth()
-				.ring(felt.ringed, palette.focus)
-				.height(Dims.control)
-				.background(
-					when {
-						felt.pressed -> palette.pressed
-						felt.hovered -> palette.hover
-						else -> palette.field
-					},
-					shape,
-				).border(1.dp, palette.fieldEdge, shape)
-				.onPreviewKeyEvent {
-					when {
-						it.type != KeyEventType.KeyDown -> false
-						it.key == Key.DirectionDown && it.isAltPressed -> true.also { open = true }
-						it.key == Key.DirectionUp -> choose(at - 1)
-						it.key == Key.DirectionDown -> choose(at + 1)
-						else -> false
-					}
-				}.clickable(source, indication = null, role = Role.DropdownList) { open = true }
-				.padding(horizontal = Dims.gap),
-			verticalAlignment = Alignment.CenterVertically,
-		) {
-			Text(
-				label(chosen),
-				style = type.body,
-				maxLines = 1,
-				overflow = TextOverflow.Ellipsis,
-				modifier = Modifier.weight(1f),
-			)
-			GlyphIcon(Glyph.ChevronDown, palette.textMuted, 14.dp)
-		}
-		DropdownMenu(open, onDismissRequest = { open = false }) {
-			options.forEachIndexed { index, option ->
-				DropdownMenuItem(
-					text = { Text(label(option), style = type.body) },
-					onClick = {
-						open = false
-						choose(index)
-					},
-					modifier = Modifier.testTag("option:${label(option)}"),
-				)
-			}
-		}
+		trailing?.let { GlyphIcon(it, palette.textMuted, type.icon * 0.85f) }
 	}
 }
 
@@ -465,7 +479,7 @@ fun CheckBox(
 	val type = LocalType.current
 	val source = remember { MutableInteractionSource() }
 	val felt = source.felt()
-	val shape = RoundedCornerShape(4.dp)
+	val shape = RoundedCornerShape(Radius.small)
 
 	Row(
 		modifier
@@ -477,15 +491,17 @@ fun CheckBox(
 				enabled = enabled,
 				role = Role.Checkbox,
 				onValueChange = onChange,
-			).padding(vertical = Dims.gapSmall),
+			).padding(vertical = Space.xs),
 		verticalAlignment = Alignment.CenterVertically,
+		horizontalArrangement = Arrangement.spacedBy(Space.s),
 	) {
 		Box(
 			Modifier
-				.ring(felt.ringed, palette.focus, corner = 4.dp)
+				.ring(felt.ringed, palette.focus, corner = Radius.small)
 				.size(18.dp)
 				.background(
 					when {
+						checked && felt.hovered && enabled -> palette.accentHover
 						checked -> palette.accent
 						felt.hovered && enabled -> palette.hover
 						else -> palette.field
@@ -494,7 +510,7 @@ fun CheckBox(
 				).border(
 					1.dp,
 					if (checked)
-						palette.accent
+						Color.Transparent
 					else
 						palette.fieldEdge,
 					shape,
@@ -504,9 +520,476 @@ fun CheckBox(
 			if (checked)
 				GlyphIcon(Glyph.Check, palette.onAccent, 14.dp)
 		}
-		if (label.isNotEmpty()) {
-			Spacer(Modifier.width(Dims.gap))
+		if (label.isNotEmpty())
 			Text(label, style = type.body)
+	}
+}
+
+/**
+ * A switch, on or off, for a setting that takes effect as it is switched: slid by the pointer, or by Space when the
+ * keyboard is on it.
+ */
+@Composable
+fun Switch(
+	on: Boolean,
+	modifier: Modifier = Modifier,
+	enabled: Boolean = true,
+	onChange: (Boolean) -> Unit,
+) {
+	val palette = LocalPalette.current
+	val source = remember { MutableInteractionSource() }
+	val felt = source.felt()
+	val knob by animateDpAsState(if (on) 18.dp else 2.dp)
+
+	Box(
+		modifier
+			.ring(felt.ringed, palette.focus, corner = 11.dp)
+			.alpha(if (enabled) 1f else 0.45f)
+			.size(38.dp, 22.dp)
+			.background(
+				when {
+					on && felt.hovered && enabled -> palette.accentHover
+					on -> palette.accent
+					else -> palette.borderStrong
+				},
+				CircleShape,
+			).toggleable(
+				on,
+				source,
+				indication = null,
+				enabled = enabled,
+				role = Role.Switch,
+				onValueChange = onChange,
+			),
+		contentAlignment = Alignment.CenterStart,
+	) {
+		Box(
+			Modifier
+				.offset(x = knob)
+				.size(18.dp)
+				.shadow(1.dp, CircleShape)
+				.background(
+					if (on || !palette.isDark)
+						Color.White
+					else
+						palette.text,
+					CircleShape,
+				),
+		)
+	}
+}
+
+/** A dot, filled where it is the one chosen of its kind: what a choice of several, each in a row, is marked by. */
+@Composable
+fun Radio(chosen: Boolean) {
+	val palette = LocalPalette.current
+
+	Box(
+		Modifier
+			.size(18.dp)
+			.background(if (chosen) palette.accent else palette.field, CircleShape)
+			.border(
+				1.dp,
+				if (chosen)
+					Color.Transparent
+				else
+					palette.fieldEdge,
+				CircleShape,
+			),
+		contentAlignment = Alignment.Center,
+	) {
+		if (chosen)
+			Box(Modifier.size(7.dp).background(palette.onAccent, CircleShape))
+	}
+}
+
+/**
+ * One of a few [options], side by side in a track, the one [chosen] raised in it: chosen by the pointer, or by Left and
+ * Right when the keyboard is on the track. Each option is named by [label], and drawn as its glyph instead where
+ * [glyph] gives one (and its name said when the pointer rests on it). Each is tagged [tag]`:`its name. One in a
+ * toolbar, whose choices have keys of their own, is not [focusable]: Tab passes over it, and a click leaves the keyboard
+ * where it was.
+ */
+@Composable
+fun <T> Segmented(
+	options: List<T>,
+	chosen: T,
+	label: (T) -> String,
+	modifier: Modifier = Modifier,
+	tag: String = "",
+	enabled: Boolean = true,
+	focusable: Boolean = true,
+	glyph: (T) -> Glyph? = { null },
+	onChoose: (T) -> Unit,
+) {
+	val palette = LocalPalette.current
+	val type = LocalType.current
+	val source = remember { MutableInteractionSource() }
+	val felt = source.felt()
+	val track = RoundedCornerShape(Radius.medium + Space.xxs)
+	val at = options.indexOf(chosen)
+
+	fun step(by: Int): Boolean {
+		options.getOrNull(at + by)?.let(onChoose)
+
+		return true
+	}
+
+	Row(
+		modifier
+			.ring(felt.ringed, palette.focus, corner = Radius.medium + Space.xxs)
+			.alpha(if (enabled) 1f else 0.45f)
+			.height(type.control)
+			.width(IntrinsicSize.Max)
+			.background(palette.sunken, track)
+			.border(1.dp, palette.border, track)
+			.onKeyEvent {
+				when {
+					!enabled || it.type != KeyEventType.KeyDown -> false
+					it.key == Key.DirectionLeft -> step(-1)
+					it.key == Key.DirectionRight -> step(1)
+					else -> false
+				}
+			}.focusable(enabled && focusable, source)
+			.padding(Space.xxs),
+	) {
+		options.forEach { option ->
+			val name = label(option)
+			val icon = glyph(option)
+			val selected = option == chosen
+			val hover = remember { MutableInteractionSource() }
+			val hovered by hover.collectIsHoveredAsState()
+			val shape = RoundedCornerShape(Radius.medium)
+
+			val segment: @Composable () -> Unit = {
+				Box(
+					Modifier
+						.fillMaxHeight()
+						.then(
+							if (icon == null)
+								Modifier.weight(1f)
+							else
+								Modifier,
+						).then(
+							if (selected)
+								Modifier
+									.shadow(1.dp, shape, ambientColor = palette.shadow, spotColor = palette.shadow)
+									.background(palette.thumb, shape)
+							else if (hovered && enabled)
+								Modifier.background(palette.hover, shape)
+							else
+								Modifier,
+						).focusProperties { canFocus = false }
+						.selectable(
+							selected,
+							hover,
+							indication = null,
+							enabled = enabled,
+							role = Role.Tab,
+						) { onChoose(option) }
+						.testTag("$tag:$name")
+						.padding(horizontal = if (icon == null) Space.m else Space.s),
+					contentAlignment = Alignment.Center,
+				) {
+					if (icon != null)
+						GlyphIcon(icon, if (selected) palette.text else palette.textMuted, type.icon * 0.9f)
+					else
+						Text(
+							name,
+							style =
+								(if (selected) type.button else type.body).copy(
+									color = if (selected) palette.text else palette.textMuted,
+								),
+							maxLines = 1,
+							softWrap = false,
+						)
+				}
+			}
+
+			if (icon != null)
+				Tip(name, Modifier.fillMaxHeight()) { segment() }
+			else
+				segment()
+		}
+	}
+}
+
+/**
+ * A value, said as [shown], made a step smaller or larger by the buttons either side of it, as far as [smaller] and
+ * [larger] allow. Its buttons are tagged [tag]`:smaller` and [tag]`:larger`.
+ */
+@Composable
+fun Stepper(
+	shown: String,
+	smaller: Boolean,
+	larger: Boolean,
+	modifier: Modifier = Modifier,
+	tag: String = "",
+	onStep: (Int) -> Unit,
+) {
+	val palette = LocalPalette.current
+	val type = LocalType.current
+	val shape = RoundedCornerShape(Radius.medium)
+
+	@Composable
+	fun StepButton(glyph: Glyph, label: String, enabled: Boolean, by: Int) {
+		val source = remember { MutableInteractionSource() }
+		val felt = source.felt()
+
+		Box(
+			Modifier
+				.fillMaxHeight()
+				.width(type.control)
+				.alpha(if (enabled) 1f else 0.35f)
+				.background(
+					when {
+						!enabled -> Color.Transparent
+						felt.pressed -> palette.pressed
+						felt.hovered -> palette.hover
+						else -> Color.Transparent
+					},
+				).clickable(
+					source,
+					indication = null,
+					enabled = enabled,
+					onClickLabel = label,
+					role = Role.Button,
+				) {
+					onStep(by)
+				}.testTag("$tag:$label"),
+			contentAlignment = Alignment.Center,
+		) {
+			GlyphIcon(glyph, palette.text, type.icon * 0.8f)
+		}
+	}
+
+	Row(
+		modifier
+			.height(type.control)
+			.width(IntrinsicSize.Max)
+			.background(palette.field, shape)
+			.border(1.dp, palette.fieldEdge, shape)
+			.clip(shape),
+		verticalAlignment = Alignment.CenterVertically,
+	) {
+		StepButton(Glyph.Minus, "smaller", smaller, -1)
+		Divider(vertical = true)
+		Text(
+			shown,
+			style = type.body.tabular(),
+			maxLines = 1,
+			softWrap = false,
+			modifier = Modifier.widthIn(min = 64.dp).padding(horizontal = Space.s),
+			textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+		)
+		Divider(vertical = true)
+		StepButton(Glyph.Plus, "larger", larger, 1)
+	}
+}
+
+/** Digits each as wide as the next, so that numbers in a column line up under each other. */
+fun TextStyle.tabular(): TextStyle = copy(fontFeatureSettings = "tnum")
+
+/** A line between two things: across, or, where [vertical], up and down. */
+@Composable
+fun Divider(modifier: Modifier = Modifier, vertical: Boolean = false) {
+	val palette = LocalPalette.current
+
+	Box(
+		if (vertical)
+			modifier.width(1.dp).fillMaxHeight().background(palette.divider)
+		else
+			modifier.fillMaxWidth().height(1.dp).background(palette.divider),
+	)
+}
+
+/**
+ * A chip: [text] in a small rounded box, clicked by the pointer, with a × that removes what it stands for where
+ * [onRemove] is given. One that is [strong] (a chord awaited, say) is drawn in the accent.
+ */
+@Composable
+fun Chip(
+	text: String,
+	modifier: Modifier = Modifier,
+	strong: Boolean = false,
+	removeTag: String = "",
+	onRemove: (() -> Unit)? = null,
+	onClick: () -> Unit,
+) {
+	val palette = LocalPalette.current
+	val type = LocalType.current
+	val shape = RoundedCornerShape(Radius.medium)
+	val source = remember { MutableInteractionSource() }
+	val felt = source.felt()
+
+	Row(
+		modifier
+			.height(type.row - Space.xs)
+			.background(
+				when {
+					strong -> palette.accent
+					felt.hovered -> palette.hover
+					else -> palette.sunken
+				},
+				shape,
+			).border(1.dp, if (strong) Color.Transparent else palette.border, shape)
+			.clickable(source, indication = null, onClick = onClick)
+			.padding(start = Space.s, end = if (onRemove != null) Space.xs else Space.s),
+		verticalAlignment = Alignment.CenterVertically,
+		horizontalArrangement = Arrangement.spacedBy(Space.xs),
+	) {
+		Text(
+			text,
+			style =
+				type.muted
+					.copy(
+						color = if (strong) palette.onAccent else palette.text,
+					).tabular(),
+			maxLines = 1,
+		)
+		onRemove?.let {
+			val remove = remember { MutableInteractionSource() }
+			val hovered by remove.collectIsHoveredAsState()
+
+			Box(
+				Modifier
+					.size(type.line - Space.xxs)
+					.background(
+						if (hovered)
+							palette.pressed
+						else
+							Color.Transparent,
+						CircleShape,
+					).clickable(remove, indication = null, onClick = it)
+					.testTag(removeTag),
+				contentAlignment = Alignment.Center,
+			) {
+				GlyphIcon(Glyph.Close, palette.textMuted, type.icon * 0.6f)
+			}
+		}
+	}
+}
+
+/** A row of tabs, [chosen] among [tabs], each named by [label] and underlined in the accent where it is the one shown. */
+@Composable
+fun <T> Tabs(
+	tabs: List<T>,
+	chosen: T,
+	label: (T) -> String,
+	modifier: Modifier = Modifier,
+	onChoose: (T) -> Unit,
+) {
+	val palette = LocalPalette.current
+	val type = LocalType.current
+
+	Column(modifier) {
+		Row(horizontalArrangement = Arrangement.spacedBy(Space.l)) {
+			tabs.forEach { tab ->
+				val source = remember { MutableInteractionSource() }
+				val hovered by source.collectIsHoveredAsState()
+				val shown = tab == chosen
+
+				// As wide as its name, which its underline is too.
+				Column(
+					Modifier
+						.width(IntrinsicSize.Max)
+						.clickable(source, indication = null, role = Role.Tab) { onChoose(tab) }
+						.testTag("tab:${label(tab)}"),
+				) {
+					Text(
+						label(tab),
+						style =
+							(if (shown) type.strong else type.body).copy(
+								color =
+									if (shown || hovered)
+										palette.text
+									else
+										palette.textMuted,
+							),
+						modifier = Modifier.padding(vertical = Space.s),
+					)
+					Box(
+						Modifier
+							.height(2.dp)
+							.fillMaxWidth()
+							.background(
+								if (shown) palette.accent else Color.Transparent,
+								RoundedCornerShape(1.dp),
+							),
+					)
+				}
+			}
+		}
+		Divider()
+	}
+}
+
+/** Whether what moves for its own sake (a spinner) moves: not where the view is drawn to be looked at once, or tested. */
+val LocalMotion = staticCompositionLocalOf { true }
+
+/** Something under way with no end in sight: an arc going round, or, where nothing moves, standing still. */
+@Composable
+fun Spinner(color: Color, size: Dp = 22.dp) {
+	var turn by remember { mutableStateOf(0f) }
+
+	if (LocalMotion.current)
+		LaunchedEffect(Unit) {
+			val began = withFrameNanos { it }
+
+			while (true)
+				withFrameNanos { turn = ((it - began) / 1_000_000f * 0.36f) % 360f }
+		}
+
+	Canvas(Modifier.size(size)) {
+		drawArc(
+			color,
+			startAngle = turn,
+			sweepAngle = 270f,
+			useCenter = false,
+			style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round),
+		)
+	}
+}
+
+/** What a list or a page shows where there is nothing to show: a glyph, what is so, and what can be done about it. */
+@Composable
+fun EmptyState(
+	glyph: Glyph,
+	title: String,
+	detail: String?,
+	modifier: Modifier = Modifier,
+	detailTag: String = "message-detail",
+) {
+	val palette = LocalPalette.current
+	val type = LocalType.current
+
+	Column(
+		modifier.padding(Space.xxl),
+		horizontalAlignment = Alignment.CenterHorizontally,
+		verticalArrangement = Arrangement.spacedBy(Space.s, Alignment.CenterVertically),
+	) {
+		GlyphIcon(glyph, palette.textFaint, type.line * 2.4f)
+		Spacer(Modifier.height(Space.xs))
+		// What is said can be selected and copied: why a folder cannot be shown, above all.
+		androidx.compose.foundation.text.selection.SelectionContainer {
+			Column(
+				horizontalAlignment = Alignment.CenterHorizontally,
+				verticalArrangement = Arrangement.spacedBy(Space.xs),
+			) {
+				Text(
+					title,
+					style = type.title,
+					textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+				)
+				detail?.let {
+					Text(
+						it,
+						style = type.muted,
+						textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+						modifier = Modifier.widthIn(max = 480.dp).testTag(detailTag),
+					)
+				}
+			}
 		}
 	}
 }

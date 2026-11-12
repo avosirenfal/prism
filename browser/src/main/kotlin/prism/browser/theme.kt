@@ -19,41 +19,62 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import prism.preferences.DateFormat
-import prism.preferences.Fonts
 import prism.preferences.Rows
-import prism.preferences.TextSizes
+import prism.preferences.TextPart
+import prism.preferences.Typography
 
 /*
- * The picker's look, in one place: a palette for light and one for dark (the quiet greys and the single blue accent
- * of a desktop's own dialogs), the type sizes, and the few dimensions every part shares. Everything visual reads
- * from here, so the whole picker changes together, and a palette is data, so a theme from the desktop (the portal's
- * own colour scheme setting) is a palette made from it.
+ * How prism looks, in one place: the palette, light and dark; the type, a scale of styles from one size for each part
+ * of a window; and the spacing every part keeps to. Everything visual reads from here, so the whole of prism changes
+ * together, and the controls (elements.kt) and the layouts (layout.kt) are built from these alone: nothing is spaced,
+ * sized or coloured anywhere else.
  */
 
-/** Every colour the picker draws with. */
+/**
+ * Every colour prism draws with, by what it is for. The surfaces go from the window's frame inward: [window] (the
+ * toolbar, the status bar, a dialog), [pane] (a sidebar), [surface] (the listing), [canvas] (what a page's cards sit
+ * on), [raised] (a card), and [overlay] (a menu, a popup); [sunken] is a track below its surface (a segmented control's,
+ * whose chosen segment is a [thumb]). [hover] and [pressed] are translucent, so they show on any surface.
+ */
 @Immutable
 data class Palette(
 	val window: Color,
 	val pane: Color,
 	val surface: Color,
+	val canvas: Color,
+	val raised: Color,
+	val overlay: Color,
+	val sunken: Color,
+	val thumb: Color,
 	val border: Color,
+	val borderStrong: Color,
 	val divider: Color,
 	val text: Color,
 	val textMuted: Color,
 	val textFaint: Color,
 	val accent: Color,
+	val accentHover: Color,
+	val accentPressed: Color,
 	val onAccent: Color,
+	/** The accent as text and as a glyph's line: a link, the place shown in the sidebar. */
+	val accentText: Color,
+	val danger: Color,
+	val dangerHover: Color,
+	val onDanger: Color,
+	val dangerText: Color,
 	val hover: Color,
 	/** A control's fill while it is pressed. */
 	val pressed: Color,
 	/** The ring around what the keyboard is on. */
 	val focus: Color,
-	/** What is drawn over the picker behind a notice. */
+	/** What is drawn over a window behind a modal. */
 	val scrim: Color,
+	val shadow: Color,
+	/** A chosen row's fill. */
 	val chosen: Color,
-	val chosenEdge: Color,
 	val field: Color,
 	val fieldEdge: Color,
+	val fieldEdgeHover: Color,
 	val folder: Color,
 	val folderFront: Color,
 	val page: Color,
@@ -84,26 +105,41 @@ data class Palette(
 		}
 
 	companion object {
+		/** Quiet greys, and one blue that is calm enough to fill a button: an IDE's light theme. */
 		val Light =
 			Palette(
-				window = Color(0xFFF3F3F3),
-				pane = Color(0xFFF0F0F0),
-				surface = Color(0xFFFCFCFC),
-				border = Color(0xFFE0E0E0),
-				divider = Color(0xFFEAEAEA),
-				text = Color(0xFF1B1B1B),
-				textMuted = Color(0xFF5C5C5C),
-				textFaint = Color(0xFF8A8A8A),
-				accent = Color(0xFF005FB8),
+				window = Color(0xFFF7F8FA),
+				pane = Color(0xFFF2F3F5),
+				surface = Color(0xFFFFFFFF),
+				canvas = Color(0xFFF2F3F5),
+				raised = Color(0xFFFFFFFF),
+				overlay = Color(0xFFFFFFFF),
+				sunken = Color(0xFFE9EAEE),
+				thumb = Color(0xFFFFFFFF),
+				border = Color(0xFFDFE1E5),
+				borderStrong = Color(0xFFC9CCD6),
+				divider = Color(0xFFEBECF0),
+				text = Color(0xFF1E1F22),
+				textMuted = Color(0xFF5A5D6B),
+				textFaint = Color(0xFF8C8F9C),
+				accent = Color(0xFF3574F0),
+				accentHover = Color(0xFF2F68DA),
+				accentPressed = Color(0xFF2A5CC2),
 				onAccent = Color(0xFFFFFFFF),
-				hover = Color(0xFFEDEDED),
-				pressed = Color(0xFFE2E2E2),
-				focus = Color(0xFF1B1B1B),
-				scrim = Color(0x66000000),
-				chosen = Color(0xFFDDEBF7),
-				chosenEdge = Color(0xFF99C2E8),
+				accentText = Color(0xFF2E5FC4),
+				danger = Color(0xFFD13B3B),
+				dangerHover = Color(0xFFBD3030),
+				onDanger = Color(0xFFFFFFFF),
+				dangerText = Color(0xFFC42B2B),
+				hover = Color(0x0F1E1F22),
+				pressed = Color(0x1C1E1F22),
+				focus = Color(0xFF3574F0),
+				scrim = Color(0x52000000),
+				shadow = Color(0x33000000),
+				chosen = Color(0xFFD5E3FE),
 				field = Color(0xFFFFFFFF),
-				fieldEdge = Color(0xFFD0D0D0),
+				fieldEdge = Color(0xFFC9CCD6),
+				fieldEdgeHover = Color(0xFFA8ADBD),
 				folder = Color(0xFFE8B03E),
 				folderFront = Color(0xFFF7CB5E),
 				page = Color(0xFFFFFFFF),
@@ -119,26 +155,41 @@ data class Palette(
 				isDark = false,
 			)
 
+		/** Charcoal greys, the same blue for what is pressed, a lighter one for what is pointed out. */
 		val Dark =
 			Palette(
-				window = Color(0xFF202020),
-				pane = Color(0xFF1C1C1C),
-				surface = Color(0xFF272727),
-				border = Color(0xFF3A3A3A),
-				divider = Color(0xFF323232),
-				text = Color(0xFFF2F2F2),
-				textMuted = Color(0xFFB8B8B8),
-				textFaint = Color(0xFF8C8C8C),
-				accent = Color(0xFF60CDFF),
-				onAccent = Color(0xFF00203A),
-				hover = Color(0xFF2F2F2F),
-				pressed = Color(0xFF383838),
-				focus = Color(0xFFFFFFFF),
-				scrim = Color(0x99000000),
-				chosen = Color(0xFF16384F),
-				chosenEdge = Color(0xFF2E6A92),
-				field = Color(0xFF2D2D2D),
-				fieldEdge = Color(0xFF454545),
+				window = Color(0xFF2B2D30),
+				pane = Color(0xFF27282B),
+				surface = Color(0xFF1E1F22),
+				canvas = Color(0xFF1E1F22),
+				raised = Color(0xFF2B2D30),
+				overlay = Color(0xFF2F3135),
+				sunken = Color(0xFF1E1F22),
+				thumb = Color(0xFF45484D),
+				border = Color(0xFF393B40),
+				borderStrong = Color(0xFF4E5157),
+				divider = Color(0xFF35373B),
+				text = Color(0xFFDFE1E5),
+				textMuted = Color(0xFFA2A5AD),
+				textFaint = Color(0xFF6F737A),
+				accent = Color(0xFF3574F0),
+				accentHover = Color(0xFF4682FA),
+				accentPressed = Color(0xFF2E64D4),
+				onAccent = Color(0xFFFFFFFF),
+				accentText = Color(0xFF6B9BFA),
+				danger = Color(0xFFC94F4F),
+				dangerHover = Color(0xFFD65E5E),
+				onDanger = Color(0xFFFFFFFF),
+				dangerText = Color(0xFFF07A7A),
+				hover = Color(0x14FFFFFF),
+				pressed = Color(0x22FFFFFF),
+				focus = Color(0xFF548AF7),
+				scrim = Color(0x8C000000),
+				shadow = Color(0x80000000),
+				chosen = Color(0xFF2E436E),
+				field = Color(0xFF1E1F22),
+				fieldEdge = Color(0xFF4E5157),
+				fieldEdgeHover = Color(0xFF6F737A),
 				folder = Color(0xFFD9A23A),
 				folderFront = Color(0xFFF0C25A),
 				page = Color(0xFF3A3A3A),
@@ -156,91 +207,116 @@ data class Palette(
 	}
 }
 
-/** The type sizes, all from one body size. */
+/**
+ * The room between things, in one scale: every gap and every inset is one of these, so that what is near is grouped
+ * and what is far apart is not, the same way everywhere.
+ */
+object Space {
+	val xxs = 2.dp
+	val xs = 4.dp
+	val s = 8.dp
+	val m = 12.dp
+	val l = 16.dp
+	val xl = 24.dp
+	val xxl = 32.dp
+}
+
+/** How round corners are: a check box's, a control's, and a card's or a popup's. */
+object Radius {
+	val small = 4.dp
+	val medium = 6.dp
+	val large = 10.dp
+}
+
+/**
+ * The styles of one part's text, from its body's size, and the heights of what holds that text: a control (a button, a
+ * field) and a row (of a list, a menu, the sidebar), each as tall as its line and its room above and below, so that
+ * text made larger never outgrows what it is in.
+ */
 @Immutable
 data class Type(
 	val body: TextStyle,
+	/** The body in a heavier weight: a row's name where it is the point, a label of a form. */
+	val strong: TextStyle,
+	/** What is said about something, beside it or under it: a description, a status. */
 	val muted: TextStyle,
+	/** A group's heading, over its rows: small, and faint. */
 	val heading: TextStyle,
+	/** A section's title. */
 	val title: TextStyle,
+	/** A page's or a dialog's title. */
+	val headline: TextStyle,
 	val button: TextStyle,
+	/** A command's words, or a path, set as they are typed. */
+	val mono: TextStyle,
+	/** How tall a line of the body is. */
+	val line: Dp,
 ) {
-	/** These, in [family]. */
-	fun inFamily(family: FontFamily?): Type =
-		if (family == null)
-			this
-		else
-			Type(
-				body.copy(fontFamily = family),
-				muted.copy(fontFamily = family),
-				heading.copy(fontFamily = family),
-				title.copy(fontFamily = family),
-				button.copy(fontFamily = family),
-			)
+	/** How tall a control is: a button, a field, a choice. */
+	val control: Dp get() = line + 14.dp
+
+	/** How tall a row of a list is. */
+	val row: Dp get() = line + 12.dp
+
+	/** How large an icon beside the body is. */
+	val icon: Dp get() = line - 2.dp
 
 	companion object {
 		/**
-		 * The styles for [palette], their text [size] points (sp) and the rest of them in proportion, in [family] (the
-		 * default, where null).
+		 * The styles for [palette], their body [points] large (as desktops measure type: a point is 4/3 of a pixel at their
+		 * usual density) and the rest in proportion, in [family] (the default, where null).
 		 */
 		fun of(
 			palette: Palette,
-			size: Float = TextSizes.DEFAULT,
+			points: Float = TextPart.General.points,
 			family: FontFamily? = null,
 		): Type {
-			fun sp(at13: Float) = (at13 * size / TextSizes.DEFAULT).sp
+			val size = points * 4f / 3f
+
+			fun style(scale: Float, color: Color, weight: FontWeight = FontWeight.Normal) =
+				TextStyle(
+					fontSize = (size * scale).sp,
+					lineHeight = (size * scale * 1.4f).sp,
+					color = color,
+					fontWeight = weight,
+					fontFamily = family,
+				)
 
 			return Type(
-				body = TextStyle(fontSize = sp(13f), lineHeight = sp(18f), color = palette.text),
-				muted =
-					TextStyle(
-						fontSize = sp(12f),
-						lineHeight = sp(16f),
-						color = palette.textMuted,
-					),
-				heading =
-					TextStyle(
-						fontSize = sp(12f),
-						lineHeight = sp(16f),
-						color = palette.textFaint,
-						fontWeight = FontWeight.SemiBold,
-					),
-				title =
-					TextStyle(
-						fontSize = sp(13f),
-						lineHeight = sp(18f),
-						color = palette.text,
-						fontWeight = FontWeight.SemiBold,
-					),
-				button =
-					TextStyle(
-						fontSize = sp(13f),
-						lineHeight = sp(18f),
-						fontWeight = FontWeight.Medium,
-					),
-			).inFamily(family)
+				body = style(1f, palette.text),
+				strong = style(1f, palette.text, FontWeight.SemiBold),
+				muted = style(0.93f, palette.textMuted),
+				heading = style(0.86f, palette.textMuted, FontWeight.SemiBold),
+				title = style(1.1f, palette.text, FontWeight.SemiBold),
+				headline = style(1.45f, palette.text, FontWeight.SemiBold),
+				button = style(1f, Color.Unspecified, FontWeight.Medium),
+				mono = style(0.93f, palette.text).copy(fontFamily = FontFamily.Monospace),
+				line = (size * 1.4f).dp,
+			)
 		}
 	}
 }
 
-/** How large the text of each part of the window is, as the user's preferences say. */
-val LocalTextSizes = staticCompositionLocalOf { TextSizes() }
-
-/** The font of each part of the window, as the user's preferences name them: the default's, where null. */
+/** The type of each part of a window: [general]'s, the listing's and the menus', each as the user chose it. */
 @Immutable
-data class FontFamilies(
-	val general: FontFamily? = null,
-	val listing: FontFamily? = null,
-	val menus: FontFamily? = null,
+data class Types(
+	val general: Type,
+	val listing: Type,
+	val menus: Type,
 ) {
 	companion object {
-		/** The families [fonts] names, each as the system has it, in the weights prism draws in. */
-		fun of(fonts: Fonts): FontFamilies =
-			FontFamilies(familyOf(fonts.general), familyOf(fonts.listing), familyOf(fonts.menus))
+		/** The types [typography] makes in [palette], each in the family it names as the system has it. */
+		fun of(palette: Palette, typography: Typography): Types {
+			fun of(part: TextPart) =
+				Type.of(palette, typography.pointsOf(part), familyOf(typography.familyOf(part)))
 
+			return Types(of(TextPart.General), of(TextPart.Listing), of(TextPart.Menus))
+		}
+
+		/** [name]'s family as the system has it, in the weights prism draws in; the default's, where null. */
 		@OptIn(androidx.compose.ui.text.ExperimentalTextApi::class)
 		private fun familyOf(name: String?): FontFamily? =
-			name?.takeIf { it.isNotBlank() }?.let { family ->
+			name?.let { family ->
 				FontFamily(
 					listOf(
 						FontWeight.Normal,
@@ -255,8 +331,6 @@ data class FontFamilies(
 	}
 }
 
-val LocalFontFamilies = staticCompositionLocalOf { FontFamilies() }
-
 /** The families of fonts the system has, by name, in order. */
 fun systemFontFamilies(): List<String> =
 	org.jetbrains.skia.FontMgr.default
@@ -265,9 +339,6 @@ fun systemFontFamilies(): List<String> =
 		}.filter { it.isNotBlank() }
 		.distinct()
 		.sortedBy { it.lowercase() }
-
-/** How much larger [size] is than the text the parts are measured for: what a part's heights are scaled by. */
-fun scaleOf(size: Float): Float = size / TextSizes.DEFAULT
 
 /** How dates are written, as the user's preferences say. */
 val LocalDateFormat = staticCompositionLocalOf { DateFormat.Written }
@@ -292,83 +363,65 @@ fun Scaled(scale: Float, content: @Composable () -> Unit) {
 	)
 }
 
-/** The dimensions the parts share. */
+/** The dimensions particular parts have, which no other shares. */
 object Dims {
-	val sidebar = 228.dp
-	val toolbar = 52.dp
-	val row = 30.dp
-	val header = 30.dp
-	val footer = 104.dp
-	val icon = 20.dp
-	val gap = 8.dp
-	val gapSmall = 4.dp
-	val radius = 6.dp
-	val control = 32.dp
-	val button = 112.dp
+	val sidebar = 232.dp
 
-	/** A filter's chip, and the checkbox beside them. */
-	val chip = 28.dp
-
-	/** The row of filters above the listing. */
-	val filters = 44.dp
+	/** The page list of the preferences window. */
+	val navigation = 208.dp
 
 	/** A gallery's tile, its picture, and the least width a tile takes. */
 	val tile = 136.dp
-	val tileHeight = 152.dp
-	val picture = 96.dp
+	val tileHeight = 156.dp
 
 	/** How far outside a control the ring around what the keyboard is on is drawn. */
 	val ring = 2.dp
-	val nameColumn = 0.46f
-	val dateColumn = 0.22f
-	val typeColumn = 0.18f
-	val sizeColumn = 0.14f
-
-	/** Where a search's result is, in the list of results. */
-	val folderColumn = 0.34f
 
 	/** The room each side of a column's values, so two columns' never meet; and at the list's two edges. */
-	val cell = 8.dp
-	val edge = 12.dp
+	val cell = Space.s
+	val edge = Space.m
 
 	/** The room between a gallery's tiles, and around them: somewhere to start a rectangle, or open the folder's menu. */
-	val tileGap = 16.dp
-	val tilePad = 12.dp
+	val tileGap = Space.l
+	val tilePad = Space.m
+
+	/** How wide a scrollbar is, and the room kept for it beside what scrolls. */
+	val scrollbar = 8.dp
+	val scrollbarRoom = 12.dp
 }
 
-/** How tall a list's row is, at its usual size. */
-fun rowHeightOf(rows: Rows): Dp =
-	when (rows) {
-		Rows.Larger -> 46.dp
-		Rows.Compact -> 30.dp
-	}
+/** How tall a list's row is, for [rows] of [type]'s text: an icon of [rowIconOf], and room above and below it. */
+fun rowHeightOf(rows: Rows, type: Type): Dp =
+	maxOf(rowIconOf(rows, type), type.line) + Space.m
 
-/** How large a list's row's icon is, at its usual size: larger, as Thunar draws them, or as small as the text. */
-fun rowIconOf(rows: Rows): Dp =
+/** How large a list's row's icon is: larger, as Thunar draws them, or as large as the text. */
+fun rowIconOf(rows: Rows, type: Type): Dp =
 	when (rows) {
-		Rows.Larger -> 34.dp
-		Rows.Compact -> 20.dp
+		Rows.Larger -> type.icon * 1.75f
+		Rows.Compact -> type.icon
 	}
 
 val LocalPalette = staticCompositionLocalOf { Palette.Light }
+val LocalTypes = staticCompositionLocalOf { Types.of(Palette.Light, Typography()) }
+
+/** The type of the part of the window being drawn: its general type, unless the part says it is the listing's or a menu's. */
 val LocalType = staticCompositionLocalOf { Type.of(Palette.Light) }
 
-/** The picker's palette and type around [content], and Material's theme bound to them for the few widgets it uses. */
+/** prism's palette and type around [content], and Material's theme bound to them for the few widgets it uses. */
 @Composable
 fun BrowserTheme(
 	palette: Palette = Palette.Light,
-	sizes: TextSizes = TextSizes(),
-	fonts: Fonts = Fonts(),
+	typography: Typography = Typography(),
 	content: @Composable () -> Unit,
 ) {
-	val families = remember(fonts) { FontFamilies.of(fonts) }
+	val types = remember(palette, typography) { Types.of(palette, typography) }
 
 	val scheme =
 		if (palette.isDark)
 			darkColorScheme(
 				primary = palette.accent,
 				onPrimary = palette.onAccent,
-				surface = palette.surface,
+				surface = palette.overlay,
 				onSurface = palette.text,
 				background = palette.window,
 			)
@@ -376,16 +429,16 @@ fun BrowserTheme(
 			lightColorScheme(
 				primary = palette.accent,
 				onPrimary = palette.onAccent,
-				surface = palette.surface,
+				surface = palette.overlay,
 				onSurface = palette.text,
 				background = palette.window,
 			)
 
 	CompositionLocalProvider(
 		LocalPalette provides palette,
-		LocalType provides Type.of(palette, sizes.general, families.general),
-		LocalTextSizes provides sizes,
-		LocalFontFamilies provides families,
+		LocalTypes provides types,
+		LocalType provides types.general,
+		androidx.compose.foundation.LocalContextMenuRepresentation provides PrismContextMenus,
 	) {
 		MaterialTheme(colorScheme = scheme, content = content)
 	}

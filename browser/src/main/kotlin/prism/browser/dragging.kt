@@ -407,7 +407,7 @@ fun Modifier.folderDrop(
 		onDrop = { paths, transfer -> onEvent(BrowserEvent.Dropped(paths, spot, transfer)) },
 	).then(
 		if (over)
-			Modifier.border(2.dp, palette.accent, RoundedCornerShape(Dims.radius))
+			Modifier.border(2.dp, palette.accent, RoundedCornerShape(Radius.medium))
 		else
 			Modifier,
 	)

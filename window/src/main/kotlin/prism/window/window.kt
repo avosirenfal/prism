@@ -405,6 +405,11 @@ class NativeWindow internal constructor(
 			}
 			SDL_EVENT_MOUSE_WHEEL -> {
 				val wheel = event.wheel()
+
+				Log.say {
+					"window $id: wheel ${wheel.x()}, ${wheel.y()} at ${wheel.mouse_x()}, ${wheel.mouse_y()}"
+				}
+
 				val flip =
 					if (wheel.direction() == SDL_MOUSEWHEEL_FLIPPED)
 						-1f

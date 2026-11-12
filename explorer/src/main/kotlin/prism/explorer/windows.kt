@@ -37,7 +37,6 @@ import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import prism.browser.BrowserEvent
 import prism.browser.Chord
-import prism.browser.Dims
 import prism.browser.HostedBrowser
 import prism.browser.HostedWindow
 import prism.browser.LocalPalette
@@ -45,12 +44,12 @@ import prism.browser.LocalType
 import prism.browser.Location
 import prism.browser.Palette
 import prism.browser.Scaled
+import prism.browser.Space
 import prism.browser.TransientFor
 import prism.browser.mouseChords
 import prism.browser.zoomedByWheel
 import prism.preferences.DateFormat
-import prism.preferences.Fonts
-import prism.preferences.TextSizes
+import prism.preferences.Typography
 import prism.preferences.WindowKind
 import prism.window.NativeWindow
 import prism.window.Window
@@ -66,7 +65,6 @@ import prism.window.Window
 fun ExplorerWindows(explorer: Explorer, palette: Palette, decorated: Boolean) {
 	val windows by explorer.windows.collectAsState()
 	val preferences by explorer.preferences.preferences.collectAsState()
-	val sizes = preferences.text
 
 	/** How large windows of [kind] are drawn, and what zooming one does: every one of its kind drawn so, from then on. */
 	fun zoomOf(kind: WindowKind): Zooming =
@@ -118,9 +116,8 @@ fun ExplorerWindows(explorer: Explorer, palette: Palette, decorated: Boolean) {
 						{
 							explorer.close(window)
 						},
-						sizes = sizes,
+						typography = preferences.typography,
 						dates = preferences.dates,
-						fonts = preferences.fonts,
 						zoom =
 							zoomOf(
 								WindowKind.Properties,
@@ -137,9 +134,8 @@ fun ExplorerWindows(explorer: Explorer, palette: Palette, decorated: Boolean) {
 						{
 							explorer.close(window)
 						},
-						sizes = sizes,
+						typography = preferences.typography,
 						dates = preferences.dates,
-						fonts = preferences.fonts,
 						zoom =
 							zoomOf(
 								WindowKind.OpenWith,
@@ -155,9 +151,8 @@ fun ExplorerWindows(explorer: Explorer, palette: Palette, decorated: Boolean) {
 						decorated,
 						{ explorer.close(window) },
 						raised = window.raised,
-						sizes = sizes,
+						typography = preferences.typography,
 						dates = preferences.dates,
-						fonts = preferences.fonts,
 						zoom = zoomOf(WindowKind.Preferences),
 					) {
 						SettingsWindow(explorer) { explorer.close(window) }
@@ -246,9 +241,8 @@ private fun Dialog(
 	decorated: Boolean,
 	onClose: () -> Unit,
 	raised: Int = 0,
-	sizes: TextSizes = TextSizes(),
+	typography: Typography = Typography(),
 	dates: DateFormat = DateFormat.Written,
-	fonts: Fonts = Fonts(),
 	zoom: Zooming = Zooming(1f) {},
 	content: @Composable (NativeWindow) -> Unit,
 ) {
@@ -264,11 +258,11 @@ private fun Dialog(
 			if (raised > 0)
 				native.raise()
 		}
-		HostedWindow(native, palette, sizes, dates, fonts) {
+		HostedWindow(native, palette, typography, dates) {
 			Column(
 				Modifier
 					.fillMaxSize()
-					.background(LocalPalette.current.window)
+					.background(LocalPalette.current.canvas)
 					.zoomedByWheel { zoom.onScale(zoom.stepped(it)) }
 					.onPreviewKeyEvent { zoomKey(it, zoom) }
 					.onKeyEvent {
@@ -284,7 +278,7 @@ private fun Dialog(
 							Text(
 								title,
 								style = LocalType.current.heading,
-								modifier = Modifier.padding(start = Dims.gap * 2, top = Dims.gap * 2),
+								modifier = Modifier.padding(start = Space.xl, top = Space.l),
 							)
 						Box(Modifier.weight(1f).fillMaxWidth()) { content(native) }
 					}
@@ -310,47 +304,4 @@ private fun zoomKey(key: KeyEvent, zoom: Zooming): Boolean {
 	zoom.onScale(scale)
 
 	return true
-}
-
-/** A row of tabs, [chosen] among [tabs], each named by [label]. */
-@Composable
-internal fun <T> Tabs(
-	tabs: List<T>,
-	chosen: T,
-	label: (T) -> String,
-	onChoose: (T) -> Unit,
-) {
-	val palette = LocalPalette.current
-	val type = LocalType.current
-
-	Row {
-		tabs.forEach { tab ->
-			// As wide as its name, which its underline is too.
-			Column(
-				Modifier.padding(end = Dims.gap * 2).width(IntrinsicSize.Max).clickable {
-					onChoose(tab)
-				},
-			) {
-				Text(
-					label(tab),
-					style =
-						if (tab == chosen)
-							type.body.copy(color = palette.accent)
-						else
-							type.body,
-					modifier = Modifier.padding(vertical = Dims.gapSmall),
-				)
-				Spacer(
-					Modifier.height(2.dp).fillMaxWidth().background(
-						if (tab ==
-							chosen
-						)
-							palette.accent
-						else
-							palette.window,
-					),
-				)
-			}
-		}
-	}
 }

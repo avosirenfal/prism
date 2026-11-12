@@ -11,10 +11,9 @@ import androidx.compose.ui.Modifier
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import prism.preferences.DateFormat
-import prism.preferences.Fonts
 import prism.preferences.PreferenceStore
 import prism.preferences.Scales
-import prism.preferences.TextSizes
+import prism.preferences.Typography
 import prism.window.NativeWindow
 
 /**
@@ -25,13 +24,12 @@ import prism.window.NativeWindow
 fun HostedWindow(
 	window: NativeWindow,
 	palette: Palette,
-	sizes: TextSizes = TextSizes(),
+	typography: Typography = Typography(),
 	dates: DateFormat = DateFormat.Written,
-	fonts: Fonts = Fonts(),
 	content: @Composable () -> Unit,
 ) {
 	TitleBarTone(window, palette.isDark)
-	BrowserTheme(palette, sizes.bounded(), fonts) {
+	BrowserTheme(palette, typography) {
 		CompositionLocalProvider(LocalDateFormat provides dates, content = content)
 	}
 }
@@ -58,7 +56,7 @@ fun HostedBrowser(
 	val set by preferences.preferences.collectAsState()
 	val bindings = remember(set) { Bindings.of(set) }
 
-	HostedWindow(window, palette, set.text, set.dates, set.fonts) {
+	HostedWindow(window, palette, set.typography, set.dates) {
 		CompositionLocalProvider(
 			LocalBindings provides bindings,
 			LocalSidebarScale provides

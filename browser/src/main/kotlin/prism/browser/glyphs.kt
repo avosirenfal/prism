@@ -55,6 +55,28 @@ enum class Glyph {
 
 	/** A magnifier over keys: finding what a key does. */
 	FindKey,
+	Plus,
+	Minus,
+
+	/** An ×: what closes, or removes, what it is on. */
+	Close,
+
+	/** A prompt in a window: a terminal. */
+	Terminal,
+
+	/** A keyboard: what keys do. */
+	Keyboard,
+
+	/** A bolt: what is done on command, an action. */
+	Bolt,
+
+	/** Lines set to the start, the middle and the end: how a column's values sit. */
+	AlignStart,
+	AlignCenter,
+	AlignEnd,
+
+	/** A triangle with a mark in it: something is wrong. */
+	Warning,
 }
 
 /** [glyph] at [size], in [tint]; a file's icon is marked with [category]'s colour. */
@@ -118,6 +140,68 @@ fun GlyphIcon(
 				for (x in listOf(9f, 15f))
 					for (y in listOf(6f, 12f, 18f))
 						drawCircle(tint, 1.6f * unit, at(unit, x, y))
+			Glyph.Plus -> {
+				stroked(unit, tint, listOf(12f to 5.5f, 12f to 18.5f))
+				stroked(unit, tint, listOf(5.5f to 12f, 18.5f to 12f))
+			}
+			Glyph.Minus -> stroked(unit, tint, listOf(5.5f to 12f, 18.5f to 12f))
+			Glyph.Close -> {
+				stroked(unit, tint, listOf(6.5f to 6.5f, 17.5f to 17.5f))
+				stroked(unit, tint, listOf(17.5f to 6.5f, 6.5f to 17.5f))
+			}
+			Glyph.Terminal -> {
+				drawRoundRect(
+					tint,
+					at(unit, 3f, 4.5f),
+					Size(18f * unit, 15f * unit),
+					CornerRadius(2f * unit),
+					style = line(unit),
+				)
+				stroked(unit, tint, listOf(7f to 9.5f, 10f to 12f, 7f to 14.5f))
+				stroked(unit, tint, listOf(12f to 15f, 16.5f to 15f))
+			}
+			Glyph.Keyboard -> {
+				drawRoundRect(
+					tint,
+					at(unit, 2.5f, 6f),
+					Size(19f * unit, 12f * unit),
+					CornerRadius(2f * unit),
+					style = line(unit),
+				)
+				for (x in listOf(6.5f, 10f, 13.5f, 17f))
+					drawCircle(tint, 0.9f * unit, at(unit, x, 10f))
+				stroked(unit, tint, listOf(8f to 14.5f, 16f to 14.5f))
+			}
+			Glyph.Bolt ->
+				stroked(
+					unit,
+					tint,
+					listOf(
+						13.5f to 3f,
+						6f to 13.5f,
+						12f to 13.5f,
+						10.5f to 21f,
+						18f to 10.5f,
+						12f to 10.5f,
+						13.5f to 3f,
+					),
+				)
+			Glyph.AlignStart, Glyph.AlignCenter, Glyph.AlignEnd ->
+				listOf(6f to 18f, 9f to 12f, 12f to 16f, 15f to 10f).forEach { (y, length) ->
+					val start =
+						when (glyph) {
+							Glyph.AlignStart -> 4f
+							Glyph.AlignCenter -> 12f - length / 2
+							else -> 20f - length
+						}
+
+					stroked(unit, tint, listOf(start to y, start + length to y))
+				}
+			Glyph.Warning -> {
+				stroked(unit, tint, listOf(12f to 4f, 21f to 19.5f, 3f to 19.5f, 12f to 4f))
+				stroked(unit, tint, listOf(12f to 10f, 12f to 14f))
+				drawCircle(tint, 1.1f * unit, at(unit, 12f, 16.8f))
+			}
 			Glyph.FindKey -> {
 				drawRoundRect(
 					tint,

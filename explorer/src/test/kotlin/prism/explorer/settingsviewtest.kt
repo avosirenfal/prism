@@ -8,6 +8,7 @@ import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.hasAnyAncestor
+import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.isFocused
 import androidx.compose.ui.test.onAllNodesWithTag
@@ -21,13 +22,20 @@ import androidx.compose.ui.test.runComposeUiTest
 import androidx.compose.ui.test.withKeyDown
 import kotlinx.coroutines.flow.MutableSharedFlow
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import prism.browser.Action
 import prism.browser.BrowserTheme
 import prism.browser.Chord
 import prism.browser.MouseButton
 import prism.browser.Trigger
+import prism.preferences.Align
+import prism.preferences.ColumnId
+import prism.preferences.Layout
+import prism.preferences.ListingKind
 import prism.preferences.Preferences
+import prism.preferences.Role
 
 /**
  * The bindings window as a player rebinds a game's keys: a binding clicked waits, and the next chord pressed, a key with
@@ -160,5 +168,66 @@ class SettingsViewTest {
 			onNodeWithTag("find-by-key").performClick()
 			waitForIdle()
 			onNodeWithText(Action.Back.label).assertExists()
+		}
+
+	@Test
+	fun aListingIsFoundByName_AGallerysFiltersApartFromAListsAndAPickersFromTheExplorers() =
+		runComposeUiTest {
+			val zip = ListingKind.Place("archive.zip")
+			var settings by mutableStateOf(Settings(Preferences.DEFAULT, page = Page.Listings))
+
+			setContent {
+				BrowserTheme {
+					SettingsView(settings, { settings = it }, onApply = {}, onClose = {})
+				}
+			}
+
+			// Every kind of listing is listed down the side; what is typed over them narrows them to those it names.
+			onNodeWithTag("listing:Folders").assertExists()
+			onNode(
+				hasSetTextAction() and hasAnyAncestor(hasTestTag("listings-filter")),
+			).performTextReplacement("zip")
+			waitForIdle()
+			onNodeWithTag("listing:Folders").assertDoesNotExist()
+			onNodeWithTag("listing:Archive (zip)").performClick()
+			waitForIdle()
+			assertEquals(zip, settings.looking.kind)
+
+			// A gallery's hidden files left out, and a list's still shown.
+			onNodeWithTag("View:Gallery").performClick()
+			onNodeWithTag("hidden-files").performClick()
+			waitForIdle()
+			assertFalse(
+				settings.listings
+					.filters(Role.Explorer, zip, Layout.Gallery)
+					.hidden.files,
+			)
+			assertTrue(
+				settings.listings
+					.filters(Role.Explorer, zip, Layout.List)
+					.hidden.files,
+			)
+
+			// A column aligned, from its row.
+			onNodeWithTag("align:Size:Centre").performClick()
+			waitForIdle()
+			assertEquals(
+				Align.Center,
+				settings.listings
+					.look(Role.Explorer, zip)
+					.columns(zip)
+					.settings
+					.single { it.id == ColumnId.Size }
+					.aligned,
+			)
+
+			// A picker's are the explorer's, until it is given its own.
+			onNodeWithTag("Window:File picker").performClick()
+			waitForIdle()
+			assertFalse(settings.listings.ownLook(Role.Picker, zip))
+			onNodeWithTag("own").performClick()
+			waitForIdle()
+			assertTrue(settings.listings.ownLook(Role.Picker, zip))
+			onNodeWithText("Apply").assertIsEnabled()
 		}
 }

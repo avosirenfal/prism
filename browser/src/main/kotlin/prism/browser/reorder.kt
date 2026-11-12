@@ -12,9 +12,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 
 /** A drag under way in a [ReorderableColumn]: the entry [from], and how far the pointer has moved it, in pixels. */
@@ -28,7 +31,8 @@ private data class Dragging(
  * [items] one under another, each drawn by [content], that the pointer reorders: an entry held by its handle (the
  * modifier [content] is given, for whatever part of it is held) is dragged up or down, the others making room for it
  * as it goes, and let go where it is to be; [onMove] is then told where from and where to. An entry [movable] says
- * is not has no handle. What is shown is [items] as they are: the order changes only as the caller's does.
+ * is not has no handle. What is shown is [items] as they are: the order changes only as the caller's does. In a card,
+ * [divided] sets a line between each two entries, as a card's rows have, which moves with the entry under it.
  */
 @Composable
 fun <T> ReorderableColumn(
@@ -37,6 +41,7 @@ fun <T> ReorderableColumn(
 	onMove: (from: Int, to: Int) -> Unit,
 	modifier: Modifier = Modifier,
 	movable: (T) -> Boolean = { true },
+	divided: Boolean = false,
 	content: @Composable (item: T, handle: Modifier, dragged: Boolean) -> Unit,
 ) {
 	var dragging by remember { mutableStateOf<Dragging?>(null) }
@@ -105,11 +110,21 @@ fun <T> ReorderableColumn(
 							}
 						}
 
+				val divider = LocalPalette.current.divider
+				val lifted = drag?.from == index
+
 				Box(
 					Modifier
 						.onSizeChanged { heights = heights + (key(item) to it.height) }
-						.zIndex(if (drag?.from == index) 1f else 0f)
-						.graphicsLayer { translationY = shift },
+						.zIndex(if (lifted) 1f else 0f)
+						.graphicsLayer {
+							translationY = shift
+							shadowElevation = if (lifted) 8.dp.toPx() else 0f
+						}.drawWithContent {
+							drawContent()
+							if (divided && index > 0 && !lifted)
+								drawLine(divider, Offset.Zero, Offset(size.width, 0f), 1.dp.toPx())
+						},
 				) {
 					content(item, handle, drag?.from == index)
 				}

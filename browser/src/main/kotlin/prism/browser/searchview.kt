@@ -25,6 +25,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
@@ -68,7 +69,7 @@ import prism.window.WindowLocals
 internal fun SearchLayer(search: Search, home: Path, onEvent: (BrowserEvent) -> Unit) {
 	val palette = LocalPalette.current
 	val field = remember { FocusRequester() }
-	val shape = RoundedCornerShape(10.dp)
+	val shape = RoundedCornerShape(Radius.large)
 	val bindings = LocalBindings.current
 
 	Popup(
@@ -88,9 +89,10 @@ internal fun SearchLayer(search: Search, home: Path, onEvent: (BrowserEvent) -> 
 			) {
 				Column(
 					Modifier
-						.padding(top = 64.dp, start = 24.dp, end = 24.dp)
+						.padding(top = 72.dp, start = Space.xl, end = Space.xl)
 						.width(680.dp)
-						.background(palette.surface, shape)
+						.shadow(24.dp, shape, ambientColor = palette.shadow, spotColor = palette.shadow)
+						.background(palette.overlay, shape)
 						.border(1.dp, palette.border, shape)
 						// A tap inside is not a tap outside.
 						.pointerInput(Unit) { detectTapGestures { } }
@@ -111,8 +113,8 @@ internal fun SearchLayer(search: Search, home: Path, onEvent: (BrowserEvent) -> 
 							}
 
 							escape || again
-						}.padding(12.dp),
-					verticalArrangement = Arrangement.spacedBy(Dims.gap),
+						}.padding(Space.l),
+					verticalArrangement = Arrangement.spacedBy(Space.m),
 				) {
 					when (search) {
 						is Search.Unavailable -> Unavailable(search, field, onEvent)
@@ -136,17 +138,7 @@ private fun Unavailable(
 
 	Text("There is no index to search", style = type.title)
 	Text(search.why, style = type.body)
-	Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-		PushButton(
-			"OK",
-			Emphasis.Primary,
-			enabled = true,
-			Modifier.testTag("search-ok"),
-			focus,
-		) {
-			onEvent(BrowserEvent.ClosedSearch)
-		}
-	}
+	ButtonRow(Act("OK", "search-ok", focus = focus) { onEvent(BrowserEvent.ClosedSearch) })
 }
 
 @Composable
@@ -184,8 +176,8 @@ private fun Searching(
 			{ onEvent(BrowserEvent.SearchTyped(it)) },
 			Modifier.weight(1f).testTag("search-query"),
 			hint = "Search everything: report, *.pdf, dir:photos, ~/Documents/",
-			trailing = Glyph.Search,
-			height = 40.dp,
+			leading = Glyph.Search,
+			height = type.control + Space.s,
 			focus = field,
 			// The keyboard arrives at the end of what was typed, to go on typing it.
 			selecting = {
@@ -194,9 +186,9 @@ private fun Searching(
 			},
 			onKey = ::key,
 			colouring = colouring,
-			style = type.body.copy(fontSize = 16.sp),
+			style = type.body.times(1.15f),
 		)
-		Spacer(Modifier.width(Dims.gap))
+		Spacer(Modifier.width(Space.s))
 		PushButton(
 			"Search",
 			Emphasis.Primary,
@@ -208,7 +200,7 @@ private fun Searching(
 	read.problems.firstOrNull { it.kind == Problem.Kind.Invalid }?.let {
 		Text(
 			it.message,
-			style = type.muted.copy(color = palette.pdf),
+			style = type.muted.copy(color = palette.dangerText),
 			modifier = Modifier.testTag("search-problem"),
 		)
 	}
@@ -235,7 +227,12 @@ private fun Searching(
 					else -> "${"%,d".format(matches.size)} matches · Enter shows them all"
 				},
 				style = type.muted,
-				modifier = Modifier.padding(horizontal = Dims.gapSmall).testTag("search-count"),
+				modifier =
+					Modifier
+						.padding(
+							horizontal = Space.s,
+							vertical = Space.xxs,
+						).testTag("search-count"),
 			)
 		}
 	}
@@ -248,12 +245,12 @@ private fun Match(row: Row, home: Path, highlighted: Boolean, onClick: () -> Uni
 	val type = LocalType.current
 	val hover = remember { MutableInteractionSource() }
 	val hovered by hover.collectIsHoveredAsState()
-	val shape = RoundedCornerShape(Dims.radius)
+	val shape = RoundedCornerShape(Radius.medium)
 
 	Row(
 		Modifier
 			.fillMaxWidth()
-			.height(36.dp)
+			.height(type.row + Space.xs)
 			.background(
 				when {
 					highlighted -> palette.chosen
@@ -265,18 +262,18 @@ private fun Match(row: Row, home: Path, highlighted: Boolean, onClick: () -> Uni
 			.clickable(onClick = onClick)
 			.semantics { selected = highlighted }
 			.testTag("match:${row.name}")
-			.padding(horizontal = Dims.gap),
+			.padding(horizontal = Space.s),
 		verticalAlignment = Alignment.CenterVertically,
 	) {
 		GlyphIcon(
 			if (row.isFolder) Glyph.Folder else Glyph.File,
 			palette.text,
-			Dims.icon,
+			type.icon,
 			category = row.category,
 		)
-		Spacer(Modifier.width(Dims.gap + 2.dp))
+		Spacer(Modifier.width(Space.s + Space.xxs))
 		Text(row.name, style = type.body, maxLines = 1, overflow = TextOverflow.Ellipsis)
-		Spacer(Modifier.width(Dims.gap * 2))
+		Spacer(Modifier.width(Space.l))
 		Text(
 			row.path?.let { folderOf(it, home) }.orEmpty(),
 			style = type.muted,

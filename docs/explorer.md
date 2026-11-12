@@ -308,22 +308,30 @@ they do not say for the explorer is prism's own.
         },
         "filters": { "explorer/folder/gallery": { "hidden": { "files": false }, "kinds": [ "Images" ] } }
     },
-    "text": { "menus": 15, "listing": 13, "general": 13 },
-    "fonts": { "listing": "Inter" },
+    "typography": { "menus": { "points": 12.5 }, "listing": { "family": "Inter", "points": null }, "general": {} },
     "rows": "Larger",
     "scales": { "explorer": 1.25, "picker": 1.0, "sidebar": 1.0, "windows": { "Preferences": 1.1 } },
     "dates": "Iso"
 }
 ```
 
-**How it is drawn.** The list's rows are larger, with icons as large as Thunar draws them, or compact (`rows`). Each
-column has room either side of what it shows, and the list room at its edges. A date column sets a date's date and
-its time apart: its dates in a width every date the format writes fits (measured once, of a day of each month), its
-times after them in another, each digit as wide as the next (tabular figures), so every row's line up, whatever the
-font; a date column is never drawn narrower than that. A gallery's tiles have room between them, and around them, for
-a rectangle to be started or the folder's menu opened. The preferences size and name the font of the menus, the
-listing and the rest (a family the system has, by name; the default where none is named), the menus a little larger
-by default.
+**How it is drawn.** The list's rows are larger, with icons as large as Thunar draws them, or compact (`rows`); either
+is as tall as its text and its icon need, so text made larger never outgrows its row. Each column has room either side
+of what it shows, and the list room at its edges. A date column sets a date's date and its time apart: its dates in a
+width every date the format writes fits (measured once, of a day of each month), its times after them in another, each
+digit as wide as the next (tabular figures), so every row's line up, whatever the font. A date column is exactly that
+wide (`Width.Date`), in its heading as in its rows; the other columns share what is left (`Width.Share`), so a listing
+drawn larger takes its room from them, the name's first, and never cuts a date. A gallery's tiles have room between
+them, and around them, for a rectangle to be started or the folder's menu opened.
+
+`typography` names the font of the menus, the listing and the rest (a family the system has, by name), and its size in
+points, as desktops measure type (11 points by default, 12 for the menus: GNOME's and KDE's body text is 10 to 11).
+Either left null is the default's, so a later default reaches whoever never chose one. An older version's `text` and
+`fonts` are no longer read: they wrote the defaults of the day as though the user had chosen them.
+
+**Scrolling.** The wheel scrolls a list by its own rows, three a notch (a gallery by a line of tiles), however large it
+is drawn: a notch moves as far through the folder at 300 % as at 100 %. A touchpad's small scrolls move it as much
+less as they are smaller. Every list and page that scrolls has its bar beside it whenever there is more than fits.
 
 `scales` says how large things are drawn, as many times their usual size: the listing of a new explorer's window and
 of a new picker's (the nearest of the steps Ctrl and the wheel zoom the listing through), the sidebar's quick access
@@ -334,11 +342,12 @@ Ctrl+0, do too. `dates` is how the listing writes a date: day, month, year (`12 
 day, year; ISO's year-month-day; day/month/year; month/day/year; day.month.year; or as the system's language writes
 it. A file's properties write dates in full, to the second, whatever it says.
 
-**The preferences window** sets all of these, and Apply makes them so without closing it. Display: each part's text
-size and font, the rows, the sizes, the dates. Columns and order, and Filters: a window's kind (an explorer or a file
-picker) and a kind of listing chosen (and, for filters, a layout), then its order, and its columns, dragged by their
-grips into order, ticked shown or not, and aligned; or its filters. A picker's are the explorer's until it is ticked to
-have its own. Key bindings: a filter (Ctrl+F goes to it) that finds an action by its name, as shown or as the file
+**The preferences window** sets all of these, and Apply makes them so without closing it. Display: each part's font
+and size, the rows, the sizes, the dates. Listings: every kind of listing down the page's side (prism's own, then each
+type of place), narrowed by a field over them so that any of however many places is found, each marked where it has
+anything of its own; and beside them the one chosen, in an explorer or a file picker: its order, its columns, dragged
+by their grips into order, ticked shown or not, and aligned; and its filters, for a list and for a gallery. A picker's
+are the explorer's until its switch gives it its own (changing anything does too). Key bindings: a filter (Ctrl+F goes to it) that finds an action by its name, as shown or as the file
 writes it, or by its chords; and, as JetBrains' keymap has it, a button that opens "Find Shortcut", which takes the
 next shortcut pressed (a key with its modifiers, or the mouse's middle, back or forward button over its lower part) for
 as long as it is open, and shows what it does, binding nothing. Closed, the keys are the page's again, and what it

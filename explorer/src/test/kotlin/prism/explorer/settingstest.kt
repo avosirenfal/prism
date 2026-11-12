@@ -147,10 +147,10 @@ class SettingsTest {
 		assertEquals(elsewhere.quickAccess, saved.quickAccess)
 
 		// Applied, the window edits from what is applied: nothing changed, the page where it was.
-		val applied = looked.copy(page = Page.Columns).applied(saved)
+		val applied = looked.copy(page = Page.Listings).applied(saved)
 
 		assertFalse(applied.changed)
-		assertEquals(Page.Columns, applied.page)
+		assertEquals(Page.Listings, applied.page)
 		assertEquals(saved, applied.base)
 
 		// The terminal emptied is the desktop's own.

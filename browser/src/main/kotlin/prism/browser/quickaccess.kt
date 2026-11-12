@@ -59,7 +59,6 @@ internal fun QuickAccessLayer(sidebar: Sidebar, onEvent: (BrowserEvent) -> Unit)
 	val quick = sidebar.quick
 	val entries = sidebar.arranging
 	val done = remember { FocusRequester() }
-	val shape = RoundedCornerShape(8.dp)
 	var typed by remember { mutableStateOf("") }
 	val folder = typed.trim().takeIf { it.isNotEmpty() }?.let { Path.of(it) }
 	val pinnable = folder?.let { it.isAbsolute && Files.isDirectory(it) } == true
@@ -68,112 +67,92 @@ internal fun QuickAccessLayer(sidebar: Sidebar, onEvent: (BrowserEvent) -> Unit)
 
 	fun close() = onEvent(BrowserEvent.ArrangingQuickAccess(false))
 
-	Popup(
-		alignment = Alignment.Center,
-		onDismissRequest = ::close,
-		properties = PopupProperties(focusable = true),
-	) {
-		WindowLocals {
-			Scaled(LocalSidebarScale.current) {
-				Box(
-					Modifier
-						.fillMaxSize()
-						.background(palette.scrim)
-						.onKeyEvent {
-							(it.type == KeyEventType.KeyDown && it.key == Key.Escape).also { escaped ->
-								if (escaped)
-									close()
-							}
-						}.testTag("quick-access"),
-					contentAlignment = Alignment.Center,
-				) {
-					Column(
-						Modifier
-							.width(520.dp)
-							.background(palette.surface, shape)
-							.border(1.dp, palette.border, shape)
-							.padding(20.dp),
-					) {
-						Text("Quick access", style = type.title)
-						Text(
-							"What the sidebar shows first, in this order. Prism's own places are hidden by their boxes, " +
-								"and can always be shown again; folders you pinned can be removed. A folder's menu pins it.",
-							style = type.muted,
-							modifier = Modifier.padding(top = Dims.gapSmall, bottom = Dims.gap),
-						)
-						// Dragged by their grips, or moved a place at a time by their arrows.
-						ReorderableColumn(
-							entries,
-							key = { it.builtin ?: it.item?.path ?: it },
-							onMove = { from, to -> arranged(quick.moved(from, to - from)) },
-							modifier = Modifier.heightIn(max = 380.dp).verticalScroll(rememberScrollState()),
-						) { entry, handle, dragged ->
-							val index = entries.indexOf(entry)
+	fun pin() {
+		folder?.takeIf { pinnable }?.let { arranged(quick.pinning(it)) }
+		typed = ""
+	}
 
-							EntryLine(
-								entry,
-								labelOf(entry),
-								sidebar.known[Builtin.Home]?.path,
-								index,
-								last = entries.lastIndex,
-								handle = handle,
-								dragged = dragged,
-								onShown = { shown -> entry.builtin?.let { arranged(quick.showing(it, shown)) } },
-								onMoved = { by -> arranged(quick.moved(index, by)) },
-								onRemoved = { (entry.item?.path)?.let { arranged(quick.unpinning(it)) } },
-							)
-						}
-						Spacer(Modifier.size(Dims.gap))
-						Row(
-							verticalAlignment = Alignment.CenterVertically,
-							horizontalArrangement = Arrangement.spacedBy(Dims.gap),
-						) {
-							Field(
-								typed,
-								{ typed = it },
-								Modifier.weight(1f).testTag("pin-path"),
-								hint = "A folder to pin, as its whole path",
-							)
-							PushButton(
-								"Pin",
-								Emphasis.Secondary,
-								enabled = pinnable,
-								Modifier.testTag("pin"),
-							) {
-								folder?.let { arranged(quick.pinning(it)) }
-								typed = ""
-							}
-						}
-						if (folder != null && !pinnable)
-							Text(
-								"That is not a folder's whole path.",
-								style = type.muted.copy(color = palette.textFaint),
-							)
-						Row(
-							Modifier.fillMaxWidth().padding(top = 20.dp),
-							horizontalArrangement = Arrangement.spacedBy(Dims.gap),
-						) {
-							PushButton(
-								"Reset",
-								Emphasis.Secondary,
-								enabled = quick != reset(quick),
-								Modifier.testTag("reset"),
-							) { arranged(reset(quick)) }
-							Spacer(Modifier.weight(1f))
-							PushButton(
-								"Done",
-								Emphasis.Primary,
-								enabled = true,
-								Modifier.testTag("done"),
-								done,
-							) {
-								close()
-							}
-						}
+	Scaled(LocalSidebarScale.current) {
+		Modal(
+			"Quick access",
+			onDismiss = ::close,
+			width = ModalWidth.Large,
+			tag = "quick-access",
+			focus = done,
+			buttons = {
+				ButtonRow(
+					Act("Done", "done", focus = done, onClick = ::close),
+					aside =
+						listOf(
+							Act("Reset", "reset", quick != reset(quick)) { arranged(reset(quick)) },
+						),
+				)
+			},
+		) {
+			Text(
+				"What the sidebar shows first, in this order: drag an entry by its grip to move " +
+					"it. Prism's own places are hidden by their boxes, and can always be shown " +
+					"again; folders you pinned can be removed. A folder's menu pins it.",
+				style = type.muted,
+			)
+			// As tall as the window has room for, and scrolled where it has not.
+			ScrollArea(Modifier.fillMaxWidth().weight(1f, fill = false)) {
+				Card {
+					ReorderableColumn(
+						entries,
+						key = { it.builtin ?: it.item?.path ?: it },
+						onMove = { from, to -> arranged(quick.moved(from, to - from)) },
+						divided = true,
+					) { entry, handle, dragged ->
+						val index = entries.indexOf(entry)
+
+						EntryLine(
+							entry,
+							labelOf(entry),
+							sidebar.known[Builtin.Home]?.path,
+							index,
+							last = entries.lastIndex,
+							handle = handle,
+							dragged = dragged,
+							onShown = { shown -> entry.builtin?.let { arranged(quick.showing(it, shown)) } },
+							onMoved = { by -> arranged(quick.moved(index, by)) },
+							onRemoved = { (entry.item?.path)?.let { arranged(quick.unpinning(it)) } },
+						)
 					}
 				}
 			}
-			LaunchedEffect(Unit) { done.requestFocus() }
+			Labelled(
+				"Pin a folder",
+				help = "That is not a folder's whole path.".takeIf { folder != null && !pinnable },
+			) {
+				Row(
+					verticalAlignment = Alignment.CenterVertically,
+					horizontalArrangement = Arrangement.spacedBy(Space.s),
+				) {
+					Field(
+						typed,
+						{ typed = it },
+						Modifier.weight(1f).testTag("pin-path"),
+						hint = "/home/you/Projects",
+						onKey = {
+							(
+								it.type == KeyEventType.KeyDown &&
+									(it.key == Key.Enter || it.key == Key.NumPadEnter)
+							).also { entered ->
+								if (entered)
+									pin()
+							}
+						},
+					)
+					PushButton(
+						"Pin",
+						Emphasis.Secondary,
+						enabled = pinnable,
+						Modifier.testTag("pin"),
+						onClick = ::pin,
+					)
+				}
+			}
 		}
 	}
 }
@@ -199,26 +178,21 @@ private fun EntryLine(
 	Row(
 		Modifier
 			.fillMaxWidth()
-			.background(
-				if (dragged)
-					palette.chosen
-				else
-					Color.Transparent,
-				RoundedCornerShape(Dims.radius),
-			).padding(vertical = 2.dp)
-			.testTag("quick:$label"),
+			.background(if (dragged) palette.chosen else palette.raised)
+			.testTag("quick:$label")
+			.padding(horizontal = Space.m, vertical = Space.s),
 		verticalAlignment = Alignment.CenterVertically,
-		horizontalArrangement = Arrangement.spacedBy(Dims.gap),
+		horizontalArrangement = Arrangement.spacedBy(Space.s),
 	) {
-		GlyphIcon(Glyph.Grip, palette.textFaint, 18.dp, handle.testTag("grip:$label"))
-		if (builtin != null)
-			CheckBox("", entry.shown, Modifier.testTag("shown:$label"), onChange = onShown)
-		else
-			Spacer(Modifier.width(18.dp))
+		GlyphIcon(Glyph.Grip, palette.textFaint, type.icon, handle.testTag("grip:$label"))
+		Box(Modifier.width(type.icon), contentAlignment = Alignment.Center) {
+			if (builtin != null)
+				CheckBox("", entry.shown, Modifier.testTag("shown:$label"), onChange = onShown)
+		}
 		GlyphIcon(
 			entry.item?.let(::glyphOf) ?: builtin?.let(::glyphOf) ?: Glyph.Folder,
 			palette.textMuted,
-			Dims.icon,
+			type.icon,
 		)
 		Column(Modifier.weight(1f)) {
 			Text(
@@ -249,8 +223,8 @@ private fun EntryLine(
 			"Move up",
 			enabled = index > 0,
 			Modifier.testTag("up:$label"),
-			size = 28.dp,
-			icon = 16.dp,
+			icon =
+				type.icon * 0.8f,
 		) {
 			onMoved(-1)
 		}
@@ -259,17 +233,25 @@ private fun EntryLine(
 			"Move down",
 			enabled = index < last,
 			Modifier.testTag("down:$label"),
-			size = 28.dp,
-			icon = 16.dp,
-		) { onMoved(1) }
+			icon =
+				type.icon * 0.8f,
+		) {
+			onMoved(1)
+		}
+		// A folder pinned is removed; one of prism's own, never, so it has an empty place where the button would be.
 		if (builtin == null)
-			PushButton(
-				"Remove",
-				Emphasis.Secondary,
+			ToolButton(
+				Glyph.Close,
+				"Remove from quick access",
 				enabled = true,
 				Modifier.testTag("remove:$label"),
-				onClick = onRemoved,
-			)
+				icon =
+					type.icon * 0.8f,
+			) {
+				onRemoved()
+			}
+		else
+			Spacer(Modifier.width(type.control))
 	}
 }
 

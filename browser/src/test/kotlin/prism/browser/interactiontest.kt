@@ -260,6 +260,15 @@ class InteractionTest {
 		focused().performKeyInput { keyUp(Key.CtrlLeft) }
 	}
 
+	/** The wheel turned [notches] toward the user, down the list, over the listing. */
+	private fun ComposeUiTest.wheel(notches: Int) {
+		onNodeWithTag("listing").performMouseInput {
+			moveTo(center)
+			scroll(notches.toFloat())
+		}
+		waitForIdle()
+	}
+
 	/** Whether the picker is asking something, in a notice over it. */
 	private fun ComposeUiTest.asked(): Boolean =
 		onAllNodes(hasTestTag("notice")).fetchSemanticsNodes().isNotEmpty()
@@ -778,6 +787,15 @@ class InteractionTest {
 			waitUntil(timeoutMillis = TIMEOUT) {
 				onAllNodes(hasTestTag("quick-access")).fetchSemanticsNodes().isEmpty()
 			}
+
+			// Opened again, Escape puts it away, wherever in it the keyboard is.
+			onNodeWithTag("arrange-quick-access").performClick()
+			onNode(isFocused() and hasAnyAncestor(hasTestTag("quick-access"))).performKeyInput {
+				pressKey(Key.Escape)
+			}
+			waitUntil(timeoutMillis = TIMEOUT) {
+				onAllNodes(hasTestTag("quick-access")).fetchSemanticsNodes().isEmpty()
+			}
 		}
 
 	@Test
@@ -1214,6 +1232,32 @@ class InteractionTest {
 			focusIsIn("search")
 			field("search").assertTextEquals("n")
 			assertEquals("n", session.state.value.arrangement.query)
+		}
+
+	@Test
+	fun aNotchOfTheWheelMovesTheListThreeRows_HoweverLargeItIsDrawn() =
+		picking(
+			folder =
+				work.also {
+					(1..60).forEach { n ->
+						it.resolve("dir %02d".format(n)).createDirectories()
+					}
+				},
+		) {
+			waitForIdle()
+
+			val first = top("dir 01")
+
+			// At its usual size, a notch down: the fourth row is where the first was.
+			wheel(1)
+			assertEquals(first, top("dir 04"), 1.5f)
+
+			// Drawn larger, a notch still moves three of its rows, and not a third as many.
+			zoomByWheel(4)
+			waitForIdle()
+			assertEquals(first, top("dir 04"), 1.5f)
+			wheel(1)
+			assertEquals(first, top("dir 07"), 1.5f)
 		}
 
 	@Test

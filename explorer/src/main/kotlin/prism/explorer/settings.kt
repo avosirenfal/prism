@@ -9,7 +9,6 @@ import prism.browser.Bindings
 import prism.browser.Chord
 import prism.desktop.TerminalChoice
 import prism.preferences.DateFormat
-import prism.preferences.Fonts
 import prism.preferences.Layout
 import prism.preferences.ListingKind
 import prism.preferences.Listings
@@ -19,7 +18,7 @@ import prism.preferences.Role
 import prism.preferences.Rows
 import prism.preferences.Scales
 import prism.preferences.TerminalChoiceSerializer
-import prism.preferences.TextSizes
+import prism.preferences.Typography
 
 /*
  * The preferences as their window edits them, as one immutable value: how windows look, the terminal, and every
@@ -33,8 +32,7 @@ enum class Page(
 	val label: String,
 ) {
 	Display("Display"),
-	Columns("Columns and order"),
-	Filters("Filters"),
+	Listings("Listings"),
 	Terminal("Terminal"),
 	Bindings("Key bindings"),
 	Actions("Actions"),
@@ -162,18 +160,17 @@ data class Rebinding(
 
 /**
  * The preferences window's edits: [base], the preferences as they were when it opened, or were last applied; how
- * windows' listings look and what they leave out ([listings]); how large text and things are drawn, in what fonts; how
- * dates are written; the [terminal] as its fields are typed; the bindings being rebound; the [page] shown, and on the
- * columns' and the filters' pages, which listing ([looking]), and which layout of it ([filteringIn]).
+ * windows' listings look and what they leave out ([listings]); each part's font and size, and how large things are
+ * drawn; how dates are written; the [terminal] as its fields are typed; the bindings being rebound; the [page] shown,
+ * and on the listings' page, which listing ([looking]), and which layout of it its filters are for ([filteringIn]).
  */
 data class Settings(
 	val base: Preferences,
 	val terminal: TerminalForm = TerminalForm.of(base.terminal),
 	val rebinding: Rebinding = Rebinding(Bindings.of(base)),
 	val listings: Listings = base.listings,
-	/** How large each part's text is. */
-	val text: TextSizes = base.text,
-	val fonts: Fonts = base.fonts,
+	/** Each part's font, and its size. */
+	val typography: Typography = base.typography,
 	val rows: Rows = base.rows,
 	/** How large the listing of a new window is drawn, an explorer's and a picker's, and the sidebar's quick access. */
 	val scales: Scales = base.scales,
@@ -209,8 +206,7 @@ data class Settings(
 		return current.copy(
 			terminal = kept(Preferences::terminal, terminal.choice()),
 			listings = kept(Preferences::listings, listings),
-			text = kept(Preferences::text, text),
-			fonts = kept(Preferences::fonts, fonts),
+			typography = kept(Preferences::typography, typography),
 			rows = kept(Preferences::rows, rows),
 			dates = kept(Preferences::dates, dates),
 			// The other windows' sizes are each window's own, as Ctrl and the wheel leave them: never this window's.

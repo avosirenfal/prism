@@ -63,10 +63,11 @@ data class Preferences(
 	 * window already open.
 	 */
 	val listings: Listings = Listings(),
-	/** How large the text of each part of a window is. */
-	val text: TextSizes = TextSizes(),
-	/** The font of each part of a window. */
-	val fonts: Fonts = Fonts(),
+	/**
+	 * The font and size of each part of a window's text, as the user chose them, the default's where they did not. An
+	 * older version's `text` and `fonts`, which wrote its defaults as though they were chosen, are no longer read.
+	 */
+	val typography: Typography = Typography(),
 	/** How tall the list's rows are, and how large their icons. */
 	val rows: Rows = Rows.Larger,
 	/** How large the listing, the sidebar and the other windows are drawn. */

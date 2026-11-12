@@ -1,5 +1,8 @@
 package prism.browser
 
+import androidx.compose.foundation.ContextMenuItem
+import androidx.compose.foundation.ContextMenuRepresentation
+import androidx.compose.foundation.ContextMenuState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
@@ -170,14 +173,7 @@ fun <A> MenuPopup(
 
 				from?.let {
 					// A menu's text is as large as the user wants menus' to be, whatever the window's is.
-					CompositionLocalProvider(
-						LocalType provides
-							Type.of(
-								LocalPalette.current,
-								LocalTextSizes.current.menus,
-								LocalFontFamilies.current.let { it.menus ?: it.general },
-							),
-					) {
+					CompositionLocalProvider(LocalType provides LocalTypes.current.menus) {
 						MenuLevel(menu, anchor, it, onAction, onClose, onBack = onClose, startLit = false)
 					}
 				}
@@ -212,7 +208,7 @@ private fun <A> MenuLevel(
 	onBack: () -> Unit,
 	startLit: Boolean,
 ) {
-	val gap = with(LocalDensity.current) { Dims.gapSmall.roundToPx() }
+	val gap = with(LocalDensity.current) { Space.xs.roundToPx() }
 	// The submenu open beside one of this level's entries, drawn after it: over it, where they overlap.
 	var beside by remember { mutableStateOf<Beside<A>?>(null) }
 
@@ -277,7 +273,7 @@ private fun <A> MenuPanel(
 	onBeside: (Beside<A>?) -> Unit,
 ) {
 	val palette = LocalPalette.current
-	val shape = RoundedCornerShape(8.dp)
+	val shape = RoundedCornerShape(Radius.large)
 	val focus = remember { FocusRequester() }
 	val choosable = menu.entries.indices.filter { menu.entries[it].choosable }
 
@@ -358,11 +354,11 @@ private fun <A> MenuPanel(
 
 	Column(
 		Modifier
-			.shadow(10.dp, shape)
-			.background(palette.surface, shape)
+			.shadow(16.dp, shape, ambientColor = palette.shadow, spotColor = palette.shadow)
+			.background(palette.overlay, shape)
 			.border(1.dp, palette.border, shape)
 			.width(IntrinsicSize.Max)
-			.widthIn(min = 200.dp)
+			.widthIn(min = 220.dp)
 			.focusRequester(focus)
 			.onKeyEvent(::key)
 			.focusable()
@@ -376,18 +372,13 @@ private fun <A> MenuPanel(
 								it.consume()
 						}
 				}
-			}.padding(4.dp),
+			}.padding(Space.xs),
 	) {
 		menu.entries.forEachIndexed { index, entry ->
 			when (entry) {
 				MenuEntry.Separator ->
-					Box(
-						Modifier
-							.fillMaxWidth()
-							.padding(
-								vertical = 4.dp,
-							).height(1.dp)
-							.background(palette.divider),
+					Divider(
+						Modifier.padding(vertical = Space.xs, horizontal = Space.s),
 					)
 				is MenuEntry.Item ->
 					MenuRow(
@@ -484,13 +475,13 @@ private fun MenuRow(
 	Row(
 		Modifier
 			.fillMaxWidth()
-			.height(28.dp * scaleOf(LocalTextSizes.current.menus))
+			.height(type.row)
 			.background(
 				if (lit && enabled)
-					palette.hover
+					palette.chosen
 				else
 					Color.Transparent,
-				RoundedCornerShape(4.dp),
+				RoundedCornerShape(Radius.medium),
 			).alpha(if (enabled) 1f else 0.4f)
 			.hoverable(source)
 			.pointerInput(enabled) {
@@ -508,18 +499,27 @@ private fun MenuRow(
 				selected =
 					(mark as? Mark.Check)?.on ?: (mark as? Mark.Radio)?.on ?: false
 			}.testTag("menu:$label")
-			.padding(horizontal = 8.dp),
+			.padding(horizontal = Space.s + Space.xxs),
 		verticalAlignment = Alignment.CenterVertically,
 	) {
 		// Room for a mark in every row of a menu that has any, so that the labels line up and turning one on or off
 		// moves nothing.
 		if (marked)
-			Box(Modifier.width(22.dp), contentAlignment = Alignment.CenterStart) {
+			Box(Modifier.width(type.icon + Space.s), contentAlignment = Alignment.CenterStart) {
 				when {
-					mark is Mark.Check && mark.on -> GlyphIcon(Glyph.Check, palette.accent, 15.dp)
+					mark is Mark.Check && mark.on ->
+						GlyphIcon(
+							Glyph.Check,
+							palette.accentText,
+							type.icon * 0.85f,
+						)
 					mark is Mark.Radio && mark.on ->
 						Box(
-							Modifier.size(6.dp).background(palette.text, CircleShape),
+							Modifier
+								.padding(
+									start = Space.xs,
+								).size(7.dp)
+								.background(palette.accentText, CircleShape),
 						)
 				}
 			}
@@ -531,12 +531,12 @@ private fun MenuRow(
 			modifier = Modifier.weight(1f),
 		)
 		keys?.let {
-			Spacer(Modifier.width(28.dp))
-			Text(it, style = type.muted, maxLines = 1)
+			Spacer(Modifier.width(Space.xxl))
+			Text(it, style = type.muted.tabular(), maxLines = 1)
 		}
 		if (submenu) {
-			Spacer(Modifier.width(16.dp))
-			GlyphIcon(Glyph.Chevron, palette.textMuted, 12.dp)
+			Spacer(Modifier.width(Space.l))
+			GlyphIcon(Glyph.Chevron, palette.textMuted, type.icon * 0.7f)
 		}
 	}
 }
@@ -685,5 +685,35 @@ fun <A> MenuButton(
 		}
 		if (open)
 			MenuPopup(menu(), MenuAnchor.Below, onAction) { open = false }
+	}
+}
+
+/**
+ * The menus Compose opens of its own (a text field's: Cut, Copy, Paste, Select all), drawn as prism's are, at the
+ * pointer, rather than in Compose's own look.
+ */
+object PrismContextMenus : ContextMenuRepresentation {
+	@Composable
+	override fun Representation(
+		state: ContextMenuState,
+		items: () -> List<ContextMenuItem>,
+	) {
+		// Where the menu's area is in the window, found from a mark of no size left in it: the menu opens at a point of
+		// the area, and is drawn over the whole window.
+		var area by remember { mutableStateOf<LayoutCoordinates?>(null) }
+
+		Box(Modifier.onGloballyPositioned { area = it.parentLayoutCoordinates })
+
+		val open = state.status as? ContextMenuState.Status.Open ?: return
+		val at = area?.takeIf { it.isAttached }?.localToWindow(open.rect.center) ?: return
+		val offered = items()
+
+		if (offered.isNotEmpty())
+			MenuPopup(
+				menu { offered.forEach { item(it.label, it) } },
+				MenuAnchor.At(IntOffset(at.x.roundToInt(), at.y.roundToInt())),
+				onAction = { it.onClick() },
+				onClose = { state.status = ContextMenuState.Status.Closed },
+			)
 	}
 }

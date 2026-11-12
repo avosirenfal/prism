@@ -162,15 +162,48 @@ internal object ComposeClipboard : Clipboard {
 		SystemClipboard.put(text?.let(ClipOffer::text) ?: ClipOffer(emptyMap()))
 	}
 
-	private fun Transferable.textOf(): String? =
-		try {
-			getTransferData(DataFlavor.stringFlavor) as? String
-		} catch (unsupported: UnsupportedFlavorException) {
-			null
-		} catch (failed: IOException) {
-			null
-		}
+	/** The desktop's clipboard as AWT's, which a text field's own menu asks whether there is text to paste. */
+	override val nativeClipboard: Any get() = AwtClipboard
 }
+
+/**
+ * The desktop's clipboard as AWT names one: only a value of AWT's here, as its transferables are, over SDL's
+ * clipboard, holding text.
+ */
+private object AwtClipboard : java.awt.datatransfer.Clipboard("prism") {
+	override fun getContents(requestor: Any?): Transferable? =
+		SystemClipboard.text()?.let(::StringSelection)
+
+	override fun setContents(
+		contents: Transferable?,
+		owner: java.awt.datatransfer.ClipboardOwner?,
+	) {
+		SystemClipboard.put(contents?.textOf()?.let(ClipOffer::text) ?: ClipOffer(emptyMap()))
+	}
+
+	override fun getAvailableDataFlavors(): Array<DataFlavor> =
+		if (SystemClipboard.text() != null)
+			arrayOf(DataFlavor.stringFlavor)
+		else
+			emptyArray()
+
+	override fun isDataFlavorAvailable(flavor: DataFlavor): Boolean =
+		flavor in availableDataFlavors
+
+	override fun getData(flavor: DataFlavor): Any =
+		SystemClipboard.text()?.takeIf { flavor == DataFlavor.stringFlavor }
+			?: throw UnsupportedFlavorException(flavor)
+}
+
+/** What [this] holds as text; null where it holds none. */
+private fun Transferable.textOf(): String? =
+	try {
+		getTransferData(DataFlavor.stringFlavor) as? String
+	} catch (unsupported: UnsupportedFlavorException) {
+		null
+	} catch (failed: IOException) {
+		null
+	}
 
 /**
  * [content] given the window's own clipboard again: what a popup's content needs, since Compose gives each popup the

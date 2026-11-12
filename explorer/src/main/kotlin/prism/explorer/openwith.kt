@@ -6,6 +6,7 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -13,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -38,14 +40,18 @@ import java.io.IOException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import prism.browser.Act
+import prism.browser.ButtonRow
+import prism.browser.Card
 import prism.browser.CheckBox
-import prism.browser.Dims
-import prism.browser.Emphasis
 import prism.browser.Field
 import prism.browser.Glyph
+import prism.browser.LazyScrollArea
+import prism.browser.ListHeading
+import prism.browser.ListRow
 import prism.browser.LocalPalette
 import prism.browser.LocalType
-import prism.browser.PushButton
+import prism.browser.Space
 import prism.desktop.Application
 import prism.desktop.Applications
 import prism.desktop.FileTypes
@@ -182,99 +188,88 @@ fun OpenWithView(choice: Choice, explorer: Explorer, onClose: () -> Unit) {
 
 	LaunchedEffect(Unit) { filter.requestFocus() }
 
-	Column(Modifier.fillMaxSize().padding(Dims.gap * 2)) {
-		Text(headingOf(choice, desktop.types), style = type.heading)
-		Spacer(Modifier.height(Dims.gap))
-		Field(
-			chooser.filter,
-			{ edited = chooser.filtered(it) },
-			Modifier.fillMaxWidth(),
-			hint = "Search the applications",
-			trailing = Glyph.Search,
-			focus = filter,
-			onKey = {
-				when {
-					it.type != KeyEventType.KeyDown -> false
-					it.key == Key.DirectionDown -> true.also { edited = chooser.moved(1) }
-					it.key == Key.DirectionUp -> true.also { edited = chooser.moved(-1) }
-					it.key == Key.Enter || it.key == Key.NumPadEnter -> true.also { confirm() }
-					else -> false
-				}
-			},
-		)
-		Spacer(Modifier.height(Dims.gap))
-		LazyColumn(Modifier.weight(1f).fillMaxWidth()) {
-			chooser.sections.forEach { section ->
-				item(key = section.heading) {
-					Text(
-						section.heading,
-						style = type.muted,
-						modifier = Modifier.padding(top = Dims.gap, bottom = 2.dp),
-					)
-				}
-				items(section.applications, key = { section.heading + it.id }) { application ->
-					val chosen = application == chooser.chosen
-
-					Row(
-						Modifier
-							.fillMaxWidth()
-							.height(Dims.row)
-							.background(
-								if (chosen) palette.chosen else palette.window,
-								RoundedCornerShape(Dims.radius),
-							).combinedClickable(
-								remember { MutableInteractionSource() },
-								indication = null,
+	Column(Modifier.fillMaxSize()) {
+		Column(
+			Modifier
+				.weight(
+					1f,
+				).fillMaxWidth()
+				.padding(
+					start = Space.xl,
+					end = Space.xl,
+					top = Space.l,
+					bottom = Space.l,
+				),
+			verticalArrangement = Arrangement.spacedBy(Space.m),
+		) {
+			Text(headingOf(choice, desktop.types), style = type.title)
+			Field(
+				chooser.filter,
+				{ edited = chooser.filtered(it) },
+				Modifier.fillMaxWidth(),
+				hint = "Search the applications",
+				leading = Glyph.Search,
+				focus = filter,
+				onKey = {
+					when {
+						it.type != KeyEventType.KeyDown -> false
+						it.key == Key.DirectionDown -> true.also { edited = chooser.moved(1) }
+						it.key == Key.DirectionUp -> true.also { edited = chooser.moved(-1) }
+						it.key == Key.Enter || it.key == Key.NumPadEnter -> true.also { confirm() }
+						else -> false
+					}
+				},
+			)
+			Card(Modifier.weight(1f)) {
+				LazyScrollArea(Modifier.fillMaxSize(), padding = PaddingValues(Space.xs)) {
+					chooser.sections.forEach { section ->
+						item(key = section.heading) { ListHeading(section.heading) }
+						items(section.applications, key = { section.heading + it.id }) { application ->
+							ListRow(
+								application.name,
+								chosen = application == chooser.chosen,
+								trailing = {
+									Text(
+										application.id.removeSuffix(".desktop"),
+										style = type.muted,
+										maxLines = 1,
+										overflow = TextOverflow.Ellipsis,
+										modifier = Modifier.widthIn(max = 220.dp),
+									)
+								},
 								onDoubleClick = {
 									edited = chooser.copy(chosen = application)
 									confirm()
 								},
 							) { edited = chooser.copy(chosen = application) }
-							.padding(horizontal = Dims.gap),
-						verticalAlignment = Alignment.CenterVertically,
-					) {
-						Text(
-							application.name,
-							style = type.body,
-							maxLines = 1,
-							modifier = Modifier.weight(1f),
-						)
-						Text(
-							application.id.removeSuffix(".desktop"),
-							style = type.muted,
-							maxLines = 1,
-							overflow = TextOverflow.Ellipsis,
-							modifier = Modifier.width(220.dp),
-						)
+						}
 					}
+					if (chooser.shown.isEmpty())
+						item { ListHeading("No application is called that") }
 				}
 			}
-			if (chooser.shown.isEmpty())
-				item { Text("No application is called that.", style = type.muted) }
-		}
-		chooser.defaultable?.let {
-			CheckBox(
-				"Always open ${describedType(it, desktop.types)} with it",
-				chooser.always,
-			) { always ->
-				edited = chooser.copy(always = always)
+			chooser.defaultable?.let {
+				CheckBox(
+					"Always open ${describedType(it, desktop.types)} with it",
+					chooser.always,
+				) { always ->
+					edited = chooser.copy(always = always)
+				}
 			}
+			failure?.let { Text(it, style = type.body.copy(color = palette.dangerText)) }
 		}
-		failure?.let { Text(it, style = type.body.copy(color = palette.pdf)) }
-		Spacer(Modifier.height(Dims.gap))
-		Row(
-			Modifier.fillMaxWidth(),
-			horizontalArrangement = Arrangement.spacedBy(Dims.gap, Alignment.End),
-		) {
-			PushButton("Cancel", Emphasis.Secondary, enabled = true, onClick = onClose)
-			PushButton(
-				when (choice) {
-					is Choice.Open -> "Open"
-					is Choice.Default -> "Use it"
-				},
-				Emphasis.Primary,
-				enabled = chooser.chosen != null,
-			) { confirm() }
+		DialogFoot {
+			ButtonRow(
+				Act(
+					when (choice) {
+						is Choice.Open -> "Open"
+						is Choice.Default -> "Use it"
+					},
+					"open",
+					chooser.chosen != null,
+				) { confirm() },
+				secondary = listOf(Act("Cancel", "cancel", onClick = onClose)),
+			)
 		}
 	}
 }

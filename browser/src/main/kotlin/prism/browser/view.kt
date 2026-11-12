@@ -19,6 +19,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
@@ -39,6 +41,7 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.rememberScrollbarAdapter
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
@@ -130,6 +133,7 @@ import prism.preferences.DateFormat
 import prism.preferences.Kind
 import prism.preferences.Layout
 import prism.preferences.Sort
+import prism.preferences.Width
 import prism.window.WindowLocals
 
 /*
@@ -227,10 +231,8 @@ fun FileBrowser(
 						SidebarPane(state, stops, onEvent)
 						Box(Modifier.width(1.dp).fillMaxHeight().background(palette.border))
 					}
-					// The listing in its own font, where the user chose one.
-					CompositionLocalProvider(
-						LocalType provides LocalType.current.inFamily(LocalFontFamilies.current.listing),
-					) {
+					// The listing in its own type: its own size and font, where the user chose them.
+					CompositionLocalProvider(LocalType provides LocalTypes.current.listing) {
 						ListingPane(state, stops, Modifier.weight(1f), ::act, onEvent)
 					}
 				}
@@ -374,27 +376,37 @@ private fun Line(color: Color) =
 
 // ---- the toolbar: the way back and up, the path, the search ----------------------------------------------------
 
+/**
+ * The toolbar, in groups a little apart: the window's menu; the way back, forward and up; the path, and the search of
+ * the folder; and how the listing is filtered and drawn.
+ */
 @Composable
 private fun Toolbar(state: BrowserState, stops: Stops, onEvent: (BrowserEvent) -> Unit) {
+	val bindings = LocalBindings.current
+
+	/** What [label] does, and the key that does it too, where there is one. */
+	fun tip(label: String, action: Action): String =
+		bindings.of(action).firstOrNull()?.let { "$label ($it)" } ?: label
+
 	Row(
 		Modifier
 			.fillMaxWidth()
-			.height(Dims.toolbar)
-			.padding(horizontal = Dims.gap),
+			.background(LocalPalette.current.window)
+			.padding(horizontal = Space.s, vertical = Space.s),
 		verticalAlignment = Alignment.CenterVertically,
-		horizontalArrangement = Arrangement.spacedBy(Dims.gapSmall),
+		horizontalArrangement = Arrangement.spacedBy(Space.xs),
 	) {
 		// The window's own menu first, where a window's menu is on every desktop.
+		// The window's own menu first, where a window's menu is on every desktop.
 		if (state.choosing is Choosing.Exploring) {
-			val bindings = LocalBindings.current
-
 			MenuButton(Glyph.Menu, "Menu", {
 				appMenuOf(state, bindings)
 			}, onEvent, Modifier.testTag("menu-button"))
+			Spacer(Modifier.width(Space.xs))
 		}
 		ToolButton(
 			Glyph.Back,
-			"Back",
+			tip("Back", Action.Back),
 			state.history.back.isNotEmpty(),
 			Modifier.testTag("back"),
 		) {
@@ -402,7 +414,7 @@ private fun Toolbar(state: BrowserState, stops: Stops, onEvent: (BrowserEvent) -
 		}
 		ToolButton(
 			Glyph.Forward,
-			"Forward",
+			tip("Forward", Action.Forward),
 			state.history.forward.isNotEmpty(),
 			Modifier.testTag("forward"),
 		) {
@@ -410,12 +422,25 @@ private fun Toolbar(state: BrowserState, stops: Stops, onEvent: (BrowserEvent) -
 		}
 		ToolButton(
 			Glyph.Up,
-			"Up",
+			tip("The folder above", Action.Up),
 			state.folder?.parent != null || state.place?.within?.isNotEmpty() == true,
 			Modifier.testTag("up"),
 		) {
 			onEvent(BrowserEvent.Up)
 		}
+		Spacer(Modifier.width(Space.s))
+		AddressBar(state, stops, Modifier.weight(1f), onEvent)
+		Spacer(Modifier.width(Space.s))
+		Field(
+			state.arrangement.query,
+			{ onEvent(BrowserEvent.Searched(it)) },
+			Modifier.width(260.dp).testTag("search"),
+			hint = "Search ${state.placeName}",
+			leading = Glyph.Search,
+			focus = stops.search,
+			onKey = { searchKey(it, state.arrangement.query, stops, onEvent) },
+		)
+		Spacer(Modifier.width(Space.s))
 		MenuButton(
 			Glyph.Filter,
 			"Filters",
@@ -424,30 +449,19 @@ private fun Toolbar(state: BrowserState, stops: Stops, onEvent: (BrowserEvent) -
 			Modifier.testTag("filters"),
 			selected = state.entryFilters.kinds.isNotEmpty(),
 		)
-		Spacer(Modifier.width(Dims.gapSmall))
-		AddressBar(state, stops, Modifier.weight(1f), onEvent)
-		Spacer(Modifier.width(Dims.gapSmall))
-		Field(
-			state.arrangement.query,
-			{ onEvent(BrowserEvent.Searched(it)) },
-			Modifier.width(260.dp).testTag("search"),
-			hint = "Search ${state.placeName}",
-			trailing = Glyph.Search,
-			focus = stops.search,
-			onKey = { searchKey(it, state.arrangement.query, stops, onEvent) },
-		)
-		Spacer(Modifier.width(Dims.gapSmall))
-		for ((layout, glyph) in listOf(
-			Layout.List to Glyph.ViewList,
-			Layout.Gallery to Glyph.ViewGrid,
-		))
-			ToolButton(
-				glyph,
-				layout.name,
-				enabled = true,
-				Modifier.testTag("layout:${layout.name}"),
-				selected = state.layout == layout,
-			) { onEvent(BrowserEvent.Viewed(layout)) }
+		Segmented(
+			Layout.entries,
+			state.layout,
+			{ it.name },
+			tag = "layout",
+			focusable = false,
+			glyph = {
+				when (it) {
+					Layout.List -> Glyph.ViewList
+					Layout.Gallery -> Glyph.ViewGrid
+				}
+			},
+		) { onEvent(BrowserEvent.Viewed(it)) }
 	}
 }
 
@@ -525,61 +539,113 @@ private fun AddressBar(
 	}
 }
 
+/**
+ * What the path's bar shows, in a field's look: its [glyph], then [content]. Clicked where nothing in it takes the click,
+ * it does [onClick] (a path to type, a search to open again), where there is one.
+ */
+@Composable
+private fun Bar(
+	glyph: Glyph,
+	modifier: Modifier,
+	clickLabel: String? = null,
+	onClick: (() -> Unit)? = null,
+	content: @Composable RowScope.() -> Unit,
+) {
+	val palette = LocalPalette.current
+	val type = LocalType.current
+	val source = remember { MutableInteractionSource() }
+	val felt = source.felt()
+	val shape = RoundedCornerShape(Radius.medium)
+
+	Row(
+		modifier
+			.ring(felt.ringed, palette.focus)
+			.height(type.control)
+			.background(
+				if (felt.hovered &&
+					onClick != null
+				)
+					palette.hover
+				else
+					palette.field,
+				shape,
+			).border(
+				1.dp,
+				if (felt.hovered &&
+					onClick != null
+				)
+					palette.fieldEdgeHover
+				else
+					palette.fieldEdge,
+				shape,
+			).then(
+				onClick?.let {
+					Modifier.clickable(
+						source,
+						indication = null,
+						onClickLabel = clickLabel,
+						onClick = it,
+					)
+				} ?: Modifier,
+			).padding(start = Space.m, end = Space.s),
+		verticalAlignment = Alignment.CenterVertically,
+		horizontalArrangement = Arrangement.spacedBy(Space.s),
+	) {
+		GlyphIcon(glyph, palette.textMuted, type.icon * 0.85f)
+		content()
+	}
+}
+
+/** Steps to click, one after another with a chevron between, the last shown in full where the bar is too short. */
+@Composable
+private fun RowScope.Steps(
+	count: Int,
+	step: @Composable (index: Int, last: Boolean) -> Unit,
+) {
+	val palette = LocalPalette.current
+	val type = LocalType.current
+	val scroll = rememberScrollState()
+
+	// A path too long for the bar shows its end, where the folder shown is.
+	LaunchedEffect(count) {
+		snapshotFlow { scroll.maxValue }.collect { scroll.scrollTo(it) }
+	}
+
+	Row(
+		Modifier.weight(1f, fill = false).horizontalScroll(scroll),
+		verticalAlignment = Alignment.CenterVertically,
+	) {
+		for (index in 0 until count) {
+			val last = index == count - 1
+
+			step(index, last)
+			if (!last)
+				GlyphIcon(Glyph.Chevron, palette.textFaint, type.icon * 0.6f)
+		}
+	}
+}
+
 @Composable
 private fun Crumbs(
 	crumbs: List<Crumb>,
 	modifier: Modifier,
 	onEvent: (BrowserEvent) -> Unit,
 ) {
-	val palette = LocalPalette.current
-	val source = remember { MutableInteractionSource() }
-	val felt = source.felt()
-	val shape = RoundedCornerShape(Dims.radius)
-	val scroll = rememberScrollState()
+	Bar(Glyph.Folder, modifier.testTag("crumbs"), "Type a path", {
+		onEvent(BrowserEvent.EditedAddress)
+	}) {
+		Steps(crumbs.size) { index, last ->
+			val crumb = crumbs[index]
 
-	// A path too long for the bar shows its end, where the folder shown is.
-	LaunchedEffect(crumbs) {
-		snapshotFlow { scroll.maxValue }.collect { scroll.scrollTo(it) }
-	}
-
-	Row(
-		modifier
-			.ring(felt.ringed, palette.focus)
-			.height(Dims.control)
-			.background(
-				if (felt.hovered)
-					palette.hover
-				else
-					palette.field,
-				shape,
-			).border(1.dp, palette.fieldEdge, shape)
-			.clickable(source, indication = null, onClickLabel = "Type a path") {
-				onEvent(BrowserEvent.EditedAddress)
-			}.testTag("crumbs")
-			.padding(horizontal = Dims.gap),
-		verticalAlignment = Alignment.CenterVertically,
-	) {
-		GlyphIcon(Glyph.Folder, palette.text, 16.dp)
-		Spacer(Modifier.width(Dims.gap))
-		Row(
-			Modifier.weight(1f, fill = false).horizontalScroll(scroll),
-			verticalAlignment = Alignment.CenterVertically,
-		) {
-			crumbs.forEachIndexed { index, crumb ->
-				val last = index == crumbs.lastIndex
-
-				CrumbStep(
-					crumb,
-					last,
-					Modifier.folderDrop(
-						crumb.path,
-						{ onEvent(BrowserEvent.Opened(crumb.path)) }.takeIf { !last },
-						onEvent,
-					),
-				) { onEvent(BrowserEvent.Opened(crumb.path)) }
-				if (!last)
-					GlyphIcon(Glyph.Chevron, palette.textFaint, 12.dp)
-			}
+			CrumbStep(
+				crumb,
+				last,
+				Modifier.folderDrop(
+					crumb.path,
+					{ onEvent(BrowserEvent.Opened(crumb.path)) }.takeIf { !last },
+					onEvent,
+				),
+			) { onEvent(BrowserEvent.Opened(crumb.path)) }
 		}
 	}
 }
@@ -594,33 +660,12 @@ private fun ResultsBar(
 	modifier: Modifier,
 	onEvent: (BrowserEvent) -> Unit,
 ) {
-	val palette = LocalPalette.current
 	val type = LocalType.current
-	val source = remember { MutableInteractionSource() }
-	val felt = source.felt()
-	val shape = RoundedCornerShape(Dims.radius)
 
-	Row(
-		modifier
-			.ring(felt.ringed, palette.focus)
-			.height(Dims.control)
-			.background(
-				if (felt.hovered)
-					palette.hover
-				else
-					palette.field,
-				shape,
-			).border(1.dp, palette.fieldEdge, shape)
-			.clickable(source, indication = null, onClickLabel = "Search again") {
-				onEvent(BrowserEvent.OpenedSearch)
-			}.testTag("results")
-			.padding(horizontal = Dims.gap),
-		verticalAlignment = Alignment.CenterVertically,
-	) {
-		GlyphIcon(Glyph.Search, palette.text, 16.dp)
-		Spacer(Modifier.width(Dims.gap))
-		Text("Search results", style = type.body, maxLines = 1)
-		Spacer(Modifier.width(Dims.gap))
+	Bar(Glyph.Search, modifier.testTag("results"), "Search again", {
+		onEvent(BrowserEvent.OpenedSearch)
+	}) {
+		Text("Search results", style = type.strong, maxLines = 1)
 		Text(
 			"“${results.text}”",
 			style = type.muted,
@@ -634,25 +679,8 @@ private fun ResultsBar(
 /** In place of the path, that the window shows the trash: every trash's entries, which are on no one path. */
 @Composable
 private fun TrashBar(modifier: Modifier) {
-	val palette = LocalPalette.current
-	val shape = RoundedCornerShape(Dims.radius)
-
-	Row(
-		modifier
-			.height(Dims.control)
-			.background(palette.field, shape)
-			.border(1.dp, palette.fieldEdge, shape)
-			.testTag("trash-bar")
-			.padding(horizontal = Dims.gap),
-		verticalAlignment = Alignment.CenterVertically,
-	) {
-		GlyphIcon(Glyph.Trash, palette.text, 16.dp)
-		Spacer(Modifier.width(Dims.gap))
-		Text(
-			"Trash",
-			style = LocalType.current.body.copy(fontWeight = FontWeight.SemiBold),
-			maxLines = 1,
-		)
+	Bar(Glyph.Trash, modifier.testTag("trash-bar")) {
+		Text("Trash", style = LocalType.current.strong, maxLines = 1)
 	}
 }
 
@@ -666,39 +694,13 @@ private fun PlaceBar(
 	modifier: Modifier,
 	onEvent: (BrowserEvent) -> Unit,
 ) {
-	val palette = LocalPalette.current
-	val shape = RoundedCornerShape(Dims.radius)
-	val scroll = rememberScrollState()
 	val steps = listOf(place.placed.title) + place.within
 
-	LaunchedEffect(steps) {
-		snapshotFlow { scroll.maxValue }.collect { scroll.scrollTo(it) }
-	}
-
-	Row(
-		modifier
-			.height(Dims.control)
-			.background(palette.field, shape)
-			.border(1.dp, palette.fieldEdge, shape)
-			.testTag("place")
-			.padding(horizontal = Dims.gap),
-		verticalAlignment = Alignment.CenterVertically,
-	) {
-		GlyphIcon(Glyph.Folder, palette.text, 16.dp)
-		Spacer(Modifier.width(Dims.gap))
-		Row(
-			Modifier.weight(1f, fill = false).horizontalScroll(scroll),
-			verticalAlignment = Alignment.CenterVertically,
-		) {
-			steps.forEachIndexed { index, step ->
-				val last = index == steps.lastIndex
-
-				// The steps are only names here: the path each stands for is the place's own, and not one on disk.
-				CrumbStep(Crumb(step, Path.of("/")), last, Modifier) {
-					onEvent(BrowserEvent.WentWithin(place.within.take(index)))
-				}
-				if (!last)
-					GlyphIcon(Glyph.Chevron, palette.textFaint, 12.dp)
+	Bar(Glyph.Folder, modifier.testTag("place")) {
+		Steps(steps.size) { index, last ->
+			// The steps are only names here: the path each stands for is the place's own, and not one on disk.
+			CrumbStep(Crumb(steps[index], Path.of("/")), last, Modifier) {
+				onEvent(BrowserEvent.WentWithin(place.within.take(index)))
 			}
 		}
 	}
@@ -720,9 +722,9 @@ private fun CrumbStep(
 		crumb.label,
 		style =
 			if (last)
-				type.body.copy(fontWeight = FontWeight.SemiBold)
+				type.strong
 			else
-				type.body,
+				type.body.copy(color = palette.textMuted),
 		maxLines = 1,
 		modifier =
 			modifier
@@ -731,11 +733,11 @@ private fun CrumbStep(
 						palette.pressed
 					else
 						Color.Transparent,
-					RoundedCornerShape(4.dp),
+					RoundedCornerShape(Radius.small),
 				).focusProperties { canFocus = false }
 				.clickable(source, indication = null, onClick = onClick)
 				.testTag("crumb:${crumb.label}")
-				.padding(horizontal = 4.dp, vertical = 2.dp),
+				.padding(horizontal = Space.xs + Space.xxs, vertical = Space.xxs),
 	)
 }
 
@@ -798,7 +800,7 @@ private fun SidebarPane(
 	}
 
 	Scaled(LocalSidebarScale.current) {
-		Column(
+		ScrollArea(
 			Modifier
 				.width(Dims.sidebar)
 				.fillMaxHeight()
@@ -806,18 +808,12 @@ private fun SidebarPane(
 				.focusRequester(stops.places)
 				.onKeyEvent(::key)
 				.focusable(interactionSource = source)
-				.testTag("places")
-				.verticalScroll(rememberScrollState())
-				.padding(Dims.gap),
-			verticalArrangement = Arrangement.spacedBy(2.dp),
+				.testTag("places"),
+			padding = PaddingValues(start = Space.s, top = Space.xs, bottom = Space.s),
 		) {
 			for (group in groups) {
 				Row(
-					Modifier.fillMaxWidth().padding(
-						start = Dims.gap,
-						top = Dims.gap,
-						bottom = Dims.gapSmall,
-					),
+					Modifier.fillMaxWidth().padding(start = Space.s, top = Space.m, bottom = Space.xs),
 					verticalAlignment = Alignment.CenterVertically,
 				) {
 					Text(group.heading, style = type.heading, modifier = Modifier.weight(1f))
@@ -827,8 +823,8 @@ private fun SidebarPane(
 							"Arrange ${group.heading.lowercase()}",
 							enabled = true,
 							Modifier.testTag("arrange-quick-access"),
-							size = 24.dp,
-							icon = 16.dp,
+							size = type.line + Space.xs,
+							icon = type.icon * 0.8f,
 						) { onEvent(BrowserEvent.ArrangingQuickAccess(true)) }
 				}
 				for (item in group.items) {
@@ -885,36 +881,30 @@ private fun PlaceRow(
 	Row(
 		modifier
 			.fillMaxWidth()
-			.height(Dims.row)
+			.height(type.row)
 			.ring(keyed, palette.focus, outset = 0.dp, width = 1.5.dp)
-			.background(background, RoundedCornerShape(Dims.radius))
+			.background(background, RoundedCornerShape(Radius.medium))
 			.focusProperties { canFocus = false }
 			.clickable(source, indication = null, onClick = onOpen)
 			.testTag("place:${item.label}")
-			.padding(horizontal = Dims.gap),
+			.padding(horizontal = Space.s),
 		verticalAlignment = Alignment.CenterVertically,
+		horizontalArrangement = Arrangement.spacedBy(Space.s + Space.xxs),
 	) {
-		// The place being shown is marked as the desktop marks it: a short bar of the accent at its edge.
-		Box(
-			Modifier.width(3.dp).height(14.dp).background(
-				if (current)
-					palette.accent
-				else
-					Color.Transparent,
-				RoundedCornerShape(2.dp),
-			),
-		)
-		Spacer(Modifier.width(Dims.gap))
 		GlyphIcon(
 			glyphOf(item),
 			if (current)
-				palette.accent
+				palette.accentText
 			else
 				palette.textMuted,
-			Dims.icon,
+			type.icon,
 		)
-		Spacer(Modifier.width(Dims.gap + 2.dp))
-		Text(item.label, style = type.body, maxLines = 1, overflow = TextOverflow.Ellipsis)
+		Text(
+			item.label,
+			style = if (current) type.strong else type.body,
+			maxLines = 1,
+			overflow = TextOverflow.Ellipsis,
+		)
 	}
 }
 
@@ -1001,8 +991,9 @@ private fun ListingPane(
 	val cursorAt = cursor?.let(rows::indexOf)
 	val query = state.arrangement.query
 	val gallery = state.layout == Layout.Gallery
-	// The rows' text as large as the user wants the listing's, and Ctrl and the wheel zooming from there.
-	val zoom = state.scale * scaleOf(LocalTextSizes.current.listing)
+	// The rows as large as the listing's type makes them, and Ctrl and the wheel zooming from there.
+	val zoom = state.scale
+	val rowHeight = rowHeightOf(LocalRows.current, LocalType.current) * zoom
 	val chosen = state.choosing.rows
 	val renaming = state.renaming
 	var typing by remember { mutableStateOf(Typing("", 0)) }
@@ -1357,7 +1348,7 @@ private fun ListingPane(
 	var band by remember { mutableStateOf<Rect?>(null) }
 	var banded by remember { mutableStateOf(emptySet<RowId>()) }
 	// Where the rows are laid out from: the list's, and the gallery's, room around them.
-	val inset = with(LocalDensity.current) { Dims.gapSmall.toPx() }
+	val inset = with(LocalDensity.current) { LIST_INSET.toPx() }
 	val tileInset = with(LocalDensity.current) { Dims.tilePad.toPx() }
 
 	/** The rows [rect] takes in: those in sight that it touches, each where the listing has laid it out. */
@@ -1462,6 +1453,7 @@ private fun ListingPane(
 				Listing.Reading -> Box(Modifier.fillMaxSize())
 				is Listing.Unreadable ->
 					Message(
+						Glyph.Warning,
 						state.place?.let { "“${it.placed.title}” can't be listed" }
 							?: "This folder can't be opened",
 						listing.why,
@@ -1472,6 +1464,11 @@ private fun ListingPane(
 							val none = state.entryCount == 0
 
 							Message(
+								when {
+									query.isNotBlank() || listing is Listing.Found -> Glyph.Search
+									none -> Glyph.Folder
+									else -> Glyph.Filter
+								},
 								when {
 									query.isNotBlank() -> "Nothing here matches “$query”"
 									none && listing is Listing.Found -> "Nothing matches “${listing.finding.text}”"
@@ -1502,34 +1499,44 @@ private fun ListingPane(
 								)
 							}
 						else ->
-							LazyColumn(
-								nowhere
-									.fillMaxSize()
-									.padding(horizontal = Dims.gapSmall, vertical = Dims.gapSmall),
-								state = list,
-							) {
-								items(rows.size, key = rows::idAt, contentType = { "row" }) { index ->
-									val row = rows[index]
+							// A notch of the wheel moves the list three rows, however large they are drawn.
+							Box(Modifier.fillMaxSize().wheelScrolled(list, rowHeight)) {
+								LazyColumn(
+									nowhere
+										.fillMaxSize()
+										.padding(
+											start = LIST_INSET,
+											top = LIST_INSET,
+											bottom = LIST_INSET,
+											end = LIST_INSET + Dims.scrollbarRoom,
+										),
+									state = list,
+									userScrollEnabled = false,
+								) {
+									items(rows.size, key = rows::idAt, contentType = { "row" }) { index ->
+										val row = rows[index]
 
-									EntryRow(
-										row,
-										columns = columns,
-										home = state.home,
-										widths = widths,
-										chosen = row.id in chosen,
-										cursor = felt.ringed && row.id == cursor,
-										zoom = zoom,
-										renamed = renaming?.takeIf { it.row == row.id }?.text,
-										stops = stops,
-										onPress = { press(row.id, it) },
-										onRelease = { release(row.id) },
-										onEvent = onEvent,
-										modifier = dragging(row),
-										// The row's menu over its name, and the space after it in the name's column; the other
-										// columns are the listing's, whose menu is the folder's.
-										nameMenu = Modifier.contextMenu(menus) { menuOf(row) },
-									)
+										EntryRow(
+											row,
+											columns = columns,
+											home = state.home,
+											widths = widths,
+											chosen = row.id in chosen,
+											cursor = felt.ringed && row.id == cursor,
+											zoom = zoom,
+											renamed = renaming?.takeIf { it.row == row.id }?.text,
+											stops = stops,
+											onPress = { press(row.id, it) },
+											onRelease = { release(row.id) },
+											onEvent = onEvent,
+											modifier = dragging(row),
+											// The row's menu over its name, and the space after it in the name's column; the other
+											// columns are the listing's, whose menu is the folder's.
+											nameMenu = Modifier.contextMenu(menus) { menuOf(row) },
+										)
+									}
 								}
+								ScrollbarBeside(rememberScrollbarAdapter(list), Modifier.matchParentSize())
 							}
 					}
 			}
@@ -1552,7 +1559,7 @@ private fun DropLine(words: String) {
 			Modifier
 				.fillMaxWidth()
 				.background(palette.accent)
-				.padding(horizontal = Dims.gap * 2, vertical = Dims.gapSmall)
+				.padding(horizontal = Space.l, vertical = Space.s)
 				.testTag("drop-hint"),
 	)
 }
@@ -1578,23 +1585,34 @@ private fun Gallery(
 
 		LaunchedEffect(whole) { onEvent(BrowserEvent.Measured(whole)) }
 
-		LazyVerticalGrid(
-			if (state.zoom == Zoom.Whole || scale >= whole)
-				GridCells.Fixed(1)
-			else
-				GridCells.Adaptive(Dims.tile * scale),
-			nowhere.fillMaxSize().padding(Dims.tilePad),
-			state = grid,
-			horizontalArrangement = Arrangement.spacedBy(Dims.tileGap),
-			verticalArrangement = Arrangement.spacedBy(Dims.tileGap),
+		// A notch of the wheel moves the gallery a line of tiles, however large they are drawn.
+		Box(
+			Modifier.fillMaxSize().wheelScrolled(
+				grid,
+				Dims.tileHeight * scale + Dims.tileGap,
+				lines = 1f,
+			),
 		) {
-			val rows = state.rows
+			LazyVerticalGrid(
+				if (state.zoom == Zoom.Whole || scale >= whole)
+					GridCells.Fixed(1)
+				else
+					GridCells.Adaptive(Dims.tile * scale),
+				nowhere.fillMaxSize().padding(Dims.tilePad),
+				state = grid,
+				horizontalArrangement = Arrangement.spacedBy(Dims.tileGap),
+				verticalArrangement = Arrangement.spacedBy(Dims.tileGap),
+				userScrollEnabled = false,
+			) {
+				val rows = state.rows
 
-			items(
-				rows.size,
-				key = rows::idAt,
-				contentType = { "tile" },
-			) { tile(rows[it], scale) }
+				items(
+					rows.size,
+					key = rows::idAt,
+					contentType = { "tile" },
+				) { tile(rows[it], scale) }
+			}
+			ScrollbarBeside(rememberScrollbarAdapter(grid), Modifier.matchParentSize())
 		}
 	}
 }
@@ -1627,7 +1645,7 @@ fun Modifier.zoomedByWheel(onZoom: (Int) -> Unit): Modifier =
 	}
 
 /** [this] style drawn [factor] times as large. */
-private fun TextStyle.times(factor: Float): TextStyle =
+internal fun TextStyle.times(factor: Float): TextStyle =
 	copy(
 		fontSize = fontSize * factor,
 		lineHeight =
@@ -1704,7 +1722,12 @@ private fun NameOf(
  * other.
  */
 private suspend fun LazyGridState.reveal(index: Int) {
-	val info = snapshotFlow { layoutInfo }.first { it.visibleItemsInfo.isNotEmpty() }
+	snapshotFlow { layoutInfo }.first { it.visibleItemsInfo.isNotEmpty() }
+	// What is in sight can be learnt while the window is being laid out (its scrollbar reads it then), which is no time
+	// to scroll: the scroll waits for the next frame, and goes by what is in sight by then.
+	withFrameNanos {}
+
+	val info = layoutInfo
 	val shown = info.visibleItemsInfo
 	val first = shown.first()
 	val last = shown.last()
@@ -1744,7 +1767,12 @@ private suspend fun LazyGridState.reveal(index: Int) {
 private suspend fun LazyListState.reveal(index: Int) {
 	// A folder's rows and the cursor landing in them arrive together, before the list has laid anything out; what is
 	// in sight is known only once it has.
-	val info = snapshotFlow { layoutInfo }.first { it.visibleItemsInfo.isNotEmpty() }
+	snapshotFlow { layoutInfo }.first { it.visibleItemsInfo.isNotEmpty() }
+	// What is in sight can be learnt while the window is being laid out (its scrollbar reads it then), which is no time
+	// to scroll: the scroll waits for the next frame, and goes by what is in sight by then.
+	withFrameNanos {}
+
+	val info = layoutInfo
 	val shown = info.visibleItemsInfo
 	val first = shown.first()
 	val last = shown.last()
@@ -1908,19 +1936,25 @@ private fun Header(
 	Row(
 		Modifier
 			.fillMaxWidth()
-			.height(Dims.header)
+			.height(type.row)
 			.contextMenu(menus) { headingsMenuOf(state, null) }
+			// Each heading over its column: as far in as the rows' values are.
 			.padding(
-				horizontal =
+				start =
 					if (gallery)
 						Dims.tilePad
 					else
-						Dims.edge + Dims.gapSmall,
+						LIST_INSET + Dims.edge,
+				end =
+					if (gallery)
+						Dims.tilePad
+					else
+						LIST_INSET + Dims.scrollbarRoom + Dims.edge,
 			),
 		verticalAlignment = Alignment.CenterVertically,
 		horizontalArrangement =
 			if (gallery)
-				Arrangement.spacedBy(Dims.gap)
+				Arrangement.spacedBy(Space.s)
 			else
 				Arrangement.Start,
 	) {
@@ -1934,7 +1968,7 @@ private fun Header(
 				if (gallery)
 					Modifier
 				else
-					Modifier.weight(heading.id.share).widthIn(min = minWidthOf(heading.id, widths)),
+					widthOf(heading.id, widths * state.scale),
 				align = if (gallery) Align.Start else heading.aligned,
 				enabled = (state.listing as? Listing.Found)?.orders(heading.id) != false,
 				menu = Modifier.contextMenu(menus) { headingsMenuOf(state, heading.id) },
@@ -1943,11 +1977,15 @@ private fun Header(
 	}
 }
 
-/** The least a column is drawn: a date's, as wide as the widest date and time it can show, so neither is cut short. */
-private fun minWidthOf(column: ColumnId, widths: DateWidths): Dp =
-	when (column) {
-		ColumnId.Modified, ColumnId.Created, ColumnId.Deleted -> widths.whole + Dims.cell * 2
-		else -> 0.dp
+/**
+ * How wide [column] is, the same in its heading as in each row: a date's as wide as the widest date and time it shows
+ * ([widths], at the size the rows are drawn), so that neither is ever cut and every row's line up; the rest share what
+ * is left, each its part of it, so that a listing drawn larger takes its room from them, the name's first.
+ */
+private fun RowScope.widthOf(column: ColumnId, widths: DateWidths): Modifier =
+	when (val width = column.width) {
+		Width.Date -> Modifier.width(widths.whole + Dims.cell * 2)
+		is Width.Share -> Modifier.weight(width.of)
 	}
 
 @Composable
@@ -1987,11 +2025,15 @@ private fun HeaderCell(
 		Text(
 			label,
 			style =
-				when {
-					sorted -> type.muted.copy(color = palette.text)
-					enabled -> type.muted
-					else -> type.muted.copy(color = palette.textFaint)
-				},
+				type.muted.copy(
+					fontWeight = FontWeight.Medium,
+					color =
+						when {
+							sorted -> palette.text
+							enabled -> palette.textMuted
+							else -> palette.textFaint
+						},
+				),
 			maxLines = 1,
 			overflow = TextOverflow.Ellipsis,
 		)
@@ -2002,7 +2044,7 @@ private fun HeaderCell(
 				else
 					Glyph.SortDown,
 				palette.textMuted,
-				14.dp,
+				type.icon * 0.75f,
 			)
 	}
 }
@@ -2093,7 +2135,7 @@ data class DateWidths(
 	val date: Dp,
 	val time: Dp,
 ) {
-	val whole: Dp get() = date + Dims.gap + time
+	val whole: Dp get() = date + Space.s + time
 }
 
 @Composable
@@ -2126,9 +2168,6 @@ private fun rememberDateWidths(format: DateFormat, style: TextStyle): DateWidths
 	}
 }
 
-/** Digits each as wide as the next, so that numbers in a column line up under each other. */
-private fun TextStyle.tabular(): TextStyle = copy(fontFeatureSettings = "tnum")
-
 @Composable
 private fun EntryRow(
 	row: Row,
@@ -2152,7 +2191,7 @@ private fun EntryRow(
 	val hover = remember { MutableInteractionSource() }
 	val hovered by hover.collectIsHoveredAsState()
 	val pressed by rememberUpdatedState(onPress)
-	val shape = RoundedCornerShape(Dims.radius)
+	val shape = RoundedCornerShape(Radius.medium)
 	val body = type.body.times(zoom)
 	val muted = type.muted.times(zoom)
 	val background =
@@ -2166,16 +2205,9 @@ private fun EntryRow(
 		modifier
 			.alpha(if (row.hidden) 0.6f else 1f)
 			.fillMaxWidth()
-			.height(rowHeightOf(rows) * zoom)
+			.height(rowHeightOf(rows, type) * zoom)
 			.background(background, shape)
-			.border(
-				1.dp,
-				if (chosen)
-					palette.chosenEdge
-				else
-					Color.Transparent,
-				shape,
-			).ring(cursor, palette.focus, outset = 0.dp, width = 1.5.dp)
+			.ring(cursor, palette.focus, outset = 0.dp, width = 1.5.dp)
 			.hoverable(hover)
 			.pressing({ pressed(it) }, onRelease)
 			.semantics { selected = chosen }
@@ -2184,20 +2216,14 @@ private fun EntryRow(
 		verticalAlignment = Alignment.CenterVertically,
 	) {
 		for (column in columns) {
-			val cell =
-				Modifier
-					.weight(column.id.share)
-					.widthIn(min = minWidthOf(column.id, widths * zoom))
-					.padding(horizontal = Dims.cell)
+			val cell = widthOf(column.id, widths * zoom).padding(horizontal = Dims.cell)
 
 			when (column.id) {
 				// The row's menu over its name, and the space after it in the name's column.
 				ColumnId.Name ->
 					Row(
-						Modifier
-							.weight(
-								column.id.share,
-							).fillMaxHeight()
+						widthOf(column.id, widths * zoom)
+							.fillMaxHeight()
 							.then(nameMenu)
 							.padding(horizontal = Dims.cell),
 						verticalAlignment = Alignment.CenterVertically,
@@ -2206,10 +2232,10 @@ private fun EntryRow(
 						GlyphIcon(
 							if (row.isFolder) Glyph.Folder else Glyph.File,
 							palette.text,
-							rowIconOf(rows) * zoom,
+							rowIconOf(rows, type) * zoom,
 							category = row.category,
 						)
-						Spacer(Modifier.width(Dims.gap + 2.dp))
+						Spacer(Modifier.width((Space.s + Space.xxs) * zoom))
 						NameOf(
 							row,
 							renamed,
@@ -2331,7 +2357,7 @@ private fun RowScope.DateCell(
 					softWrap = false,
 					modifier = Modifier.width(widths.date),
 				)
-				Spacer(Modifier.width(Dims.gap))
+				Spacer(Modifier.width(Space.s))
 				Text(
 					time,
 					style = tabular,
@@ -2366,7 +2392,7 @@ private fun Tile(
 	val hover = remember { MutableInteractionSource() }
 	val hovered by hover.collectIsHoveredAsState()
 	val pressed by rememberUpdatedState(onPress)
-	val shape = RoundedCornerShape(Dims.radius)
+	val shape = RoundedCornerShape(Radius.large)
 
 	Column(
 		modifier
@@ -2379,19 +2405,12 @@ private fun Tile(
 					else -> Color.Transparent
 				},
 				shape,
-			).border(
-				1.dp,
-				if (chosen)
-					palette.chosenEdge
-				else
-					Color.Transparent,
-				shape,
-			).ring(cursor, palette.focus, outset = 0.dp, width = 1.5.dp)
+			).ring(cursor, palette.focus, corner = Radius.large, outset = 0.dp, width = 1.5.dp)
 			.hoverable(hover)
 			.pressing({ pressed(it) }, onRelease)
 			.semantics { selected = chosen }
 			.testTag("row:${row.name}")
-			.padding(Dims.gap),
+			.padding(Space.s),
 		horizontalAlignment = Alignment.CenterHorizontally,
 	) {
 		// The name is drawn larger with the tile only so far, a size people read; the picture has the rest.
@@ -2400,7 +2419,7 @@ private fun Tile(
 		Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
 			Picture(row, path, zoom)
 		}
-		Spacer(Modifier.height(Dims.gapSmall))
+		Spacer(Modifier.height(Space.xs))
 		NameOf(
 			row,
 			renamed,
@@ -2463,54 +2482,36 @@ private fun Picture(row: Row, path: Path?, zoom: Float) {
 	}
 }
 
+/** What the listing says where it has no rows to show, and why: a [glyph] for what is so, its [title], and [detail]. */
 @Composable
-private fun Message(title: String, detail: String?) {
-	val type = LocalType.current
-
-	Column(
-		Modifier.fillMaxSize().padding(40.dp),
-		horizontalAlignment = Alignment.CenterHorizontally,
-		verticalArrangement = Arrangement.Center,
-	) {
-		// Why a folder or a place cannot be shown can be selected and copied.
-		SelectionContainer {
-			Column(horizontalAlignment = Alignment.CenterHorizontally) {
-				Text(title, style = type.title)
-				detail?.let {
-					Text(
-						it,
-						style = type.muted,
-						textAlign = TextAlign.Center,
-						modifier = Modifier.padding(top = Dims.gapSmall).testTag("message-detail"),
-					)
-				}
-			}
-		}
-	}
-}
+private fun Message(glyph: Glyph, title: String, detail: String?) =
+	EmptyState(glyph, title, detail, Modifier.fillMaxSize())
 
 // ---- the footer: the name, the filter, the buttons -----------------------------------------------------------
 
 @Composable
 private fun Footer(state: BrowserState, stops: Stops, onEvent: (BrowserEvent) -> Unit) {
+	val palette = LocalPalette.current
 	val type = LocalType.current
 	val saving = state.choosing is Choosing.SaveAs
 
 	Column(
 		Modifier
 			.fillMaxWidth()
-			.height(Dims.footer)
-			.padding(horizontal = Dims.gap * 2, vertical = Dims.gap + 2.dp),
-		verticalArrangement = Arrangement.spacedBy(Dims.gap + 2.dp),
+			.background(palette.window)
+			.padding(horizontal = Space.l, vertical = Space.m),
+		verticalArrangement = Arrangement.spacedBy(Space.m),
 	) {
-		Row(verticalAlignment = Alignment.CenterVertically) {
+		Row(
+			verticalAlignment = Alignment.CenterVertically,
+			horizontalArrangement = Arrangement.spacedBy(Space.m),
+		) {
 			Text(
 				if (state.choosing is Choosing.Folder)
-					"Folder:"
+					"Folder"
 				else
-					"File name:",
+					"Name",
 				style = type.body,
-				modifier = Modifier.width(80.dp),
 			)
 			Field(
 				state.nameField,
@@ -2535,15 +2536,13 @@ private fun Footer(state: BrowserState, stops: Stops, onEvent: (BrowserEvent) ->
 				},
 			)
 			// The asking application's filters, where it offers a choice of them; a folder picker shows no files.
-			if (state.choosing !is Choosing.Folder && state.filters.size > 1) {
-				Spacer(Modifier.width(Dims.gap))
+			if (state.choosing !is Choosing.Folder && state.filters.size > 1)
 				Select(
 					state.filters,
 					state.arrangement.filter,
 					{ it.label },
-					Modifier.width(220.dp).testTag("filter"),
+					Modifier.width(240.dp).testTag("filter"),
 				) { onEvent(BrowserEvent.Filtered(it)) }
-			}
 		}
 		Row(verticalAlignment = Alignment.CenterVertically) {
 			Text(
@@ -2551,21 +2550,13 @@ private fun Footer(state: BrowserState, stops: Stops, onEvent: (BrowserEvent) ->
 				style = type.muted,
 				modifier = Modifier.weight(1f).testTag("status"),
 			)
-			PushButton(
-				state.accept.label,
-				Emphasis.Primary,
-				state.accept.enabled,
-				Modifier.testTag("accept"),
-			) { onEvent(BrowserEvent.Accepted) }
-			Spacer(Modifier.width(Dims.gap))
-			PushButton(
-				"Cancel",
-				Emphasis.Secondary,
-				enabled = true,
-				Modifier.testTag("cancel"),
-			) {
-				onEvent(BrowserEvent.Cancelled)
-			}
+			ButtonRow(
+				Act(state.accept.label, "accept", state.accept.enabled) {
+					onEvent(BrowserEvent.Accepted)
+				},
+				Modifier.width(IntrinsicSize.Max),
+				secondary = listOf(Act("Cancel", "cancel") { onEvent(BrowserEvent.Cancelled) }),
+			)
 		}
 	}
 }
@@ -2576,12 +2567,18 @@ private fun StatusBar(state: BrowserState) {
 	val type = LocalType.current
 
 	Row(
-		Modifier.fillMaxWidth().height(Dims.header).padding(horizontal = Dims.gap * 2),
+		Modifier
+			.fillMaxWidth()
+			.background(LocalPalette.current.window)
+			.height(type.row)
+			.padding(horizontal = Space.l),
 		verticalAlignment = Alignment.CenterVertically,
 	) {
 		Text(
 			statusOf(state),
 			style = type.muted,
+			maxLines = 1,
+			overflow = TextOverflow.Ellipsis,
 			modifier = Modifier.weight(1f).testTag("status"),
 		)
 	}
@@ -2697,9 +2694,6 @@ private fun wordsOf(notice: Notice): Words =
 		is Notice.ConfirmAction -> Words(notice.label, notice.question, notice.label, "Cancel")
 	}
 
-/** Whether what moves for its own sake (a spinner) moves: not where the view is drawn to be looked at once, or tested. */
-val LocalMotion = staticCompositionLocalOf { true }
-
 /** How long a command runs before it is shown as running: one that is done at once shows nothing. */
 private const val WORK_SHOWN_AFTER = 350L
 
@@ -2712,7 +2706,6 @@ private const val WORK_SHOWN_AFTER = 350L
 private fun WorkLayer(work: Work, onEvent: (BrowserEvent) -> Unit) {
 	val palette = LocalPalette.current
 	val type = LocalType.current
-	val shape = RoundedCornerShape(8.dp)
 	val button = remember { FocusRequester() }
 	var shown by remember(work.task) { mutableStateOf(false) }
 
@@ -2724,107 +2717,44 @@ private fun WorkLayer(work: Work, onEvent: (BrowserEvent) -> Unit) {
 	if (!shown)
 		return
 
-	Popup(
-		alignment = Alignment.Center,
-		properties =
-			PopupProperties(
-				focusable = true,
-				dismissOnBackPress = false,
-				dismissOnClickOutside = false,
-			),
-	) {
-		WindowLocals {
-			Box(
-				Modifier
-					.fillMaxSize()
-					.background(palette.scrim)
-					.onKeyEvent {
-						(it.type == KeyEventType.KeyDown && it.key == Key.Escape).also { escaped ->
-							if (escaped)
-								onEvent(BrowserEvent.Stopped(work.task))
-						}
-					}.testTag("work"),
-				contentAlignment = Alignment.Center,
-			) {
-				Column(
-					Modifier
-						.width(520.dp)
-						.background(palette.surface, shape)
-						.border(1.dp, palette.border, shape)
-						.padding(20.dp),
-				) {
-					Row(verticalAlignment = Alignment.CenterVertically) {
-						Spinner(palette.accent)
-						Spacer(Modifier.width(Dims.gap * 2))
-						Text(
-							work.task.label.removeSuffix("…") + "…",
-							style = type.title,
-							maxLines = 1,
-							overflow = TextOverflow.Ellipsis,
-						)
-					}
-					// The last lines it wrote, the latest last, in the room they are given.
-					if (work.said.isNotEmpty())
-						Text(
-							work.said.takeLast(WORK_LINES).joinToString("\n"),
-							style = type.muted,
-							maxLines = WORK_LINES,
-							overflow = TextOverflow.Ellipsis,
-							modifier =
-								Modifier
-									.fillMaxWidth()
-									.padding(top = Dims.gap * 2)
-									.background(palette.field, RoundedCornerShape(Dims.radius))
-									.padding(Dims.gap)
-									.testTag("work-said"),
-						)
-					Row(
-						Modifier.fillMaxWidth().padding(top = 20.dp),
-						horizontalArrangement = Arrangement.End,
-					) {
-						PushButton(
-							if (work.stopping) "Stopping…" else "Cancel",
-							Emphasis.Secondary,
-							enabled = !work.stopping,
-							Modifier.testTag("stop"),
-							button,
-						) {
+	Modal(
+		work.task.label.removeSuffix("…") + "…",
+		onDismiss = { onEvent(BrowserEvent.Stopped(work.task)) },
+		outside = false,
+		tag = "work",
+		focus = button,
+		leading = { Spinner(palette.accent, type.icon) },
+		buttons = {
+			ButtonRow(
+				null,
+				secondary =
+					listOf(
+						Act(if (work.stopping) "Stopping…" else "Cancel", "stop", !work.stopping, button) {
 							onEvent(BrowserEvent.Stopped(work.task))
-						}
-					}
-				}
-			}
-			LaunchedEffect(Unit) { button.requestFocus() }
-		}
+						},
+					),
+			)
+		},
+	) {
+		// The last lines it wrote, the latest last, in the room they are given.
+		if (work.said.isNotEmpty())
+			Text(
+				work.said.takeLast(WORK_LINES).joinToString("\n"),
+				style = type.mono,
+				maxLines = WORK_LINES,
+				overflow = TextOverflow.Ellipsis,
+				modifier =
+					Modifier
+						.fillMaxWidth()
+						.background(palette.sunken, RoundedCornerShape(Radius.medium))
+						.padding(Space.m)
+						.testTag("work-said"),
+			)
 	}
 }
 
 /** How many of a command's last lines are shown while it runs. */
 private const val WORK_LINES = 8
-
-/** Something under way with no end in sight: an arc going round, or, where nothing moves, standing still. */
-@Composable
-private fun Spinner(color: Color) {
-	var turn by remember { mutableStateOf(0f) }
-
-	if (LocalMotion.current)
-		LaunchedEffect(Unit) {
-			val began = withFrameNanos { it }
-
-			while (true)
-				withFrameNanos { turn = ((it - began) / 1_000_000f * 0.36f) % 360f }
-		}
-
-	Canvas(Modifier.size(22.dp)) {
-		drawArc(
-			color,
-			startAngle = turn,
-			sweepAngle = 270f,
-			useCenter = false,
-			style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round),
-		)
-	}
-}
 
 /**
  * A notice, over the picker and in front of the keyboard: it takes the keyboard to its first button, Escape puts it
@@ -2836,121 +2766,106 @@ private fun NoticeLayer(notice: Notice, onEvent: (BrowserEvent) -> Unit) {
 	val type = LocalType.current
 	val words = wordsOf(notice)
 	val first = remember { FocusRequester() }
-	val shape = RoundedCornerShape(8.dp)
+	val asks = words.no != null
+	// What cannot be undone starts with the keyboard on the way out of it, so Enter alone does nothing.
+	val wary = notice is Notice.ConfirmErase
+	val trouble = notice is Notice.Failed || wary
 
-	Popup(
-		alignment = Alignment.Center,
-		onDismissRequest = { onEvent(BrowserEvent.Dismissed) },
-		properties = PopupProperties(focusable = true),
-	) {
-		WindowLocals {
-			Box(
-				Modifier.fillMaxSize().background(palette.scrim).testTag("notice"),
-				contentAlignment = Alignment.Center,
-			) {
-				Column(
-					Modifier
-						.width(if (notice is Notice.Failed) 560.dp else 420.dp)
-						.background(palette.surface, shape)
-						.border(1.dp, palette.border, shape)
-						.padding(20.dp),
+	Modal(
+		words.title,
+		onDismiss = { onEvent(BrowserEvent.Dismissed) },
+		width =
+			if (notice is Notice.Failed)
+				ModalWidth.Large
+			else
+				ModalWidth.Small,
+		tag = "notice",
+		focus = first,
+		leading =
+			trouble.takeIf { it }?.let {
+				{
+					GlyphIcon(
+						Glyph.Warning,
+						palette.dangerText,
+						type.icon * 1.2f,
+					)
+				}
+			},
+		buttons = {
+			ButtonRow(
+				Act(
+					words.yes,
+					"yes",
+					focus = first.takeIf { notice !is Notice.Asking && !wary },
 				) {
-					// What a notice says can be selected and copied: what failed, above all, is for pasting elsewhere.
-					SelectionContainer {
-						Text(words.title, style = type.title)
-					}
-					// Why something failed can be all a command wrote: in a box of its own, which scrolls, the end in sight.
-					if (notice is Notice.Failed && words.detail.lines().size > 2) {
-						val scroll = rememberScrollState()
-
-						LaunchedEffect(words.detail) { scroll.scrollTo(scroll.maxValue) }
-						SelectionContainer {
-							Text(
-								words.detail,
-								style = type.muted,
-								modifier =
-									Modifier
-										.fillMaxWidth()
-										.padding(top = Dims.gap)
-										.heightIn(max = 280.dp)
-										.background(palette.field, RoundedCornerShape(Dims.radius))
-										.verticalScroll(scroll)
-										.padding(Dims.gap)
-										.testTag("failure"),
-							)
-						}
-					} else if (words.detail.isNotEmpty())
-						SelectionContainer {
-							Text(
-								words.detail,
-								style = type.body,
-								modifier = Modifier.padding(top = Dims.gap).testTag("notice-detail"),
-							)
-						}
-					// A line an action asks for: typed here, Enter giving it as the button does.
-					if (notice is Notice.Asking)
-						Field(
-							notice.text,
-							{ onEvent(BrowserEvent.AnswerTyped(it)) },
-							Modifier.fillMaxWidth().padding(top = Dims.gap).testTag("answer"),
-							focus = first,
-							onKey = {
-								(it.type == KeyEventType.KeyDown && it.isEnter).also { entered ->
-									if (entered)
-										onEvent(BrowserEvent.Confirmed)
-								}
-							},
-						)
-					Row(
-						Modifier.fillMaxWidth().padding(top = 20.dp),
-						horizontalArrangement = Arrangement.spacedBy(Dims.gap, Alignment.End),
-					) {
-						val asks = words.no != null
-
-						// What failed, and why, copied whole, to be pasted where it is wanted.
-						if (notice is Notice.Failed)
-							PushButton("Copy", Emphasis.Secondary, enabled = true, Modifier.testTag("copy")) {
-								onEvent(BrowserEvent.CopiedText("${notice.doing}\n\n${notice.why}"))
-							}
-
-						// What cannot be undone starts with the keyboard on the way out of it, so Enter alone does nothing.
-						val wary = notice is Notice.ConfirmErase
-
-						PushButton(
-							words.yes,
-							Emphasis.Primary,
-							enabled = true,
-							Modifier.testTag("yes"),
-							if (notice is Notice.Asking || wary)
-								remember { FocusRequester() }
-							else
-								first,
-						) {
-							onEvent(
-								if (asks)
-									BrowserEvent.Confirmed
-								else
-									BrowserEvent.Dismissed,
-							)
-						}
+					onEvent(
+						if (asks)
+							BrowserEvent.Confirmed
+						else
+							BrowserEvent.Dismissed,
+					)
+				},
+				secondary =
+					listOfNotNull(
 						words.no?.let {
-							PushButton(
-								it,
-								Emphasis.Secondary,
-								enabled = true,
-								Modifier.testTag("no"),
-								if (wary)
-									first
-								else
-									remember { FocusRequester() },
-							) {
-								onEvent(BrowserEvent.Dismissed)
-							}
-						}
-					}
+							Act(it, "no", focus = first.takeIf { wary }) { onEvent(BrowserEvent.Dismissed) }
+						},
+					),
+				// What failed, and why, copied whole, to be pasted where it is wanted.
+				aside =
+					listOfNotNull(
+						(notice as? Notice.Failed)?.let {
+							Act(
+								"Copy",
+								"copy",
+							) { onEvent(BrowserEvent.CopiedText("${it.doing}\n\n${it.why}")) }
+						},
+					),
+				danger = wary,
+			)
+		},
+	) {
+		// Why something failed can be all a command wrote: in a box of its own, which scrolls, the end in sight.
+		if (notice is Notice.Failed && words.detail.lines().size > 2) {
+			val scroll = rememberScrollState()
+
+			LaunchedEffect(words.detail) { scroll.scrollTo(scroll.maxValue) }
+			ScrollArea(
+				Modifier
+					.fillMaxWidth()
+					.heightIn(max = 280.dp)
+					.background(palette.sunken, RoundedCornerShape(Radius.medium)),
+				state = scroll,
+				padding = PaddingValues(Space.m),
+			) {
+				SelectionContainer {
+					Text(
+						words.detail,
+						style = type.mono,
+						modifier = Modifier.fillMaxWidth().testTag("failure"),
+					)
 				}
 			}
-			LaunchedEffect(Unit) { first.requestFocus() }
-		}
+		} else if (words.detail.isNotEmpty())
+			SelectionContainer {
+				Text(words.detail, style = type.body, modifier = Modifier.testTag("notice-detail"))
+			}
+		// A line an action asks for: typed here, Enter giving it as the button does.
+		if (notice is Notice.Asking)
+			Field(
+				notice.text,
+				{ onEvent(BrowserEvent.AnswerTyped(it)) },
+				Modifier.fillMaxWidth().testTag("answer"),
+				focus = first,
+				onKey = {
+					(it.type == KeyEventType.KeyDown && it.isEnter).also { entered ->
+						if (entered)
+							onEvent(BrowserEvent.Confirmed)
+					}
+				},
+			)
 	}
 }
+
+/** The rows the listing is laid out inside of, from its edges. */
+private val LIST_INSET = Space.xs

@@ -95,7 +95,7 @@ class PreferencesTest {
 	}
 
 	@Test
-	fun theDefaultLookAndTheTextSizesAreWrittenAndReadBack() {
+	fun theDefaultLookAndTheTypographyAreWrittenAndReadBack() {
 		Files.createDirectories(file.parent)
 		file.writeText(
 			"""{ "listings": {
@@ -106,7 +106,8 @@ class PreferencesTest {
 					},
 					"filters": { "explorer/results/gallery": { "hidden": { "files": false }, "kinds": [ "Images" ] } }
 				},
-				"text": { "menus": 18 }, "fonts": { "listing": "Inter" }, "rows": "Compact",
+				"typography": { "menus": { "points": 13.5 }, "listing": { "family": "Inter" } },
+				"text": { "general": 13 }, "rows": "Compact",
 				"dates": "Iso", "scales": { "sidebar": 1.25 } }""",
 		)
 
@@ -146,16 +147,23 @@ class PreferencesTest {
 			Filters(),
 			read.listings.filters(Role.Explorer, ListingKind.Results, Layout.List),
 		)
-		assertEquals("Inter", read.fonts.listing)
+		assertEquals("Inter", read.typography.familyOf(TextPart.Listing))
 		assertEquals(Rows.Compact, read.rows)
 		assertEquals(DateFormat.Iso, read.dates)
 		assertEquals(1.25f, read.scales.sidebar)
-		assertEquals(TextSizes(menus = 18f), read.text)
-		// What is not said is the default: menus a little larger than the rest.
-		assertEquals(TextSizes.MENUS, Preferences().text.menus)
+		assertEquals(13.5f, read.typography.pointsOf(TextPart.Menus))
+		// What is not chosen is the default, whatever an older version's sizes said: it wrote its defaults as though
+		// they were chosen, and they would hold back a larger default for ever.
+		assertEquals(TextPart.General.points, read.typography.pointsOf(TextPart.General))
+		assertEquals(null, read.typography.general.points)
+		// A size is within what can be read, and steps half a point at a time.
 		assertEquals(
-			TextSizes(general = TextSizes.SMALLEST, menus = TextSizes.LARGEST),
-			TextSizes(general = 2f, menus = 90f).bounded(),
+			Typography.LARGEST,
+			Typography(general = FontChoice(points = 90f)).pointsOf(TextPart.General),
+		)
+		assertEquals(
+			11.5f,
+			Typography().stepped(TextPart.General, 1).pointsOf(TextPart.General),
 		)
 	}
 

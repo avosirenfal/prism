@@ -46,31 +46,43 @@ enum class Align {
 }
 
 /**
- * A column a listing can have: what its heading says ([label]), its share of the width, and how its values sit unless
- * the user says otherwise ([align]).
+ * How wide a column is: a [Share] of the room the fixed columns leave, which a listing drawn larger takes its room from;
+ * or as wide as a [Date] and its time are written, so that neither is ever cut and every row's line up.
+ */
+sealed interface Width {
+	data class Share(
+		val of: Float,
+	) : Width
+
+	data object Date : Width
+}
+
+/**
+ * A column a listing can have: what its heading says ([label]), how wide it is, and how its values sit unless the user
+ * says otherwise ([align]).
  */
 @Serializable
 enum class ColumnId(
 	val label: String,
-	val share: Float,
+	val width: Width,
 	val align: Align = Align.Start,
 ) {
-	Name("Name", 0.38f),
+	Name("Name", Width.Share(0.44f)),
 
 	/** Where an entry is: a search's result's folder; in the trash, where it was. */
-	Location("Folder", 0.28f),
-	Modified("Date modified", 0.24f),
+	Location("Folder", Width.Share(0.3f)),
+	Modified("Date modified", Width.Date),
 
 	/** When it was made: its birth time, where the file system keeps one. */
-	Created("Date created", 0.24f),
+	Created("Date created", Width.Date),
 
 	/** When it was trashed: the trash's own. */
-	Deleted("Date deleted", 0.24f),
-	Type("Type", 0.16f),
-	Size("Size", 0.11f, Align.End),
+	Deleted("Date deleted", Width.Date),
+	Type("Type", Width.Share(0.18f)),
+	Size("Size", Width.Share(0.12f), Align.End),
 
 	/** What its name ends in, after its last dot. */
-	Extension("Extension", 0.10f),
+	Extension("Extension", Width.Share(0.13f)),
 }
 
 /** A column as a listing shows it: [shown] or left out, its values sitting as [align] says (the column's own, where null). */

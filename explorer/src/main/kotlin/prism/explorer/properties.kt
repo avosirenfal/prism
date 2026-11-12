@@ -1,7 +1,10 @@
 package prism.explorer
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -9,9 +12,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -31,12 +32,20 @@ import java.time.format.DateTimeFormatter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import prism.browser.Act
+import prism.browser.ButtonRow
+import prism.browser.Card
+import prism.browser.CardInsets
+import prism.browser.CardItem
 import prism.browser.CheckBox
-import prism.browser.Dims
+import prism.browser.Divider
 import prism.browser.Emphasis
 import prism.browser.LocalPalette
 import prism.browser.LocalType
 import prism.browser.PushButton
+import prism.browser.ScrollArea
+import prism.browser.Space
+import prism.browser.Tabs
 import prism.browser.sizeOf
 import prism.desktop.Contents
 import prism.desktop.Facts
@@ -280,30 +289,33 @@ fun PropertiesView(paths: List<Path>, explorer: Explorer, onClose: () -> Unit) {
 		else
 			listOf(Tab.General)
 
-	Column(Modifier.fillMaxSize().padding(Dims.gap * 2)) {
+	Column(Modifier.fillMaxSize()) {
 		if (tabs.size > 1)
-			Tabs(tabs, tab, Tab::label) { tab = it }
-		Column(
-			Modifier
-				.weight(
-					1f,
-				).fillMaxWidth()
-				.verticalScroll(rememberScrollState())
-				.padding(vertical = Dims.gap),
-		) {
+			Tabs(
+				tabs,
+				tab,
+				Tab::label,
+				Modifier.padding(start = Space.xl, end = Space.xl, top = Space.s),
+			) {
+				tab =
+					it
+			}
+		ScrollArea(Modifier.weight(1f).fillMaxWidth(), padding = PaddingValues(Space.xl)) {
 			when (tab) {
 				Tab.General -> {
 					val lines = generalOf(read, counted, desktop.types, ZoneId.systemDefault())
 
-					lines.take(3).forEach { Labelled(it) }
-					if (common != null)
-						Labelled("Opens with") {
-							Text(opener ?: "…", style = type.body, modifier = Modifier.weight(1f))
-							PushButton("Change…", Emphasis.Secondary, enabled = true) {
-								explorer.chooseDefault(common)
+					Card {
+						lines.take(3).forEach { FactRow(it) }
+						if (common != null)
+							FactRow("Opens with") {
+								Text(opener ?: "…", style = type.body, modifier = Modifier.weight(1f))
+								PushButton("Change…", Emphasis.Secondary, enabled = true) {
+									explorer.chooseDefault(common)
+								}
 							}
-						}
-					lines.drop(3).forEach { Labelled(it) }
+						lines.drop(3).forEach { FactRow(it) }
+					}
 				}
 				Tab.Permissions -> {
 					val facts = one!!
@@ -311,26 +323,35 @@ fun PropertiesView(paths: List<Path>, explorer: Explorer, onClose: () -> Unit) {
 					val user = System.getProperty("user.name")
 					val mine = user == facts.owner || user == "root"
 
-					Labelled(Line("Owner", facts.owner ?: "Not known"))
-					Labelled(Line("Group", facts.group ?: "Not known"))
-					Spacer(Modifier.height(Dims.gap))
-					PermissionGrid(permissions, facts.kind == FileKind.Folder, mine) { changed ->
-						scope.launch {
-							refused = withContext(Dispatchers.IO) { desktop.facts.permit(facts.path, changed) }
-							readings++
+					Column(verticalArrangement = Arrangement.spacedBy(Space.l)) {
+						Card {
+							FactRow(Line("Owner", facts.owner ?: "Not known"))
+							FactRow(Line("Group", facts.group ?: "Not known"))
 						}
-					}
-					if (!mine)
-						Text("Only ${facts.owner ?: "its owner"} can change these.", style = type.muted)
-					refused?.let {
-						Text("Couldn't change them: $it", style = type.body.copy(color = palette.pdf))
+						Card {
+							CardItem {
+								PermissionGrid(permissions, facts.kind == FileKind.Folder, mine) { changed ->
+									scope.launch {
+										refused =
+											withContext(Dispatchers.IO) { desktop.facts.permit(facts.path, changed) }
+										readings++
+									}
+								}
+							}
+						}
+						if (!mine)
+							Text("Only ${facts.owner ?: "its owner"} can change these.", style = type.muted)
+						refused?.let {
+							Text(
+								"Couldn't change them: $it",
+								style = type.body.copy(color = palette.dangerText),
+							)
+						}
 					}
 				}
 			}
 		}
-		Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-			PushButton("Close", Emphasis.Primary, enabled = true, onClick = onClose)
-		}
+		DialogFoot { ButtonRow(Act("Close", "close", onClick = onClose)) }
 	}
 }
 
@@ -376,33 +397,47 @@ private fun PermissionGrid(
 }
 
 /** How wide the labels of the lines are. */
-internal val LABEL = 112.dp
+internal val LABEL = 120.dp
 
 @Composable
-internal fun Labelled(line: Line) =
-	Labelled(line.label) {
+internal fun FactRow(line: Line) =
+	FactRow(line.label) {
 		SelectionContainer(Modifier.weight(1f)) {
 			Text(line.value, style = LocalType.current.body)
 		}
 	}
 
-/** A line: [label], and beside it what [content] shows. */
+/** A line of a card of facts: [label], and beside it what [content] shows. */
 @Composable
-internal fun Labelled(
+internal fun FactRow(
 	label: String,
 	content: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit,
 ) {
 	Row(
-		Modifier.fillMaxWidth().padding(vertical = 5.dp),
+		Modifier.fillMaxWidth().padding(CardInsets),
 		verticalAlignment = Alignment.CenterVertically,
+		horizontalArrangement = Arrangement.spacedBy(Space.l),
 	) {
 		Text(label, style = LocalType.current.muted, modifier = Modifier.width(LABEL))
 		content()
 	}
 }
 
+/** What a window says while it has nothing else to show: that it is reading, say. */
 @Composable
 internal fun Message(text: String) =
-	Column(Modifier.fillMaxSize().padding(Dims.gap * 2)) {
+	Box(Modifier.fillMaxSize().padding(Space.xl), contentAlignment = Alignment.Center) {
 		Text(text, style = LocalType.current.muted)
 	}
+
+/** The foot of a window of the explorer's: its buttons ([content]), on the window's own colour, a line above them. */
+@Composable
+internal fun DialogFoot(content: @Composable () -> Unit) {
+	Divider()
+	Box(
+		Modifier
+			.fillMaxWidth()
+			.background(LocalPalette.current.window)
+			.padding(horizontal = Space.xl, vertical = Space.m),
+	) { content() }
+}

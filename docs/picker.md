@@ -198,7 +198,7 @@ application offers more than one.
 
 ## The gallery
 
-![The gallery, in a real window](picker-gallery.png)
+![The gallery](picker-gallery.png)
 
 The two buttons at the right of the toolbar (or Ctrl+1 and Ctrl+2) show the listing as rows in columns or as a
 **gallery** of tiles: each entry's picture, or its icon drawn large, with its name under it. Everything else is the
