@@ -1400,7 +1400,10 @@ private fun ListingPane(
 										onPress = { press(row.id, it) },
 										onRelease = { release(row.id) },
 										onEvent = onEvent,
-										modifier = dragging(row).contextMenu(menus) { menuOf(row) },
+										modifier = dragging(row),
+										// The row's menu over its name, and the space after it in the name's column; the other
+										// columns are the listing's, whose menu is the folder's.
+										nameMenu = Modifier.contextMenu(menus) { menuOf(row) },
 									)
 								}
 							}
@@ -1921,6 +1924,7 @@ private fun EntryRow(
 	onRelease: () -> Unit,
 	onEvent: (BrowserEvent) -> Unit,
 	modifier: Modifier = Modifier,
+	nameMenu: Modifier = Modifier,
 ) {
 	val palette = LocalPalette.current
 	val type = LocalType.current
@@ -1958,7 +1962,10 @@ private fun EntryRow(
 			.padding(horizontal = Dims.gap),
 		verticalAlignment = Alignment.CenterVertically,
 	) {
-		Row(Modifier.weight(Dims.nameColumn), verticalAlignment = Alignment.CenterVertically) {
+		Row(
+			Modifier.weight(Dims.nameColumn).fillMaxHeight().then(nameMenu),
+			verticalAlignment = Alignment.CenterVertically,
+		) {
 			GlyphIcon(
 				if (row.isFolder) Glyph.Folder else Glyph.File,
 				palette.text,

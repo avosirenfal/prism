@@ -16,6 +16,7 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.test.ComposeUiTest
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.MouseButton
+import androidx.compose.ui.test.MouseInjectionScope
 import androidx.compose.ui.test.SemanticsNodeInteraction
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsFocused
@@ -165,6 +166,15 @@ class InteractionTest {
 	/** [key] pressed with Ctrl held, on whatever has the keyboard. */
 	private fun ComposeUiTest.ctrl(key: Key) =
 		focused().performKeyInput { withKeyDown(Key.CtrlLeft) { pressKey(key) } }
+
+	/** A row pressed with the right button on its name's column: a fifth of the way across, where names are. */
+	private fun MouseInjectionScope.rightClickName() =
+		rightClick(
+			Offset(
+				width * 0.2f,
+				height / 2f,
+			),
+		)
 
 	/** The listing pressed with the right button where there is no row: its lower right corner. */
 	private fun ComposeUiTest.rightClickNowhere() =
@@ -600,10 +610,31 @@ class InteractionTest {
 		}
 
 	@Test
+	fun aRowsMenuOpensOnItsNameAndTheFoldersOnItsOtherColumns() =
+		picking { session ->
+			// On the name, or the space after it in the name's column: the row's menu, the row chosen.
+			row("notes.md").performMouseInput { rightClick(Offset(width * 0.4f, height / 2f)) }
+			row("notes.md").assertIsSelected()
+			onNodeWithTag("menu:Rename").assertExists()
+			press(Key.Escape)
+			noMenu()
+
+			// On its date, its type or its size: the folder's menu, and nothing chosen by it.
+			for (across in listOf(0.55f, 0.75f, 0.95f)) {
+				row("todo.txt").performMouseInput { rightClick(Offset(width * across, height / 2f)) }
+				onNodeWithTag("menu:New folder").assertExists()
+				onNodeWithTag("menu:Rename").assertDoesNotExist()
+				row("todo.txt").assertIsNotSelected()
+				press(Key.Escape)
+				noMenu()
+			}
+		}
+
+	@Test
 	fun aRowsMenuRenamesIt() =
 		picking { session ->
 			// The right button chooses the row it is pressed on, and opens its menu.
-			row("notes.md").performMouseInput { rightClick() }
+			row("notes.md").performMouseInput { rightClickName() }
 			row("notes.md").assertIsSelected()
 			onNodeWithTag("menu:Rename").performClick()
 
@@ -676,7 +707,7 @@ class InteractionTest {
 			waitUntil(timeoutMillis = TIMEOUT) { !work.resolve("todo.txt").exists() }
 			assertFalse(asked())
 
-			row("main.kt").performMouseInput { rightClick() }
+			row("main.kt").performMouseInput { rightClickName() }
 			onNodeWithTag("menu:Move to trash").performClick()
 			waitUntil(timeoutMillis = TIMEOUT) { !work.resolve("main.kt").exists() }
 			assertFalse(asked())
@@ -717,7 +748,7 @@ class InteractionTest {
 			}
 
 			// An archive is extracted from its menu, and the folder read again once it has been.
-			row("old.zip").performMouseInput { rightClick() }
+			row("old.zip").performMouseInput { rightClickName() }
 			onNodeWithTag("menu:Extract here").performClick()
 			waitUntil(timeoutMillis = TIMEOUT) { work.resolve("notes.md").exists() }
 			waitUntil(timeoutMillis = TIMEOUT) {
@@ -726,7 +757,7 @@ class InteractionTest {
 			noMenu()
 
 			// An action in a submenu asks for a name first, in a field, with what it would be called to type over.
-			row("main.kt").performMouseInput { rightClick() }
+			row("main.kt").performMouseInput { rightClickName() }
 			onNodeWithTag("menu:Compress").performMouseInput { moveTo(center) }
 			onNodeWithTag("menu:As a .zip…").performClick()
 			waitUntil(timeoutMillis = TIMEOUT) { session.state.value.notice is Notice.Asking }
@@ -788,7 +819,7 @@ class InteractionTest {
 			}
 
 			// The menu of an entry is its place's: nothing of the trash, or of renaming.
-			row("todo.txt").performMouseInput { rightClick() }
+			row("todo.txt").performMouseInput { rightClickName() }
 			onNodeWithTag("menu:Extract to…").assertExists()
 			onNodeWithTag("menu:Remove from archive").assertExists()
 			assertEquals(
@@ -1020,7 +1051,7 @@ class InteractionTest {
 	@Test
 	fun copyPathPutsItOnTheClipboard() =
 		picking {
-			row("notes.md").performMouseInput { rightClick() }
+			row("notes.md").performMouseInput { rightClickName() }
 			onNodeWithTag("menu:Copy path").performClick()
 			waitUntil(timeoutMillis = TIMEOUT) { copied.isNotEmpty() }
 			assertEquals(listOf(work.resolve("notes.md").toString()), copied)
