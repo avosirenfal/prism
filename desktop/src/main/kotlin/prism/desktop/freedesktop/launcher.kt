@@ -29,21 +29,16 @@ class DetachedLauncher(
 	/** What starts a command, its words in full, in a folder: a process, unless a test says otherwise. */
 	private val spawn: (List<String>, Path) -> Launched = ::spawned,
 ) : Launcher {
-	override fun launch(application: Application, paths: List<Path>): Launched {
-		val commands =
-			Exec.expand(application.command, paths, application).map {
+	override fun launch(application: Application, paths: List<Path>): Launched =
+		Exec
+			.expand(application.command, paths, application)
+			.map {
 				if (application.inTerminal)
-					inTerminal(it)
-						?: return Launched.Failed(application.name, "no terminal to run it in was found")
+					inTerminal(it, xdg.home, label = application.id)
 				else
-					it
-			}
-
-		return commands
-			.map { run(it, xdg.home, label = application.id) }
-			.firstOrNull { it is Launched.Failed }
+					run(it, xdg.home, label = application.id)
+			}.firstOrNull { it is Launched.Failed }
 			?: Launched.Started(application.name)
-	}
 
 	override fun run(command: List<String>, folder: Path): Launched =
 		run(command, folder, label = null)
@@ -58,51 +53,51 @@ class DetachedLauncher(
 		return spawn(detached(command, label), folder)
 	}
 
+	/** The user's terminal, wherever on the desktop it is said (freedesktop/terminals.kt). */
+	private val terminals = FreedesktopTerminals(xdg, ::find)
+
+	/**
+	 * A terminal in [folder]: [preferred] as it is written where it says where the folder goes (`{folder}`); otherwise
+	 * the terminal it names, or the user's, told the folder as it takes one.
+	 */
 	override fun terminal(folder: Path, preferred: List<String>?): Launched {
-		val command =
-			preferred?.map { it.replace("{folder}", folder.toString()) }
-				?: terminals().firstOrNull()
+		if (preferred != null && preferred.any { "{folder}" in it })
+			return run(preferred.map { it.replace("{folder}", folder.toString()) }, folder)
+
+		val terminal =
+			(preferred?.let(terminals::ofCommandLine) ?: terminals.preferred())
 				?: return Launched.Failed(
-					"a terminal",
-					"no terminal was found: set one in the preferences",
+					preferred?.firstOrNull() ?: "a terminal",
+					if (preferred != null)
+						"“${preferred.first()}” is not installed, or not on the PATH"
+					else
+						"no terminal was found: set one in the preferences",
 				)
 
-		return run(command, folder)
+		return run(
+			terminal.opening(folder)
+				?: return Launched.Failed(terminal.name, "it cannot be opened in a folder"),
+			folder,
+		)
 	}
 
 	override fun inTerminal(command: List<String>, folder: Path): Launched =
-		inTerminal(command)?.let { run(it, folder) }
-			?: Launched.Failed(
-				command.firstOrNull() ?: "nothing",
-				"no terminal to run it in was found",
-			)
+		inTerminal(command, folder, label = null)
 
-	/** [command] run in a terminal: `xdg-terminal-exec` where there is one, or the terminal found, with `-e`. */
-	private fun inTerminal(command: List<String>): List<String>? =
-		when {
-			find("xdg-terminal-exec") != null -> listOf("xdg-terminal-exec") + command
-			else -> terminals().firstOrNull()?.let { it + "-e" + command }
-		}
-
-	/** The terminals there are, the one the user's environment names first. */
-	private fun terminals(): List<List<String>> =
-		(
-			listOfNotNull(xdg["TERMINAL"]) +
-				listOf(
-					"xdg-terminal-exec",
-					"x-terminal-emulator",
-					"foot",
-					"kitty",
-					"alacritty",
-					"wezterm",
-					"ghostty",
-					"gnome-terminal",
-					"konsole",
-					"xfce4-terminal",
-					"xterm",
+	private fun inTerminal(command: List<String>, folder: Path, label: String?): Launched {
+		val terminal =
+			terminals.preferred()
+				?: return Launched.Failed(
+					command.firstOrNull() ?: "nothing",
+					"no terminal to run it in was found",
 				)
-		).filter { find(it.substringBefore(' ')) != null }
-			.map { listOf(it) }
+
+		val opening =
+			terminal.opening(folder, command)
+				?: return Launched.Failed(terminal.name, "it cannot be given a command to run")
+
+		return run(opening, folder, label)
+	}
 
 	/** [command] started in a session of its own, and in a scope of its own where the user's systemd is running. */
 	private fun detached(command: List<String>, label: String?): List<String> {

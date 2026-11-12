@@ -109,8 +109,9 @@ window here. So a folder pinned in the explorer is in the next picker's sidebar 
 
 `pinned` is null until the user pins or unpins something; until then the sidebar shows the desktop's own places (the
 home folder and the well-known folders in it). `bindings` holds only the actions whose chords differ from their
-defaults; an action named with an empty list has no chord at all. `terminal` is null for the desktop's own terminal
-(`$TERMINAL`, then `xdg-terminal-exec`, then the first of the usual terminals found). A file that does not read as
+defaults; an action named with an empty list has no chord at all. `terminal` is null for the desktop's own terminal;
+a list that says where the folder goes (`{folder}`) is run as it is written, and one that names a terminal alone
+(`["ghostty"]`) is told the folder as that terminal takes it ("Open terminal here", below). A file that does not read as
 preferences leaves every default in place, and is copied beside itself with `.unreadable` after its name before
 anything is written over it, so nothing written by hand is lost.
 
@@ -236,6 +237,23 @@ itself), and copy, move or link. Which of those is the platform's convention for
 prism's own with no key held, a move within a volume and a copy across one. A move into another application is that
 application's to make; prism reads its folder again afterwards, and deletes nothing itself. docs/platform.md follows a
 drag through, and says what each platform does with it.
+
+## Open terminal here
+
+A terminal has to be told the folder to start in: starting it in the folder is not enough for every one. Ghostty and
+Ptyxis run one process for all their windows, and a new launch only asks the one running for a window, which opens
+where that one likes (the home folder); and every terminal takes the folder, and a command to run, by an option of its
+own (`--working-directory=`, `--directory=`, `--workdir`, `--cwd=`, or none). So a terminal is described by what its
+command line takes (`Terminal`, `desktop/terminals.kt`), and opened by a function of that description.
+
+Which terminal is the user's is not standardized on Linux. prism asks, the most deliberate first: its own preference;
+`$TERMINAL`; `xdg-terminals.list`, the proposed standard's list of desktop entries (xdg-terminal-exec's), the user's,
+then the system's, each folder's file for the session's desktop first; KDE's own setting; Debian's
+`x-terminal-emulator`; the installed desktop entries of the category `TerminalEmulator`; and the terminals prism knows,
+on the `PATH` (`desktop/freedesktop/terminals.kt`). A terminal named by a desktop entry is told the folder and a command
+as the entry says (`X-TerminalArgDir=`, `X-TerminalArgExec=`), or else as prism knows it (`KnownTerminals`, about twenty),
+or else is started in the folder and given `-e`. On macOS (Terminal, iTerm, Ghostty, through `open`) and Windows
+(Windows Terminal, PowerShell) the forms are described the same way, for the launchers those platforms are to have.
 
 ## Not done yet
 
