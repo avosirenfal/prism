@@ -11,7 +11,9 @@ import prism.browser.Chord
 import prism.desktop.Place
 import prism.desktop.TerminalChoice
 import prism.preferences.Preferences
+import prism.preferences.Sort
 import prism.preferences.TerminalChoiceSerializer
+import prism.preferences.TextSizes
 
 /*
  * The preferences as their window edits them, as one immutable value: the places pinned, the terminal, and every
@@ -25,6 +27,7 @@ enum class Page(
 	val label: String,
 ) {
 	Sidebar("Sidebar"),
+	Display("Display"),
 	Terminal("Terminal"),
 	Bindings("Key bindings"),
 	Actions("Actions"),
@@ -96,6 +99,10 @@ data class Settings(
 	val pinned: List<Path>? = base.pinned,
 	val terminal: TerminalForm = TerminalForm.of(base.terminal),
 	val rebinding: Rebinding = Rebinding(Bindings.of(base)),
+	/** The order new windows list folders in. */
+	val sort: Sort = base.sort,
+	/** How large each part's text is. */
+	val text: TextSizes = base.text,
 	val page: Page = Page.Sidebar,
 ) {
 	/** The actions and places there are, prism's own and those the preferences write, with what of them did not read. */
@@ -126,6 +133,8 @@ data class Settings(
 		return current.copy(
 			pinned = kept(Preferences::pinned, pinned),
 			terminal = kept(Preferences::terminal, terminal.choice()),
+			sort = kept(Preferences::sort, sort),
+			text = kept(Preferences::text, text),
 			bindings = bindings ?: current.bindings,
 		)
 	}

@@ -48,6 +48,13 @@ data class Preferences(
 	val places: List<JsonElement> = emptyList(),
 	/** What of the menus is left out. */
 	val menu: MenuSpec = MenuSpec(),
+	/**
+	 * The order a new window lists a folder in. A window keeps the order the user gives it as its own from then on,
+	 * wherever it goes, and this changes no window already open.
+	 */
+	val sort: Sort = Sort.BY_NAME,
+	/** How large the text of each part of a window is. */
+	val text: TextSizes = TextSizes(),
 ) {
 	/** The actions and places written here. */
 	val written: ActionsFile get() = ActionsFile(actions, places)

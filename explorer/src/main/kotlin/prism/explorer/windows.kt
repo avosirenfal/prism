@@ -42,6 +42,7 @@ import prism.browser.Location
 import prism.browser.Palette
 import prism.browser.TransientFor
 import prism.browser.mouseChords
+import prism.preferences.TextSizes
 import prism.window.NativeWindow
 import prism.window.Window
 
@@ -55,6 +56,10 @@ import prism.window.Window
 @Composable
 fun ExplorerWindows(explorer: Explorer, palette: Palette, decorated: Boolean) {
 	val windows by explorer.windows.collectAsState()
+	val sizes =
+		explorer.preferences.preferences
+			.collectAsState()
+			.value.text
 
 	for (window in windows)
 		key(window.id) {
@@ -93,13 +98,13 @@ fun ExplorerWindows(explorer: Explorer, palette: Palette, decorated: Boolean) {
 				is ExplorerWindow.Properties ->
 					Dialog(propertiesTitleOf(window.paths), DpSize(560.dp, 520.dp), palette, decorated, {
 						explorer.close(window)
-					}) {
+					}, sizes = sizes) {
 						PropertiesView(window.paths, explorer) { explorer.close(window) }
 					}
 				is ExplorerWindow.OpenWith ->
 					Dialog(openWithTitleOf(window.choice), DpSize(620.dp, 560.dp), palette, decorated, {
 						explorer.close(window)
-					}) {
+					}, sizes = sizes) {
 						OpenWithView(window.choice, explorer) { explorer.close(window) }
 					}
 				is ExplorerWindow.Settings ->
@@ -110,6 +115,7 @@ fun ExplorerWindows(explorer: Explorer, palette: Palette, decorated: Boolean) {
 						decorated,
 						{ explorer.close(window) },
 						raised = window.raised,
+						sizes = sizes,
 					) {
 						SettingsWindow(explorer) { explorer.close(window) }
 					}
@@ -167,6 +173,7 @@ private fun Dialog(
 	decorated: Boolean,
 	onClose: () -> Unit,
 	raised: Int = 0,
+	sizes: TextSizes = TextSizes(),
 	content: @Composable (NativeWindow) -> Unit,
 ) {
 	Window(
@@ -181,7 +188,7 @@ private fun Dialog(
 			if (raised > 0)
 				native.raise()
 		}
-		HostedWindow(native, palette) {
+		HostedWindow(native, palette, sizes) {
 			Column(
 				Modifier
 					.fillMaxSize()

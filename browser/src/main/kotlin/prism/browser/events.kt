@@ -6,6 +6,7 @@ import prism.desktop.Launched
 import prism.desktop.Opening
 import prism.desktop.TerminalChoice
 import prism.index.query.Query
+import prism.preferences.Sort
 
 /*
  * What changes the picker, and what the picker asks for. Two things change it: what the user does ([BrowserEvent],

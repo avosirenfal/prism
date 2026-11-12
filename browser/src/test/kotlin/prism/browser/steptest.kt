@@ -11,6 +11,7 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import prism.browser.Fixtures.home
 import prism.browser.Fixtures.picker
+import prism.preferences.Sort
 
 /**
  * The reducer's rules, as values: a state, what changed it, and the state and effects that follow. Folders are
@@ -80,6 +81,31 @@ class StepTest {
 		assertEquals(
 			History(back = folders(home, documents)),
 			after(back, BrowserEvent.Opened(Path("/etc"))).history,
+		)
+	}
+
+	@Test
+	fun aWindowOpensInTheDefaultOrderAndKeepsTheOrderItIsGivenWhereverItGoes() {
+		val newest = Sort(Sort.Column.Modified, ascending = false)
+
+		val first =
+			opened(
+				Choosing.Exploring(),
+				home.resolve("Documents"),
+				home,
+				Fixtures.sidebar,
+				sort = newest,
+			).state
+
+		assertEquals(newest, first.arrangement.sort)
+
+		// Ordered otherwise by its headings, it keeps that order as it goes up, and on.
+		val bySize = step(first, BrowserEvent.Sorted(Sort.Column.Size)).state
+
+		assertEquals(Sort.Column.Size, bySize.arrangement.sort.by)
+		assertEquals(
+			bySize.arrangement.sort,
+			step(bySize, BrowserEvent.Up).state.arrangement.sort,
 		)
 	}
 

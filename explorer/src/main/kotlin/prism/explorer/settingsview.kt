@@ -43,6 +43,7 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import java.nio.file.Path
 import kotlin.io.path.Path
 import kotlin.io.path.isDirectory
@@ -61,6 +62,8 @@ import prism.browser.PushButton
 import prism.browser.Scope
 import prism.desktop.TerminalChoice
 import prism.desktop.TerminalCommand
+import prism.preferences.Sort
+import prism.preferences.TextSizes
 
 /*
  * The preferences window. Its edits are one value ([Settings]) that the window replaces with each change and saves
@@ -139,6 +142,7 @@ fun SettingsView(
 			Box(Modifier.weight(1f).fillMaxWidth()) {
 				when (settings.page) {
 					Page.Sidebar -> SidebarPage(settings, onChange)
+					Page.Display -> DisplayPage(settings, onChange)
 					Page.Terminal -> TerminalPage(settings, onChange, terminalPreview)
 					Page.Bindings -> BindingsPage(rebinding) { onChange(settings.copy(rebinding = it)) }
 					Page.Actions -> ActionsPage(settings.actions)
@@ -184,6 +188,96 @@ private fun Heading(text: String, help: String) {
 	Text(help, style = type.muted)
 	Spacer(Modifier.height(Dims.gap * 2))
 }
+
+/** How a new window orders a folder, and how large each part's text is. */
+@Composable
+private fun DisplayPage(settings: Settings, onChange: (Settings) -> Unit) {
+	val type = LocalType.current
+
+	Column(Modifier.verticalScroll(rememberScrollState())) {
+		Heading(
+			"Order of a new window",
+			"How a new window lists a folder. A window ordered otherwise by its column headings keeps its order " +
+				"wherever it goes, and no other window is changed by it.",
+		)
+		Row(horizontalArrangement = Arrangement.spacedBy(Dims.gap)) {
+			Sort.Column.entries.forEach { column ->
+				PushButton(
+					labelOf(column),
+					if (settings.sort.by == column)
+						Emphasis.Primary
+					else
+						Emphasis.Secondary,
+					enabled = true,
+				) { onChange(settings.copy(sort = Sort(column, settings.sort.ascending))) }
+			}
+		}
+		Spacer(Modifier.height(Dims.gap))
+		Row(horizontalArrangement = Arrangement.spacedBy(Dims.gap)) {
+			listOf(true to "Ascending", false to "Descending").forEach { (ascending, label) ->
+				PushButton(
+					label,
+					if (settings.sort.ascending == ascending)
+						Emphasis.Primary
+					else
+						Emphasis.Secondary,
+					enabled = true,
+				) { onChange(settings.copy(sort = settings.sort.copy(ascending = ascending))) }
+			}
+		}
+		Spacer(Modifier.height(Dims.gap * 3))
+		Heading(
+			"Text",
+			"How large the text of each part of a window is, in points. The listing's rows and the menus' entries " +
+				"grow with their text; Ctrl and the wheel still zoom the listing from its size.",
+		)
+
+		val text = settings.text
+
+		SizeRow("Menus", text.menus) { onChange(settings.copy(text = text.copy(menus = it))) }
+		SizeRow("Listing", text.listing) {
+			onChange(settings.copy(text = text.copy(listing = it)))
+		}
+		SizeRow("Everything else", text.general) {
+			onChange(settings.copy(text = text.copy(general = it)))
+		}
+		Spacer(Modifier.height(Dims.gap))
+		Text("Changes show once saved.", style = type.muted)
+	}
+}
+
+/** A part's text [size], made smaller or larger a point at a time, within what can be read. */
+@Composable
+private fun SizeRow(label: String, size: Float, onSize: (Float) -> Unit) {
+	val type = LocalType.current
+
+	Row(
+		verticalAlignment = Alignment.CenterVertically,
+		modifier = Modifier.padding(vertical = Dims.gapSmall),
+	) {
+		Text(label, style = type.body, modifier = Modifier.width(160.dp))
+		PushButton("−", Emphasis.Secondary, enabled = size > TextSizes.SMALLEST) {
+			onSize((size - 1f).coerceAtLeast(TextSizes.SMALLEST))
+		}
+		Text(
+			"${size.toInt()} pt",
+			style = type.body.copy(fontSize = size.sp, lineHeight = (size * 1.4f).sp),
+			modifier = Modifier.width(72.dp).padding(horizontal = Dims.gap),
+		)
+		PushButton("+", Emphasis.Secondary, enabled = size < TextSizes.LARGEST) {
+			onSize((size + 1f).coerceAtMost(TextSizes.LARGEST))
+		}
+	}
+}
+
+/** A column, as the order of a new window names it. */
+private fun labelOf(column: Sort.Column): String =
+	when (column) {
+		Sort.Column.Name -> "Name"
+		Sort.Column.Modified -> "Modified"
+		Sort.Column.Type -> "Type"
+		Sort.Column.Size -> "Size"
+	}
 
 /** The places pinned to every sidebar, the pickers' too: moved, unpinned, typed in and pinned. */
 @Composable

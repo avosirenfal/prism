@@ -4,6 +4,7 @@ import java.nio.file.InvalidPathException
 import java.nio.file.Path
 import prism.desktop.Launched
 import prism.index.query.QueryText
+import prism.preferences.Sort
 
 /*
  * The reducer: the picker's next state from its last and what changed it, and what it asks to be done. It is pure:
@@ -33,7 +34,10 @@ import prism.index.query.QueryText
  *   picker's search finds only folders.
  */
 
-/** The picker opened on [folder]: its first state, and the read of its folder that it waits for. */
+/**
+ * The picker opened on [folder]: its first state, and the read of its folder that it waits for. It is ordered by
+ * [sort], the user's default for a window, which the window keeps as its own from then on, whatever it goes to.
+ */
 fun opened(
 	choosing: Choosing,
 	folder: Path,
@@ -42,6 +46,7 @@ fun opened(
 	title: String = titleOf(choosing),
 	filters: List<TypeFilter> = listOf(TypeFilter.ALL_FILES),
 	search: Search = Search.Unavailable(BrowserState.NO_INDEX),
+	sort: Sort = Sort.BY_NAME,
 ): Step {
 	require(filters.isNotEmpty()) { "a picker offers at least one filter" }
 
@@ -56,7 +61,7 @@ fun opened(
 			history = History(),
 			sidebar = sidebar,
 			listing = Listing.Reading,
-			arrangement = Arrangement(filter = filters.first()),
+			arrangement = Arrangement(sort = sort, filter = filters.first()),
 			filters = filters,
 			cursor = null,
 			address = Address.Crumbs,
@@ -74,8 +79,9 @@ fun openedIn(
 	home: Path,
 	sidebar: Sidebar,
 	search: Search = Search.Unavailable(BrowserState.NO_INDEX),
+	sort: Sort = Sort.BY_NAME,
 ): Step =
-	opened(Choosing.Exploring(), home, home, sidebar, search = search).let {
+	opened(Choosing.Exploring(), home, home, sidebar, search = search, sort = sort).let {
 		it.state.copy(at = Location.Place(placed)).listing(placed)
 	}
 

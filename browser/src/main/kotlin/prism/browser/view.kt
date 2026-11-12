@@ -117,6 +117,7 @@ import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import prism.desktop.Place
+import prism.preferences.Sort
 import prism.window.WindowLocals
 
 /*
@@ -896,7 +897,8 @@ private fun ListingPane(
 	val cursorAt = cursor?.let(rows::indexOf)
 	val query = state.arrangement.query
 	val gallery = state.layout == Layout.Gallery
-	val zoom = state.scale
+	// The rows' text as large as the user wants the listing's, and Ctrl and the wheel zooming from there.
+	val zoom = state.scale * scaleOf(LocalTextSizes.current.listing)
 	val chosen = state.choosing.rows
 	val renaming = state.renaming
 	var typing by remember { mutableStateOf(Typing("", 0)) }

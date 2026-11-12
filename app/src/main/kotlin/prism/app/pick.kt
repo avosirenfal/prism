@@ -137,6 +137,7 @@ object PickCommand : Command(
 				home,
 				sidebarOf(desktop.places, home, preferences.preferences.value.pinned),
 				search = search,
+				sort = preferences.preferences.value.sort,
 			)
 
 		val services =

@@ -42,6 +42,7 @@ import prism.index.Searched
 import prism.index.search
 import prism.preferences.MemoryPreferences
 import prism.preferences.PreferenceStore
+import prism.preferences.Sort
 
 /*
  * The one place the picker meets a real file system: a [Disk] reads a folder into rows, with every row's text worked

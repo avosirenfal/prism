@@ -59,6 +59,7 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import prism.desktop.freedesktop.XdgPlaces
 import prism.preferences.Preferences
+import prism.preferences.Sort
 
 /**
  * The picker as a user meets it: composed headless around a running [Session] over a real folder, then clicked,

@@ -19,6 +19,7 @@ import prism.index.query.ReadQuery
 import prism.index.query.Term
 import prism.index.query.Test
 import prism.index.search
+import prism.preferences.Sort
 import prism.index.Kind as EntryKind
 
 /*

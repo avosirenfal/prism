@@ -89,6 +89,25 @@ class PreferencesTest {
 	}
 
 	@Test
+	fun theDefaultOrderAndTheTextSizesAreWrittenAndReadBack() {
+		Files.createDirectories(file.parent)
+		file.writeText(
+			"""{ "sort": { "by": "Modified", "ascending": false }, "text": { "menus": 18 } }""",
+		)
+
+		val read = PreferenceFile.read(file).preferences
+
+		assertEquals(Sort(Sort.Column.Modified, ascending = false), read.sort)
+		assertEquals(TextSizes(menus = 18f), read.text)
+		// What is not said is the default: menus a little larger than the rest.
+		assertEquals(TextSizes.MENUS, Preferences().text.menus)
+		assertEquals(
+			TextSizes(general = TextSizes.SMALLEST, menus = TextSizes.LARGEST),
+			TextSizes(general = 2f, menus = 90f).bounded(),
+		)
+	}
+
+	@Test
 	fun aChangeMadeThroughOneStoreReachesAnotherOfTheSameFile() {
 		PreferenceFile.open(file).use { one ->
 			PreferenceFile.open(file).use { other ->

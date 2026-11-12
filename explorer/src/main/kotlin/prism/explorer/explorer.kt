@@ -175,13 +175,21 @@ class Explorer(
 						home,
 						sidebar,
 						search = search,
+						sort = preferences.preferences.value.sort,
 					).let { step ->
 						chosen?.let {
 							Step(step.state.copy(landing = Landing.On(RowId(it), choose = true)), step.effects)
 						}
 							?: step
 					}
-				is Start.Place -> openedIn(start.placed, home, sidebar, search)
+				is Start.Place ->
+					openedIn(
+						start.placed,
+						home,
+						sidebar,
+						search,
+						preferences.preferences.value.sort,
+					)
 			}
 
 		// What the window asks for is answered to it: the session is made after what it asks through, so it is found
@@ -260,6 +268,7 @@ class Explorer(
 						home,
 						sidebarOf(desktop.places, home, preferences.preferences.value.pinned),
 						title = request.title,
+						sort = preferences.preferences.value.sort,
 						search = search,
 					),
 					services,
@@ -293,6 +302,7 @@ class Explorer(
 				sidebarOf(desktop.places, home, preferences.preferences.value.pinned),
 				title = asking.title,
 				filters = asking.filters,
+				sort = preferences.preferences.value.sort,
 				search = search,
 			).let { step ->
 				Step(

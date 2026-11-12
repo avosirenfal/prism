@@ -12,6 +12,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import prism.preferences.TextSizes
 
 /*
  * The picker's look, in one place: a palette for light and one for dark (the quiet greys and the single blue accent
@@ -156,33 +157,48 @@ data class Type(
 	val button: TextStyle,
 ) {
 	companion object {
-		fun of(palette: Palette): Type =
-			Type(
-				body = TextStyle(fontSize = 13.sp, lineHeight = 18.sp, color = palette.text),
-				muted = TextStyle(fontSize = 12.sp, lineHeight = 16.sp, color = palette.textMuted),
+		/** The styles for [palette], their text [size] points (sp) and the rest of them in proportion. */
+		fun of(palette: Palette, size: Float = TextSizes.DEFAULT): Type {
+			fun sp(at13: Float) = (at13 * size / TextSizes.DEFAULT).sp
+
+			return Type(
+				body = TextStyle(fontSize = sp(13f), lineHeight = sp(18f), color = palette.text),
+				muted =
+					TextStyle(
+						fontSize = sp(12f),
+						lineHeight = sp(16f),
+						color = palette.textMuted,
+					),
 				heading =
 					TextStyle(
-						fontSize = 12.sp,
-						lineHeight = 16.sp,
+						fontSize = sp(12f),
+						lineHeight = sp(16f),
 						color = palette.textFaint,
 						fontWeight = FontWeight.SemiBold,
 					),
 				title =
 					TextStyle(
-						fontSize = 13.sp,
-						lineHeight = 18.sp,
+						fontSize = sp(13f),
+						lineHeight = sp(18f),
 						color = palette.text,
 						fontWeight = FontWeight.SemiBold,
 					),
 				button =
 					TextStyle(
-						fontSize = 13.sp,
-						lineHeight = 18.sp,
+						fontSize = sp(13f),
+						lineHeight = sp(18f),
 						fontWeight = FontWeight.Medium,
 					),
 			)
+		}
 	}
 }
+
+/** How large the text of each part of the window is, as the user's preferences say. */
+val LocalTextSizes = staticCompositionLocalOf { TextSizes() }
+
+/** How much larger [size] is than the text the parts are measured for: what a part's heights are scaled by. */
+fun scaleOf(size: Float): Float = size / TextSizes.DEFAULT
 
 /** The dimensions the parts share. */
 object Dims {
@@ -225,7 +241,11 @@ val LocalType = staticCompositionLocalOf { Type.of(Palette.Light) }
 
 /** The picker's palette and type around [content], and Material's theme bound to them for the few widgets it uses. */
 @Composable
-fun BrowserTheme(palette: Palette = Palette.Light, content: @Composable () -> Unit) {
+fun BrowserTheme(
+	palette: Palette = Palette.Light,
+	sizes: TextSizes = TextSizes(),
+	content: @Composable () -> Unit,
+) {
 	val scheme =
 		if (palette.isDark)
 			darkColorScheme(
@@ -246,7 +266,8 @@ fun BrowserTheme(palette: Palette = Palette.Light, content: @Composable () -> Un
 
 	CompositionLocalProvider(
 		LocalPalette provides palette,
-		LocalType provides Type.of(palette),
+		LocalType provides Type.of(palette, sizes.general),
+		LocalTextSizes provides sizes,
 	) {
 		MaterialTheme(colorScheme = scheme, content = content)
 	}

@@ -61,7 +61,7 @@ private fun drawn(
 			Density(scale),
 			coroutineContext = Drawing.dispatcher,
 		) {
-			BrowserTheme(palette, content)
+			BrowserTheme(palette, content = content)
 		}
 
 	try {

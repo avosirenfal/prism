@@ -11,6 +11,7 @@ import androidx.compose.ui.Modifier
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import prism.preferences.PreferenceStore
+import prism.preferences.TextSizes
 import prism.window.NativeWindow
 
 /**
@@ -21,10 +22,11 @@ import prism.window.NativeWindow
 fun HostedWindow(
 	window: NativeWindow,
 	palette: Palette,
+	sizes: TextSizes = TextSizes(),
 	content: @Composable () -> Unit,
 ) {
 	TitleBarTone(window, palette.isDark)
-	BrowserTheme(palette, content)
+	BrowserTheme(palette, sizes.bounded(), content)
 }
 
 /**
@@ -49,7 +51,7 @@ fun HostedBrowser(
 	val set by preferences.preferences.collectAsState()
 	val bindings = remember(set) { Bindings.of(set) }
 
-	HostedWindow(window, palette) {
+	HostedWindow(window, palette, set.text) {
 		CompositionLocalProvider(LocalBindings provides bindings) {
 			Box(Modifier.fillMaxSize().mouseChords { chords.tryEmit(it) }) {
 				SessionBrowser(session, mouseChords = chords)

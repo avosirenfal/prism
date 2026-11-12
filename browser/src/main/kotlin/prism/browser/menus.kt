@@ -3,6 +3,7 @@ package prism.browser
 import androidx.compose.runtime.Immutable
 import java.nio.file.Path
 import prism.desktop.TerminalChoice
+import prism.preferences.Sort
 
 /*
  * The picker's menus, worked out from its state: pure functions, so what each offers is a test of values. Each

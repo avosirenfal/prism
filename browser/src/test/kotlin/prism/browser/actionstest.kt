@@ -14,6 +14,7 @@ import prism.browser.Fixtures.home
 import prism.preferences.ActionsFile
 import prism.preferences.MenuSpec
 import prism.preferences.Preferences
+import prism.preferences.Sort
 
 /**
  * The user's own actions, as values (docs/menus.md): what is written read into what it means, or said to be wrong;

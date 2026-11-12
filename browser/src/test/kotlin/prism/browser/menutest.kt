@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Test
 import prism.browser.Fixtures.home
 import prism.browser.Fixtures.picker
+import prism.preferences.Sort
 
 /** The menus, as values: what each target's menu offers, what each item does, and what it shows as on. */
 class MenuTest {

@@ -17,6 +17,7 @@ import org.junit.jupiter.api.io.TempDir
 import prism.browser.Fixtures.home
 import prism.browser.Fixtures.picker
 import prism.desktop.freedesktop.XdgPlaces
+import prism.preferences.Sort
 
 /**
  * The picker's model, its source and its drawing. The model's rules are checked as values; the view is composed and

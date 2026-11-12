@@ -18,6 +18,7 @@ import prism.index.Index
 import prism.index.Indexer
 import prism.index.Searched
 import prism.index.query.QueryText
+import prism.preferences.Sort
 
 /**
  * The search of the index from the picker, as values: the window's matches as the query is typed, a match gone to

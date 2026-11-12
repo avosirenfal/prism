@@ -25,6 +25,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
@@ -168,7 +169,12 @@ fun <A> MenuPopup(
 					}
 
 				from?.let {
-					MenuLevel(menu, anchor, it, onAction, onClose, onBack = onClose, startLit = false)
+					// A menu's text is as large as the user wants menus' to be, whatever the window's is.
+					CompositionLocalProvider(
+						LocalType provides Type.of(LocalPalette.current, LocalTextSizes.current.menus),
+					) {
+						MenuLevel(menu, anchor, it, onAction, onClose, onBack = onClose, startLit = false)
+					}
 				}
 			}
 		}
@@ -473,7 +479,7 @@ private fun MenuRow(
 	Row(
 		Modifier
 			.fillMaxWidth()
-			.height(28.dp)
+			.height(28.dp * scaleOf(LocalTextSizes.current.menus))
 			.background(
 				if (lit && enabled)
 					palette.hover
