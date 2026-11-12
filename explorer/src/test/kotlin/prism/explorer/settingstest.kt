@@ -129,26 +129,39 @@ class SettingsTest {
 		// The terminal emptied is the desktop's own.
 		assertEquals(
 			TerminalChoice.Found,
-			opened.copy(terminal = TerminalForm("  ")).over(base).terminal,
+			opened.copy(terminal = TerminalForm(name = "  ")).over(base).terminal,
 		)
 	}
 
 	@Test
-	fun theTerminalsFieldMakesTheChoiceItShowsAndOneThatCannotBeIsSaidSo() {
+	fun theTerminalsFieldsMakeTheChoiceTheyShowAndOneThatCannotBeIsSaidSo() {
 		assertEquals(TerminalChoice.Found, TerminalForm().choice())
-		assertEquals(TerminalChoice.Named("ghostty"), TerminalForm("ghostty").choice())
+		assertEquals(TerminalChoice.Named("ghostty"), TerminalForm(name = "ghostty").choice())
 
-		val line = TerminalForm("ghostty --working-directory={folder} -e {command}").choice()
+		val lines =
+			TerminalForm(
+				open = "ghostty --working-directory={folder}",
+				run = "ghostty --working-directory={folder} -e {command}",
+			).choice()
 
-		assertTrue(line is TerminalChoice.Written)
-		assertEquals(line, TerminalForm.of(line).choice())
+		assertTrue(
+			lines is TerminalChoice.CommandLines && lines.opensInFolder && lines.runsCommands,
+		)
+		assertEquals(lines, TerminalForm.of(lines).choice())
 
-		// Words that say neither where the folder goes nor a command: said to be wrong, and why.
-		val wrong = TerminalForm("ghostty --font-size=14").choice()
+		// A name and lines both, or a line that cannot be filled in rightly: said to be wrong, and why.
+		val both =
+			TerminalForm(
+				name = "ghostty",
+				open = "ghostty --working-directory={folder}",
+			).choice()
 
-		assertTrue(wrong is TerminalChoice.Unreadable && "{folder}" in wrong.why)
+		val noFolder = TerminalForm(open = "ghostty --font-size=14").choice()
+
+		assertTrue(both is TerminalChoice.Unreadable && "not both" in both.why)
+		assertTrue(noFolder is TerminalChoice.Unreadable && "{folder}" in noFolder.why)
 		// A choice the file holds that cannot be read is kept while nothing is typed over it.
-		assertEquals(wrong, TerminalForm.of(wrong).choice())
+		assertEquals(noFolder, TerminalForm.of(noFolder).choice())
 	}
 
 	@Test

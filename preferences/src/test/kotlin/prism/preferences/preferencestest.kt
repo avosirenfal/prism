@@ -80,7 +80,7 @@ class PreferencesTest {
 	@Test
 	fun aSettingTheFileDoesNotKnowIsLeftAlone() {
 		Files.createDirectories(file.parent)
-		file.writeText("{ \"terminal\": [\"kitty\"], \"from-the-future\": true }")
+		file.writeText("{ \"terminal\": \"kitty\", \"from-the-future\": true }")
 
 		assertEquals(
 			TerminalChoice.Named("kitty"),

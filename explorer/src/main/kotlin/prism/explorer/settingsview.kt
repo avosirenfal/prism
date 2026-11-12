@@ -80,9 +80,9 @@ fun SettingsView(
 	onSave: () -> Unit,
 	onCancel: () -> Unit,
 	mouseChords: Flow<Chord> = emptyFlow(),
-	terminalPreview: (
-		TerminalChoice,
-	) -> TerminalCommand = { TerminalCommand.Failed("a terminal", "there is no desktop") },
+	terminalPreview: (TerminalChoice, List<String>?) -> TerminalCommand = { _, _ ->
+		TerminalCommand.Failed("a terminal", "there is no desktop")
+	},
 ) {
 	val palette = LocalPalette.current
 	val root = remember { FocusRequester() }
@@ -359,64 +359,75 @@ private fun PinRow(
 private fun TerminalPage(
 	settings: Settings,
 	onChange: (Settings) -> Unit,
-	preview: (TerminalChoice) -> TerminalCommand,
+	preview: (TerminalChoice, List<String>?) -> TerminalCommand,
 ) {
 	val type = LocalType.current
 	val form = settings.terminal
 	val choice = remember(form) { form.choice() }
-	val runs = remember(choice) { preview(choice) }
+	val opens = remember(choice) { preview(choice, null) }
+	val runs = remember(choice) { preview(choice, EXAMPLE) }
+
+	fun edit(change: (TerminalForm) -> TerminalForm) =
+		onChange(settings.copy(terminal = change(form).copy(kept = null)))
+
+	@Composable
+	fun Labelled(label: String, text: String, hint: String, onText: (String) -> Unit) {
+		Text(label, style = type.body)
+		Field(text, onText, Modifier.fillMaxWidth(), hint = hint)
+		Spacer(Modifier.height(Dims.gap))
+	}
 
 	Column(Modifier.verticalScroll(rememberScrollState())) {
 		Heading(
 			"Terminal",
 			"What “Open terminal here” opens, and what runs in a terminal runs in. Left empty, the desktop's own is " +
-				"found. A terminal's name (ghostty) is told the folder, and given a command, as prism or the terminal's " +
-				"own desktop entry knows it takes them. Or write its command line: {folder} where the folder goes, " +
-				"{command} where a command's words go; what it has no place for, it is not used for.",
+				"found. Or name a terminal, which is told the folder, and given a command, as prism or its own desktop " +
+				"entry knows it takes them. Or write its command lines, each in full: {folder} where the folder goes, " +
+				"{command} where a command's words go. A line left empty is not used, and what it is for is off.",
 		)
-		Field(
-			form.text,
-			{
-				onChange(
-					settings.copy(
-						terminal =
-							TerminalForm(
-								it,
-								form.kept.takeIf { _ ->
-									it.isBlank()
-								},
-							),
-					),
-				)
+		Labelled(
+			"Terminal",
+			form.name,
+			"ghostty, say",
+		) { text -> edit { it.copy(name = text) } }
+		Labelled(
+			"Or its command line, opened in a folder",
+			form.open,
+			"ghostty --working-directory={folder}",
+		) { text ->
+			edit { it.copy(open = text) }
+		}
+		Labelled(
+			"Its command line, running a command in a folder",
+			form.run,
+			"ghostty --working-directory={folder} -e {command}",
+		) { text ->
+			edit { it.copy(run = text) }
+		}
+		Text(
+			when (opens) {
+				is TerminalCommand.Ready ->
+					"Opened in your home folder: " +
+						opens.words.joinToString(" ") { "“$it”" }
+				is TerminalCommand.Failed -> "“Open terminal here” is off: ${opens.why}"
 			},
-			Modifier.fillMaxWidth(),
-			hint = "The desktop's own",
+			style = type.muted,
 		)
 		Spacer(Modifier.height(Dims.gap))
 		Text(
 			when (runs) {
 				is TerminalCommand.Ready ->
-					"In your home folder, runs " +
+					"Running ${EXAMPLE.joinToString(" ")} there: " +
 						runs.words.joinToString(" ") { "“$it”" }
-				is TerminalCommand.Failed -> "Can't open it: ${runs.why}"
+				is TerminalCommand.Failed -> "Actions that run in a terminal are off: ${runs.why}"
 			},
 			style = type.muted,
 		)
-		if (choice !is TerminalChoice.Unreadable &&
-			!(choice.opensInFolder && choice.runsCommands)
-		) {
-			Spacer(Modifier.height(Dims.gap))
-			Text(
-				when {
-					!choice.opensInFolder && !choice.runsCommands -> "Used for nothing: it says neither {folder} nor {command}."
-					!choice.opensInFolder -> "“Open terminal here” is off: the command line says no {folder}."
-					else -> "Actions that run in a terminal are off: the command line says no {command}."
-				},
-				style = type.muted,
-			)
-		}
 	}
 }
+
+/** The command the Terminal page shows a terminal running, as an action would. */
+private val EXAMPLE = listOf("htop", "-d", "10")
 
 /** Where each scope's actions act, as the bindings page heads them. */
 private fun headingOf(scope: Scope): String =

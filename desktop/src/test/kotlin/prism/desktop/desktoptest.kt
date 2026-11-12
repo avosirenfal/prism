@@ -396,11 +396,10 @@ class DesktopTest {
 
 		inTerminal.terminal(
 			files,
-			(
-				TerminalChoice.Written.of(
-					listOf("xterm", "-T", "{folder}"),
-				) as TerminalChoice.Written.Either.Right
-			).written,
+			TerminalChoice.CommandLines.of(
+				(FolderLine.of(listOf("xterm", "-T", "{folder}")) as Read.Right).value,
+				null,
+			)!!,
 		)
 		inTerminal.launch(
 			DesktopEntries(xdg, SharedMimeInfo(xdg)).all().single {

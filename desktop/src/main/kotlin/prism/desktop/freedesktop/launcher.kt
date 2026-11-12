@@ -7,7 +7,6 @@ import java.nio.file.Path
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 import prism.desktop.Application
-import prism.desktop.FolderArgs
 import prism.desktop.Launched
 import prism.desktop.Launcher
 import prism.desktop.TerminalChoice
@@ -79,16 +78,22 @@ class DetachedLauncher(
 							"a terminal",
 							"no terminal was found: choose one in the preferences",
 						)
-				// The command line as written; what it has no place for, it is not used for.
-				is TerminalChoice.Written ->
-					return choice.opening(folder, command)?.let(TerminalCommand::Ready)
-						?: TerminalCommand.Failed(
-							"the terminal in the preferences",
-							if (command == null)
-								"its command line says nowhere for the folder to go (${FolderArgs.FOLDER})"
-							else
-								"its command line says nowhere for a command to go (${TerminalChoice.Written.COMMAND})",
-						)
+				// The command lines as written, each only filled in; one not written is not used.
+				is TerminalChoice.CommandLines ->
+					return when {
+						command == null ->
+							choice.inFolder?.let { TerminalCommand.Ready(it.filled(folder)) }
+								?: TerminalCommand.Failed(
+									"the terminal in the preferences",
+									"it has no command line for opening in a folder",
+								)
+						else ->
+							choice.running?.let { TerminalCommand.Ready(it.filled(folder, command)) }
+								?: TerminalCommand.Failed(
+									"the terminal in the preferences",
+									"it has no command line for running a command",
+								)
+					}
 				is TerminalChoice.Named ->
 					terminals.named(choice.name)
 						?: return TerminalCommand.Failed(
@@ -97,8 +102,7 @@ class DetachedLauncher(
 								"“${choice.name}” is not installed, or not on the PATH"
 							else
 								"prism does not know how to tell “${choice.name}” a folder or give it a command: write " +
-									"its command line in the preferences, with ${FolderArgs.FOLDER} and " +
-									"${TerminalChoice.Written.COMMAND} where they go",
+									"its command lines in the preferences",
 						)
 				is TerminalChoice.Unreadable ->
 					return TerminalCommand.Failed("the terminal in the preferences", choice.why)

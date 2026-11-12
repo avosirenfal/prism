@@ -197,7 +197,7 @@ class TerminalsTest {
 		// A terminal chosen by name is told the folder as that terminal takes it.
 		launcher.terminal(folder, TerminalChoice.Named("foot"))
 		// One that says where the folder goes is run as it is written.
-		launcher.terminal(folder, written("foot", "-D", "{folder}"))
+		launcher.terminal(folder, lines(listOf("foot", "-D", "{folder}"), null))
 
 		val words =
 			started.map { (command, _) ->
@@ -216,15 +216,18 @@ class TerminalsTest {
 		assertEquals(listOf(folder, folder, folder), started.map { it.second })
 	}
 
-	private fun written(vararg words: String): TerminalChoice.Written =
-		(
-			TerminalChoice.Written.of(
-				words.toList(),
-			) as TerminalChoice.Written.Either.Right
-		).written
+	private fun <T> right(read: Read<T>): T = (read as Read.Right<T>).value
+
+	private fun lines(open: List<String>?, run: List<String>?): TerminalChoice.CommandLines =
+		TerminalChoice.CommandLines.of(
+			open?.let {
+				right(FolderLine.of(it))
+			},
+			run?.let { right(CommandLine.of(it)) },
+		)!!
 
 	@Test
-	fun aTerminalChosenIsOpenedByItsNameOrItsCommandLineAndUsedOnlyForWhatItHasAPlaceFor() {
+	fun aTerminalChosenIsOpenedByItsNameOrItsCommandLinesAndEachLineOnlyFilledIn() {
 		installed("ghostty", "foot", "my-term")
 		entry(
 			"org.example.MyTerm.desktop",
@@ -254,13 +257,23 @@ class TerminalsTest {
 			opened(TerminalChoice.Named("org.example.MyTerm.desktop")),
 		)
 
-		// By its command line, with options of the user's own: the folder and a command where it says.
-		val line =
-			written("ghostty", "--font-size=14", "--working-directory={folder}", "-e", "{command}")
+		// By its command lines: each used for what it is for, and only filled in, word for word.
+		val both =
+			lines(
+				listOf("ghostty", "--font-size=14", "--working-directory={folder}"),
+				listOf(
+					"ghostty",
+					"--font-size=14",
+					"--working-directory={folder}",
+					"-e",
+					"{command}",
+					"--hold",
+				),
+			)
 
 		assertEquals(
 			listOf("ghostty", "--font-size=14", "--working-directory=$folder"),
-			opened(line),
+			opened(both),
 		)
 		assertEquals(
 			listOf(
@@ -271,37 +284,41 @@ class TerminalsTest {
 				"htop",
 				"-d",
 				"1",
+				"--hold",
 			),
-			opened(line, listOf("htop", "-d", "1")),
+			opened(both, listOf("htop", "-d", "1")),
 		)
 
-		// Opened with no command, the options introducing one go with it.
+		// A line not written is not used, and nothing else is run in its place.
+		val openOnly = lines(listOf("foot", "-D", "{folder}"), null)
+		val runOnly = lines(null, listOf("foot", "-D", "{folder}", "{command}"))
+
+		assertTrue(openOnly.opensInFolder && !openOnly.runsCommands)
+		assertTrue(!runOnly.opensInFolder && runOnly.runsCommands)
 		assertEquals(
-			listOf("wezterm", "start", "--cwd=$folder"),
-			opened(written("wezterm", "start", "--cwd={folder}", "--", "{command}")),
+			"it has no command line for running a command",
+			opened(openOnly, listOf("htop")),
+		)
+		assertEquals("it has no command line for opening in a folder", opened(runOnly))
+		assertEquals(
+			listOf("foot", "-D", folder.toString(), "htop"),
+			opened(runOnly, listOf("htop")),
 		)
 
-		// What a command line has no place for, it is not used for: said, and nothing else is run in its place.
-		val folderOnly = written("foot", "-D", "{folder}")
-
-		assertTrue(folderOnly.opensInFolder && !folderOnly.runsCommands)
-		assertEquals(listOf("foot", "-D", folder.toString()), opened(folderOnly))
-		assertTrue((opened(folderOnly, listOf("htop")) as String).contains("{command}"))
-
-		val commandOnly = written("foot", "{command}")
-
-		assertTrue(!commandOnly.opensInFolder && commandOnly.runsCommands)
-		assertTrue((opened(commandOnly) as String).contains("{folder}"))
-
-		// A command line must say where one or the other goes, and each once; {command} is a word of its own.
+		// A line that cannot be filled in rightly cannot be made: each says {folder} once; a running line, {command}
+		// once and as a word of its own; an opening line, none.
 		listOf(
-			listOf("foot", "--hold"),
+			listOf("foot"),
 			listOf("foot", "{folder}", "{folder}"),
-			listOf("foot", "-e={command}"),
+			listOf("foot", "{folder}", "{command}"),
 			emptyList(),
-		).forEach {
-			assertTrue(TerminalChoice.Written.of(it) is TerminalChoice.Written.Either.Wrong, "$it")
-		}
+		).forEach { assertTrue(FolderLine.of(it) is Read.Wrong, "$it") }
+		listOf(
+			listOf("foot", "{folder}"),
+			listOf("foot", "-e={command}", "{folder}"),
+			listOf("f", "{folder}", "{command}", "{command}"),
+		).forEach { assertTrue(CommandLine.of(it) is Read.Wrong, "$it") }
+		assertNull(TerminalChoice.CommandLines.of(null, null))
 
 		// A name not installed, or one nothing says how to tell a folder: said, not guessed at.
 		installed("odd-term")
@@ -314,7 +331,7 @@ class TerminalsTest {
 				opened(
 					TerminalChoice.Named("odd-term"),
 				) as String
-			).contains("write its command line"),
+			).contains("write its command lines"),
 		)
 		assertEquals("it's wrong", opened(TerminalChoice.Unreadable("{}", "it's wrong")))
 	}

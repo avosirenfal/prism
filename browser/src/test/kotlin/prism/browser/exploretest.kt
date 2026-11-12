@@ -15,6 +15,7 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import prism.desktop.Application
 import prism.desktop.Applications
+import prism.desktop.CommandLine
 import prism.desktop.Desktop
 import prism.desktop.FileTypes
 import prism.desktop.JvmFacts
@@ -23,6 +24,7 @@ import prism.desktop.Launcher
 import prism.desktop.MimeType
 import prism.desktop.Place
 import prism.desktop.Places
+import prism.desktop.Read
 import prism.desktop.TerminalChoice
 import prism.preferences.MemoryPreferences
 
@@ -366,11 +368,10 @@ class ExploreTest {
 		val noFolder =
 			explorer.copy(
 				terminal =
-					(
-						TerminalChoice.Written.of(
-							listOf("foot", "{command}"),
-						) as TerminalChoice.Written.Either.Right
-					).written,
+					TerminalChoice.CommandLines.of(
+						null,
+						(CommandLine.of(listOf("foot", "{folder}", "{command}")) as Read.Right).value,
+					)!!,
 			)
 
 		fun terminalItems(menu: Menu<BrowserEvent>) =

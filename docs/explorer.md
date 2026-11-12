@@ -276,16 +276,22 @@ as its desktop entry says, or as prism knows it to take them. A name neither say
 says to write its command line.
 
 ```json
-"terminal": ["ghostty", "--font-size=14", "--working-directory={folder}", "-e", "{command}"]
+"terminal": {
+    "open": ["ghostty", "--font-size=14", "--working-directory={folder}"],
+    "run": ["ghostty", "--font-size=14", "--working-directory={folder}", "-e", "{command}"]
+}
 ```
 
-Its command line, as it is to be run: `{folder}` where the folder goes (a word of its own, or joined to an option), and
-`{command}`, a word of its own, where a command's words go. Opened with no command, `{command}` is left out, and the
-options just before it that introduce it (`-e`, `-x`, `--`). What a command line has no place for, it is not used for:
-without `{folder}`, "Open terminal here" is off; without `{command}`, the actions that run in a terminal are; and
-nothing else is run in its place.
+Its command lines, each written out in full for what it is used for: `open`, a terminal opened in a folder ("Open
+terminal here"); and `run`, a terminal opened in a folder running a command there (the actions and applications that
+run in a terminal; an application runs in the home folder). `{folder}` is the folder, once in each line, a word of its
+own or joined to an option; `{command}`, once in `run` and a word of its own, is a command's words. A line is only
+filled in: nothing is taken out of it, and neither is made from the other. A line left out is not used, and what it is
+for is off ("Open terminal here" in every menu, or the actions that run in a terminal), with nothing else run in its
+place. prism never opens a terminal in no folder, so there is no line for that.
 
-A choice that cannot be read (a command line that says neither, or either twice) is kept as it was written, and "Open
+A choice that cannot be read (a line without `{folder}`, an `open` line with `{command}`, a `run` line without it, or
+either said twice) is kept as it was written, and "Open
 terminal here" says why it cannot open it, rather than losing the rest of the preferences, or guessing.
 
 ## Not done yet

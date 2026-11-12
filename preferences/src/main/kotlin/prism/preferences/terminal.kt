@@ -13,19 +13,27 @@ import kotlinx.serialization.json.JsonEncoder
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import prism.desktop.CommandLine
+import prism.desktop.FolderLine
+import prism.desktop.Read
 import prism.desktop.TerminalChoice
 
 /*
  * The terminal the user chooses, as the preferences file writes it (docs/explorer.md, "Choosing the terminal"):
  *
- *     "terminal": null                                     the desktop's own, as found
- *     "terminal": "ghostty"                                a terminal by its name, told a folder and given a
- *                                                          command as prism (or its desktop entry) knows it takes them
- *     "terminal": ["ghostty", "--working-directory={folder}", "-e", "{command}"]
- *                                                          its command line, as it is to be run
+ *     "terminal": null                     the desktop's own, as found
+ *     "terminal": "ghostty"                a terminal by its name, told a folder and given a command as prism (or
+ *                                          its desktop entry) knows it takes them
+ *     "terminal": {                        its command lines, each written out in full:
+ *         "open": ["ghostty", "--working-directory={folder}"],
+ *                                          opened in a folder ("Open terminal here")
+ *         "run": ["ghostty", "--working-directory={folder}", "-e", "{command}"]
+ *                                          opened in a folder, running a command there
+ *     }
  *
- * What does not read as one of these is kept as it was written, and said to be wrong where the terminal is asked for,
- * rather than losing the rest of the preferences with it.
+ * Either line may be left out, and what it is for is then off. What does not read as one of these is kept as it was
+ * written, and said to be wrong where the terminal is asked for, rather than losing the rest of the preferences with it.
  */
 object TerminalChoiceSerializer : KSerializer<TerminalChoice> {
 	override val descriptor: SerialDescriptor = JsonElement.serializer().descriptor
@@ -35,6 +43,8 @@ object TerminalChoiceSerializer : KSerializer<TerminalChoice> {
 
 	override fun serialize(encoder: Encoder, value: TerminalChoice) =
 		(encoder as JsonEncoder).encodeJsonElement(jsonOf(value))
+
+	private const val SHAPE = "it is a terminal's name, or its command lines: {\"open\": [...], \"run\": [...]}"
 
 	/** [json] as the user's choice of terminal. */
 	fun choiceOf(json: JsonElement): TerminalChoice {
@@ -51,39 +61,62 @@ object TerminalChoiceSerializer : KSerializer<TerminalChoice> {
 					.takeIf {
 						it.isString && it.content.isNotBlank()
 					}?.let { TerminalChoice.Named(it.content.trim()) }
-					?: wrong("it is a terminal's name, or its command line as a list of words")
-			is JsonArray -> {
-				val words =
-					json.map { (it as? JsonPrimitive)?.takeIf { word -> word.isString }?.content }
+					?: wrong(SHAPE)
+			is JsonArray -> wrong(SHAPE)
+			is JsonObject -> {
+				val unknown = json.keys - setOf("open", "run")
 
-				when {
-					words.any { it == null } -> wrong("its command line has a word that is not text")
-					// A name alone, as a list of one.
-					words.size == 1 &&
-						commandLineOf(words.filterNotNull()) is TerminalChoice.Written.Either.Wrong ->
-						TerminalChoice.Named(words.single()!!)
-					else ->
-						when (val read = commandLineOf(words.filterNotNull())) {
-							is TerminalChoice.Written.Either.Right -> read.written
-							is TerminalChoice.Written.Either.Wrong -> wrong(read.why)
+				if (unknown.isNotEmpty())
+					return wrong(
+						"it says ${unknown.joinToString { "“$it”" }}, which is neither “open” nor “run”",
+					)
+
+				val open =
+					json["open"]?.let { line ->
+						when (
+							val read =
+								wordsOf(line)?.let(FolderLine::of)
+									?: return wrong("its “open” is not a list of words")
+						) {
+							is Read.Right -> read.value
+							is Read.Wrong -> return wrong("its “open” line: ${read.why}")
 						}
-				}
+					}
+
+				val run =
+					json["run"]?.let { line ->
+						when (
+							val read =
+								wordsOf(line)?.let(CommandLine::of)
+									?: return wrong("its “run” is not a list of words")
+						) {
+							is Read.Right -> read.value
+							is Read.Wrong -> return wrong("its “run” line: ${read.why}")
+						}
+					}
+
+				TerminalChoice.CommandLines.of(open, run)
+					?: wrong("it has neither an “open” line nor a “run” line")
 			}
-			is JsonObject ->
-				wrong(
-					"it is a terminal's name, or its command line as a list of words",
-				)
 		}
 	}
 
-	private fun commandLineOf(words: List<String>) = TerminalChoice.Written.of(words)
+	private fun wordsOf(json: JsonElement): List<String>? =
+		(json as? JsonArray)?.map {
+			(it as? JsonPrimitive)?.takeIf { word -> word.isString }?.content
+				?: return null
+		}
 
 	/** [choice] as the file writes it. */
 	fun jsonOf(choice: TerminalChoice): JsonElement =
 		when (choice) {
 			TerminalChoice.Found -> JsonNull
 			is TerminalChoice.Named -> JsonPrimitive(choice.name)
-			is TerminalChoice.Written -> JsonArray(choice.words.map(::JsonPrimitive))
+			is TerminalChoice.CommandLines ->
+				buildJsonObject {
+					choice.inFolder?.let { put("open", JsonArray(it.words.map(::JsonPrimitive))) }
+					choice.running?.let { put("run", JsonArray(it.words.map(::JsonPrimitive))) }
+				}
 			// What could not be read is written back as it was, for the user to mend.
 			is TerminalChoice.Unreadable ->
 				try {

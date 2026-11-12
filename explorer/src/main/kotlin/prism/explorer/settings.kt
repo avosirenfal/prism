@@ -3,6 +3,7 @@ package prism.explorer
 import java.nio.file.Path
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
 import prism.browser.Actions
 import prism.browser.Bindable
 import prism.browser.Bindings
@@ -166,31 +167,70 @@ data class Settings(
 }
 
 /**
- * The terminal chosen, as the preferences window's field has it: [text], as typed: nothing, for the desktop's own; a
- * terminal's name; or its command line, `{folder}` and `{command}` where they go. [kept] is a choice the file holds
- * that could not be read, kept as it is while nothing is typed over it.
+ * The terminal chosen, as the preferences window's fields have it, each as typed: a terminal's [name]; or its command
+ * lines, [open] (opened in a folder) and [run] (opened in a folder running a command); all empty for the desktop's own.
+ * [kept] is a choice the file holds that could not be read, kept as it is while nothing is typed over it.
  */
 data class TerminalForm(
-	val text: String = "",
+	val name: String = "",
+	val open: String = "",
+	val run: String = "",
 	val kept: TerminalChoice.Unreadable? = null,
 ) {
-	/** The choice the field makes; one that cannot be, as a choice that cannot be read, which says why. */
+	/** The choice the fields make; one that cannot be, as a choice that cannot be read, which says why. */
 	fun choice(): TerminalChoice {
-		val words = wordsOf(text)
+		val named = name.trim()
+		val lines = wordsOf(open) to wordsOf(run)
 
 		return when {
-			words.isEmpty() -> kept ?: TerminalChoice.Found
-			else -> TerminalChoiceSerializer.choiceOf(JsonArray(words.map(::JsonPrimitive)))
+			named.isEmpty() && lines.first.isEmpty() && lines.second.isEmpty() ->
+				kept
+					?: TerminalChoice.Found
+			named.isNotEmpty() && (lines.first.isNotEmpty() || lines.second.isNotEmpty()) ->
+				wrongly("it is a terminal's name, or its command lines, not both")
+			named.isNotEmpty() -> TerminalChoice.Named(named)
+			else -> TerminalChoiceSerializer.choiceOf(json())
 		}
 	}
 
+	/** What the command lines' fields say, as the file writes it. */
+	private fun json() =
+		buildJsonObject {
+			wordsOf(open)
+				.takeIf {
+					it.isNotEmpty()
+				}?.let { put("open", JsonArray(it.map(::JsonPrimitive))) }
+			wordsOf(run)
+				.takeIf {
+					it.isNotEmpty()
+				}?.let { put("run", JsonArray(it.map(::JsonPrimitive))) }
+		}
+
+	private fun wrongly(why: String) =
+		TerminalChoice.Unreadable(
+			json().toString(),
+			"the terminal in the preferences can't be read: $why",
+		)
+
 	companion object {
-		/** [choice] in the field. */
+		/** [choice] in the fields. */
 		fun of(choice: TerminalChoice): TerminalForm =
 			when (choice) {
 				TerminalChoice.Found -> TerminalForm()
-				is TerminalChoice.Named -> TerminalForm(textOf(listOf(choice.name)))
-				is TerminalChoice.Written -> TerminalForm(textOf(choice.words))
+				is TerminalChoice.Named -> TerminalForm(name = choice.name)
+				is TerminalChoice.CommandLines ->
+					TerminalForm(
+						open =
+							choice.inFolder
+								?.words
+								?.let(::textOf)
+								.orEmpty(),
+						run =
+							choice.running
+								?.words
+								?.let(::textOf)
+								.orEmpty(),
+					)
 				is TerminalChoice.Unreadable -> TerminalForm(kept = choice)
 			}
 	}

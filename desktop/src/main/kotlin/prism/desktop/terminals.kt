@@ -102,7 +102,7 @@ data class Terminal(
 /**
  * The terminal the user has chosen, as the preferences say it: none (the desktop's own, as found), a terminal by its
  * name (which prism knows how to tell a folder and give a command, or whose desktop entry says), the terminal's
- * command line written out, or a choice that could not be read, which is said rather than guessed at.
+ * command lines written out, or a choice that could not be read, which is said rather than guessed at.
  */
 sealed interface TerminalChoice {
 	/** Whether a terminal can be opened in a folder: "Open terminal here". */
@@ -120,83 +120,23 @@ sealed interface TerminalChoice {
 	) : TerminalChoice
 
 	/**
-	 * The terminal's command line as it is to be run: [words], with [FolderArgs.FOLDER] where the folder goes (in a word
-	 * of its own, or joined to an option) and [COMMAND], a word of its own, where a command's words go; opened with no
-	 * command, [COMMAND] is left out, and the options just before it that introduce it (`-e`, `-x`, `--`). What it has
-	 * no place for, it is not used for: without [FolderArgs.FOLDER] nothing opens a terminal in a folder, and without
-	 * [COMMAND] nothing runs a command in one. Made by [of], which refuses words that say neither, or either twice.
+	 * The terminal's command lines, each written out in full for what it is used for: [inFolder], a terminal opened in
+	 * a folder ("Open terminal here"); and [running], a terminal opened in a folder running a command there (the
+	 * actions and applications that run in a terminal). Each is only filled in, never made from the other; one not
+	 * written is not used, and what it is for is off. Made by [of], which refuses neither being written.
 	 */
 	@ConsistentCopyVisibility
-	data class Written private constructor(
-		val words: List<String>,
+	data class CommandLines private constructor(
+		val inFolder: FolderLine?,
+		val running: CommandLine?,
 	) : TerminalChoice {
-		override val opensInFolder: Boolean get() = words.any { FolderArgs.FOLDER in it }
+		override val opensInFolder: Boolean get() = inFolder != null
 
-		override val runsCommands: Boolean get() = COMMAND in words
-
-		/** These words for [folder], running [command] where one is given; null for what they have no place for. */
-		fun opening(folder: Path, command: List<String>?): List<String>? {
-			if (if (command == null)
-					!opensInFolder
-				else
-					!runsCommands
-			)
-				return null
-
-			// With nothing to run, the command goes, and the options that introduce it with it (-e, -x, --).
-			val at = words.indexOf(COMMAND)
-
-			val kept =
-				if (command != null || at < 0)
-					words
-				else
-					words
-						.subList(
-							0,
-							at,
-						).dropLastWhile { it.startsWith("-") && FolderArgs.FOLDER !in it } +
-						words.subList(at + 1, words.size)
-
-			return kept.flatMap { word ->
-				when {
-					word == COMMAND -> command.orEmpty()
-					else -> listOf(word.replace(FolderArgs.FOLDER, folder.toString()))
-				}
-			}
-		}
+		override val runsCommands: Boolean get() = running != null
 
 		companion object {
-			const val COMMAND = "{command}"
-
-			/** [words] as a command line, or why they cannot be one. */
-			fun of(words: List<String>): Either =
-				when {
-					words.isEmpty() -> Either.Wrong("the command line is empty")
-					words.any {
-						COMMAND in it && it != COMMAND
-					} -> Either.Wrong("$COMMAND is a word of its own: a command's words take its place")
-					words.count { it == COMMAND } > 1 -> Either.Wrong("it says $COMMAND twice")
-					words.count {
-						FolderArgs.FOLDER in it
-					} > 1 -> Either.Wrong("it says ${FolderArgs.FOLDER} twice")
-					words.none { FolderArgs.FOLDER in it || it == COMMAND } ->
-						Either.Wrong(
-							"it says neither where the folder goes (${FolderArgs.FOLDER}) nor where a command does " +
-								"($COMMAND): write those, or the terminal's name alone",
-						)
-					else -> Either.Right(Written(words))
-				}
-		}
-
-		/** A command line read, or why it could not be. */
-		sealed interface Either {
-			data class Right(
-				val written: Written,
-			) : Either
-
-			data class Wrong(
-				val why: String,
-			) : Either
+			fun of(inFolder: FolderLine?, running: CommandLine?): CommandLines? =
+				CommandLines(inFolder, running).takeIf { inFolder != null || running != null }
 		}
 	}
 
@@ -205,6 +145,89 @@ sealed interface TerminalChoice {
 		val written: String,
 		val why: String,
 	) : TerminalChoice
+}
+
+/** Where a command line's words are to be filled in: [FOLDER] the folder, in a word or joined to an option; [COMMAND], a word of its own, a command's words. */
+object Placeholders {
+	const val FOLDER = FolderArgs.FOLDER
+	const val COMMAND = "{command}"
+
+	/** Why [words] are not a command line saying [FOLDER] once, and [COMMAND] once or ([command] false) never; null where they are. */
+	internal fun wrongIn(words: List<String>, command: Boolean): String? =
+		when {
+			words.isEmpty() -> "it is empty"
+			words.count {
+				FOLDER in it
+			} != 1 -> "it says $FOLDER ${if (words.none { FOLDER in it })
+				"nowhere"
+			else
+				"more than once"}: once, where the folder goes"
+			words.any {
+				COMMAND in it && it != COMMAND
+			} -> "$COMMAND is a word of its own: a command's words take its place"
+			!command && COMMAND in words -> "it says $COMMAND, which a terminal opened in a folder is not given"
+			command && words.count {
+				it == COMMAND
+			} != 1 -> "it says $COMMAND ${if (COMMAND !in words)
+				"nowhere"
+			else
+				"more than once"}: once, where a command's words go"
+			else -> null
+		}
+}
+
+/** A command line that opens a terminal in a folder: [words], [Placeholders.FOLDER] once in them, and no command. */
+@JvmInline
+value class FolderLine private constructor(
+	val words: List<String>,
+) {
+	/** The command line for [folder]. */
+	fun filled(folder: Path): List<String> =
+		words.map { it.replace(Placeholders.FOLDER, folder.toString()) }
+
+	companion object {
+		/** [words] as such a line, or why they are not one. */
+		fun of(words: List<String>): Read<FolderLine> =
+			Placeholders.wrongIn(words, command = false)?.let { Read.Wrong(it) }
+				?: Read.Right(FolderLine(words))
+	}
+}
+
+/**
+ * A command line that opens a terminal in a folder running a command there: [words], [Placeholders.FOLDER] once in them,
+ * and [Placeholders.COMMAND] once, a word of its own.
+ */
+@JvmInline
+value class CommandLine private constructor(
+	val words: List<String>,
+) {
+	/** The command line for [command] in [folder]: the command's words, each a word of its own, where it says. */
+	fun filled(folder: Path, command: List<String>): List<String> =
+		words.flatMap {
+			if (it ==
+				Placeholders.COMMAND
+			)
+				command
+			else
+				listOf(it.replace(Placeholders.FOLDER, folder.toString()))
+		}
+
+	companion object {
+		fun of(words: List<String>): Read<CommandLine> =
+			Placeholders.wrongIn(words, command = true)?.let { Read.Wrong(it) }
+				?: Read.Right(CommandLine(words))
+	}
+}
+
+/** Something read from what a person wrote, or why it could not be. */
+sealed interface Read<out T> {
+	data class Right<out T>(
+		val value: T,
+	) : Read<T>
+
+	data class Wrong(
+		val why: String,
+	) : Read<Nothing>
 }
 
 /** The terminals prism knows how to tell a folder and a command, for those whose desktop entry does not say. */
