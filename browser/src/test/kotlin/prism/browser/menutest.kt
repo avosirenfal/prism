@@ -151,7 +151,16 @@ class MenuTest {
 		val sort = menu.submenu("Sort by")
 
 		assertEquals(
-			listOf("Name", "Date modified", "Date created", "Type", "Size", "—", "Ascending", "Descending"),
+			listOf(
+				"Name",
+				"Date modified",
+				"Date created",
+				"Type",
+				"Size",
+				"—",
+				"Ascending",
+				"Descending",
+			),
 			sort.labels(),
 		)
 		assertEquals(Mark.Radio(true), sort.item("Name").mark)

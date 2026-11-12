@@ -78,9 +78,23 @@ prism's popups provide the window's again (`WindowLocals`).
 
 **Drag and drop.** A place that takes drops is a `dropTarget` modifier; a window keeps its places and their bounds,
 and tells the innermost one under a drag. Files dragged in from another program come as SDL's drop events, through the
-platform's own protocol (XDND, Wayland's data device, OLE, macOS's dragging). A drag of prism's own carries what it
-drags as itself (`Outgoing`): to the same window always, and to another of prism's windows where the platform says
-where windows are on the screen (X11, Windows, macOS).
+platform's own protocol (XDND, Wayland's data device, OLE, macOS's dragging).
+
+A drag out is the platform's protocol to speak (`NativeDrags`), which SDL does not: on Wayland, prism speaks it
+(`WaylandDrags`), and on X11, Windows and macOS not yet, where a drag goes between prism's own windows by where the
+pointer is on the screen. On Wayland a drag is a `wl_data_source`, started by `wl_data_device.start_drag` from the press
+that began it, offering files as a URI list (alone: SDL, offered both, asks for the text and reads it as URIs, and a drop
+on a program of SDL's came to nothing) or, for what is not files (a place's entries), their names as text. The
+compositor carries it to whatever window it is let go over: another program's, which asks for the URI list; or one of
+prism's own, of this process or another, which SDL tells of it as of any drop. A window of this process knows the drag
+for its own and is given what it carries as itself.
+
+It is spoken through libwayland-client, on SDL's connection, on an event queue of its own dispatched by a thread of its
+own, for two reasons. A drag must be started with the serial of the button press that began it, which SDL keeps to
+itself; so the seat is bound here too (asked for its pointer only once it has one), and its pointer's presses heard. And
+a window of this process that a drag is dropped on is SDL's, which reads what is dropped at once, on the windows'
+thread, waiting for the source to write it: the source's writing it is on the other thread, so neither waits for the
+other.
 
 ## When no window opens
 
@@ -95,10 +109,11 @@ to create dri2 screen`), and prism draws on the CPU.
 
 ## Not yet
 
-- **Dragging out to other programs**, and on Wayland between prism's own windows. SDL takes drops but does not start
-  drags, so this is each platform's protocol to speak: Wayland's data device (a `wl_data_source` and `start_drag`,
-  through libwayland-client with FFM, beside SDL's own connection), XDND on X11, OLE's `DoDragDrop` on Windows, and an
-  `NSDraggingSession` on macOS. Until then, copy and paste is the way to other programs.
+- **Dragging out to other programs on X11, Windows and macOS**: XDND, OLE's `DoDragDrop` and an `NSDraggingSession`,
+  each a `NativeDrags` of its own, as Wayland's is. Until then, a drag there goes between prism's own windows, and copy
+  and paste is the way to other programs.
+- **A drag's picture**: the pointer is all that is drawn as a drag goes; Wayland's `start_drag` takes a surface for an
+  icon, which is given none.
 - **Input methods' preedit**: text composed in an input method (CJK) arrives once it is committed; what is being
   composed is not drawn in the field meanwhile.
 - **Wayland parents**: a picker for a Wayland application is not made its dialog yet (`xdg-foreign`).
@@ -112,6 +127,10 @@ to create dri2 screen`), and prism draws on the CPU.
   from, through SDL's own events. It passes under Xvfb and under weston's headless Wayland, drawn by the GPU, by the
   CPU, and with no EGL at all (`__EGL_VENDOR_LIBRARY_FILENAMES=/nonexistent.json`); the clipboard is left out under
   weston's, which has no seat to give the input serial Wayland's clipboard asks for.
+- `tools/wayland/check.sh`: prism's app image on a headless sway, as native Wayland windows, and a pointer of wlroots'
+  virtual-pointer protocol pressing, moving and letting go: a file dragged from one prism to another, moved there; a file
+  dragged between two windows of one prism, moved there; and an archive's entry dragged to its folder's window,
+  brought out there. It passes.
 - prism's `DragTest` and `SelectionTest` (`-Pbrowser.display`, X11): an archive's entry dragged by X's own pointer
   from one prism window to another and extracted there; and a failure's text selected and copied with Ctrl+C.
 - By hand, in the development container: `prism explore` on X11, and as a native Wayland client under weston

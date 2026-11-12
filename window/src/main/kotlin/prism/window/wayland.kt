@@ -26,7 +26,7 @@ import org.jetbrains.skia.Surface
  */
 
 /** libwayland-client's calls, as this needs them. */
-private object Wl {
+internal object Wl {
 	private val linker = Linker.nativeLinker()
 
 	/** Already loaded by SDL, when it chose Wayland; loaded again here, which finds the same. */
@@ -37,7 +37,7 @@ private object Wl {
 		)
 	private val libc: SymbolLookup = linker.defaultLookup()
 
-	private fun function(
+	fun function(
 		name: String,
 		descriptor: FunctionDescriptor,
 		vararg options: Linker.Option,
@@ -77,7 +77,7 @@ private object Wl {
 	val flush = function("wl_display_flush", FunctionDescriptor.of(JAVA_INT, ADDRESS))
 
 	/** `wl_proxy_marshal_flags`, which is variadic: one handle for each shape of arguments this sends. */
-	private fun marshal(vararg arguments: java.lang.foreign.MemoryLayout): MethodHandle =
+	fun marshal(vararg arguments: java.lang.foreign.MemoryLayout): MethodHandle =
 		function(
 			"wl_proxy_marshal_flags",
 			FunctionDescriptor.of(
@@ -94,6 +94,21 @@ private object Wl {
 
 	/** A request of no arguments, or of a new object alone. */
 	val marshalNone = marshal(ADDRESS)
+
+	/** A request of one number (`wl_data_source.set_actions`). */
+	val marshalInt = marshal(JAVA_INT)
+
+	/** A request of a new object and another object (`wl_data_device_manager.get_data_device`). */
+	val marshalObject = marshal(ADDRESS, ADDRESS)
+
+	/** `wl_data_device.start_drag`: the source, the surface it starts on, its icon (none), the press's serial. */
+	val marshalStartDrag = marshal(ADDRESS, ADDRESS, ADDRESS, JAVA_INT)
+
+	/** `wl_display_dispatch_queue`: [queue]'s events read and dispatched, waiting for one where there is none. */
+	val dispatchQueue =
+		function("wl_display_dispatch_queue", FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS))
+
+	val write = c("write", FunctionDescriptor.of(JAVA_LONG, JAVA_INT, ADDRESS, JAVA_LONG))
 
 	/** `wl_registry.bind`: name, interface name, version, new id. */
 	val marshalBind = marshal(JAVA_INT, ADDRESS, JAVA_INT, ADDRESS)

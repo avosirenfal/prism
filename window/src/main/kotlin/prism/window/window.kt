@@ -384,6 +384,11 @@ class NativeWindow internal constructor(
 			}
 			SDL_EVENT_MOUSE_BUTTON_DOWN, SDL_EVENT_MOUSE_BUTTON_UP -> {
 				val press = event.button()
+
+				Log.say {
+					"window $id: button ${press.button()} ${if (press.down()) "down" else "up"} at ${press.x()}, ${press.y()}"
+				}
+
 				val down = event.type() == SDL_EVENT_MOUSE_BUTTON_DOWN
 				val button = buttonOf(press.button().toInt())
 
@@ -436,7 +441,13 @@ class NativeWindow internal constructor(
 			SDL_EVENT_DROP_POSITION -> {
 				val drop = event.drop()
 
-				drops.hover(pixelOf(drop.x(), drop.y()), DragOver.Foreign)
+				drops.hover(
+					pixelOf(drop.x(), drop.y()),
+					app.drags.ownDropped()?.let {
+						DragOver.Own(it.local, dragKeysOf(SDL_GetModState().toInt()))
+					}
+						?: DragOver.Foreign,
+				)
 				foreign = foreign ?: ForeignDrop(emptyList(), null)
 			}
 			SDL_EVENT_DROP_FILE ->
@@ -457,6 +468,11 @@ class NativeWindow internal constructor(
 					(foreign ?: ForeignDrop(emptyList(), null)).copy(text = event.drop().dataString())
 			SDL_EVENT_DROP_COMPLETE -> {
 				val drop = event.drop()
+
+				Log.say {
+					"window $id: drop complete, ${foreign?.files?.size ?: 0} files, text ${foreign?.text != null}"
+				}
+
 				val at = pixelOf(drop.x(), drop.y())
 				val dropped =
 					foreign?.let { (files, text) ->
@@ -468,10 +484,19 @@ class NativeWindow internal constructor(
 					}
 
 				foreign = null
-				if (dropped == null)
-					drops.leave()
-				else
-					drops.drop(at, dropped)
+
+				// A drop of this process's own drag, by the platform's protocol: what it carries, as itself, rather than
+				// what other programs are given of it.
+				val own = app.drags.ownDropped()
+
+				when {
+					dropped == null -> drops.leave()
+					own != null ->
+						app.drags.droppedHere(
+							drops.drop(at, Dropped.Own(own.local, dragKeysOf(SDL_GetModState().toInt()))),
+						)
+					else -> drops.drop(at, dropped)
+				}
 			}
 		}
 	}
@@ -500,7 +525,11 @@ class NativeWindow internal constructor(
 	}
 
 	/** The window's own drag, from here on, as [Drags] says; the scene's gesture let go. */
-	internal fun cancelPointer() = scene.cancelPointerInput()
+	internal fun cancelPointer() {
+		scene.cancelPointerInput()
+		// The button that began it is let go of where the platform carries the drag, and this window never told so.
+		pressed = PointerButtons()
+	}
 
 	/** The pointer's position in the window, in its pixels. */
 	internal val pointerPosition: Offset get() = pointer

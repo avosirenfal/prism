@@ -65,6 +65,10 @@ internal class Application(
 	private val open = HashMap<Int, NativeWindow>()
 	val windows: Collection<NativeWindow> get() = open.values
 	val drags = Drags(this)
+
+	/** The platform's drags, where its protocol is spoken: begun with the first window, which they need to be. */
+	var nativeDrags: NativeDrags? = null
+		private set
 	private val cursors = HashMap<Int, Long>()
 
 	private var running by mutableStateOf(true)
@@ -80,6 +84,13 @@ internal class Application(
 
 	fun opened(window: NativeWindow) {
 		open[window.id] = window
+		// Heard from before any drag: a drag is begun from a press of the pointer's, which must be heard as it happens.
+		if (nativeDrags == null) {
+			nativeDrags = NativeDrags.of(window.handle)
+			Log.say {
+				"drags: ${nativeDrags?.javaClass?.simpleName ?: "this process's own alone"}"
+			}
+		}
 	}
 
 	fun closed(window: NativeWindow) {
@@ -134,6 +145,7 @@ internal class Application(
 
 		composition.dispose()
 		recomposer.close()
+		nativeDrags?.close()
 		cursors.values.forEach(::SDL_DestroyCursor)
 	}
 

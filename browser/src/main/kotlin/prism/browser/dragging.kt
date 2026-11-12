@@ -147,9 +147,20 @@ fun Modifier.filesDragged(
 		remember(window) {
 			{
 				val dragged = files()
+
 				val outgoing =
 					if (dragged.isEmpty())
-						entries()?.let(EntriesOut::of)?.let { Outgoing(Dragged.Entries(it), emptyList()) }
+						entries()?.let(EntriesOut::of)?.let { out ->
+							// Other programs are given their names.
+							Outgoing(
+								Dragged.Entries(out),
+								emptyList(),
+								text =
+									out.entries.joinToString("\n") {
+										it.name
+									},
+							)
+						}
 					else
 						Outgoing(Dragged.Files(dragged), dragged)
 
