@@ -47,6 +47,7 @@ include(
 	":watcher",
 	":daemon",
 	":preferences",
+	":window",
 	":desktop",
 	":browser",
 	":explorer",

@@ -10,8 +10,14 @@ compose = "1.12.0"
 compose-material3 = "1.9.0"
 kotlinx-serialization = "1.12.0"
 kotlinx-coroutines = "1.11.0"
+# SDL3 (windows, input, the clipboard, drops) and OpenGL, the window module's way to the display on every platform.
+lwjgl = "3.4.3"
 
 [libraries]
+lwjgl-bom = { module = "org.lwjgl:lwjgl-bom", version.ref = "lwjgl" }
+lwjgl-core = { module = "org.lwjgl:lwjgl" }
+lwjgl-sdl = { module = "org.lwjgl:lwjgl-sdl" }
+lwjgl-opengl = { module = "org.lwjgl:lwjgl-opengl" }
 ktlint-cli = { module = "com.pinterest.ktlint:ktlint-cli", version.ref = "ktlint" }
 ktlint-rule-engine = { module = "com.pinterest.ktlint:ktlint-rule-engine", version.ref = "ktlint" }
 ktlint-rule-engine-core = { module = "com.pinterest.ktlint:ktlint-rule-engine-core", version.ref = "ktlint" }
