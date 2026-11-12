@@ -260,6 +260,9 @@ interface FileFacts {
 	/** [path]'s facts; null where it is not there. */
 	fun of(path: Path): Facts?
 
+	/** When the file at [path] was made, where its file system keeps that; null where it does not, or it is not there. */
+	fun bornAt(path: Path): java.time.Instant? = null
+
 	/** What [folder] holds, added up: its files, its folders, and their sizes. Long, for a large folder. */
 	fun contents(folder: Path): Contents
 

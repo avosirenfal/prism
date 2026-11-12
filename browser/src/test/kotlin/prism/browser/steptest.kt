@@ -2,6 +2,8 @@ package prism.browser
 
 import androidx.compose.ui.input.pointer.PointerButton
 import java.nio.file.Path
+import java.time.Instant
+import java.time.ZoneId
 import kotlin.io.path.Path
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -81,6 +83,140 @@ class StepTest {
 		assertEquals(
 			History(back = folders(home, documents)),
 			after(back, BrowserEvent.Opened(Path("/etc"))).history,
+		)
+	}
+
+	@Test
+	fun whenAFoldersFilesWereMadeIsReadBehindABatchAtATimeThoseInSightFirst() {
+		val folder = home.resolve("Many")
+		val names = (0 until 3000).map { "f%04d.txt".format(it) }
+
+		val arrived =
+			step(
+				opened(Choosing.Exploring(), folder, home, Fixtures.sidebar).state,
+				Answer.Arrived(
+					folder,
+					Listing.Shown(names.map { Fixtures.row(it, 1, folder = folder) }),
+				),
+			)
+
+		// Nothing in sight said yet: the folder's first 2048, in its order.
+		val first = arrived.effects.filterIsInstance<Effect.Born>().single()
+
+		assertEquals(names.take(2048), first.names)
+
+		// Scrolled to the end meanwhile: nothing more is asked while a batch is read.
+		val scrolled = step(arrived.state, BrowserEvent.Scrolled(2980, 2999))
+
+		assertTrue(scrolled.effects.none { it is Effect.Born })
+
+		// The batch read: what is in sight next, before the rest.
+		val made = Instant.parse("2026-01-02T03:04:05Z")
+		val read = step(scrolled.state, Answer.Born(folder, first.names.associateWith { made }))
+
+		assertEquals(
+			names.subList(2980, 3000),
+			read.effects
+				.filterIsInstance<Effect.Born>()
+				.single()
+				.names,
+		)
+		assertEquals(
+			Created.At(Shown(made, dateOf(made, ZoneId.systemDefault()))),
+			read.state.rows[0].created,
+		)
+
+		// Then the rest, and then nothing; a file system that keeps none is said so.
+		val inSight =
+			step(read.state, Answer.Born(folder, names.subList(2980, 3000).associateWith { null }))
+		val rest = inSight.effects.filterIsInstance<Effect.Born>().single()
+
+		assertEquals(names.subList(2048, 2980), rest.names)
+		assertEquals(Created.Unkept, inSight.state.rows[2999].created)
+
+		val done = step(inSight.state, Answer.Born(folder, rest.names.associateWith { made }))
+
+		assertTrue(done.effects.none { it is Effect.Born })
+		// An answer for a folder no longer shown changes nothing.
+		assertEquals(
+			done.state,
+			step(done.state, Answer.Born(home, mapOf(names[0] to null))).state,
+		)
+	}
+
+	@Test
+	fun aListingIsOrderedByWhenItsFilesWereMadeThoseNotKnownLastAndTheDateColumnSaysWhichTime() {
+		val folder = home.resolve("Few")
+		val old = Instant.parse("2020-01-01T00:00:00Z")
+		val new = Instant.parse("2025-01-01T00:00:00Z")
+
+		val state =
+			step(
+				opened(Choosing.Exploring(), folder, home, Fixtures.sidebar).state,
+				Answer.Arrived(
+					folder,
+					Listing.Shown(
+						listOf("a", "b", "c", "d").map {
+							Fixtures.row(it, 1, folder = folder)
+						},
+					),
+				),
+			).let {
+				step(
+					it.state,
+					Answer.Born(
+						folder,
+						mapOf(
+							"a" to old,
+							"b" to null,
+							"c" to new,
+							"d" to null,
+						),
+					),
+				)
+			}.state
+
+		fun order(state: BrowserState) = (0 until state.rows.size).map { state.rows[it].name }
+
+		val newest = step(state, BrowserEvent.Sorted(Sort.Column.Created)).state
+
+		assertEquals(listOf("c", "a", "b", "d"), order(newest))
+		assertEquals(
+			listOf("a", "c", "b", "d"),
+			order(step(newest, BrowserEvent.Sorted(Sort.Column.Created)).state),
+		)
+
+		// Shown created while ordered by modified: ordered by created, the same way round; and back.
+		val byModified =
+			step(
+				state,
+				BrowserEvent.SortedBy(Sort(Sort.Column.Modified, ascending = false)),
+			).state
+
+		val created = step(byModified, BrowserEvent.ShowedDate(DateShown.Created)).state
+
+		assertEquals(DateShown.Created, created.arrangement.date)
+		assertEquals(Sort(Sort.Column.Created, ascending = false), created.arrangement.sort)
+		assertEquals(
+			Sort.Column.Modified,
+			step(created, BrowserEvent.ShowedDate(DateShown.Modified))
+				.state.arrangement.sort.by,
+		)
+		// Ordered by name, it stays so whichever time is shown.
+		assertEquals(
+			Sort.BY_NAME,
+			step(state, BrowserEvent.ShowedDate(DateShown.Created)).state.arrangement.sort,
+		)
+		// A window opened ordered by when files were made shows that time.
+		assertEquals(
+			DateShown.Created,
+			opened(
+				Choosing.Exploring(),
+				folder,
+				home,
+				Fixtures.sidebar,
+				sort = Sort(Sort.Column.Created, false),
+			).state.arrangement.date,
 		)
 	}
 

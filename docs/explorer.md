@@ -237,6 +237,24 @@ prism's own with no key held, a move within a volume and a copy across one. A mo
 application's to make; prism reads its folder again afterwards, and deletes nothing itself. docs/platform.md follows a
 drag through, and says what each platform does with it.
 
+## The listing's columns, order and text
+
+A row's menu opens over its name, and over the space after it in the name's column; the other columns are the
+listing's, whose menu is the folder's.
+
+The date column shows when files were last modified, or when they were made: the column headings' menu (the right
+button on them) chooses, for that window. When a file was made is its birth time, which statx(2) gives where the file
+system keeps it (ext4, btrfs, XFS, tmpfs do; FAT and NFS do not, and those show "—"); it is not Unix's "ctime", which is
+when the file's inode last changed. It is read behind the folder, a batch at a time: those in sight first, then the
+rest in the folder's order, each answer asking for the next, so that what is scrolled to is read next. Ordered by it,
+those not known are last, by name. A search's results are not ordered by it.
+
+A new window lists a folder in the order the preferences give (`"sort": {"by": "Created", "ascending": false}`, say),
+and shows that time where it is ordered by one; a window then keeps the order and the date column it is given wherever
+it goes, and no other window is changed by it. The preferences size the text of the menus, the listing and the rest
+(`"text": {"menus": 15, "listing": 13, "general": 13}`), the menus a little larger by default; the Display page of the
+preferences window sets both.
+
 ## Open terminal here
 
 A terminal has to be told the folder to start in: starting it in the folder is not enough for every one. Ghostty runs

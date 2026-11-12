@@ -22,6 +22,8 @@ class JvmFacts(
 	private val types: FileTypes,
 	private val born: (Path) -> java.time.Instant? = { null },
 ) : FileFacts {
+	override fun bornAt(path: Path): java.time.Instant? = born(path)
+
 	override fun of(path: Path): Facts? {
 		val own =
 			try {

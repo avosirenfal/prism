@@ -2,6 +2,8 @@ package prism.browser
 
 import java.nio.file.InvalidPathException
 import java.nio.file.Path
+import java.time.Instant
+import java.time.ZoneId
 import prism.desktop.Launched
 import prism.index.query.QueryText
 import prism.preferences.Sort
@@ -61,7 +63,12 @@ fun opened(
 			history = History(),
 			sidebar = sidebar,
 			listing = Listing.Reading,
-			arrangement = Arrangement(sort = sort, filter = filters.first()),
+			arrangement =
+				Arrangement(
+					sort = sort,
+					date = DateShown.of(sort),
+					filter = filters.first(),
+				),
 			filters = filters,
 			cursor = null,
 			address = Address.Crumbs,
@@ -145,7 +152,11 @@ private fun did(state: BrowserState, event: BrowserEvent): Step =
 				else -> state.arranged { copy(sort = event.sort) }
 			}
 		BrowserEvent.SortedByRelevance -> state.arranged { copy(results = Order.Relevance) }
-		is BrowserEvent.Scrolled -> state.scrolled(event.first, event.last)
+		is BrowserEvent.Scrolled ->
+			state.copy(sight = event.first..event.last).let { seen ->
+				seen.scrolled(event.first, event.last).then { it.bornNext() }
+			}
+		is BrowserEvent.ShowedDate -> state.showedDate(event.date)
 		BrowserEvent.ToggledHiddenFiles ->
 			state.arranged {
 				copy(hidden = hidden.copy(files = !hidden.files))
@@ -933,12 +944,15 @@ private fun answered(state: BrowserState, answer: Answer): Step =
 		is Answer.Placed -> Step(state.copy(sidebar = answer.sidebar))
 		// A read of a folder no longer shown is too late to matter.
 		is Answer.Arrived ->
-			Step(
-				if (answer.folder == state.folder)
-					state.arrived(answer.read)
-				else
-					state,
-			)
+			if (answer.folder == state.folder)
+				state.arrived(answer.read).copy(bornReading = emptySet()).bornNext()
+			else
+				Step(state)
+		is Answer.Born ->
+			if (answer.folder == state.folder)
+				state.born(answer.times).bornNext()
+			else
+				Step(state)
 		is Answer.Changed -> state.changed(answer.change, answer.result, answer.doing)
 		is Answer.Searched -> state.searched(answer.finding, answer.purpose)
 		// What was read of results, or an order of them, for results no longer shown, is too late too.
@@ -1615,4 +1629,107 @@ fun pathOf(name: String, folder: Path?, home: Path): Path? =
 		}?.normalize()
 	} catch (bad: InvalidPathException) {
 		null
+	}
+
+// ---- when the folder's files were made ----------------------------------------------------------------------------
+
+/** How many of the rows in sight have when they were made read at once: a window's worth, back soon. */
+private const val BORN_IN_SIGHT = 256
+
+/** How many of the rest at the least, once those in sight are read; for a large folder, an eighth of it at a time. */
+private const val BORN_BEHIND = 2048
+
+/**
+ * When the folder's rows were made asked for, a batch at a time, where none is being read: those in sight that are not
+ * read yet first, then the rest in the folder's order. Each answer asks for the next, so a scroll meanwhile is read
+ * next, after the batch being read.
+ */
+internal fun BrowserState.bornNext(): Step {
+	val listing = listing as? Listing.Shown ?: return Step(this)
+	val folder = folder ?: return Step(this)
+
+	if (bornReading.isNotEmpty())
+		return Step(this)
+
+	fun unread(row: Row) = row.created == Created.Unread && row.path != null
+
+	val shown = rows
+	val inSight =
+		sight
+			?.let { (it.first.coerceAtLeast(0)..it.last.coerceAtMost(shown.size - 1)) }
+			?.map(shown::get)
+			.orEmpty()
+			.filter(::unread)
+			.take(BORN_IN_SIGHT)
+
+	val batch =
+		inSight.ifEmpty {
+			listing.entries
+				.asSequence()
+				.filter(::unread)
+				.take(maxOf(BORN_BEHIND, listing.entries.size / 8))
+				.toList()
+		}
+
+	if (batch.isEmpty())
+		return Step(this)
+
+	return Step(
+		copy(
+			bornReading =
+				batch
+					.map {
+						it.id
+					}.toSet(),
+		),
+		listOf(Effect.Born(folder, batch.map { it.name })),
+	)
+}
+
+/** The folder's rows with when they were made, as [times] says of those it names: each time, or none kept. */
+private fun BrowserState.born(times: Map<String, Instant?>): BrowserState {
+	val listing = listing as? Listing.Shown ?: return copy(bornReading = emptySet())
+	val zone = ZoneId.systemDefault()
+
+	val entries =
+		listing.entries.map { row ->
+			if (!times.containsKey(row.name))
+				row
+			else
+				row.copy(
+					created =
+						times[row.name]?.let { Created.At(Shown(it, dateOf(it, zone))) } ?: Created.Unkept,
+				)
+		}
+
+	return relisted(Listing.Shown(entries)).copy(
+		bornReading =
+			bornReading - times.keys.map(::RowId).toSet(),
+	)
+}
+
+/** The date column showing [date]; a listing ordered by the other time ordered by this one, the same way round. */
+private fun BrowserState.showedDate(date: DateShown): Step {
+	val sort = arrangement.sort
+	val other = DateShown.entries.single { it != date }.column
+
+	return arranged {
+		copy(
+			date = date,
+			sort =
+				if (sort.by == other)
+					sort.copy(by = date.column)
+				else
+					sort,
+		)
+	}
+}
+
+/** This step, and then what [next] makes of the state it leaves: both steps' effects, in order. */
+private fun Step.then(next: (BrowserState) -> Step): Step =
+	next(state).let {
+		Step(
+			it.state,
+			effects + it.effects,
+		)
 	}

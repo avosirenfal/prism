@@ -379,6 +379,8 @@ fun orderOf(matches: Matches, stats: Stats, column: Sort.Column): IntArray {
 				compareBy<Int, Long?>(nullsLast()) {
 					read(it)?.size?.value
 				}.then(byName)
+			// A search's results are never ordered by when they were made (Found.orders): by name, should it be asked.
+			Sort.Column.Created -> byName
 		}
 
 	return (0 until matches.size).sortedWith(by).toIntArray()

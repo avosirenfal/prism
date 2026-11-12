@@ -11,6 +11,9 @@ data class Sort(
 	enum class Column {
 		Name,
 		Modified,
+
+		/** When it was made: its birth time, where the file system keeps one. */
+		Created,
 		Type,
 		Size,
 	}

@@ -275,6 +275,7 @@ private fun labelOf(column: Sort.Column): String =
 	when (column) {
 		Sort.Column.Name -> "Name"
 		Sort.Column.Modified -> "Modified"
+		Sort.Column.Created -> "Created"
 		Sort.Column.Type -> "Type"
 		Sort.Column.Size -> "Size"
 	}

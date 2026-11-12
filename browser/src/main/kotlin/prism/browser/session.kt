@@ -269,6 +269,7 @@ class Session(
 							Stat.Read(null, null)
 						},
 					)
+				is Effect.Born -> Answer.Born(asking.folder, asking.names.associateWith { null })
 				is Effect.Order ->
 					Answer.Ordered(asking.matches, asking.column, IntArray(asking.matches.size) { it })
 				is Effect.Open ->

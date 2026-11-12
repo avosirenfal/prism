@@ -541,6 +541,7 @@ fun headingOf(column: Sort.Column): String =
 	when (column) {
 		Sort.Column.Name -> "Name"
 		Sort.Column.Modified -> "Date modified"
+		Sort.Column.Created -> "Date created"
 		Sort.Column.Type -> "Type"
 		Sort.Column.Size -> "Size"
 	}

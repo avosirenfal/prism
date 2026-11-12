@@ -1304,7 +1304,7 @@ private fun ListingPane(
 			.focusable(interactionSource = source)
 			.testTag("listing"),
 	) {
-		Header(state, onEvent)
+		Header(state, menus, onEvent)
 		Line(palette.divider)
 
 		Box(
@@ -1394,6 +1394,7 @@ private fun ListingPane(
 									EntryRow(
 										row,
 										where = whereOf(row, state),
+										date = state.arrangement.date,
 										chosen = row.id in chosen,
 										cursor = felt.ringed && row.id == cursor,
 										zoom = zoom,
@@ -1769,17 +1770,23 @@ private data class Heading(
 	val end: Boolean = false,
 )
 
-/** The listing's headings: a folder's, and a search's, which says where each result is. */
-private val HEADINGS =
-	listOf(
+/** The listing's headings, the date column's as [date] says: a folder's, and a search's, which says where each is. */
+private fun headingsOf(date: DateShown, found: Boolean): List<Heading> =
+	listOfNotNull(
 		Heading("Name", Sort.Column.Name, Dims.nameColumn),
-		Heading("Date modified", Sort.Column.Modified, Dims.dateColumn),
+		Heading("Folder", null, Dims.folderColumn).takeIf { found },
+		Heading(headingOf(date.column), date.column, Dims.dateColumn),
 		Heading("Type", Sort.Column.Type, Dims.typeColumn),
 		Heading("Size", Sort.Column.Size, Dims.sizeColumn, end = true),
 	)
 
-private val RESULT_HEADINGS =
-	HEADINGS.take(1) + Heading("Folder", null, Dims.folderColumn) + HEADINGS.drop(1)
+/** The menu of the listing's headings: which time the date column shows. */
+private fun headingsMenuOf(state: BrowserState): Menu<BrowserEvent> =
+	menu {
+		DateShown.entries.forEach {
+			radio(headingOf(it.column), state.arrangement.date == it, BrowserEvent.ShowedDate(it))
+		}
+	}
 
 /**
  * The headings that sort the listing, each by its column, the other way round when clicked again: over the list's
@@ -1788,7 +1795,11 @@ private val RESULT_HEADINGS =
  * one's size or date) is drawn faint and does nothing.
  */
 @Composable
-private fun Header(state: BrowserState, onEvent: (BrowserEvent) -> Unit) {
+private fun Header(
+	state: BrowserState,
+	menus: ContextMenus<BrowserEvent>,
+	onEvent: (BrowserEvent) -> Unit,
+) {
 	val type = LocalType.current
 	val layout = state.layout
 	val found = state.listing as? Listing.Found
@@ -1799,17 +1810,22 @@ private fun Header(state: BrowserState, onEvent: (BrowserEvent) -> Unit) {
 			(state.arrangement.results as? Order.By)?.sort
 
 	val headings =
-		when {
-			found == null -> HEADINGS
-			layout == Layout.Gallery -> HEADINGS
-			else -> RESULT_HEADINGS
-		}
+		headingsOf(
+			state.arrangement.date,
+			found =
+				found != null && layout != Layout.Gallery,
+		)
 
 	Row(
-		Modifier.fillMaxWidth().height(Dims.header).padding(
-			horizontal =
-				Dims.gap + Dims.gapSmall,
-		),
+		Modifier
+			.fillMaxWidth()
+			.height(Dims.header)
+			.contextMenu(menus) {
+				headingsMenuOf(state)
+			}.padding(
+				horizontal =
+					Dims.gap + Dims.gapSmall,
+			),
 		verticalAlignment = Alignment.CenterVertically,
 		horizontalArrangement =
 			when (layout) {
@@ -1917,6 +1933,7 @@ internal fun folderOf(path: Path, home: Path): String {
 private fun EntryRow(
 	row: Row,
 	where: String?,
+	date: DateShown,
 	chosen: Boolean,
 	cursor: Boolean,
 	zoom: Float,
@@ -1987,7 +2004,16 @@ private fun EntryRow(
 			)
 		}
 		Text(
-			row.modified?.text.orEmpty(),
+			when (date) {
+				DateShown.Modified -> row.modified?.text.orEmpty()
+				DateShown.Created ->
+					when (val created = row.created) {
+						is Created.At -> created.time.text
+						// Read behind, those in sight first: blank until it is; a dash where the file system keeps none.
+						Created.Unread -> ""
+						Created.Unkept -> "—"
+					}
+			},
 			style = muted,
 			maxLines = 1,
 			modifier = Modifier.weight(Dims.dateColumn),

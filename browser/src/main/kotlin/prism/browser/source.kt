@@ -243,6 +243,13 @@ fun Services.answer(
 				asking.within?.let { findingIn(it, asking) } ?: finder.findingOf(asking),
 				asking.purpose,
 			)
+		is Effect.Born ->
+			Answer.Born(
+				asking.folder,
+				asking.names.associateWith { name ->
+					desktop?.facts?.bornAt(asking.folder.resolve(name))
+				},
+			)
 		is Effect.Stat ->
 			Answer.Stated(
 				asking.matches,
@@ -628,6 +635,7 @@ fun sorted(rows: List<Row>, sort: Sort): List<Row> {
 			Sort.Column.Modified -> compareBy<Row> { it.modified }.then(byName)
 			Sort.Column.Type -> compareBy<Row> { it.type.lowercase() }.then(byName)
 			Sort.Column.Size -> compareBy<Row> { it.size }.then(byName)
+			Sort.Column.Created -> compareBy<Row> { it.created.at }.then(byName)
 		}
 
 	val directed =
@@ -636,7 +644,25 @@ fun sorted(rows: List<Row>, sort: Sort): List<Row> {
 		else
 			byColumn.reversed()
 
-	return rows.sortedWith(compareBy<Row> { !it.isFolder }.then(directed))
+	// By when they were made: those not known (not read yet, or not kept) last whichever way, and by name among
+	// themselves, since there is nothing else to order them by.
+	val ordered =
+		if (sort.by == Sort.Column.Created)
+			Comparator<Row> { a, b ->
+				val aKnown = a.created.at != null
+				val bKnown = b.created.at != null
+
+				when {
+					aKnown && bKnown -> directed.compare(a, b)
+					aKnown -> -1
+					bKnown -> 1
+					else -> byName.compare(a, b)
+				}
+			}
+		else
+			directed
+
+	return rows.sortedWith(compareBy<Row> { !it.isFolder }.then(ordered))
 }
 
 /**

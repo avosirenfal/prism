@@ -69,6 +69,51 @@ data class Shown<T : Comparable<T>>(
 	override fun compareTo(other: Shown<T>): Int = value.compareTo(other.value)
 }
 
+/**
+ * When a file was made: not read yet, read and kept by its file system ([At], said as the date column says it), or
+ * read and not kept, which many file systems (FAT, NFS, and others) do not. Unix's "ctime" is another thing, when the
+ * file's inode last changed; this is its birth time.
+ */
+@Immutable
+sealed interface Created {
+	data object Unread : Created
+
+	data object Unkept : Created
+
+	data class At(
+		val time: Shown<Instant>,
+	) : Created
+
+	/** The time, where there is one. */
+	val at: Instant? get() = (this as? At)?.time?.value
+}
+
+/** Which time the date column shows: when a file was last modified, or when it was made. */
+enum class DateShown {
+	Modified,
+	Created,
+	;
+
+	/** The column a listing showing this is ordered by, by its date. */
+	val column: Sort.Column
+		get() =
+			when (this) {
+				Modified -> Sort.Column.Modified
+				Created -> Sort.Column.Created
+			}
+
+	companion object {
+		/** What a window ordered by [sort] shows: its time, where it is ordered by one. */
+		fun of(sort: Sort): DateShown =
+			if (sort.by ==
+				Sort.Column.Created
+			)
+				Created
+			else
+				Modified
+	}
+}
+
 /** One entry of the folder shown, or one result of a search, with everything the view shows of it worked out. */
 @Immutable
 data class Row(
@@ -84,6 +129,8 @@ data class Row(
 	/** When it was last modified, said as the date column says it; null where that is not read, or could not be. */
 	val modified: Shown<Instant>?,
 	val hidden: Boolean,
+	/** When it was made, read after the folder is (a listing's creation times are read behind, those in sight first). */
+	val created: Created = Created.Unread,
 ) {
 	val isFolder: Boolean get() = category == Category.Folder
 
@@ -203,6 +250,8 @@ data class Hidden(
 @Immutable
 data class Arrangement(
 	val sort: Sort = Sort.BY_NAME,
+	/** Which time the date column shows; a window keeps it, as it keeps its order, wherever it goes. */
+	val date: DateShown = DateShown.Modified,
 	val results: Order = Order.Relevance,
 	val hidden: Hidden = Hidden(),
 	/** The kinds shown: only these where any are chosen, every row where none is. */
@@ -506,6 +555,8 @@ sealed interface Listing {
 			when (column) {
 				Sort.Column.Name, Sort.Column.Type -> true
 				Sort.Column.Modified, Sort.Column.Size -> few
+				// When a result was made is read for a folder's rows alone.
+				Sort.Column.Created -> false
 			}
 
 		/** The order [order] asks for, where it is worked out; for too many results, once it is worked out behind. */
@@ -820,6 +871,13 @@ data class BrowserState(
 	val renaming: Renaming? = null,
 	/** The search of the index, as Ctrl+Shift+F opens it; unavailable where there is no index. */
 	val search: Search = Search.Unavailable(NO_INDEX),
+	/** The rows in sight, by their places in [rows], as the view last said; null before it has. */
+	val sight: IntRange? = null,
+	/**
+	 * The folder's rows whose creation times are being read now: one batch at a time, so that what comes into sight
+	 * meanwhile is read next.
+	 */
+	val bornReading: Set<RowId> = emptySet(),
 	/** The user's actions and places, with prism's own: what the menus offer beyond what the browser does itself. */
 	val actions: Actions = Actions.NONE,
 	/** The terminal chosen: what says whether a terminal opens in a folder, and whether commands run in one. */

@@ -2,6 +2,7 @@ package prism.browser
 
 import androidx.compose.runtime.Immutable
 import java.nio.file.Path
+import java.time.Instant
 import prism.desktop.Launched
 import prism.desktop.Opening
 import prism.desktop.TerminalChoice
@@ -138,6 +139,11 @@ sealed interface BrowserEvent : Input {
 	data class Scrolled(
 		val first: Int,
 		val last: Int,
+	) : BrowserEvent
+
+	/** The date column made to show [date]: when files were last modified, or when they were made. */
+	data class ShowedDate(
+		val date: DateShown,
 	) : BrowserEvent
 
 	// ---- the search of the index ----
@@ -410,6 +416,12 @@ sealed interface Answer : Input {
 	data class Searched(
 		val finding: Finding,
 		val purpose: Purpose,
+	) : Answer
+
+	/** When the entries of [folder] named were made: each one's time, or none where its file system keeps none. */
+	data class Born(
+		val folder: Path,
+		val times: Map<String, Instant?>,
 	) : Answer
 
 	/** What reading some of [matches] on disk said of each, by its place among them. */
@@ -888,6 +900,12 @@ sealed interface Effect {
 		val purpose: Purpose,
 		/** The place searched, in the index's stead: only what it holds is found. */
 		val within: PlaceTree? = null,
+	) : Asking
+
+	/** When the entries [names] of [folder] were made, read, and sent back as [Answer.Born]. */
+	data class Born(
+		val folder: Path,
+		val names: List<String>,
 	) : Asking
 
 	/** The results at [places] among [matches] read on disk, and what was read sent back as [Answer.Stated]. */
