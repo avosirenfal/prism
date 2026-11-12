@@ -82,6 +82,8 @@ data class TrashEntry(
 	val deleted: Instant?,
 	val folder: Boolean,
 	val size: Long?,
+	/** When it was last modified, before it was trashed. */
+	val modified: Instant? = null,
 )
 
 /** The mounts, as the trash needs to know them: which there are, and which a path is on. */
@@ -284,6 +286,7 @@ class Trash(
 							Files.size(kept)
 						else
 							null,
+					modified = Files.getLastModifiedTime(kept, LinkOption.NOFOLLOW_LINKS).toInstant(),
 				)
 		}
 	}

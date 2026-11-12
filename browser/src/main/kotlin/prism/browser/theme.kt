@@ -6,15 +6,21 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.platform.SystemFont
 import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import prism.preferences.DateFormat
+import prism.preferences.Fonts
+import prism.preferences.Rows
 import prism.preferences.TextSizes
 
 /*
@@ -159,9 +165,29 @@ data class Type(
 	val title: TextStyle,
 	val button: TextStyle,
 ) {
+	/** These, in [family]. */
+	fun inFamily(family: FontFamily?): Type =
+		if (family == null)
+			this
+		else
+			Type(
+				body.copy(fontFamily = family),
+				muted.copy(fontFamily = family),
+				heading.copy(fontFamily = family),
+				title.copy(fontFamily = family),
+				button.copy(fontFamily = family),
+			)
+
 	companion object {
-		/** The styles for [palette], their text [size] points (sp) and the rest of them in proportion. */
-		fun of(palette: Palette, size: Float = TextSizes.DEFAULT): Type {
+		/**
+		 * The styles for [palette], their text [size] points (sp) and the rest of them in proportion, in [family] (the
+		 * default, where null).
+		 */
+		fun of(
+			palette: Palette,
+			size: Float = TextSizes.DEFAULT,
+			family: FontFamily? = null,
+		): Type {
 			fun sp(at13: Float) = (at13 * size / TextSizes.DEFAULT).sp
 
 			return Type(
@@ -192,7 +218,7 @@ data class Type(
 						lineHeight = sp(18f),
 						fontWeight = FontWeight.Medium,
 					),
-			)
+			).inFamily(family)
 		}
 	}
 }
@@ -200,11 +226,54 @@ data class Type(
 /** How large the text of each part of the window is, as the user's preferences say. */
 val LocalTextSizes = staticCompositionLocalOf { TextSizes() }
 
+/** The font of each part of the window, as the user's preferences name them: the default's, where null. */
+@Immutable
+data class FontFamilies(
+	val general: FontFamily? = null,
+	val listing: FontFamily? = null,
+	val menus: FontFamily? = null,
+) {
+	companion object {
+		/** The families [fonts] names, each as the system has it, in the weights prism draws in. */
+		fun of(fonts: Fonts): FontFamilies =
+			FontFamilies(familyOf(fonts.general), familyOf(fonts.listing), familyOf(fonts.menus))
+
+		@OptIn(androidx.compose.ui.text.ExperimentalTextApi::class)
+		private fun familyOf(name: String?): FontFamily? =
+			name?.takeIf { it.isNotBlank() }?.let { family ->
+				FontFamily(
+					listOf(
+						FontWeight.Normal,
+						FontWeight.Medium,
+						FontWeight.SemiBold,
+						FontWeight.Bold,
+					).map {
+						SystemFont(family, it)
+					},
+				)
+			}
+	}
+}
+
+val LocalFontFamilies = staticCompositionLocalOf { FontFamilies() }
+
+/** The families of fonts the system has, by name, in order. */
+fun systemFontFamilies(): List<String> =
+	org.jetbrains.skia.FontMgr.default
+		.let { fonts ->
+			(0 until fonts.familiesCount).map(fonts::getFamilyName)
+		}.filter { it.isNotBlank() }
+		.distinct()
+		.sortedBy { it.lowercase() }
+
 /** How much larger [size] is than the text the parts are measured for: what a part's heights are scaled by. */
 fun scaleOf(size: Float): Float = size / TextSizes.DEFAULT
 
 /** How dates are written, as the user's preferences say. */
 val LocalDateFormat = staticCompositionLocalOf { DateFormat.Written }
+
+/** How tall the list's rows are, and how large their icons. */
+val LocalRows = staticCompositionLocalOf { Rows.Larger }
 
 /** How many times its usual size the sidebar's quick access, and the window that arranges it, are drawn. */
 val LocalSidebarScale = staticCompositionLocalOf { 1f }
@@ -257,7 +326,29 @@ object Dims {
 
 	/** Where a search's result is, in the list of results. */
 	val folderColumn = 0.34f
+
+	/** The room each side of a column's values, so two columns' never meet; and at the list's two edges. */
+	val cell = 8.dp
+	val edge = 12.dp
+
+	/** The room between a gallery's tiles, and around them: somewhere to start a rectangle, or open the folder's menu. */
+	val tileGap = 16.dp
+	val tilePad = 12.dp
 }
+
+/** How tall a list's row is, at its usual size. */
+fun rowHeightOf(rows: Rows): Dp =
+	when (rows) {
+		Rows.Larger -> 46.dp
+		Rows.Compact -> 30.dp
+	}
+
+/** How large a list's row's icon is, at its usual size: larger, as Thunar draws them, or as small as the text. */
+fun rowIconOf(rows: Rows): Dp =
+	when (rows) {
+		Rows.Larger -> 34.dp
+		Rows.Compact -> 20.dp
+	}
 
 val LocalPalette = staticCompositionLocalOf { Palette.Light }
 val LocalType = staticCompositionLocalOf { Type.of(Palette.Light) }
@@ -267,8 +358,11 @@ val LocalType = staticCompositionLocalOf { Type.of(Palette.Light) }
 fun BrowserTheme(
 	palette: Palette = Palette.Light,
 	sizes: TextSizes = TextSizes(),
+	fonts: Fonts = Fonts(),
 	content: @Composable () -> Unit,
 ) {
+	val families = remember(fonts) { FontFamilies.of(fonts) }
+
 	val scheme =
 		if (palette.isDark)
 			darkColorScheme(
@@ -289,8 +383,9 @@ fun BrowserTheme(
 
 	CompositionLocalProvider(
 		LocalPalette provides palette,
-		LocalType provides Type.of(palette, sizes.general),
+		LocalType provides Type.of(palette, sizes.general, families.general),
 		LocalTextSizes provides sizes,
+		LocalFontFamilies provides families,
 	) {
 		MaterialTheme(colorScheme = scheme, content = content)
 	}

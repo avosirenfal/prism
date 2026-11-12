@@ -63,7 +63,7 @@ private val BY_EXTENSION: Map<String, Typed> =
 	}
 
 /** The extension of [name], lower case, or null for a name without one (a dotfile's leading dot is not one). */
-private fun extensionOf(name: String): String? =
+fun extensionOf(name: String): String? =
 	name.substringAfterLast('.', "").lowercase().takeIf {
 		it.isNotEmpty() &&
 			name.lastIndexOf('.') > 0

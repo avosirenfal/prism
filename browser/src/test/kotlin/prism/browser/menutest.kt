@@ -5,6 +5,10 @@ import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Test
 import prism.browser.Fixtures.home
 import prism.browser.Fixtures.picker
+import prism.preferences.ColumnId
+import prism.preferences.Hidden
+import prism.preferences.Kind
+import prism.preferences.Layout
 import prism.preferences.Sort
 
 /** The menus, as values: what each target's menu offers, what each item does, and what it shows as on. */
@@ -157,6 +161,7 @@ class MenuTest {
 				"Date created",
 				"Type",
 				"Size",
+				"Extension",
 				"—",
 				"Ascending",
 				"Descending",
@@ -166,7 +171,7 @@ class MenuTest {
 		assertEquals(Mark.Radio(true), sort.item("Name").mark)
 		assertEquals(Mark.Radio(false), sort.item("Size").mark)
 		assertEquals(
-			BrowserEvent.SortedBy(Sort(Sort.Column.Size, ascending = true)),
+			BrowserEvent.SortedBy(Sort(ColumnId.Size, ascending = true)),
 			sort.item("Size").action,
 		)
 

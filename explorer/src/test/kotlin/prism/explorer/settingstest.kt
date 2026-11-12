@@ -12,11 +12,13 @@ import prism.browser.Chord
 import prism.desktop.Place
 import prism.desktop.TerminalChoice
 import prism.preferences.ActionsFile
-import prism.preferences.Column
+import prism.preferences.ColumnId
 import prism.preferences.DateFormat
-import prism.preferences.FolderView
+import prism.preferences.ListingKind
+import prism.preferences.Look
 import prism.preferences.Preferences
 import prism.preferences.QuickAccess
+import prism.preferences.Role
 import prism.preferences.WindowKind
 
 /**
@@ -115,18 +117,41 @@ class SettingsTest {
 		// A new window's look, and the sidebar's size, changed here: those are written, and the window zoomed kept.
 		val looked =
 			opened.copy(
-				folders = FolderView(hidden = setOf(Column.Size)),
+				listings =
+					opened.listings.looking(
+						Role.Explorer,
+						ListingKind.Folder,
+						Look().let {
+							it.with(
+								it.columns(ListingKind.Folder).showing(ColumnId.Size, false),
+							)
+						},
+					),
 				scales = opened.scales.copy(sidebar = 1.25f),
 				dates = DateFormat.Iso,
 			)
 
 		val saved = looked.over(elsewhere)
 
-		assertEquals(setOf(Column.Size), saved.folders.hidden)
+		assertFalse(
+			saved.listings
+				.look(
+					Role.Explorer,
+					ListingKind.Folder,
+				).columns(ListingKind.Folder)
+				.isShown(ColumnId.Size),
+		)
 		assertEquals(1.25f, saved.scales.sidebar)
 		assertEquals(1.5f, saved.scales.of(WindowKind.Properties))
 		assertEquals(DateFormat.Iso, saved.dates)
 		assertEquals(elsewhere.quickAccess, saved.quickAccess)
+
+		// Applied, the window edits from what is applied: nothing changed, the page where it was.
+		val applied = looked.copy(page = Page.Columns).applied(saved)
+
+		assertFalse(applied.changed)
+		assertEquals(Page.Columns, applied.page)
+		assertEquals(saved, applied.base)
 
 		// The terminal emptied is the desktop's own.
 		assertEquals(

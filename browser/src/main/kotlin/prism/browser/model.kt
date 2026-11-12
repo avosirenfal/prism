@@ -7,12 +7,18 @@ import java.util.concurrent.atomic.AtomicReference
 import prism.desktop.Place
 import prism.desktop.TerminalChoice
 import prism.preferences.Builtin
-import prism.preferences.DateShown
-import prism.preferences.FolderView
+import prism.preferences.ColumnId
+import prism.preferences.Columns
+import prism.preferences.Filters
+import prism.preferences.Kind
+import prism.preferences.Layout
+import prism.preferences.ListingKind
+import prism.preferences.Listings
+import prism.preferences.Look
 import prism.preferences.Order
 import prism.preferences.QuickAccess
 import prism.preferences.QuickItem
-import prism.preferences.ResultsView
+import prism.preferences.Role
 import prism.preferences.Sort
 
 /*
@@ -113,10 +119,7 @@ data class Row(
 	val type: String,
 	/** The size in bytes, said as the size column says it ("4.2 KB"); null for a folder, or a result not read yet. */
 	val size: Shown<Long>?,
-	/**
-	 * When it was last modified; null where that is not read, or could not be. For an entry of the trash, when it was
-	 * trashed, which is what the trash's date column shows and orders by.
-	 */
+	/** When it was last modified; null where that is not read, or could not be. */
 	val modified: Instant?,
 	val hidden: Boolean,
 	/** When it was made, read after the folder is (a listing's creation times are read behind, those in sight first). */
@@ -126,6 +129,23 @@ data class Row(
 
 	/** Where it is on disk, absolute; null for an entry of a place that is nowhere on disk. */
 	val path: Path? get() = (item as? Item.OnDisk)?.path
+
+	/** When it was trashed, for an entry of the trash. */
+	val deleted: Instant? get() = (item as? Item.InTrash)?.deleted
+
+	/**
+	 * The folder it is in, as a path: on disk, where it is; in the trash, where it was; in a place, the folders it sits
+	 * under there.
+	 */
+	val location: String?
+		get() =
+			when (val item = item) {
+				is Item.OnDisk -> item.path.parent?.toString()
+				is Item.InTrash ->
+					item.trashed.original.parent
+						?.toString()
+				is Item.InPlace -> Part.Parent.of(item.key)
+			}
 }
 
 /** A choice of which files the listing shows, as the asking application names them. Folders are always shown. */
@@ -174,78 +194,28 @@ internal fun globOf(pattern: String): Regex {
 	return Regex(parts.joinToString(""), RegexOption.IGNORE_CASE)
 }
 
-/**
- * What the filters above the listing choose among: kinds of entry, each a few [Category]s together. A row whose
- * category is of no kind (a link to nothing, a file of no known type) is shown only while no kind is chosen.
- */
-enum class Kind(
-	val label: String,
-) {
-	Folders("Folders"),
-	Images("Images"),
-	Videos("Videos"),
-	Audio("Audio"),
-	Documents("Documents"),
-	Archives("Archives"),
-	Code("Code"),
-	;
-
-	companion object {
-		/** The kind [category] is of, if any. */
-		fun of(category: Category): Kind? =
-			when (category) {
-				Category.Folder -> Folders
-				Category.Image -> Images
-				Category.Video -> Videos
-				Category.Audio -> Audio
-				Category.Document, Category.Pdf, Category.Text -> Documents
-				Category.Archive -> Archives
-				Category.Code -> Code
-				Category.Link, Category.Other -> null
-			}
+/** The kind of entry [category] is of, as the filters above the listing choose among them; none for a link to nothing, or a file of no known type, which is shown only while no kind is chosen. */
+fun kindOf(category: Category): Kind? =
+	when (category) {
+		Category.Folder -> Kind.Folders
+		Category.Image -> Kind.Images
+		Category.Video -> Kind.Videos
+		Category.Audio -> Kind.Audio
+		Category.Document, Category.Pdf, Category.Text -> Kind.Documents
+		Category.Archive -> Kind.Archives
+		Category.Code -> Kind.Code
+		Category.Link, Category.Other -> null
 	}
-}
 
 /**
- * Which hidden entries (a name starting with a dot) are shown: hidden files are, and hidden folders are not, until the
- * user says otherwise. The folders are kept back by default because they are where programs keep their own things
- * (`.config`, `.cache`, `.local`), which are rarely what a person picks from; a hidden file is more often a person's.
- */
-@Immutable
-data class Hidden(
-	val files: Boolean = true,
-	val folders: Boolean = false,
-) {
-	/** Whether an entry is shown, as far as being hidden goes. */
-	fun shows(hidden: Boolean, folder: Boolean): Boolean =
-		when {
-			!hidden -> true
-			folder -> folders
-			else -> files
-		}
-
-	/** Every hidden entry shown, or, where every one is already, none: what Ctrl+H does. */
-	fun toggled(): Hidden =
-		if (files && folders)
-			Hidden(files = false, folders = false)
-		else
-			Hidden(files = true, folders = true)
-}
-
-/**
- * How the listing arranges what a folder holds, or what a search found: its order, and which rows it leaves out. A
- * folder's order and a search's are kept apart, since a search's is best first until the user says otherwise; what
- * leaves rows out is the same for both, so the results of a search are filtered as a folder holding them would be.
+ * How the listing arranges what the window shows: its [order], and which rows it leaves out ([filters], the asking
+ * application's [filter] of names, and the words of the [query]). Worked out from the window's looks for what it shows
+ * (`BrowserState.arrangement`), never kept beside them.
  */
 @Immutable
 data class Arrangement(
-	/** How a folder's listing looks: its order, its date column's time, its columns. A window keeps it wherever it goes. */
-	val folders: FolderView = FolderView(),
-	/** How a search's results look, likewise. */
-	val results: ResultsView = ResultsView(),
-	val hidden: Hidden = Hidden(),
-	/** The kinds shown: only these where any are chosen, every row where none is. */
-	val kinds: Set<Kind> = emptySet(),
+	val order: Order = Order.By(Sort.BY_NAME),
+	val filters: Filters = Filters(),
 	/** The asking application's filter of files, by name. */
 	val filter: TypeFilter = TypeFilter.ALL_FILES,
 	/** Words a row's name must contain to be shown, without case; blank for every row. */
@@ -260,8 +230,8 @@ data class Arrangement(
 	fun admits(category: Category, hidden: Boolean, name: () -> String): Boolean {
 		val folder = category == Category.Folder
 
-		if (!this.hidden.shows(hidden, folder) ||
-			(kinds.isNotEmpty() && Kind.of(category) !in kinds)
+		if (!filters.hidden.shows(hidden, folder) ||
+			(filters.kinds.isNotEmpty() && kindOf(category) !in filters.kinds)
 		)
 			return false
 
@@ -277,10 +247,26 @@ data class Arrangement(
 	}
 }
 
-/** How the listing is drawn: rows in columns, or tiles with a picture of each. */
-enum class Layout {
-	List,
-	Gallery,
+/**
+ * How a window's listings look: as the preferences said as it opened ([defaults]), and as the user has made them in it
+ * since, each kind of listing's look ([own]) and each kind's filters in each layout ([ownFilters]). What it shows looks
+ * as these say for its kind, wherever it goes: a folder's order, given once, is every folder's in the window.
+ */
+@Immutable
+data class Looks(
+	val defaults: Listings = Listings(),
+	val own: Map<ListingKind, Look> = emptyMap(),
+	val ownFilters: Map<Pair<ListingKind, Layout>, Filters> = emptyMap(),
+) {
+	fun look(role: Role, kind: ListingKind): Look = own[kind] ?: defaults.look(role, kind)
+
+	fun filters(role: Role, kind: ListingKind, layout: Layout): Filters =
+		ownFilters[kind to layout] ?: defaults.filters(role, kind, layout)
+
+	fun looking(kind: ListingKind, look: Look): Looks = copy(own = own + (kind to look))
+
+	fun filtering(kind: ListingKind, layout: Layout, filters: Filters): Looks =
+		copy(ownFilters = ownFilters + ((kind to layout) to filters))
 }
 
 /**
@@ -507,9 +493,9 @@ sealed interface Listing {
 	class Shown(
 		val entries: List<Row>,
 	) : Read {
-		private val sortedBy = Memo<Sort, List<Row>> { sorted(entries, it) }
+		private val sortedBy = Memo<Order, List<Row>> { sorted(entries, it) }
 		private val arranged =
-			Memo<Arrangement, Rows> { Rows(sortedBy(it.folders.sort).filter(it::admits)) }
+			Memo<Arrangement, Rows> { Rows(sortedBy(it.order).filter(it::admits)) }
 
 		fun rows(arrangement: Arrangement): Rows = arranged(arrangement)
 
@@ -532,14 +518,14 @@ sealed interface Listing {
 	class Found(
 		val finding: Finding.Matched,
 		val stats: Stats,
-		val orders: Map<Sort.Column, IntArray> = emptyMap(),
+		val orders: Map<ColumnId, IntArray> = emptyMap(),
 	) : Listing {
 		val matches: Matches get() = finding.matches
 
 		/** Whether they are few enough to be read every one, and ordered by any column at once ([FEW_RESULTS]). */
 		val few: Boolean get() = matches.size <= FEW_RESULTS
 
-		private val sortedBy = Memo<Sort.Column, IntArray> { orderOf(matches, stats, it) }
+		private val sortedBy = Memo<ColumnId, IntArray> { orderOf(matches, stats, it) }
 		private val arranged = Memo<Arrangement, Rows> { arrange(it) }
 
 		fun rows(arrangement: Arrangement): Rows = arranged(arrangement)
@@ -549,12 +535,12 @@ sealed interface Listing {
 		 * they are read); by those the index knows (name and type) where they are not; never by what only the disk
 		 * knows of too many to read.
 		 */
-		fun orders(column: Sort.Column): Boolean =
+		fun orders(column: ColumnId): Boolean =
 			when (column) {
-				Sort.Column.Name, Sort.Column.Type -> true
-				Sort.Column.Modified, Sort.Column.Size -> few
-				// When a result was made is read for a folder's rows alone.
-				Sort.Column.Created -> false
+				ColumnId.Name, ColumnId.Type, ColumnId.Extension, ColumnId.Location -> true
+				ColumnId.Modified, ColumnId.Size -> few
+				// When a result was made is read for a folder's rows alone; and a result was never trashed.
+				ColumnId.Created, ColumnId.Deleted -> false
 			}
 
 		/** The order [order] asks for, where it is worked out; for too many results, once it is worked out behind. */
@@ -570,7 +556,7 @@ sealed interface Listing {
 			}
 
 		/** The column [order] asks for that is still being worked out behind, if it is. */
-		fun pending(order: Order): Sort.Column? =
+		fun pending(order: Order): ColumnId? =
 			(order as? Order.By)
 				?.sort
 				?.by
@@ -578,7 +564,7 @@ sealed interface Listing {
 
 		/** The rows shown: filtered as a folder's are, then in [Arrangement.results]' order, folders first. */
 		private fun arrange(arrangement: Arrangement): Rows {
-			val order = arrangement.results.order
+			val order = arrangement.order
 			val sorted = placesBy(order)
 			val places =
 				when {
@@ -942,9 +928,14 @@ data class BrowserState(
 	val history: History,
 	val sidebar: Sidebar,
 	val listing: Listing,
-	val arrangement: Arrangement,
-	/** The type filters the asking application offers; [Arrangement.filter] is one of them. */
+	/** How each kind of listing looks in this window, and what each leaves out: what [arrangement] is worked out from. */
+	val looks: Looks,
+	/** The type filters the asking application offers; [typeFilter] is one of them. */
 	val filters: List<TypeFilter>,
+	/** The asking application's filter of names in use. */
+	val typeFilter: TypeFilter,
+	/** Words a row's name must contain to be shown, without case; blank for every row. */
+	val query: String,
 	val cursor: Cursor?,
 	val address: Address,
 	val notice: Notice?,
@@ -1007,6 +998,41 @@ data class BrowserState(
 	/** Whether the trash is shown. */
 	val inTrash: Boolean get() = at == Location.Trash
 
+	/** What the window is for, as how its listings look goes. */
+	val role: Role get() =
+		if (choosing is Choosing.Exploring)
+			Role.Explorer
+		else
+			Role.Picker
+
+	/** What kind of listing it shows. */
+	val kind: ListingKind
+		get() =
+			when (val at = at) {
+				is Location.Folder -> ListingKind.Folder
+				is Location.Results -> ListingKind.Results
+				is Location.Place -> ListingKind.Place(at.placed.type.id)
+				Location.Trash -> ListingKind.Trash
+			}
+
+	/** How what it shows looks: its order and its columns. */
+	val look: Look get() = looks.look(role, kind)
+
+	/** The listing's columns. */
+	val columns: Columns get() = look.columns(kind)
+
+	/** Which hidden entries, and which kinds of file, what it shows shows, drawn as it is. */
+	val entryFilters: Filters get() = looks.filters(role, kind, layout)
+
+	/** How the listing is arranged: worked out from its look and its filters, the application's filter and the query. */
+	val arrangement: Arrangement get() =
+		Arrangement(
+			look.order,
+			entryFilters,
+			typeFilter,
+			query,
+		)
+
 	/** The search whose results are shown, where they are. */
 	val results: Finding.Matched? get() = (at as? Location.Results)?.finding
 
@@ -1022,7 +1048,7 @@ data class BrowserState(
 	init {
 		val rows = rows
 
-		require(arrangement.filter in filters) {
+		require(typeFilter in filters) {
 			"the filter shown is not one of the filters offered"
 		}
 

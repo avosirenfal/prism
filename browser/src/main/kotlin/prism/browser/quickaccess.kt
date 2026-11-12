@@ -26,6 +26,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -100,19 +101,27 @@ internal fun QuickAccessLayer(sidebar: Sidebar, onEvent: (BrowserEvent) -> Unit)
 							style = type.muted,
 							modifier = Modifier.padding(top = Dims.gapSmall, bottom = Dims.gap),
 						)
-						Column(Modifier.heightIn(max = 380.dp).verticalScroll(rememberScrollState())) {
-							entries.forEachIndexed { index, entry ->
-								EntryLine(
-									entry,
-									labelOf(entry),
-									sidebar.known[Builtin.Home]?.path,
-									index,
-									last = entries.lastIndex,
-									onShown = { shown -> entry.builtin?.let { arranged(quick.showing(it, shown)) } },
-									onMoved = { by -> arranged(quick.moved(index, by)) },
-									onRemoved = { (entry.item?.path)?.let { arranged(quick.unpinning(it)) } },
-								)
-							}
+						// Dragged by their grips, or moved a place at a time by their arrows.
+						ReorderableColumn(
+							entries,
+							key = { it.builtin ?: it.item?.path ?: it },
+							onMove = { from, to -> arranged(quick.moved(from, to - from)) },
+							modifier = Modifier.heightIn(max = 380.dp).verticalScroll(rememberScrollState()),
+						) { entry, handle, dragged ->
+							val index = entries.indexOf(entry)
+
+							EntryLine(
+								entry,
+								labelOf(entry),
+								sidebar.known[Builtin.Home]?.path,
+								index,
+								last = entries.lastIndex,
+								handle = handle,
+								dragged = dragged,
+								onShown = { shown -> entry.builtin?.let { arranged(quick.showing(it, shown)) } },
+								onMoved = { by -> arranged(quick.moved(index, by)) },
+								onRemoved = { (entry.item?.path)?.let { arranged(quick.unpinning(it)) } },
+							)
 						}
 						Spacer(Modifier.size(Dims.gap))
 						Row(
@@ -177,6 +186,8 @@ private fun EntryLine(
 	home: Path?,
 	index: Int,
 	last: Int,
+	handle: Modifier,
+	dragged: Boolean,
 	onShown: (Boolean) -> Unit,
 	onMoved: (Int) -> Unit,
 	onRemoved: () -> Unit,
@@ -186,10 +197,20 @@ private fun EntryLine(
 	val builtin = entry.builtin
 
 	Row(
-		Modifier.fillMaxWidth().padding(vertical = 2.dp).testTag("quick:$label"),
+		Modifier
+			.fillMaxWidth()
+			.background(
+				if (dragged)
+					palette.chosen
+				else
+					Color.Transparent,
+				RoundedCornerShape(Dims.radius),
+			).padding(vertical = 2.dp)
+			.testTag("quick:$label"),
 		verticalAlignment = Alignment.CenterVertically,
 		horizontalArrangement = Arrangement.spacedBy(Dims.gap),
 	) {
+		GlyphIcon(Glyph.Grip, palette.textFaint, 18.dp, handle.testTag("grip:$label"))
 		if (builtin != null)
 			CheckBox("", entry.shown, Modifier.testTag("shown:$label"), onChange = onShown)
 		else

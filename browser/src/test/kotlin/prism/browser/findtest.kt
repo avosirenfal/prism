@@ -18,6 +18,9 @@ import prism.index.Index
 import prism.index.Indexer
 import prism.index.Searched
 import prism.index.query.QueryText
+import prism.preferences.ColumnId
+import prism.preferences.Kind
+import prism.preferences.Layout
 import prism.preferences.Order
 import prism.preferences.Sort
 
@@ -263,11 +266,11 @@ class FindTest {
 		assertEquals(listOf("the-plan.md"), after(shown, BrowserEvent.Searched("md")).shown())
 
 		// Ordered by a column, and best first again.
-		val bySize = after(shown, BrowserEvent.Sorted(Sort.Column.Size))
+		val bySize = after(shown, BrowserEvent.Sorted(ColumnId.Size))
 
 		assertEquals(
-			Order.By(Sort(Sort.Column.Size, ascending = false)),
-			bySize.arrangement.results.order,
+			Order.By(Sort(ColumnId.Size, ascending = false)),
+			bySize.look.order,
 		)
 		assertEquals("plans", bySize.shown().first())
 		assertEquals(shown.shown(), after(bySize, BrowserEvent.SortedByRelevance).shown())
@@ -373,28 +376,28 @@ class FindTest {
 		assertTrue(scrolled.rows[scrolled.rows.size - 1].size != null)
 
 		// Too many to read every one: neither size nor date orders them; name does, worked out behind.
-		assertFalse(listing.orders(Sort.Column.Size))
+		assertFalse(listing.orders(ColumnId.Size))
 		assertEquals(
 			shown.arrangement,
-			after(shown, BrowserEvent.Sorted(Sort.Column.Size)).arrangement,
+			after(shown, BrowserEvent.Sorted(ColumnId.Size)).arrangement,
 		)
 
 		val byName =
-			step(shown, BrowserEvent.SortedBy(Sort(Sort.Column.Name, ascending = false)))
+			step(shown, BrowserEvent.SortedBy(Sort(ColumnId.Name, ascending = false)))
 
 		assertEquals(
-			Sort.Column.Name,
+			ColumnId.Name,
 			(byName.state.listing as Listing.Found).pending(
-				byName.state.arrangement.results.order,
+				byName.state.look.order,
 			),
 		)
-		assertEquals(listOf(Effect.Order(listing.matches, Sort.Column.Name)), byName.effects)
+		assertEquals(listOf(Effect.Order(listing.matches, ColumnId.Name)), byName.effects)
 
 		val ordered = byName.settled(disk, finder)
 
 		assertEquals("file-%05d.txt".format(FEW_RESULTS), ordered.rows[0].name)
 		assertNull(
-			(ordered.listing as Listing.Found).pending(ordered.arrangement.results.order),
+			(ordered.listing as Listing.Found).pending(ordered.look.order),
 		)
 	}
 

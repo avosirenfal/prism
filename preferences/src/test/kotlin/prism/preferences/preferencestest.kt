@@ -98,16 +98,56 @@ class PreferencesTest {
 	fun theDefaultLookAndTheTextSizesAreWrittenAndReadBack() {
 		Files.createDirectories(file.parent)
 		file.writeText(
-			"""{ "folders": { "sort": { "by": "Modified", "ascending": false }, "hidden": [ "Type" ] },
-				"results": { "order": { "type": "by", "sort": { "by": "Name", "ascending": true } } },
-				"text": { "menus": 18 }, "dates": "Iso", "scales": { "sidebar": 1.25 } }""",
+			"""{ "listings": {
+					"looks": {
+						"explorer/folder": { "order": { "type": "by", "sort": { "by": "Modified", "ascending": false } },
+							"columns": [ { "id": "Size", "align": "Center" }, { "id": "Name" }, { "id": "Type", "shown": false } ] },
+						"picker/place:archive": { "order": { "type": "relevance" } }
+					},
+					"filters": { "explorer/results/gallery": { "hidden": { "files": false }, "kinds": [ "Images" ] } }
+				},
+				"text": { "menus": 18 }, "fonts": { "listing": "Inter" }, "rows": "Compact",
+				"dates": "Iso", "scales": { "sidebar": 1.25 } }""",
 		)
 
 		val read = PreferenceFile.read(file).preferences
+		val folders = read.listings.look(Role.Explorer, ListingKind.Folder)
+		val columns = folders.columns(ListingKind.Folder)
 
-		assertEquals(Sort(Sort.Column.Modified, ascending = false), read.folders.sort)
-		assertEquals(setOf(Column.Type), read.folders.hidden)
-		assertEquals(Order.By(Sort.BY_NAME), read.results.order)
+		assertEquals(Sort(ColumnId.Modified, ascending = false), folders.order.sort)
+		// The name first and shown whatever the file says; the rest in its order; those it left out after, hidden.
+		assertEquals(
+			listOf(
+				ColumnId.Name,
+				ColumnId.Size,
+				ColumnId.Type,
+				ColumnId.Modified,
+				ColumnId.Created,
+				ColumnId.Extension,
+			),
+			columns.settings.map { it.id },
+		)
+		assertEquals(listOf(ColumnId.Name, ColumnId.Size), columns.shown.map { it.id })
+		assertEquals(Align.Center, columns.settings[1].aligned)
+		// A picker's folders look as the explorer's, where nothing is said of them; an archive as it is told to.
+		assertEquals(folders, read.listings.look(Role.Picker, ListingKind.Folder))
+		assertEquals(
+			Order.Relevance,
+			read.listings.look(Role.Picker, ListingKind.Place("archive")).order,
+		)
+		assertEquals(
+			Kind.Images,
+			read.listings
+				.filters(Role.Picker, ListingKind.Results, Layout.Gallery)
+				.kinds
+				.single(),
+		)
+		assertEquals(
+			Filters(),
+			read.listings.filters(Role.Explorer, ListingKind.Results, Layout.List),
+		)
+		assertEquals("Inter", read.fonts.listing)
+		assertEquals(Rows.Compact, read.rows)
 		assertEquals(DateFormat.Iso, read.dates)
 		assertEquals(1.25f, read.scales.sidebar)
 		assertEquals(TextSizes(menus = 18f), read.text)
@@ -191,20 +231,38 @@ class PreferencesTest {
 	}
 
 	@Test
-	fun aListingOrderedByATimeShowsThatTime() {
-		val created = FolderView(Sort(Sort.Column.Created, ascending = false))
+	fun aListingsColumnsAreEachThatItsKindOffersOnce_TheNamesFirstAndAlwaysShown() {
+		val columns = ListingKind.Results.columnsOf(emptyList())
 
-		assertEquals(DateShown.Created, created.dateShown)
-		// Shown the other time, it is ordered by that one, the same way round.
+		// As the kind has them by default: a search's results say where each is, and not when it was made.
+		assertEquals(ListingKind.Results.offered, columns.settings.map { it.id })
+		assertFalse(ColumnId.Created in columns.settings.map { it.id })
+		assertFalse(columns.isShown(ColumnId.Extension))
+		// The name stays first, however a column is moved, and cannot be hidden.
 		assertEquals(
-			Sort(Sort.Column.Modified, ascending = false),
-			created.showing(DateShown.Modified).sort,
+			ColumnId.Name,
+			columns
+				.moved(3, 0)
+				.settings
+				.first()
+				.id,
 		)
-		// Ordered by name, it shows whichever time it is told, and stays ordered by name.
-		assertEquals(DateShown.Created, FolderView().showing(DateShown.Created).dateShown)
-		assertEquals(Sort.BY_NAME, FolderView().showing(DateShown.Created).sort)
-		// Results ordered best first show whichever time they are told.
-		assertEquals(DateShown.Created, ResultsView().showing(DateShown.Created).dateShown)
-		assertEquals(Order.Relevance, ResultsView().showing(DateShown.Created).order)
+		assertEquals(ColumnId.Type, columns.moved(3, 0).settings[1].id)
+		assertEquals(columns, columns.moved(0, 3))
+		assertTrue(columns.showing(ColumnId.Name, false).isShown(ColumnId.Name))
+		// Aligned as the column is by its own, the setting says nothing.
+		assertEquals(
+			null,
+			columns
+				.aligning(ColumnId.Size, Align.End)
+				.settings
+				.single {
+					it.id ==
+						ColumnId.Size
+				}.align,
+		)
+		// The trash's location is where an entry was.
+		assertEquals("Original location", ListingKind.Trash.labelOf(ColumnId.Location))
+		assertEquals(ListingKind.Place("archive"), ListingKind.of("place:archive"))
 	}
 }

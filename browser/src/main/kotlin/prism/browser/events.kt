@@ -7,8 +7,10 @@ import prism.desktop.Launched
 import prism.desktop.Opening
 import prism.desktop.TerminalChoice
 import prism.index.query.Query
-import prism.preferences.Column
-import prism.preferences.DateShown
+import prism.preferences.Align
+import prism.preferences.ColumnId
+import prism.preferences.Kind
+import prism.preferences.Layout
 import prism.preferences.QuickAccess
 import prism.preferences.Sort
 
@@ -81,7 +83,7 @@ sealed interface BrowserEvent : Input {
 	) : BrowserEvent
 
 	data class Sorted(
-		val by: Sort.Column,
+		val by: ColumnId,
 	) : BrowserEvent
 
 	/** Hidden files shown, or hidden again. */
@@ -145,14 +147,17 @@ sealed interface BrowserEvent : Input {
 	) : BrowserEvent
 
 	/** The date column made to show [date]: when files were last modified, or when they were made. */
-	data class ShowedDate(
-		val date: DateShown,
-	) : BrowserEvent
 
 	/** [column] shown in the listing, or left out. */
 	data class ShowedColumn(
-		val column: Column,
+		val column: ColumnId,
 		val shown: Boolean,
+	) : BrowserEvent
+
+	/** [column]'s values set as [align] says. */
+	data class AlignedColumn(
+		val column: ColumnId,
+		val align: Align,
 	) : BrowserEvent
 
 	// ---- the search of the index ----
@@ -477,7 +482,7 @@ sealed interface Answer : Input {
 	/** [matches]' places ordered by [column], from the least, as [orderOf] works it out. */
 	data class Ordered(
 		val matches: Matches,
-		val column: Sort.Column,
+		val column: ColumnId,
 		val order: IntArray,
 	) : Answer
 
@@ -1005,7 +1010,7 @@ sealed interface Effect {
 	/** [matches] ordered by [column] off the picker's thread, sent back as [Answer.Ordered]. */
 	data class Order(
 		val matches: Matches,
-		val column: Sort.Column,
+		val column: ColumnId,
 	) : Asking
 
 	/** [paths] opened with their applications, sent back as [Answer.Opened]. */

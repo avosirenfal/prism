@@ -41,12 +41,13 @@ import prism.index.SearchContext
 import prism.index.Searched
 import prism.index.search
 import prism.preferences.Builtin
+import prism.preferences.ColumnId
 import prism.preferences.MemoryPreferences
+import prism.preferences.Order
 import prism.preferences.PreferenceStore
 import prism.preferences.Preferences
 import prism.preferences.QuickAccess
 import prism.preferences.QuickItem
-import prism.preferences.Sort
 
 /*
  * The one place the picker meets a real file system: a [Disk] reads a folder into rows, with every row's text worked
@@ -669,7 +670,7 @@ private fun rowOf(entry: TrashEntry): Row {
 
 	return Row(
 		id = RowId.Trashed(entry.trashed.bin, entry.trashed.name),
-		item = Item.InTrash(entry.trashed),
+		item = Item.InTrash(entry.trashed, entry.deleted),
 		name = name,
 		category = category,
 		type =
@@ -678,7 +679,7 @@ private fun rowOf(entry: TrashEntry): Row {
 			else
 				typeOf(name, category),
 		size = entry.size?.let { Shown(it, sizeOf(it)) },
-		modified = entry.deleted,
+		modified = entry.modified,
 		hidden = false,
 	)
 }
@@ -735,18 +736,29 @@ private fun followed(link: Path): BasicFileAttributes? =
 	}
 
 /**
- * [rows] in [sort]'s order, folders before files whatever it is, as every file manager has them. Names compare as
- * people read them: case aside, and numbers by their value, so `file2` comes before `file10`.
+ * [rows] in [order], folders before files whatever it is, as every file manager has them; in the order they were
+ * listed, where it is by no column. Names compare as people read them: case aside, and numbers by their value, so
+ * `file2` comes before `file10`. By a time that is not known of every row (when a file was made, which is read behind,
+ * and not kept by every file system), those not known are last whichever way, by name among themselves.
  */
-fun sorted(rows: List<Row>, sort: Sort): List<Row> {
+fun sorted(rows: List<Row>, order: Order): List<Row> {
+	val folders = compareBy<Row> { !it.isFolder }
+	val sort = order.sort ?: return rows.sortedWith(folders)
 	val byName = Comparator<Row> { a, b -> naturalOrder(a.name, b.name) }
+
+	fun byText(text: (Row) -> String) =
+		Comparator<Row> { a, b -> naturalOrder(text(a), text(b)) }.then(byName)
+
 	val byColumn: Comparator<Row> =
 		when (sort.by) {
-			Sort.Column.Name -> byName
-			Sort.Column.Modified -> compareBy<Row> { it.modified }.then(byName)
-			Sort.Column.Type -> compareBy<Row> { it.type.lowercase() }.then(byName)
-			Sort.Column.Size -> compareBy<Row> { it.size }.then(byName)
-			Sort.Column.Created -> compareBy<Row> { it.created.at }.then(byName)
+			ColumnId.Name -> byName
+			ColumnId.Modified -> compareBy<Row> { it.modified }.then(byName)
+			ColumnId.Type -> byText { it.type.lowercase() }
+			ColumnId.Size -> compareBy<Row> { it.size }.then(byName)
+			ColumnId.Created -> compareBy<Row> { it.created.at }.then(byName)
+			ColumnId.Deleted -> compareBy<Row> { it.deleted }.then(byName)
+			ColumnId.Extension -> byText { extensionOf(it.name).orEmpty() }
+			ColumnId.Location -> byText { it.location.orEmpty() }
 		}
 
 	val directed =
@@ -755,25 +767,26 @@ fun sorted(rows: List<Row>, sort: Sort): List<Row> {
 		else
 			byColumn.reversed()
 
-	// By when they were made: those not known (not read yet, or not kept) last whichever way, and by name among
-	// themselves, since there is nothing else to order them by.
-	val ordered =
-		if (sort.by == Sort.Column.Created)
-			Comparator<Row> { a, b ->
-				val aKnown = a.created.at != null
-				val bKnown = b.created.at != null
+	val known: ((Row) -> Boolean)? =
+		when (sort.by) {
+			ColumnId.Created -> { row -> row.created.at != null }
+			ColumnId.Deleted -> { row -> row.deleted != null }
+			else -> null
+		}
 
+	val ordered =
+		known?.let {
+			Comparator<Row> { a, b ->
 				when {
-					aKnown && bKnown -> directed.compare(a, b)
-					aKnown -> -1
-					bKnown -> 1
+					known(a) && known(b) -> directed.compare(a, b)
+					known(a) -> -1
+					known(b) -> 1
 					else -> byName.compare(a, b)
 				}
 			}
-		else
-			directed
+		} ?: directed
 
-	return rows.sortedWith(compareBy<Row> { !it.isFolder }.then(ordered))
+	return rows.sortedWith(folders.then(ordered))
 }
 
 /**

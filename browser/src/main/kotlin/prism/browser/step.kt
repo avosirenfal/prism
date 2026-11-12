@@ -7,12 +7,16 @@ import java.time.ZoneId
 import prism.desktop.Launched
 import prism.index.query.QueryText
 import prism.preferences.Builtin
-import prism.preferences.DateShown
-import prism.preferences.FolderView
+import prism.preferences.ColumnId
+import prism.preferences.Filters
+import prism.preferences.Kind
+import prism.preferences.Layout
+import prism.preferences.Listings
+import prism.preferences.Look
 import prism.preferences.Order
 import prism.preferences.Preferences
 import prism.preferences.QuickAccess
-import prism.preferences.ResultsView
+import prism.preferences.Role
 import prism.preferences.Sort
 
 /*
@@ -44,8 +48,9 @@ import prism.preferences.Sort
  */
 
 /**
- * The picker opened on [folder]: its first state, and the read of its folder that it waits for. It looks as [look]
- * says, the user's default for a window, which the window keeps as its own from then on, whatever it goes to.
+ * The picker opened on [folder]: its first state, and the read of its folder that it waits for. Its listings look as
+ * [listings] says, the user's defaults for a window, which the window keeps as its own from then on, whatever it goes
+ * to; its listing is drawn [zoom] times its usual size, the nearest the wheel's steps come to it.
  */
 fun opened(
 	choosing: Choosing,
@@ -55,7 +60,8 @@ fun opened(
 	title: String = titleOf(choosing),
 	filters: List<TypeFilter> = listOf(TypeFilter.ALL_FILES),
 	search: Search = Search.Unavailable(BrowserState.NO_INDEX),
-	look: Look = Look(),
+	listings: Listings = Listings(),
+	zoom: Float = 1f,
 ): Step {
 	require(filters.isNotEmpty()) { "a picker offers at least one filter" }
 
@@ -70,20 +76,17 @@ fun opened(
 			history = History(),
 			sidebar = sidebar,
 			listing = Listing.Reading,
-			arrangement =
-				Arrangement(
-					folders = look.folders,
-					results = look.results,
-					filter = filters.first(),
-				),
+			looks = Looks(listings),
 			filters = filters,
+			typeFilter = filters.first(),
+			query = "",
 			cursor = null,
 			address = Address.Crumbs,
 			notice = null,
 			waiting = null,
 			search = search,
 			zooms =
-				Zoom.nearest(look.zoom).let {
+				Zoom.nearest(zoom).let {
 					Zooms(list = Zoom.By(minOf(it.step, Zoom.LIST_LARGEST.step)), gallery = it)
 				},
 		)
@@ -91,28 +94,12 @@ fun opened(
 	return Step(state, listOf(Effect.Read(shown)))
 }
 
-/**
- * How a window looks as it opens: a folder's listing as [folders] says, a search's results as [results] says, and its
- * listing [zoom] times its usual size, the nearest the wheel's steps come to it.
- */
-data class Look(
-	val folders: FolderView = FolderView(),
-	val results: ResultsView = ResultsView(),
-	val zoom: Float = 1f,
-) {
-	companion object {
-		/** The look [preferences] give a window of an explorer's, or of a picker's. */
-		fun of(preferences: Preferences, picker: Boolean): Look =
-			Look(
-				preferences.folders,
-				preferences.results,
-				if (picker)
-					preferences.scales.picker
-				else
-					preferences.scales.explorer,
-			)
+/** How large [preferences] say a listing is drawn as a window of [role] opens. */
+fun zoomOf(preferences: Preferences, role: Role): Float =
+	when (role) {
+		Role.Explorer -> preferences.scales.explorer
+		Role.Picker -> preferences.scales.picker
 	}
-}
 
 /** An explorer opened on [placed]: its first state, and the listing of the place that it waits for. */
 fun openedIn(
@@ -120,9 +107,18 @@ fun openedIn(
 	home: Path,
 	sidebar: Sidebar,
 	search: Search = Search.Unavailable(BrowserState.NO_INDEX),
-	look: Look = Look(),
+	listings: Listings = Listings(),
+	zoom: Float = 1f,
 ): Step =
-	opened(Choosing.Exploring(), home, home, sidebar, search = search, look = look).let {
+	opened(
+		Choosing.Exploring(),
+		home,
+		home,
+		sidebar,
+		search = search,
+		listings = listings,
+		zoom = zoom,
+	).let {
 		it.state.copy(at = Location.Place(placed)).listing(placed)
 	}
 
@@ -167,57 +163,42 @@ private fun did(state: BrowserState, event: BrowserEvent): Step =
 		BrowserEvent.Toggled -> Step(state.toggled())
 		BrowserEvent.ChoseAll -> Step(state.choseAll())
 		is BrowserEvent.Jumped -> Step(state.jumped(event.prefix))
+		// What cannot be ordered so (too many results to read every one's date) stays as it is.
 		is BrowserEvent.Sorted ->
-			when (val listing = state.listing) {
-				is Listing.Found ->
-					if (listing.orders(event.by))
-						state.arranged { copy(results = results.ordered(results.order.toggled(event.by))) }
-					else
-						Step(state)
-				else ->
-					state.arranged {
-						copy(
-							folders = folders.sorted(folders.sort.toggled(event.by)),
-						)
-					}
-			}
+			if (state.orders(event.by))
+				state.looking { copy(order = order.toggled(event.by)) }
+			else
+				Step(state)
 		is BrowserEvent.SortedBy ->
-			when (val listing = state.listing) {
-				is Listing.Found ->
-					if (listing.orders(event.sort.by))
-						state.arranged { copy(results = results.ordered(Order.By(event.sort))) }
-					else
-						Step(state)
-				else -> state.arranged { copy(folders = folders.sorted(event.sort)) }
-			}
-		BrowserEvent.SortedByRelevance ->
-			state.arranged {
-				copy(results = results.ordered(Order.Relevance))
-			}
+			if (state.orders(event.sort.by))
+				state.looking { copy(order = Order.By(event.sort)) }
+			else
+				Step(state)
+		BrowserEvent.SortedByRelevance -> state.looking { copy(order = Order.Relevance) }
 		is BrowserEvent.ShowedColumn ->
-			state.arranged {
-				if (state.results != null)
-					copy(results = results.showingColumn(event.column, event.shown))
-				else
-					copy(folders = folders.showingColumn(event.column, event.shown))
+			state.looking {
+				with(columns(state.kind).showing(event.column, event.shown))
+			}
+		is BrowserEvent.AlignedColumn ->
+			state.looking {
+				with(columns(state.kind).aligning(event.column, event.align))
 			}
 		is BrowserEvent.Scrolled ->
 			state.copy(sight = event.first..event.last).let { seen ->
 				seen.scrolled(event.first, event.last).then { it.bornNext() }
 			}
-		is BrowserEvent.ShowedDate -> state.showedDate(event.date)
 		BrowserEvent.ToggledHiddenFiles ->
-			state.arranged {
+			state.filtering {
 				copy(hidden = hidden.copy(files = !hidden.files))
 			}
 		BrowserEvent.ToggledHiddenFolders ->
-			state.arranged {
+			state.filtering {
 				copy(hidden = hidden.copy(folders = !hidden.folders))
 			}
-		BrowserEvent.ToggledEveryHidden -> state.arranged { copy(hidden = hidden.toggled()) }
-		is BrowserEvent.ShowedOnlyKind -> state.arranged { copy(kinds = setOf(event.kind)) }
+		BrowserEvent.ToggledEveryHidden -> state.filtering { copy(hidden = hidden.toggled()) }
+		is BrowserEvent.ShowedOnlyKind -> state.filtering { copy(kinds = setOf(event.kind)) }
 		is BrowserEvent.ToggledKind ->
-			state.arranged {
+			state.filtering {
 				copy(
 					kinds =
 						if (event.kind in kinds)
@@ -226,8 +207,12 @@ private fun did(state: BrowserState, event: BrowserEvent): Step =
 							kinds + event.kind,
 				)
 			}
-		BrowserEvent.ShowedEveryKind -> state.arranged { copy(kinds = emptySet()) }
-		is BrowserEvent.Viewed -> Step(state.copy(layout = event.layout))
+		BrowserEvent.ShowedEveryKind -> state.filtering { copy(kinds = emptySet()) }
+		// Each layout has its own filters (a gallery may leave out what a list shows), so what is shown is arranged anew.
+		is BrowserEvent.Viewed ->
+			state.rearranged(layout = event.layout).let {
+				Step(it, it.ordering())
+			}
 		is BrowserEvent.Zoomed -> Step(state.zoomed(event.steps))
 		BrowserEvent.Unzoomed ->
 			Step(
@@ -296,10 +281,10 @@ private fun did(state: BrowserState, event: BrowserEvent): Step =
 				else
 					listOf(Effect.Copy(event.paths.joinToString("\n"))),
 			)
-		is BrowserEvent.Searched -> state.arranged { copy(query = event.query) }
+		is BrowserEvent.Searched -> Step(state.rearranged(query = event.query))
 		is BrowserEvent.Filtered ->
 			if (event.filter in state.filters)
-				state.arranged { copy(filter = event.filter) }
+				Step(state.rearranged(typeFilter = event.filter))
 			else
 				Step(state)
 		is BrowserEvent.Named ->
@@ -541,7 +526,7 @@ internal fun BrowserState.shown(to: Location, history: History, landing: Landing
 			listing = Listing.Reading,
 			landing = landing,
 			renaming = null,
-			arrangement = arrangement.copy(query = ""),
+			query = "",
 			choosing = choosing.unchosen(),
 			cursor = null,
 			address = Address.Crumbs,
@@ -566,16 +551,20 @@ internal fun BrowserState.shown(to: Location, history: History, landing: Landing
  */
 private fun BrowserState.showingResults(finding: Finding.Matched): Step {
 	val listing = Listing.Found(finding, Stats.none(finding.matches.size))
-	val order =
-		arrangement.results.order.takeIf { it.sort?.by?.let(listing::orders) != false }
+	// The window's order of results, where these can be had in it; best first, from now on, where they cannot.
+	val orderable =
+		look.order.sort
+			?.by
+			?.let(listing::orders) != false
 
 	val shown =
-		relisted(
-			listing,
-			arrangement.copy(
-				results =
-					arrangement.results.ordered(order ?: Order.Relevance),
-			),
+		rearranged(
+			looks =
+				if (orderable)
+					looks
+				else
+					looks.looking(kind, look.copy(order = Order.Relevance)),
+			listing = listing,
 		)
 
 	val rows = shown.rows as Rows.Found
@@ -621,7 +610,7 @@ private fun BrowserState.ordering(): List<Effect> {
 	val listing = listing as? Listing.Found ?: return emptyList()
 
 	return listOfNotNull(
-		listing.pending(arrangement.results.order)?.let {
+		listing.pending(arrangement.order)?.let {
 			Effect.Order(listing.matches, it)
 		},
 	)
@@ -657,28 +646,58 @@ internal fun BrowserState.landed(landing: Landing): BrowserState =
 
 // ---- the listing ------------------------------------------------------------------------------------------------
 
-/** The listing arranged anew, what was chosen kept where it is still shown; an order of results asked for behind. */
-private fun BrowserState.arranged(change: Arrangement.() -> Arrangement): Step {
-	val arranged = relisted(listing, arrangement.change())
+/**
+ * The listing's look changed by [change], and kept for its kind in this window, wherever it goes; the listing arranged
+ * anew, and an order of results asked for behind where it is not worked out yet.
+ */
+private fun BrowserState.looking(change: Look.() -> Look): Step =
+	rearranged(looks = looks.looking(kind, look.change())).let { Step(it, it.ordering()) }
 
-	return Step(arranged, arranged.ordering())
-}
+/** What the listing leaves out changed by [change], kept for its kind and its layout in this window. */
+private fun BrowserState.filtering(change: Filters.() -> Filters): Step =
+	Step(rearranged(looks = looks.filtering(kind, layout, entryFilters.change())))
 
-/** [listing] shown in place of what was, arranged by [arrangement], what was chosen kept where it is still shown. */
-private fun BrowserState.relisted(
-	listing: Listing,
-	arrangement: Arrangement = this.arrangement,
+/** Whether the listing can be put in an order by [column]: a search's results not always (too many to read). */
+private fun BrowserState.orders(column: ColumnId): Boolean =
+	(listing as? Listing.Found)?.orders(column) ?: true
+
+/**
+ * [listing] shown, arranged as [looks], [layout], [typeFilter] and [query] say, in place of what was and how it was
+ * arranged: what was chosen kept where it is still shown, in one step, so that no state names a row it does not show.
+ */
+private fun BrowserState.rearranged(
+	looks: Looks = this.looks,
+	layout: Layout = this.layout,
+	typeFilter: TypeFilter = this.typeFilter,
+	query: String = this.query,
+	listing: Listing = this.listing,
 ): BrowserState {
-	val rows = rowsOf(listing, arrangement)
+	val rows =
+		rowsOf(
+			listing,
+			Arrangement(
+				looks.look(role, kind).order,
+				looks.filters(role, kind, layout),
+				typeFilter,
+				query,
+			),
+		)
 
 	return copy(
 		listing = listing,
-		arrangement = arrangement,
+		looks = looks,
+		layout = layout,
+		typeFilter = typeFilter,
+		query = query,
 		choosing = choosing.within(rows),
 		cursor = cursor.within(rows),
 		renaming = renaming?.takeIf { it.row in rows },
 	)
 }
+
+/** [listing] shown in place of what was, arranged as the window arranges it, what was chosen kept where it still is. */
+private fun BrowserState.relisted(listing: Listing): BrowserState =
+	rearranged(listing = listing)
 
 private fun BrowserState.clicked(row: RowId, click: Click): BrowserState {
 	if (row !in rows)
@@ -1831,30 +1850,6 @@ private fun BrowserState.born(times: Map<String, Instant?>): BrowserState {
 			bornReading - times.keys.map(::RowId).toSet(),
 	)
 }
-
-/**
- * The date column showing [date]; a listing ordered by the other time ordered by this one, the same way round: or, for
- * a search's results that cannot be ordered by it, best first.
- */
-private fun BrowserState.showedDate(date: DateShown): Step =
-	when (val listing = listing) {
-		is Listing.Found ->
-			arranged {
-				val shown = results.showing(date)
-
-				copy(
-					results =
-						if (shown.order.sort
-								?.by
-								?.let(listing::orders) == false
-						)
-							results.ordered(Order.Relevance).showing(date)
-						else
-							shown,
-				)
-			}
-		else -> arranged { copy(folders = folders.showing(date)) }
-	}
 
 /** Quick access arranged as [quick], shown so at once, and kept for every window. */
 private fun BrowserState.arranging(quick: QuickAccess): Step =

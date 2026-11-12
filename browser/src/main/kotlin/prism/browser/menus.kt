@@ -3,6 +3,9 @@ package prism.browser
 import androidx.compose.runtime.Immutable
 import java.nio.file.Path
 import prism.desktop.TerminalChoice
+import prism.preferences.ColumnId
+import prism.preferences.Kind
+import prism.preferences.Layout
 import prism.preferences.Order
 import prism.preferences.Sort
 
@@ -514,30 +517,20 @@ private fun sidebarMenuOf(
  */
 private fun MenuBuilder<BrowserEvent>.sorts(state: BrowserState) {
 	val found = state.listing as? Listing.Found
-	val order =
-		if (found == null)
-			Order.By(state.arrangement.folders.sort)
-		else
-			state.arrangement.results.order
+	val order = state.look.order
 	val sort = order.sort
 
 	if (found != null) {
 		radio("Best match", order == Order.Relevance, BrowserEvent.SortedByRelevance)
 		separator()
 	}
-	for (heading in Sort.Column.entries)
+	// Each column the listing offers, shown or not: an order is not a column's to be seen in.
+	for (column in state.kind.offered)
 		radio(
-			headingOf(heading),
-			sort?.by == heading,
-			BrowserEvent.SortedBy(
-				sort?.copy(by = heading)
-					?: Sort(
-						heading,
-						ascending =
-							heading == Sort.Column.Name || heading == Sort.Column.Type,
-					),
-			),
-			enabled = found?.orders(heading) != false,
+			state.kind.labelOf(column),
+			sort?.by == column,
+			BrowserEvent.SortedBy(sort?.copy(by = column) ?: Sort.of(column)),
+			enabled = found?.orders(column) != false,
 		)
 	if (sort != null) {
 		separator()
@@ -556,7 +549,7 @@ private fun MenuBuilder<BrowserEvent>.sorts(state: BrowserState) {
  * whichever are on: they are a list of marks, not a list that grows.
  */
 fun filterMenuOf(state: BrowserState): Menu<BrowserEvent> {
-	val kinds = state.arrangement.kinds
+	val kinds = state.entryFilters.kinds
 	val folders = state.choosing is Choosing.Folder
 
 	return menu {
@@ -586,7 +579,7 @@ private fun MenuBuilder<BrowserEvent>.hiddenChecks(
 	state: BrowserState,
 	folders: Boolean,
 ) {
-	val hidden = state.arrangement.hidden
+	val hidden = state.entryFilters.hidden
 
 	if (!folders)
 		check(
@@ -602,16 +595,6 @@ private fun MenuBuilder<BrowserEvent>.hiddenChecks(
 		alternate = BrowserEvent.ToggledHiddenFolders,
 	)
 }
-
-/** What the listing's heading for [column] says. */
-fun headingOf(column: Sort.Column): String =
-	when (column) {
-		Sort.Column.Name -> "Name"
-		Sort.Column.Modified -> "Date modified"
-		Sort.Column.Created -> "Date created"
-		Sort.Column.Type -> "Type"
-		Sort.Column.Size -> "Size"
-	}
 
 /** Whether [event] would change how the listing is drawn: whether a menu item that does it has anything to do. */
 private fun BrowserState.changedBy(event: BrowserEvent): Boolean =

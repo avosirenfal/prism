@@ -9,9 +9,14 @@ import prism.browser.Bindings
 import prism.browser.Chord
 import prism.desktop.TerminalChoice
 import prism.preferences.DateFormat
-import prism.preferences.FolderView
+import prism.preferences.Fonts
+import prism.preferences.Layout
+import prism.preferences.ListingKind
+import prism.preferences.Listings
+import prism.preferences.LookKey
 import prism.preferences.Preferences
-import prism.preferences.ResultsView
+import prism.preferences.Role
+import prism.preferences.Rows
 import prism.preferences.Scales
 import prism.preferences.TerminalChoiceSerializer
 import prism.preferences.TextSizes
@@ -28,7 +33,8 @@ enum class Page(
 	val label: String,
 ) {
 	Display("Display"),
-	Listing("Columns and order"),
+	Columns("Columns and order"),
+	Filters("Filters"),
 	Terminal("Terminal"),
 	Bindings("Key bindings"),
 	Actions("Actions"),
@@ -47,18 +53,21 @@ data class Took(
 )
 
 /**
- * Which of the bindings page's actions are shown: those whose names or chords have [Words] in them (all, for none);
- * those bound to a chord, once it is pressed ([Listening] for it, then [Pressed]).
+ * Which of the bindings page's actions are shown: those whose names or chords have [Words] in them (every one, for
+ * none); or those bound to a [Shortcut] pressed in the window that finds one, as JetBrains' "Find Shortcut" does.
  */
 sealed interface Finding {
 	data class Words(
 		val text: String,
 	) : Finding
 
-	data object Listening : Finding
-
-	data class Pressed(
-		val chord: Chord,
+	/**
+	 * Those bound to [chord], pressed while the window that finds it was [open] (every one, until one is). A chord is
+	 * taken only while it is open: closed, the keys are the page's again, and the actions found stay found.
+	 */
+	data class Shortcut(
+		val chord: Chord?,
+		val open: Boolean,
 	) : Finding
 
 	/** Whether [action], bound to [chords], is shown. */
@@ -70,21 +79,22 @@ sealed interface Finding {
 					action.label.contains(text.trim(), ignoreCase = true) ||
 					action.key.contains(text.trim().replace(" ", ""), ignoreCase = true) ||
 					chords.any { it.toString().contains(text.trim(), ignoreCase = true) }
-			// Every action shows until the chord is pressed.
-			Listening -> true
-			is Pressed -> chord in chords
+			is Shortcut -> chord == null || chord in chords
 		}
 
 	companion object {
 		val ALL: Finding = Words("")
+
+		/** The window that finds a shortcut, opened: every action shown until one is pressed. */
+		val OPENED: Finding = Shortcut(null, open = true)
 	}
 }
 
 /**
  * The bindings as the bindings page edits them: [bindings], the slot a chord is [awaited] for, where one is, what the
  * last chord given was taken from, and which actions are shown ([finding]). A chord pressed while one is awaited is put
- * there and taken from any other action that had it, since a chord does one thing; pressed while the page listens for
- * one to find, it is found.
+ * there and taken from any other action that had it, since a chord does one thing; pressed while the window that finds
+ * a shortcut is open, it is found.
  */
 data class Rebinding(
 	val bindings: Bindings,
@@ -93,25 +103,36 @@ data class Rebinding(
 	val finding: Finding = Finding.ALL,
 ) {
 	/** Whether a chord pressed is taken, for a binding or for finding what has it: nothing else sees it then. */
-	val listening: Boolean get() = awaited != null || finding == Finding.Listening
+	val listening: Boolean get() =
+		awaited != null ||
+			(finding as? Finding.Shortcut)?.open == true
 
 	/** These, awaiting a chord for [slot]. */
 	fun awaiting(slot: Slot): Rebinding = copy(awaited = slot, took = null)
 
-	/** These, no longer awaiting a chord, nor listening for one to find. */
+	/**
+	 * These, no longer awaiting a chord; the window that finds one closed, what it found still found (every action, where
+	 * it found nothing).
+	 */
 	fun cancelled(): Rebinding =
 		copy(
 			awaited = null,
-			finding = finding.takeUnless { it == Finding.Listening } ?: Finding.ALL,
+			finding =
+				when (val finding = finding) {
+					is Finding.Shortcut ->
+						finding.chord?.let { Finding.Shortcut(it, open = false) }
+							?: Finding.ALL
+					is Finding.Words -> finding
+				},
 		)
 
 	/** These, finding as [finding] says. */
 	fun finding(finding: Finding): Rebinding = copy(finding = finding, awaited = null)
 
-	/** These, with [chord] in the slot awaited, if one is; or found, where the page listens for one. */
+	/** These, with [chord] in the slot awaited, if one is; or found, while the window that finds one is open. */
 	fun pressed(chord: Chord): Rebinding {
-		if (finding == Finding.Listening && awaited == null)
-			return copy(finding = Finding.Pressed(chord))
+		if ((finding as? Finding.Shortcut)?.open == true && awaited == null)
+			return copy(finding = Finding.Shortcut(chord, open = true))
 
 		val slot = awaited ?: return this
 		val from = bindings.clashes(slot.action, chord)
@@ -140,28 +161,40 @@ data class Rebinding(
 }
 
 /**
- * The preferences window's edits: [base], the preferences as they were when it opened; how a new window lists a
- * folder ([folders]) and a search's results ([results]); how large text and things are drawn; how dates are written;
- * the [terminal] as its fields are typed; the bindings being rebound; and the [page] shown.
+ * The preferences window's edits: [base], the preferences as they were when it opened, or were last applied; how
+ * windows' listings look and what they leave out ([listings]); how large text and things are drawn, in what fonts; how
+ * dates are written; the [terminal] as its fields are typed; the bindings being rebound; the [page] shown, and on the
+ * columns' and the filters' pages, which listing ([looking]), and which layout of it ([filteringIn]).
  */
 data class Settings(
 	val base: Preferences,
 	val terminal: TerminalForm = TerminalForm.of(base.terminal),
 	val rebinding: Rebinding = Rebinding(Bindings.of(base)),
-	val folders: FolderView = base.folders,
-	val results: ResultsView = base.results,
+	val listings: Listings = base.listings,
 	/** How large each part's text is. */
 	val text: TextSizes = base.text,
+	val fonts: Fonts = base.fonts,
+	val rows: Rows = base.rows,
 	/** How large the listing of a new window is drawn, an explorer's and a picker's, and the sidebar's quick access. */
 	val scales: Scales = base.scales,
 	val dates: DateFormat = base.dates,
 	val page: Page = Page.Display,
+	val looking: LookKey = LookKey(Role.Explorer, ListingKind.Folder),
+	val filteringIn: Layout = Layout.List,
 ) {
 	/** The actions and places there are, prism's own and those the preferences write, with what of them did not read. */
 	val actions: Actions by lazy { Actions.of(base) }
 
-	/** Whether anything is changed from what the window opened on. */
+	/** Whether anything is changed from what the window opened on, or last applied. */
 	val changed: Boolean get() = over(base) != base
+
+	/**
+	 * These, applied: the preferences as they now are ([now]) what the window edits from, the page, and where on it,
+	 * kept; and what the bindings page shows.
+	 */
+	fun applied(now: Preferences): Settings =
+		Settings(now, page = page, looking = looking, filteringIn = filteringIn)
+			.let { it.copy(rebinding = it.rebinding.copy(finding = rebinding.finding)) }
 
 	/** [current], with what was changed here. */
 	fun over(current: Preferences): Preferences {
@@ -175,9 +208,10 @@ data class Settings(
 
 		return current.copy(
 			terminal = kept(Preferences::terminal, terminal.choice()),
-			folders = kept(Preferences::folders, folders),
-			results = kept(Preferences::results, results),
+			listings = kept(Preferences::listings, listings),
 			text = kept(Preferences::text, text),
+			fonts = kept(Preferences::fonts, fonts),
+			rows = kept(Preferences::rows, rows),
 			dates = kept(Preferences::dates, dates),
 			// The other windows' sizes are each window's own, as Ctrl and the wheel leave them: never this window's.
 			scales =

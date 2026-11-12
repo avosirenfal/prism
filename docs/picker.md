@@ -710,4 +710,3 @@ key behind. A field now keeps what it typed while the state is only catching up 
   (F5); a trashed folder is not gone into; the `directorysizes` cache the specification asks for is not written, so
   other file managers add up a trashed folder's size themselves; trashes on network mounts are listed as any other,
   and a mount that does not answer holds the trash's window until it does.
-- **Quick access**: entries are moved by their buttons, not dragged.

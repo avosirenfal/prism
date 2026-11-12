@@ -49,6 +49,12 @@ enum class Glyph {
 	Menu,
 	Trash,
 	Settings,
+
+	/** Six dots, two by three: what is held to drag something to another place in a list. */
+	Grip,
+
+	/** A magnifier over keys: finding what a key does. */
+	FindKey,
 }
 
 /** [glyph] at [size], in [tint]; a file's icon is marked with [category]'s colour. */
@@ -108,6 +114,23 @@ fun GlyphIcon(
 					stroked(unit, tint, listOf(4.5f to y, 19.5f to y))
 			Glyph.Trash -> trash(unit, tint)
 			Glyph.Settings -> gear(unit, tint)
+			Glyph.Grip ->
+				for (x in listOf(9f, 15f))
+					for (y in listOf(6f, 12f, 18f))
+						drawCircle(tint, 1.6f * unit, at(unit, x, y))
+			Glyph.FindKey -> {
+				drawRoundRect(
+					tint,
+					at(unit, 3f, 12f),
+					Size(12f * unit, 8f * unit),
+					CornerRadius(1.5f * unit),
+					style = line(unit),
+				)
+				for (x in listOf(6f, 9f, 12f))
+					drawCircle(tint, 0.9f * unit, at(unit, x, 16f))
+				drawCircle(tint, 4f * unit, at(unit, 16f, 7f), style = line(unit))
+				stroked(unit, tint, listOf(19f to 10f, 21.5f to 12.5f))
+			}
 		}
 	}
 }

@@ -171,7 +171,12 @@ fun <A> MenuPopup(
 				from?.let {
 					// A menu's text is as large as the user wants menus' to be, whatever the window's is.
 					CompositionLocalProvider(
-						LocalType provides Type.of(LocalPalette.current, LocalTextSizes.current.menus),
+						LocalType provides
+							Type.of(
+								LocalPalette.current,
+								LocalTextSizes.current.menus,
+								LocalFontFamilies.current.let { it.menus ?: it.general },
+							),
 					) {
 						MenuLevel(menu, anchor, it, onAction, onClose, onBack = onClose, startLit = false)
 					}

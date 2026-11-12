@@ -17,7 +17,12 @@ import org.junit.jupiter.api.io.TempDir
 import prism.browser.Fixtures.home
 import prism.browser.Fixtures.picker
 import prism.desktop.freedesktop.XdgPlaces
+import prism.preferences.ColumnId
 import prism.preferences.DateFormat
+import prism.preferences.Hidden
+import prism.preferences.Kind
+import prism.preferences.Layout
+import prism.preferences.Order
 import prism.preferences.Sort
 
 /**
@@ -181,13 +186,13 @@ class PickerTest {
 	fun aColumnOrdersByItsValueNotItsWords() {
 		val rows = Fixtures.homeRows
 		val byDate =
-			sorted(rows, Sort(Sort.Column.Modified, ascending = true))
+			sorted(rows, Order.By(Sort(ColumnId.Modified, ascending = true)))
 				.filterNot {
 					it.isFolder
 				}.map { it.name }
 
 		val bySize =
-			sorted(rows, Sort(Sort.Column.Size, ascending = false))
+			sorted(rows, Order.By(Sort(ColumnId.Size, ascending = false)))
 				.filterNot {
 					it.isFolder
 				}.map { it.name }

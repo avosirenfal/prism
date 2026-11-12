@@ -51,13 +51,13 @@ class SettingsViewTest {
 					SettingsView(
 						settings,
 						{ settings = it },
-						onSave = {},
-						onCancel = {},
+						onApply = {},
+						onClose = {},
 						mouseChords = mouse,
 					)
 				}
 			}
-			onNodeWithText("Save").assertIsNotEnabled()
+			onNodeWithText("Apply").assertIsNotEnabled()
 
 			// Search everything: clicked, waiting, then Ctrl+K.
 			onNodeWithTag("chord:Ctrl+Shift+F").performClick()
@@ -70,7 +70,7 @@ class SettingsViewTest {
 				settings.rebinding.bindings.of(Action.SearchIndex),
 			)
 			onNodeWithTag("chord:Ctrl+K").assertExists()
-			onNodeWithText("Save").assertIsEnabled()
+			onNodeWithText("Apply").assertIsEnabled()
 
 			// Back: its first chord clicked, then Escape, which changes nothing.
 			onNodeWithTag("chord:Alt+Left").performClick()
@@ -114,7 +114,7 @@ class SettingsViewTest {
 
 			setContent {
 				BrowserTheme {
-					SettingsView(settings, { settings = it }, onSave = {}, onCancel = {})
+					SettingsView(settings, { settings = it }, onApply = {}, onClose = {})
 				}
 			}
 			onNodeWithTag("bindings-scrollbar").assertExists()
@@ -131,19 +131,33 @@ class SettingsViewTest {
 			onNodeWithText(Action.OpenTerminal.label).assertExists()
 			onNodeWithText(Action.Back.label).assertDoesNotExist()
 
-			// A key pressed, once the page listens for one, shows what it does, and binds nothing.
+			// The window that finds a shortcut takes a key pressed while it is open, shows what it does, and binds nothing.
 			onNodeWithTag("find-by-key").performClick()
 			waitForIdle()
-			onNode(isFocused()).performKeyInput { withKeyDown(Key.CtrlLeft) { pressKey(Key.H) } }
+			onNodeWithTag("find-shortcut").assertExists()
+			onNodeWithTag("shortcut-field").performKeyInput {
+				withKeyDown(Key.CtrlLeft) { pressKey(Key.H) }
+			}
 			waitForIdle()
 
-			assertEquals(Finding.Pressed(chord("Ctrl+H")), settings.rebinding.finding)
+			assertEquals(
+				Finding.Shortcut(chord("Ctrl+H"), open = true),
+				settings.rebinding.finding,
+			)
 			onNodeWithText(Action.ToggleHidden.label).assertExists()
 			onNodeWithText(Action.OpenTerminal.label).assertDoesNotExist()
 			assertEquals(Preferences.DEFAULT.bindings, settings.over(Preferences.DEFAULT).bindings)
 
-			// And all shown again.
-			onNodeWithTag("show-all").performClick()
+			// Closed, it takes no more keys; what it found is still what is shown, until the button opens it afresh.
+			onNodeWithTag("shortcut-field").performKeyInput { pressKey(Key.Escape) }
+			waitForIdle()
+			onNodeWithTag("find-shortcut").assertDoesNotExist()
+			assertEquals(
+				Finding.Shortcut(chord("Ctrl+H"), open = false),
+				settings.rebinding.finding,
+			)
+			assertEquals(false, settings.rebinding.listening)
+			onNodeWithTag("find-by-key").performClick()
 			waitForIdle()
 			onNodeWithText(Action.Back.label).assertExists()
 		}

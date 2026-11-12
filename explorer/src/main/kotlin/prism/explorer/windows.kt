@@ -49,6 +49,7 @@ import prism.browser.TransientFor
 import prism.browser.mouseChords
 import prism.browser.zoomedByWheel
 import prism.preferences.DateFormat
+import prism.preferences.Fonts
 import prism.preferences.TextSizes
 import prism.preferences.WindowKind
 import prism.window.NativeWindow
@@ -109,15 +110,41 @@ fun ExplorerWindows(explorer: Explorer, palette: Palette, decorated: Boolean) {
 						HostedBrowser(this.window, window.session, explorer.preferences, palette)
 					}
 				is ExplorerWindow.Properties ->
-					Dialog(propertiesTitleOf(window.paths), DpSize(560.dp, 520.dp), palette, decorated, {
-						explorer.close(window)
-					}, sizes = sizes, dates = preferences.dates, zoom = zoomOf(WindowKind.Properties)) {
+					Dialog(
+						propertiesTitleOf(window.paths),
+						DpSize(560.dp, 520.dp),
+						palette,
+						decorated,
+						{
+							explorer.close(window)
+						},
+						sizes = sizes,
+						dates = preferences.dates,
+						fonts = preferences.fonts,
+						zoom =
+							zoomOf(
+								WindowKind.Properties,
+							),
+					) {
 						PropertiesView(window.paths, explorer) { explorer.close(window) }
 					}
 				is ExplorerWindow.OpenWith ->
-					Dialog(openWithTitleOf(window.choice), DpSize(620.dp, 560.dp), palette, decorated, {
-						explorer.close(window)
-					}, sizes = sizes, dates = preferences.dates, zoom = zoomOf(WindowKind.OpenWith)) {
+					Dialog(
+						openWithTitleOf(window.choice),
+						DpSize(620.dp, 560.dp),
+						palette,
+						decorated,
+						{
+							explorer.close(window)
+						},
+						sizes = sizes,
+						dates = preferences.dates,
+						fonts = preferences.fonts,
+						zoom =
+							zoomOf(
+								WindowKind.OpenWith,
+							),
+					) {
 						OpenWithView(window.choice, explorer) { explorer.close(window) }
 					}
 				is ExplorerWindow.Settings ->
@@ -130,6 +157,7 @@ fun ExplorerWindows(explorer: Explorer, palette: Palette, decorated: Boolean) {
 						raised = window.raised,
 						sizes = sizes,
 						dates = preferences.dates,
+						fonts = preferences.fonts,
 						zoom = zoomOf(WindowKind.Preferences),
 					) {
 						SettingsWindow(explorer) { explorer.close(window) }
@@ -157,11 +185,12 @@ private fun SettingsWindow(explorer: Explorer, onClose: () -> Unit) {
 		SettingsView(
 			settings,
 			onChange = { settings = it },
-			onSave = {
+			// Applied, the window stays open, editing from what is applied.
+			onApply = {
 				explorer.preferences.update(settings::over)
-				onClose()
+				settings = settings.applied(explorer.preferences.preferences.value)
 			},
-			onCancel = onClose,
+			onClose = onClose,
 			mouseChords = chords,
 			terminalPreview = { choice, command ->
 				explorer.desktop.launcher.terminalCommand(explorer.home, choice, command)
@@ -183,9 +212,25 @@ class Zooming(
 	}
 }
 
-/** The sizes a window is zoomed through, as a web browser's are: from half its usual size to three times it. */
+/** The sizes a window is zoomed through, as a web browser's are: from half its usual size to five times it. */
 internal val WINDOW_STEPS =
-	listOf(0.5f, 0.67f, 0.75f, 0.8f, 0.9f, 1f, 1.1f, 1.25f, 1.5f, 1.75f, 2f, 2.5f, 3f)
+	listOf(
+		0.5f,
+		0.67f,
+		0.75f,
+		0.8f,
+		0.9f,
+		1f,
+		1.1f,
+		1.25f,
+		1.5f,
+		1.75f,
+		2f,
+		2.5f,
+		3f,
+		4f,
+		5f,
+	)
 
 /**
  * A window of [size] for something the explorer shows beside its browsers, hosted as every prism window is, and closed
@@ -203,6 +248,7 @@ private fun Dialog(
 	raised: Int = 0,
 	sizes: TextSizes = TextSizes(),
 	dates: DateFormat = DateFormat.Written,
+	fonts: Fonts = Fonts(),
 	zoom: Zooming = Zooming(1f) {},
 	content: @Composable (NativeWindow) -> Unit,
 ) {
@@ -218,7 +264,7 @@ private fun Dialog(
 			if (raised > 0)
 				native.raise()
 		}
-		HostedWindow(native, palette, sizes, dates) {
+		HostedWindow(native, palette, sizes, dates, fonts) {
 			Column(
 				Modifier
 					.fillMaxSize()

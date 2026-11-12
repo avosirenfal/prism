@@ -21,7 +21,6 @@ import prism.browser.Finder
 import prism.browser.HostedBrowser
 import prism.browser.JvmDisk
 import prism.browser.JvmFolderWatcher
-import prism.browser.Look
 import prism.browser.Search
 import prism.browser.Services
 import prism.browser.Session
@@ -32,6 +31,7 @@ import prism.browser.opened
 import prism.browser.pickerOf
 import prism.browser.renderedPng
 import prism.browser.sidebarOf
+import prism.browser.zoomOf
 import prism.cli.Args
 import prism.cli.Command
 import prism.cli.Given
@@ -46,6 +46,7 @@ import prism.index.IndexRead
 import prism.index.UsageFile
 import prism.index.UsageRead
 import prism.preferences.PreferenceFile
+import prism.preferences.Role
 import prism.window.Window
 import prism.window.application
 import prism.browser.Outcome as Ended
@@ -138,7 +139,8 @@ object PickCommand : Command(
 				home,
 				sidebarOf(desktop.places, home, preferences.preferences.value),
 				search = search,
-				look = Look.of(preferences.preferences.value, picker = true),
+				listings = preferences.preferences.value.listings,
+				zoom = zoomOf(preferences.preferences.value, Role.Picker),
 			)
 
 		val services =

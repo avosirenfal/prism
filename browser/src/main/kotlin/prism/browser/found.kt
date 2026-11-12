@@ -19,8 +19,8 @@ import prism.index.query.ReadQuery
 import prism.index.query.Term
 import prism.index.query.Test
 import prism.index.search
+import prism.preferences.ColumnId
 import prism.preferences.Order
-import prism.preferences.Sort
 import prism.index.Kind as EntryKind
 
 /*
@@ -332,30 +332,41 @@ const val FEW_RESULTS = 10_000
  * [matches]' places ordered by [column], from the least (A, the oldest, the smallest), by name among equals. Size and
  * date are as [stats] read them; a result not read yet is after every one that was.
  */
-fun orderOf(matches: Matches, stats: Stats, column: Sort.Column): IntArray {
+fun orderOf(matches: Matches, stats: Stats, column: ColumnId): IntArray {
 	val names = Array(matches.size, matches::nameOf)
 	val byName = Comparator<Int> { a, b -> naturalOrder(names[a], names[b]) }
 
 	fun read(at: Int) = stats[at] as? Stat.Read
 
+	fun byText(text: (Int) -> String): Comparator<Int> {
+		val texts = Array(matches.size, text)
+
+		return Comparator<Int> { a, b -> naturalOrder(texts[a], texts[b]) }.then(byName)
+	}
+
 	val by: Comparator<Int> =
 		when (column) {
-			Sort.Column.Name -> byName
-			Sort.Column.Type -> {
-				val types = Array(matches.size) { matches.typeOf(it).lowercase() }
-
-				compareBy<Int> { types[it] }.then(byName)
-			}
-			Sort.Column.Modified ->
+			ColumnId.Name -> byName
+			ColumnId.Type -> byText { matches.typeOf(it).lowercase() }
+			ColumnId.Extension -> byText { extensionOf(names[it]).orEmpty() }
+			ColumnId.Location ->
+				byText {
+					matches
+						.pathOf(it)
+						.parent
+						?.toString()
+						.orEmpty()
+				}
+			ColumnId.Modified ->
 				compareBy<Int, Instant?>(nullsLast()) {
 					read(it)?.modified
 				}.then(byName)
-			Sort.Column.Size ->
+			ColumnId.Size ->
 				compareBy<Int, Long?>(nullsLast()) {
 					read(it)?.size?.value
 				}.then(byName)
-			// A search's results are never ordered by when they were made (Found.orders): by name, should it be asked.
-			Sort.Column.Created -> byName
+			// A search's results are never ordered by when they were made or trashed (Found.orders): by name, if asked.
+			ColumnId.Created, ColumnId.Deleted -> byName
 		}
 
 	return (0 until matches.size).sortedWith(by).toIntArray()

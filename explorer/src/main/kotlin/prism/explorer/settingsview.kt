@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -50,9 +51,13 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupProperties
 import kotlin.math.roundToInt
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
@@ -65,18 +70,32 @@ import prism.browser.Dims
 import prism.browser.Emphasis
 import prism.browser.Field
 import prism.browser.Glyph
+import prism.browser.GlyphIcon
 import prism.browser.LocalPalette
 import prism.browser.LocalType
 import prism.browser.PushButton
+import prism.browser.ReorderableColumn
 import prism.browser.Scope
+import prism.browser.Select
+import prism.browser.ToolButton
+import prism.browser.mouseChords
+import prism.browser.systemFontFamilies
 import prism.desktop.TerminalChoice
 import prism.desktop.TerminalCommand
-import prism.preferences.Column
+import prism.preferences.Align
+import prism.preferences.ColumnId
 import prism.preferences.DateFormat
-import prism.preferences.DateShown
+import prism.preferences.Filters
+import prism.preferences.Kind
+import prism.preferences.Layout
+import prism.preferences.ListingKind
+import prism.preferences.Look
 import prism.preferences.Order
+import prism.preferences.Role
+import prism.preferences.Rows
 import prism.preferences.Sort
 import prism.preferences.TextSizes
+import prism.window.WindowLocals
 
 /*
  * The preferences window. Its edits are one value ([Settings]) that the window replaces with each change and saves
@@ -93,8 +112,8 @@ import prism.preferences.TextSizes
 fun SettingsView(
 	settings: Settings,
 	onChange: (Settings) -> Unit,
-	onSave: () -> Unit,
-	onCancel: () -> Unit,
+	onApply: () -> Unit,
+	onClose: () -> Unit,
 	mouseChords: Flow<Chord> = emptyFlow(),
 	terminalPreview: (TerminalChoice, List<String>?) -> TerminalCommand = { _, _ ->
 		TerminalCommand.Failed("a terminal", "there is no desktop")
@@ -172,7 +191,8 @@ fun SettingsView(
 			Box(Modifier.weight(1f).fillMaxWidth()) {
 				when (settings.page) {
 					Page.Display -> DisplayPage(settings, onChange)
-					Page.Listing -> ListingPage(settings, onChange)
+					Page.Columns -> ColumnsPage(settings, onChange)
+					Page.Filters -> FiltersPage(settings, onChange)
 					Page.Terminal -> TerminalPage(settings, onChange, terminalPreview)
 					Page.Bindings ->
 						BindingsPage(rebinding, filter) {
@@ -186,8 +206,21 @@ fun SettingsView(
 				Modifier.fillMaxWidth(),
 				horizontalArrangement = Arrangement.spacedBy(Dims.gap, Alignment.End),
 			) {
-				PushButton("Cancel", Emphasis.Secondary, enabled = true, onClick = onCancel)
-				PushButton("Save", Emphasis.Primary, enabled = settings.changed, onClick = onSave)
+				// Applied, the window stays: what was changed shows in every window, and more can be changed.
+				PushButton(
+					"Close",
+					Emphasis.Secondary,
+					enabled = true,
+					Modifier.testTag("close"),
+					onClick = onClose,
+				)
+				PushButton(
+					"Apply",
+					Emphasis.Primary,
+					enabled = settings.changed,
+					Modifier.testTag("apply"),
+					onClick = onApply,
+				)
 			}
 		}
 	}
@@ -223,65 +256,78 @@ private fun Heading(text: String, help: String) {
 }
 
 /**
- * How large things are drawn: each part's text, the listing of a new explorer's window and of a picker's, and the
- * sidebar's quick access; and how dates are written.
+ * How things are drawn: each part's text, its size and its font; the list's rows; the listing of a new explorer's
+ * window and of a picker's, and the sidebar's quick access; and how dates are written.
  */
 @Composable
 private fun DisplayPage(settings: Settings, onChange: (Settings) -> Unit) {
 	val type = LocalType.current
 	val text = settings.text
+	val fonts = settings.fonts
 	val scales = settings.scales
+	val families = remember { listOf<String?>(null) + systemFontFamilies() }
+
+	fun sized(size: Float, by: Float) =
+		(size + by).coerceIn(TextSizes.SMALLEST, TextSizes.LARGEST)
+
+	@Composable
+	fun Part(
+		label: String,
+		size: Float,
+		family: String?,
+		onSize: (Float) -> Unit,
+		onFamily: (String?) -> Unit,
+	) {
+		Row(
+			verticalAlignment = Alignment.CenterVertically,
+			modifier = Modifier.padding(vertical = Dims.gapSmall),
+		) {
+			StepRow(
+				label,
+				"${size.toInt()} pt",
+				size > TextSizes.SMALLEST,
+				size < TextSizes.LARGEST,
+			) { onSize(sized(size, it)) }
+			Spacer(Modifier.width(Dims.gap * 2))
+			Select(
+				families,
+				family,
+				{ it ?: "The default font" },
+				Modifier.width(260.dp).testTag("font:$label"),
+				onFamily,
+			)
+		}
+	}
 
 	Column(Modifier.verticalScroll(rememberScrollState())) {
 		Heading(
 			"Text",
-			"How large the text of each part of a window is, in points. The listing's rows and the menus' entries " +
-				"grow with their text; Ctrl and the wheel still zoom the listing from its size.",
+			"How large the text of each part of a window is, in points, and in what font. The listing's rows and the " +
+				"menus' entries grow with their text; Ctrl and the wheel still zoom the listing from its size.",
 		)
-		StepRow(
-			"Menus",
-			"${text.menus.toInt()} pt",
-			text.menus > TextSizes.SMALLEST,
-			text.menus < TextSizes.LARGEST,
-		) {
-			onChange(
-				settings.copy(
-					text =
-						text.copy(
-							menus = (text.menus + it).coerceIn(TextSizes.SMALLEST, TextSizes.LARGEST),
-						),
-				),
-			)
+		Part("Menus", text.menus, fonts.menus, {
+			onChange(settings.copy(text = text.copy(menus = it)))
+		}) {
+			onChange(settings.copy(fonts = fonts.copy(menus = it)))
 		}
-		StepRow(
-			"Listing",
-			"${text.listing.toInt()} pt",
-			text.listing > TextSizes.SMALLEST,
-			text.listing < TextSizes.LARGEST,
-		) {
-			onChange(
-				settings.copy(
-					text =
-						text.copy(
-							listing = (text.listing + it).coerceIn(TextSizes.SMALLEST, TextSizes.LARGEST),
-						),
-				),
-			)
+		Part("Listing", text.listing, fonts.listing, {
+			onChange(settings.copy(text = text.copy(listing = it)))
+		}) {
+			onChange(settings.copy(fonts = fonts.copy(listing = it)))
 		}
-		StepRow(
-			"Everything else",
-			"${text.general.toInt()} pt",
-			text.general > TextSizes.SMALLEST,
-			text.general < TextSizes.LARGEST,
-		) {
-			onChange(
-				settings.copy(
-					text =
-						text.copy(
-							general = (text.general + it).coerceIn(TextSizes.SMALLEST, TextSizes.LARGEST),
-						),
-				),
-			)
+		Part("Everything else", text.general, fonts.general, {
+			onChange(settings.copy(text = text.copy(general = it)))
+		}) {
+			onChange(settings.copy(fonts = fonts.copy(general = it)))
+		}
+		Spacer(Modifier.height(Dims.gap * 3))
+		Heading("Rows", "How tall the list's rows are, and how large their icons.")
+		ChoiceRow("Icons", Rows.entries, settings.rows, {
+			if (it ==
+				Rows.Larger
+			) "Larger" else "Compact"
+		}) {
+			onChange(settings.copy(rows = it))
 		}
 		Spacer(Modifier.height(Dims.gap * 3))
 		Heading(
@@ -323,82 +369,252 @@ private fun DisplayPage(settings: Settings, onChange: (Settings) -> Unit) {
 			}
 		}
 		Spacer(Modifier.height(Dims.gap))
-		Text("Changes show once saved.", style = type.muted)
+		Text("Changes show once applied.", style = type.muted)
+	}
+}
+
+/** Which listing a page arranges: in which window, and of which kind (every place there is, by its type). */
+@Composable
+private fun ListingChoice(settings: Settings, onChange: (Settings) -> Unit) {
+	val key = settings.looking
+	val kinds =
+		listOf(ListingKind.Folder, ListingKind.Results, ListingKind.Trash) +
+			settings.actions.places.keys
+				.sorted()
+				.map(ListingKind::Place)
+
+	ChoiceRow("Window", Role.entries, key.role, {
+		if (it ==
+			Role.Explorer
+		)
+			"Explorer"
+		else
+			"File picker"
+	}) {
+		onChange(settings.copy(looking = key.copy(role = it)))
+	}
+	ChoiceRow("Listing", kinds, key.kind, ::labelOf) {
+		onChange(settings.copy(looking = key.copy(kind = it)))
 	}
 }
 
 /**
- * How a new window lists a folder, and a search's results: the order, which time the date column shows, and which
- * columns are shown.
+ * How each kind of listing looks as a window opens, in an explorer and in a picker: its order, and its columns, which
+ * are dragged by their grips into the order they are shown in, shown or not, and aligned. A picker's listing looks as
+ * the explorer's does until it is given a look of its own.
  */
 @Composable
-private fun ListingPage(settings: Settings, onChange: (Settings) -> Unit) {
+private fun ColumnsPage(settings: Settings, onChange: (Settings) -> Unit) {
 	val type = LocalType.current
+	val palette = LocalPalette.current
+	val (role, kind) = settings.looking
+	val listings = settings.listings
+	val look = listings.look(role, kind)
+	val columns = look.columns(kind)
+	val sort = look.order.sort
+
+	fun looked(look: Look) =
+		onChange(settings.copy(listings = listings.looking(role, kind, look)))
 
 	Column(Modifier.verticalScroll(rememberScrollState())) {
 		Heading(
-			"Folders",
-			"How a new window lists a folder. A window given another order or other columns keeps them wherever it goes, " +
-				"and no other window is changed by it.",
+			"Columns and order",
+			"How a new window lists each kind of listing: a folder, a search's results, the trash, and each place (an " +
+				"archive, say), in an explorer and in a file picker. A window given another order or other columns keeps " +
+				"them wherever it goes, and no other window is changed by it.",
 		)
-
-		val folders = settings.folders
-
-		ChoiceRow("Order", Sort.Column.entries, folders.sort.by, ::labelOf) {
-			onChange(settings.copy(folders = folders.sorted(Sort(it, folders.sort.ascending))))
+		ListingChoice(settings, onChange)
+		OwnRow(role, listings.ownLook(role, kind)) { own ->
+			onChange(
+				settings.copy(listings = listings.looking(role, kind, if (own) look else null)),
+			)
 		}
-		ChoiceRow("Direction", listOf(true, false), folders.sort.ascending, ::directionOf) {
-			onChange(settings.copy(folders = folders.sorted(folders.sort.copy(ascending = it))))
-		}
-		ChoiceRow("Date shows", DateShown.entries, folders.dateShown, ::labelOf) {
-			onChange(settings.copy(folders = folders.showing(it)))
-		}
-		ColumnsRow(Column.OF_FOLDERS, folders.hidden) { column, shown ->
-			onChange(settings.copy(folders = folders.showingColumn(column, shown)))
-		}
-		Spacer(Modifier.height(Dims.gap * 3))
-		Heading(
-			"Search results",
-			"How a new window lists what a search finds. Results ordered by best match are ordered as the search " +
-				"ranked them; when they were made is not known of results, so they are not ordered by it.",
-		)
-
-		val results = settings.results
-		val sort = results.order.sort
-
+		Spacer(Modifier.height(Dims.gap))
 		ChoiceRow(
 			"Order",
-			listOf<Sort.Column?>(null) + Sort.Column.entries.filter { it != Sort.Column.Created },
+			(
+				if (kind == ListingKind.Results)
+					listOf<ColumnId?>(null)
+				else
+					emptyList()
+			) +
+				kind.offered,
 			sort?.by,
-			{ it?.let(::labelOf) ?: "Best match" },
+			{ it?.let(kind::labelOf) ?: "Best match" },
 		) { column ->
-			onChange(
-				settings.copy(
-					results =
-						results.ordered(
-							column?.let {
-								Order.By(Sort(it, sort?.ascending ?: true))
-							} ?: Order.Relevance,
-						),
+			looked(
+				look.copy(
+					order =
+						column?.let { Order.By(Sort.of(it)) } ?: Order.Relevance,
 				),
 			)
 		}
 		if (sort != null)
 			ChoiceRow("Direction", listOf(true, false), sort.ascending, ::directionOf) {
-				onChange(
-					settings.copy(results = results.ordered(Order.By(sort.copy(ascending = it)))),
-				)
+				looked(look.copy(order = Order.By(sort.copy(ascending = it))))
 			}
-		ChoiceRow("Date shows", DateShown.entries, results.dateShown, ::labelOf) {
-			onChange(settings.copy(results = results.showing(it)))
-		}
-		ColumnsRow(Column.OF_RESULTS, results.hidden) { column, shown ->
-			onChange(settings.copy(results = results.showingColumn(column, shown)))
+		Spacer(Modifier.height(Dims.gap))
+		Text("Columns", style = type.body)
+		Text(
+			"Drag a column by its grip to move it. The name's is always first, and always shown.",
+			style = type.muted,
+		)
+		Spacer(Modifier.height(Dims.gapSmall))
+		ReorderableColumn(
+			columns.settings,
+			key = { it.id },
+			onMove = { from, to -> looked(look.with(columns.moved(from, to))) },
+			modifier = Modifier.widthIn(max = 760.dp),
+			movable = { it.id != ColumnId.Name },
+		) { column, handle, dragged ->
+			Row(
+				Modifier
+					.fillMaxWidth()
+					.background(
+						if (dragged) palette.chosen else palette.window,
+						RoundedCornerShape(Dims.radius),
+					).padding(vertical = 2.dp)
+					.testTag("columns:${column.id.name}"),
+				verticalAlignment = Alignment.CenterVertically,
+				horizontalArrangement = Arrangement.spacedBy(Dims.gap),
+			) {
+				GlyphIcon(
+					Glyph.Grip,
+					if (column.id == ColumnId.Name)
+						palette.window
+					else
+						palette.textFaint,
+					18.dp,
+					handle.testTag("grip:${column.id.name}"),
+				)
+				CheckBox(
+					kind.labelOf(column.id),
+					column.shown,
+					Modifier.width(240.dp).testTag("shown:${column.id.name}"),
+					enabled = column.id != ColumnId.Name,
+				) { looked(look.with(columns.showing(column.id, it))) }
+				listOf(
+					Align.Start to "Left",
+					Align.Center to "Centre",
+					Align.End to "Right",
+				).forEach { (align, label) ->
+					PushButton(
+						label,
+						if (column.aligned == align)
+							Emphasis.Primary
+						else
+							Emphasis.Secondary,
+						enabled = true,
+						Modifier.testTag("align:${column.id.name}:$label"),
+					) { looked(look.with(columns.aligning(column.id, align))) }
+				}
+			}
 		}
 		Spacer(Modifier.height(Dims.gap))
-		Text("Changes show in windows opened once saved.", style = type.muted)
+		Text("Changes show in windows opened once applied.", style = type.muted)
 	}
 }
+
+/**
+ * What a new window's listing of each kind, drawn as a list or as a gallery, leaves out, in an explorer and in a
+ * picker: which hidden entries it shows, and which kinds of file. A picker's are the explorer's until it has its own.
+ */
+@Composable
+private fun FiltersPage(settings: Settings, onChange: (Settings) -> Unit) {
+	val type = LocalType.current
+	val (role, kind) = settings.looking
+	val layout = settings.filteringIn
+	val listings = settings.listings
+	val filters = listings.filters(role, kind, layout)
+
+	fun filtered(filters: Filters) =
+		onChange(settings.copy(listings = listings.filtering(role, kind, layout, filters)))
+
+	Column(Modifier.verticalScroll(rememberScrollState())) {
+		Heading(
+			"Filters",
+			"What a new window's listing shows, for each kind of listing, drawn as a list or as a gallery, in an explorer " +
+				"and in a file picker: a gallery can leave out hidden files that a list shows, say. A window's filter menu " +
+				"changes its own, wherever it goes.",
+		)
+		ListingChoice(settings, onChange)
+		ChoiceRow("View", Layout.entries, layout, {
+			if (it ==
+				Layout.List
+			) "Details" else "Gallery"
+		}) {
+			onChange(settings.copy(filteringIn = it))
+		}
+		OwnRow(role, listings.ownFilters(role, kind, layout)) { own ->
+			onChange(
+				settings.copy(
+					listings = listings.filtering(role, kind, layout, if (own) filters else null),
+				),
+			)
+		}
+		Spacer(Modifier.height(Dims.gap))
+		CheckBox("Show hidden files", filters.hidden.files, Modifier.testTag("hidden-files")) {
+			filtered(filters.copy(hidden = filters.hidden.copy(files = it)))
+		}
+		CheckBox(
+			"Show hidden folders",
+			filters.hidden.folders,
+			Modifier.testTag("hidden-folders"),
+		) {
+			filtered(filters.copy(hidden = filters.hidden.copy(folders = it)))
+		}
+		Spacer(Modifier.height(Dims.gap))
+		Text("Kinds shown (every kind, where none is ticked)", style = type.body)
+		FlowRow(horizontalArrangement = Arrangement.spacedBy(Dims.gap * 2)) {
+			Kind.entries.forEach { shown ->
+				CheckBox(
+					shown.label,
+					shown in filters.kinds,
+					Modifier.testTag("kind:${shown.label}"),
+				) {
+					filtered(
+						filters.copy(
+							kinds =
+								if (it)
+									filters.kinds + shown
+								else
+									filters.kinds -
+										shown,
+						),
+					)
+				}
+			}
+		}
+		Spacer(Modifier.height(Dims.gap))
+		Text("Changes show in windows opened once applied.", style = type.muted)
+	}
+}
+
+/** Whether a picker's listing has its own look or filters, or the explorer's; nothing to choose of the explorer's. */
+@Composable
+private fun OwnRow(role: Role, own: Boolean, onOwn: (Boolean) -> Unit) {
+	if (role == Role.Picker)
+		CheckBox(
+			"Its own, apart from the explorer's (as the explorer's, where not)",
+			own,
+			Modifier.testTag("own"),
+			onChange = onOwn,
+		)
+}
+
+/** What a listing of [kind] is called. */
+private fun labelOf(kind: ListingKind): String =
+	when (kind) {
+		ListingKind.Folder -> "Folders"
+		ListingKind.Results -> "Search results"
+		ListingKind.Trash -> "Trash"
+		// A place's type as its declaration names it, "archive.7z": the kind, and which of it.
+		is ListingKind.Place ->
+			kind.type.split('.', limit = 2).let { parts ->
+				parts[0].replaceFirstChar { it.uppercase() } +
+					parts.getOrNull(1)?.let { " ($it)" }.orEmpty()
+			}
+	}
 
 /** One of [choices], each a button, the one [chosen] marked. */
 @Composable
@@ -428,33 +644,6 @@ private fun <T> ChoiceRow(
 					enabled = true,
 					Modifier.testTag("$label:${name(choice)}"),
 				) { onChoose(choice) }
-			}
-		}
-	}
-}
-
-/** Which of [columns] are shown, each ticked or not; the name's is always shown. */
-@Composable
-private fun ColumnsRow(
-	columns: List<Column>,
-	hidden: Set<Column>,
-	onShown: (Column, Boolean) -> Unit,
-) {
-	Row(
-		verticalAlignment = Alignment.CenterVertically,
-		modifier = Modifier.padding(vertical = Dims.gapSmall),
-	) {
-		Text("Columns", style = LocalType.current.body, modifier = Modifier.width(160.dp))
-		Row(horizontalArrangement = Arrangement.spacedBy(Dims.gap * 2)) {
-			CheckBox("Name", checked = true, enabled = false) {}
-			columns.forEach { column ->
-				CheckBox(
-					labelOf(column),
-					column !in hidden,
-					Modifier.testTag("column:${labelOf(column)}"),
-				) {
-					onShown(column, it)
-				}
 			}
 		}
 	}
@@ -529,30 +718,6 @@ private fun RadioDot(chosen: Boolean) {
 
 /** The sizes a listing starts at: the steps Ctrl and the wheel zoom a list through. */
 private val LISTING_STEPS = listOf(0.75f, 0.875f, 1f, 1.25f, 1.5f, 2f)
-
-/** A column, as the preferences name it. */
-private fun labelOf(column: Sort.Column): String =
-	when (column) {
-		Sort.Column.Name -> "Name"
-		Sort.Column.Modified -> "Modified"
-		Sort.Column.Created -> "Created"
-		Sort.Column.Type -> "Type"
-		Sort.Column.Size -> "Size"
-	}
-
-private fun labelOf(column: Column): String =
-	when (column) {
-		Column.Folder -> "Folder"
-		Column.Date -> "Date"
-		Column.Type -> "Type"
-		Column.Size -> "Size"
-	}
-
-private fun labelOf(date: DateShown): String =
-	when (date) {
-		DateShown.Modified -> "When modified"
-		DateShown.Created -> "When made"
-	}
 
 private fun directionOf(ascending: Boolean): String =
 	if (ascending) "Ascending" else "Descending"
@@ -763,39 +928,39 @@ private fun BindingsPage(
 				trailing = Glyph.Search,
 				focus = filter,
 			)
-			// Pressed, it listens: the next chord pressed shows what it does, and nothing else is done with it.
-			PushButton(
-				when (finding) {
-					Finding.Listening -> "Press a key…"
-					is Finding.Pressed -> "Pressed: ${finding.chord}"
-					is Finding.Words -> "Find by pressing a key"
-				},
-				if (finding is Finding.Words)
-					Emphasis.Secondary
-				else
-					Emphasis.Primary,
-				enabled = true,
-				Modifier.testTag("find-by-key"),
-			) {
-				onChange(
-					rebinding.finding(
-						if (finding ==
-							Finding.Listening
-						)
-							Finding.ALL
-						else
-							Finding.Listening,
-					),
-				)
+			// What the window that finds a shortcut found, while it is what is shown: let go of by its ×.
+			(finding as? Finding.Shortcut)?.chord?.let { chord ->
+				ChordChip(
+					chord.toString(),
+					onClick = { onChange(rebinding.finding(Finding.OPENED)) },
+				) {
+					onChange(rebinding.finding(Finding.ALL))
+				}
 			}
-			// Always there, so that the keyboard, on it as it is pressed, is not left on nothing as it would go.
-			PushButton(
-				"Show all",
-				Emphasis.Secondary,
-				enabled = finding != Finding.ALL,
-				Modifier.testTag("show-all"),
-			) {
-				onChange(rebinding.finding(Finding.ALL))
+			Box {
+				ToolButton(
+					Glyph.FindKey,
+					"Find a shortcut",
+					enabled = true,
+					Modifier.testTag("find-by-key"),
+					selected = finding is Finding.Shortcut,
+				) {
+					// Opened afresh, every action is shown until a shortcut is pressed; pressed again, it closes.
+					onChange(
+						rebinding.finding(
+							if ((finding as? Finding.Shortcut)?.open ==
+								true
+							)
+								Finding.ALL
+							else
+								Finding.OPENED,
+						),
+					)
+				}
+				if ((finding as? Finding.Shortcut)?.open == true)
+					FindShortcut(finding.chord, onPressed = { onChange(rebinding.pressed(it)) }) {
+						onChange(rebinding.cancelled())
+					}
 			}
 		}
 		Spacer(Modifier.height(Dims.gap))
@@ -826,10 +991,8 @@ private fun BindingsPage(
 				if (shown.isEmpty())
 					item(key = "none") {
 						Text(
-							when (finding) {
-								is Finding.Pressed -> "${finding.chord} does nothing."
-								else -> "No action matches."
-							},
+							(finding as? Finding.Shortcut)?.chord?.let { "$it does nothing." }
+								?: "No action matches.",
 							style = type.muted,
 							modifier = Modifier.padding(top = Dims.gap * 2),
 						)
@@ -850,6 +1013,87 @@ private fun BindingsPage(
 				rebinding.bindings != rebinding.bindings.defaults(),
 		) {
 			onChange(rebinding.resetAll())
+		}
+	}
+}
+
+/**
+ * The window that finds a shortcut, as JetBrains' "Find Shortcut": below its button, over the page, taking the keys
+ * while it is open. The shortcut pressed ([chord], none yet where null) is shown, and the bindings with it are what the
+ * page shows, as it is pressed; another pressed takes its place. A mouse's middle, back or forward button pressed over
+ * its lower part is a shortcut too. Escape, or a click elsewhere, closes it ([onClose]), what it found still shown.
+ */
+@Composable
+private fun FindShortcut(chord: Chord?, onPressed: (Chord) -> Unit, onClose: () -> Unit) {
+	val palette = LocalPalette.current
+	val type = LocalType.current
+	val keys = remember { FocusRequester() }
+	val shape = RoundedCornerShape(8.dp)
+
+	Popup(
+		alignment = Alignment.TopEnd,
+		offset = IntOffset(0, 40),
+		onDismissRequest = onClose,
+		properties = PopupProperties(focusable = true),
+	) {
+		WindowLocals {
+			Column(
+				Modifier
+					.width(340.dp)
+					.background(palette.surface, shape)
+					.border(1.dp, palette.border, shape)
+					.testTag("find-shortcut"),
+			) {
+				Text(
+					"Find Shortcut",
+					style = type.title,
+					textAlign = TextAlign.Center,
+					modifier = Modifier.fillMaxWidth().padding(vertical = Dims.gap * 1.5f),
+				)
+				Row(
+					Modifier
+						.padding(horizontal = Dims.gap * 1.5f)
+						.fillMaxWidth()
+						.height(Dims.control)
+						.background(palette.field, RoundedCornerShape(Dims.radius))
+						.border(2.dp, palette.accent, RoundedCornerShape(Dims.radius))
+						.focusRequester(keys)
+						.focusable()
+						.onPreviewKeyEvent { key ->
+							when {
+								key.type != KeyEventType.KeyDown -> true
+								key.key == Key.Escape -> true.also { onClose() }
+								else -> true.also { Chord.of(key)?.let(onPressed) }
+							}
+						}.testTag("shortcut-field")
+						.padding(horizontal = Dims.gap),
+					verticalAlignment = Alignment.CenterVertically,
+				) {
+					GlyphIcon(Glyph.Search, palette.textMuted, 16.dp)
+					Spacer(Modifier.width(Dims.gap))
+					Text(
+						chord?.toString() ?: "Press a shortcut",
+						style = if (chord == null) type.muted else type.body,
+						maxLines = 1,
+					)
+				}
+				Spacer(Modifier.height(Dims.gap * 1.5f))
+				Row(
+					Modifier
+						.fillMaxWidth()
+						.background(palette.pane, RoundedCornerShape(bottomStart = 8.dp, bottomEnd = 8.dp))
+						.mouseChords(onPressed)
+						.padding(horizontal = Dims.gap * 1.5f, vertical = Dims.gap * 1.5f)
+						.testTag("mouse-shortcut"),
+					verticalAlignment = Alignment.CenterVertically,
+				) {
+					Text(
+						"Mouse shortcut: press the middle, back or forward button here",
+						style = type.muted,
+					)
+				}
+			}
+			LaunchedEffect(Unit) { keys.requestFocus() }
 		}
 	}
 }

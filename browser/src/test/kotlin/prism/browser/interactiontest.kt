@@ -37,6 +37,7 @@ import androidx.compose.ui.test.performKeyInput
 import androidx.compose.ui.test.performKeyPress
 import androidx.compose.ui.test.performMouseInput
 import androidx.compose.ui.test.performTextReplacement
+import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.pressKey
 import androidx.compose.ui.test.rightClick
 import androidx.compose.ui.test.runComposeUiTest
@@ -59,6 +60,9 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import prism.desktop.freedesktop.XdgPlaces
 import prism.preferences.Builtin
+import prism.preferences.ColumnId
+import prism.preferences.Hidden
+import prism.preferences.Layout
 import prism.preferences.Preferences
 import prism.preferences.QuickItem
 import prism.preferences.Sort
@@ -750,6 +754,26 @@ class InteractionTest {
 				session.state.value.sidebar.quick.items
 					.indexOf(QuickItem.Own(Builtin.Trash)) == Builtin.entries.size - 2
 			}
+
+			// Dragged by its grip, an entry goes where it is let go: the trash, up past the two above it.
+			val before = session.state.value.sidebar.quick.items
+			val trashAt = before.indexOf(QuickItem.Own(Builtin.Trash))
+
+			val line =
+				onNodeWithTag("quick:Trash")
+					.fetchSemanticsNode()
+					.size.height
+					.toFloat()
+
+			onNodeWithTag("grip:Trash").performTouchInput {
+				down(center)
+				repeat(10) { moveBy(Offset(0f, -line * 0.25f)) }
+				up()
+			}
+			waitUntil(timeoutMillis = TIMEOUT) {
+				session.state.value.sidebar.quick.items
+					.indexOf(QuickItem.Own(Builtin.Trash)) == trashAt - 2
+			}
 			onNodeWithTag("done").performClick()
 			waitUntil(timeoutMillis = TIMEOUT) {
 				onAllNodes(hasTestTag("quick-access")).fetchSemanticsNodes().isEmpty()
@@ -1076,8 +1100,9 @@ class InteractionTest {
 			onNodeWithTag("menu:Sort by").performMouseInput { moveTo(center) }
 			onNodeWithTag("menu:Size").performClick()
 			waitUntil(timeoutMillis = TIMEOUT) {
-				session.state.value.arrangement.folders.sort.by ==
-					Sort.Column.Size
+				session.state.value.look.order.sort
+					?.by ==
+					ColumnId.Size
 			}
 			noMenu()
 

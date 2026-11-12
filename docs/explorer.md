@@ -97,7 +97,8 @@ from sidebar" for a folder pinned, "Hide from sidebar" for one of prism's own). 
 whose entries it cannot give an application.
 
 The button beside the "Quick access" heading opens a window over the browser that arranges it (`quickaccess.kt`):
-every entry, shown or hidden, moved up or down; prism's own shown or hidden by their boxes, the folders pinned removed;
+every entry, shown or hidden, dragged by its grip to where it goes (the rest making room as it goes, as
+`ReorderableColumn` draws any list the pointer reorders), or moved up or down a place; prism's own shown or hidden by their boxes, the folders pinned removed;
 a folder pinned by its path; and "Reset", prism's own in their own order, every one shown, before the folders pinned.
 Each change is made as it is made, so the sidebar behind shows it. The sidebar, and this window, are drawn as large as
 the preferences' sidebar size says (Display, "Sidebar"); Ctrl and the wheel do not zoom them.
@@ -260,48 +261,89 @@ prism's own with no key held, a move within a volume and a copy across one. A mo
 application's to make; prism reads its folder again afterwards, and deletes nothing itself. docs/platform.md follows a
 drag through, and says what each platform does with it.
 
-## The listing's columns, order and text
+## The listing's columns, order, filters and text
 
 A row's menu opens over its name, and over the space after it in the name's column; the other columns are the
 listing's, whose menu is the folder's.
 
-The date column shows when files were last modified, or when they were made: the column headings' menu (the right
-button on them) chooses, for that window. When a file was made is its birth time, which statx(2) gives where the file
-system keeps it (ext4, btrfs, XFS, tmpfs do; FAT and NFS do not, and those show "—"); it is not Unix's "ctime", which is
-when the file's inode last changed. It is read behind the folder, a batch at a time: those in sight first, then the
-rest in the folder's order, each answer asking for the next, so that what is scrolled to is read next. Ordered by it,
-those not known are last, by name. A search's results are not ordered by it.
+**The columns** are a catalogue (`ColumnId`, in `preferences/listing.kt`): the name, where an entry is, when it was
+modified, made and trashed, its type, its size and its extension. Each kind of listing offers some of them
+(`ListingKind`): a folder's listing every one but where an entry is and when it was trashed; a search's results where
+each is, and not when it was made, which is not read of results; the trash where each was ("Original location") and
+when it was trashed; and a place (an archive, by its type, `place:archive.zip`) what its command lists of an entry.
+Each listing's columns (`Columns`) are each that its kind offers, exactly once, in the user's order, each shown or not
+and aligned left, centre or right; the name's is always first and always shown. That is kept by construction:
+`Columns` are made only by `ListingKind.columnsOf`, which drops what a kind does not offer, and adds what it offers and
+is left out (hidden, at the end, where the user has arranged the rest), so a column added to the catalogue reaches
+every listing that offers it without a word in anyone's preferences.
 
-The headings' menu also shows or hides each column but the name's. A folder's listing and a search's results each have
-a look of their own (`FolderView`, `ResultsView` in `preferences/listing.kt`): the order, which time the date column
-shows (the time ordered by, where it is ordered by one), and the columns hidden; a search's results have one column a
-folder's do not, the folder each is in, and are ordered best first until the user says otherwise. A new window takes
-both from the preferences, and keeps what it is given wherever it goes; no other window is changed by it.
+A window keeps a look for each kind of listing (`Looks`): its order and its columns, as the preferences gave them as it
+opened, and as the user has made them since, through the column headings (clicked to order by one, the other way round
+when clicked again) and the headings' menu (a column shown or hidden; the heading pressed aligned). Going from folder
+to folder keeps a folder's look; a search's results, the trash and each type of place have their own. What the window
+shows is worked out from its looks for what it shows (`BrowserState.arrangement`), never kept beside them.
+
+When a file was made is its birth time, which statx(2) gives where the file system keeps it (ext4, btrfs, XFS, tmpfs
+do; FAT and NFS do not, and those show "—"); it is not Unix's "ctime", which is when the file's inode last changed. It
+is read behind the folder, a batch at a time: those in sight first, then the rest in the folder's order, each answer
+asking for the next, so that what is scrolled to is read next. Ordered by it, those not known are last, by name.
+
+**The filters** (which hidden entries are shown, and which kinds of file) are kept the same way, for each kind of
+listing and each layout: a gallery can leave out hidden files that a list of the same folder shows. The filter menu
+changes the window's own, for what it shows and how.
+
+**As a window opens**, its looks and filters are the preferences' (`Listings`): for each kind of listing in an explorer
+and in a file picker, and the filters for each layout too. What they do not say for a picker is the explorer's; what
+they do not say for the explorer is prism's own.
 
 ```json
 {
-    "folders": { "sort": { "by": "Created", "ascending": false }, "hidden": [ "Type" ] },
-    "results": { "order": { "type": "relevance" }, "date": "Modified", "hidden": [ "Size" ] },
+    "listings": {
+        "looks": {
+            "explorer/folder": {
+                "order": { "type": "by", "sort": { "by": "Modified", "ascending": false } },
+                "columns": [ { "id": "Name" }, { "id": "Extension" }, { "id": "Modified" }, { "id": "Size", "align": "End" } ]
+            },
+            "picker/place:archive.zip": { "order": { "type": "relevance" } }
+        },
+        "filters": { "explorer/folder/gallery": { "hidden": { "files": false }, "kinds": [ "Images" ] } }
+    },
     "text": { "menus": 15, "listing": 13, "general": 13 },
+    "fonts": { "listing": "Inter" },
+    "rows": "Larger",
     "scales": { "explorer": 1.25, "picker": 1.0, "sidebar": 1.0, "windows": { "Preferences": 1.1 } },
     "dates": "Iso"
 }
 ```
 
-The preferences size the text of the menus, the listing and the rest, the menus a little larger by default. `scales`
-says how large things are drawn, as many times their usual size: the listing of a new explorer's window and of a new
-picker's (the nearest of the steps Ctrl and the wheel zoom the listing through), the sidebar's quick access and the
-window that arranges it, and each of the other windows (the preferences, a file's properties, "Open with"), as Ctrl and
-the wheel last left one of its kind. In those windows Ctrl and the wheel zoom as a web browser zooms a page, through
-50 % to 300 %: text, and everything measured in dp, laid out again at that size; Ctrl with + and -, and Ctrl+0, do too.
-`dates` is how the listing writes a date: day, month, year (`12 Nov 2026, 14:03`, the default); month, day, year;
-ISO's year-month-day; day/month/year; month/day/year; day.month.year; or as the system's language writes it. A file's
-properties write dates in full, to the second, whatever it says.
+**How it is drawn.** The list's rows are larger, with icons as large as Thunar draws them, or compact (`rows`). Each
+column has room either side of what it shows, and the list room at its edges. A date column sets a date's date and
+its time apart: its dates in a width every date the format writes fits (measured once, of a day of each month), its
+times after them in another, each digit as wide as the next (tabular figures), so every row's line up, whatever the
+font; a date column is never drawn narrower than that. A gallery's tiles have room between them, and around them, for
+a rectangle to be started or the folder's menu opened. The preferences size and name the font of the menus, the
+listing and the rest (a family the system has, by name; the default where none is named), the menus a little larger
+by default.
 
-The preferences window's pages set all of these: Display (text sizes, sizes, dates), and Columns and order (each
-look). Its Key bindings page has a filter (Ctrl+F goes to it) that finds an action by its name, as shown or as the file
-writes it, or by its chords; and "Find by pressing a key", after which the next chord pressed shows what it does, and
-binds nothing. The list's scrollbar is drawn while there is more than fits.
+`scales` says how large things are drawn, as many times their usual size: the listing of a new explorer's window and
+of a new picker's (the nearest of the steps Ctrl and the wheel zoom the listing through), the sidebar's quick access
+and the window that arranges it, and each of the other windows (the preferences, a file's properties, "Open with"), as
+Ctrl and the wheel last left one of its kind. In those windows Ctrl and the wheel zoom as a web browser zooms a page,
+through 50 % to 500 %: text, and everything measured in dp, laid out again at that size; Ctrl with + and -, and
+Ctrl+0, do too. `dates` is how the listing writes a date: day, month, year (`12 Nov 2026, 14:03`, the default); month,
+day, year; ISO's year-month-day; day/month/year; month/day/year; day.month.year; or as the system's language writes
+it. A file's properties write dates in full, to the second, whatever it says.
+
+**The preferences window** sets all of these, and Apply makes them so without closing it. Display: each part's text
+size and font, the rows, the sizes, the dates. Columns and order, and Filters: a window's kind (an explorer or a file
+picker) and a kind of listing chosen (and, for filters, a layout), then its order, and its columns, dragged by their
+grips into order, ticked shown or not, and aligned; or its filters. A picker's are the explorer's until it is ticked to
+have its own. Key bindings: a filter (Ctrl+F goes to it) that finds an action by its name, as shown or as the file
+writes it, or by its chords; and, as JetBrains' keymap has it, a button that opens "Find Shortcut", which takes the
+next shortcut pressed (a key with its modifiers, or the mouse's middle, back or forward button over its lower part) for
+as long as it is open, and shows what it does, binding nothing. Closed, the keys are the page's again, and what it
+found stays shown, beside the filter, until its × or the button again. The list's scrollbar is drawn while there is
+more than fits.
 
 ## Open terminal here
 

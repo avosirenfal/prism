@@ -30,6 +30,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -101,13 +102,16 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
 import java.nio.file.Path
+import java.time.Instant
 import kotlin.io.path.name
 import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
@@ -117,9 +121,14 @@ import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import prism.desktop.Place
+import prism.preferences.Align
 import prism.preferences.Builtin
-import prism.preferences.Column
-import prism.preferences.DateShown
+import prism.preferences.ColumnId
+import prism.preferences.ColumnSetting
+import prism.preferences.Columns
+import prism.preferences.DateFormat
+import prism.preferences.Kind
+import prism.preferences.Layout
 import prism.preferences.Sort
 import prism.window.WindowLocals
 
@@ -218,7 +227,12 @@ fun FileBrowser(
 						SidebarPane(state, stops, onEvent)
 						Box(Modifier.width(1.dp).fillMaxHeight().background(palette.border))
 					}
-					ListingPane(state, stops, Modifier.weight(1f), ::act, onEvent)
+					// The listing in its own font, where the user chose one.
+					CompositionLocalProvider(
+						LocalType provides LocalType.current.inFamily(LocalFontFamilies.current.listing),
+					) {
+						ListingPane(state, stops, Modifier.weight(1f), ::act, onEvent)
+					}
 				}
 				Line(palette.border)
 				// A picker's name and buttons; an explorer, which chooses nothing for anyone, has only a status line.
@@ -408,7 +422,7 @@ private fun Toolbar(state: BrowserState, stops: Stops, onEvent: (BrowserEvent) -
 			{ filterMenuOf(state) },
 			onEvent,
 			Modifier.testTag("filters"),
-			selected = state.arrangement.kinds.isNotEmpty(),
+			selected = state.entryFilters.kinds.isNotEmpty(),
 		)
 		Spacer(Modifier.width(Dims.gapSmall))
 		AddressBar(state, stops, Modifier.weight(1f), onEvent)
@@ -999,8 +1013,8 @@ private fun ListingPane(
 	val hint = LocalDropHint.current
 	val exploring = state.choosing is Choosing.Exploring
 	val world = LocalWorld.current
-	val headings = headingsOf(state, gallery = false).mapNotNull { it.column }.toSet()
-	val view = viewOf(state)
+	val columns = state.columns.shown
+	val widths = rememberDateWidths(LocalDateFormat.current, LocalType.current.muted)
 
 	/** What the user's action bound to a chord, or done by a double click, is done to: the rows, or the folder shown. */
 	fun subjectOf(rows: List<Row>): Subject =
@@ -1342,7 +1356,9 @@ private fun ListingPane(
 	// was chosen as it began, which a rectangle dragged with Ctrl held adds to.
 	var band by remember { mutableStateOf<Rect?>(null) }
 	var banded by remember { mutableStateOf(emptySet<RowId>()) }
+	// Where the rows are laid out from: the list's, and the gallery's, room around them.
 	val inset = with(LocalDensity.current) { Dims.gapSmall.toPx() }
+	val tileInset = with(LocalDensity.current) { Dims.tilePad.toPx() }
 
 	/** The rows [rect] takes in: those in sight that it touches, each where the listing has laid it out. */
 	fun within(rect: Rect): Set<RowId> {
@@ -1351,7 +1367,7 @@ private fun ListingPane(
 				grid.layoutInfo.visibleItemsInfo.map {
 					it.index to
 						Rect(
-							Offset(it.offset.x + inset, it.offset.y + inset),
+							Offset(it.offset.x + tileInset, it.offset.y + tileInset),
 							Size(it.size.width.toFloat(), it.size.height.toFloat()),
 						)
 				}
@@ -1408,7 +1424,7 @@ private fun ListingPane(
 			.focusable(interactionSource = source)
 			.testTag("listing"),
 	) {
-		Header(state, menus, onEvent)
+		Header(state, widths, menus, onEvent)
 		Line(palette.divider)
 
 		Box(
@@ -1497,9 +1513,9 @@ private fun ListingPane(
 
 									EntryRow(
 										row,
-										columns = headings,
-										where = whereOf(row, state),
-										date = view.date,
+										columns = columns,
+										home = state.home,
+										widths = widths,
 										chosen = row.id in chosen,
 										cursor = felt.ringed && row.id == cursor,
 										zoom = zoom,
@@ -1555,8 +1571,8 @@ private fun Gallery(
 	tile: @Composable (Row, Float) -> Unit,
 ) {
 	BoxWithConstraints(Modifier.fillMaxSize()) {
-		val wide = (maxWidth - Dims.gapSmall * 2) / Dims.tile
-		val high = (maxHeight - Dims.gapSmall * 2) / Dims.tileHeight
+		val wide = (maxWidth - Dims.tilePad * 2) / Dims.tile
+		val high = (maxHeight - Dims.tilePad * 2) / Dims.tileHeight
 		val whole = minOf(wide, high).coerceAtLeast(0.1f)
 		val scale = scaleOf(state.zoom, whole)
 
@@ -1567,10 +1583,10 @@ private fun Gallery(
 				GridCells.Fixed(1)
 			else
 				GridCells.Adaptive(Dims.tile * scale),
-			nowhere.fillMaxSize().padding(Dims.gapSmall),
+			nowhere.fillMaxSize().padding(Dims.tilePad),
 			state = grid,
-			horizontalArrangement = Arrangement.spacedBy(Dims.gapSmall),
-			verticalArrangement = Arrangement.spacedBy(Dims.gapSmall),
+			horizontalArrangement = Arrangement.spacedBy(Dims.tileGap),
+			verticalArrangement = Arrangement.spacedBy(Dims.tileGap),
 		) {
 			val rows = state.rows
 
@@ -1865,192 +1881,96 @@ private fun clickOf(keys: PointerKeyboardModifiers): Click =
 	}
 
 /**
- * A column of the listing: its [heading], the order clicking it puts the listing in ([sort]; none for the folder a
- * result is in), its [share] of the width, and whether it keeps to the end of its space ([end]).
- */
-private data class Heading(
-	val column: Column?,
-	val label: String,
-	val sort: Sort.Column?,
-	val share: Float,
-	val end: Boolean = false,
-)
-
-/**
- * The listing's columns as [state] shows them: the name's always, then those of the others not hidden, the date's
- * saying which time it shows. A search's results, and the trash's entries, have the folder each is in (in the trash,
- * was in) as well; the trash's date is when each was trashed. A gallery's tiles have no columns: its headings are only
- * the orders it can be put in, by every column but the folder's.
- */
-private fun headingsOf(state: BrowserState, gallery: Boolean): List<Heading> {
-	val trash = state.inTrash
-	val results = state.listing is Listing.Found
-	val view = viewOf(state)
-	val date = view.date
-	val offered =
-		when {
-			gallery -> listOf(Column.Date, Column.Type, Column.Size)
-			trash || results -> Column.OF_RESULTS
-			else -> Column.OF_FOLDERS
-		}
-
-	return listOf(Heading(null, "Name", Sort.Column.Name, Dims.nameColumn)) +
-		offered
-			.filter { gallery || it !in view.hidden || (trash && it == Column.Folder) }
-			.map { column ->
-				when (column) {
-					Column.Folder ->
-						Heading(
-							column,
-							if (trash) "Original location" else "Folder",
-							null,
-							Dims.folderColumn,
-						)
-					Column.Date ->
-						Heading(
-							column,
-							if (trash)
-								"Date deleted"
-							else
-								headingOf(date.column),
-							// In the trash, a row's date is when it was trashed, which it is ordered by as by a modification.
-							if (trash) Sort.Column.Modified else date.column,
-							Dims.dateColumn,
-						)
-					Column.Type -> Heading(column, "Type", Sort.Column.Type, Dims.typeColumn)
-					Column.Size -> Heading(column, "Size", Sort.Column.Size, Dims.sizeColumn, end = true)
-				}
-			}
-}
-
-/** What [state]'s listing shows: its date column's time and the columns it hides, as a folder's or a search's. */
-@Immutable
-private data class View(
-	val date: DateShown,
-	val hidden: Set<Column>,
-)
-
-private fun viewOf(state: BrowserState): View =
-	if (state.listing is Listing.Found)
-		View(state.arrangement.results.dateShown, state.arrangement.results.hidden)
-	else
-		View(state.arrangement.folders.dateShown, state.arrangement.folders.hidden)
-
-/**
- * The menu of the listing's headings: which time the date column shows (but in the trash, whose date is when each was
- * trashed), and which columns are shown.
- */
-private fun headingsMenuOf(state: BrowserState): Menu<BrowserEvent> {
-	val view = viewOf(state)
-	val results = state.listing is Listing.Found
-
-	return menu {
-		if (!state.inTrash) {
-			DateShown.entries.forEach {
-				radio(headingOf(it.column), view.date == it, BrowserEvent.ShowedDate(it))
-			}
-			separator()
-		}
-		(
-			if (results)
-				Column.OF_RESULTS
-			else
-				Column.OF_FOLDERS
-		).filterNot { state.inTrash && it == Column.Folder }
-			.forEach { column ->
-				val shown = column !in view.hidden
-
-				check(
-					when (column) {
-						Column.Folder -> "Folder"
-						Column.Date -> "Date"
-						Column.Type -> "Type"
-						Column.Size -> "Size"
-					},
-					shown,
-					BrowserEvent.ShowedColumn(column, !shown),
-					alternate = BrowserEvent.ShowedColumn(column, !shown),
-				)
-			}
-	}
-}
-
-/**
  * The headings that sort the listing, each by its column, the other way round when clicked again: over the list's
- * columns, or, over a gallery's tiles, which have no columns, as a row of the same choices after "Sort by". A search's
- * results are best first until a heading is clicked, and a column they cannot be ordered by (too many to read every
- * one's size or date) is drawn faint and does nothing.
+ * columns, as the window's look for what it shows has them (which, in what order, aligned how), or, over a gallery's
+ * tiles, which have no columns, as a row of the same choices after "Sort by". A search's results are best first until
+ * a heading is clicked, and a column they cannot be ordered by (too many to read every one's size or date) is drawn
+ * faint and does nothing. A heading's menu shows and hides columns, and aligns its own.
  */
 @Composable
 private fun Header(
 	state: BrowserState,
+	widths: DateWidths,
 	menus: ContextMenus<BrowserEvent>,
 	onEvent: (BrowserEvent) -> Unit,
 ) {
 	val type = LocalType.current
-	val layout = state.layout
-	val found = state.listing as? Listing.Found
-	val sort =
-		if (found == null)
-			state.arrangement.folders.sort
+	val gallery = state.layout == Layout.Gallery
+	val sort = state.look.order.sort
+	val kind = state.kind
+	// A gallery is ordered by any column it offers; a list shows its own, and is ordered by any of those.
+	val headings =
+		if (gallery)
+			kind.offered.filter { it != ColumnId.Location }.map { ColumnSetting(it) }
 		else
-			state.arrangement.results.order.sort
-
-	val headings = headingsOf(state, gallery = layout == Layout.Gallery)
+			state.columns.shown
 
 	Row(
 		Modifier
 			.fillMaxWidth()
 			.height(Dims.header)
-			.contextMenu(menus) {
-				headingsMenuOf(state)
-			}.padding(
+			.contextMenu(menus) { headingsMenuOf(state, null) }
+			.padding(
 				horizontal =
-					Dims.gap + Dims.gapSmall,
+					if (gallery)
+						Dims.tilePad
+					else
+						Dims.edge + Dims.gapSmall,
 			),
 		verticalAlignment = Alignment.CenterVertically,
 		horizontalArrangement =
-			when (layout) {
-				Layout.List -> Arrangement.Start
-				Layout.Gallery -> Arrangement.spacedBy(Dims.gap)
-			},
+			if (gallery)
+				Arrangement.spacedBy(Dims.gap)
+			else
+				Arrangement.Start,
 	) {
-		if (layout == Layout.Gallery)
+		if (gallery)
 			Text("Sort by", style = type.muted, maxLines = 1)
 		for (heading in headings)
 			HeaderCell(
 				heading,
+				kind.labelOf(heading.id),
 				sort,
-				when (layout) {
-					Layout.List -> Modifier.weight(heading.share)
-					Layout.Gallery -> Modifier
-				},
-				end = heading.end && layout == Layout.List,
-				enabled = heading.sort != null && found?.orders(heading.sort) != false,
+				if (gallery)
+					Modifier
+				else
+					Modifier.weight(heading.id.share).widthIn(min = minWidthOf(heading.id, widths)),
+				align = if (gallery) Align.Start else heading.aligned,
+				enabled = (state.listing as? Listing.Found)?.orders(heading.id) != false,
+				menu = Modifier.contextMenu(menus) { headingsMenuOf(state, heading.id) },
 				onEvent,
 			)
 	}
 }
 
+/** The least a column is drawn: a date's, as wide as the widest date and time it can show, so neither is cut short. */
+private fun minWidthOf(column: ColumnId, widths: DateWidths): Dp =
+	when (column) {
+		ColumnId.Modified, ColumnId.Created, ColumnId.Deleted -> widths.whole + Dims.cell * 2
+		else -> 0.dp
+	}
+
 @Composable
 private fun HeaderCell(
-	heading: Heading,
+	heading: ColumnSetting,
+	label: String,
 	sort: Sort?,
 	modifier: Modifier,
-	end: Boolean,
+	align: Align,
 	enabled: Boolean,
+	menu: Modifier,
 	onEvent: (BrowserEvent) -> Unit,
 ) {
 	val palette = LocalPalette.current
 	val type = LocalType.current
 	val source = remember { MutableInteractionSource() }
 	val felt = source.felt()
-
-	val sorted = sort != null && sort.by == heading.sort
+	val sorted = sort != null && sort.by == heading.id
 
 	Row(
 		modifier
 			.fillMaxHeight()
+			.then(menu)
 			.background(
 				if (felt.hovered && enabled)
 					palette.hover
@@ -2058,21 +1978,22 @@ private fun HeaderCell(
 					Color.Transparent,
 			).focusProperties { canFocus = false }
 			.clickable(source, indication = null, enabled = enabled) {
-				heading.sort?.let { onEvent(BrowserEvent.Sorted(it)) }
-			}.testTag("column:${heading.label}")
-			.padding(horizontal = Dims.gapSmall),
+				onEvent(BrowserEvent.Sorted(heading.id))
+			}.testTag("column:$label")
+			.padding(horizontal = Dims.cell),
 		verticalAlignment = Alignment.CenterVertically,
-		horizontalArrangement = if (end) Arrangement.End else Arrangement.Start,
+		horizontalArrangement = arrangementOf(align),
 	) {
 		Text(
-			heading.label,
+			label,
 			style =
 				when {
 					sorted -> type.muted.copy(color = palette.text)
-					enabled || heading.sort == null -> type.muted
+					enabled -> type.muted
 					else -> type.muted.copy(color = palette.textFaint)
 				},
 			maxLines = 1,
+			overflow = TextOverflow.Ellipsis,
 		)
 		if (sorted)
 			GlyphIcon(
@@ -2087,21 +2008,69 @@ private fun HeaderCell(
 }
 
 /**
- * Where [row] is, as a search's results say it, or where it was, as the trash says it; nothing in a folder, where every
- * row is in the folder shown.
+ * The menu of the listing's headings: each column it offers but the name's, shown or not; and, of the heading pressed
+ * ([column]), how its values sit.
  */
-private fun whereOf(row: Row, state: BrowserState): String? =
-	when (val item = row.item) {
-		is Item.InTrash -> folderOf(item.trashed.original, state.home)
-		is Item.OnDisk -> state.results?.let { folderOf(item.path, state.home) }
-		// An entry of a place is in the place: the folders it sits under there.
-		is Item.InPlace ->
-			state.results?.let {
-				Part.Parent
-					.of(item.key)
-					.trimStart('/')
-					.ifEmpty { "/" }
+private fun headingsMenuOf(state: BrowserState, column: ColumnId?): Menu<BrowserEvent> {
+	val columns = state.columns
+	val kind = state.kind
+
+	return menu {
+		columns.settings
+			.filter { it.id != ColumnId.Name }
+			.forEach { setting ->
+				val shown = setting.shown
+
+				check(
+					kind.labelOf(setting.id),
+					shown,
+					BrowserEvent.ShowedColumn(setting.id, !shown),
+					alternate = BrowserEvent.ShowedColumn(setting.id, !shown),
+				)
 			}
+		columns.settings.firstOrNull { it.id == column }?.let { setting ->
+			separator()
+			submenu("Align “${kind.labelOf(setting.id)}”") {
+				listOf(
+					Align.Start to "Left",
+					Align.Center to "Centre",
+					Align.End to "Right",
+				).forEach { (align, label) ->
+					radio(label, setting.aligned == align, BrowserEvent.AlignedColumn(setting.id, align))
+				}
+			}
+		}
+	}
+}
+
+/** Where a row of [align] puts what is in it. */
+private fun arrangementOf(align: Align): Arrangement.Horizontal =
+	when (align) {
+		Align.Start -> Arrangement.Start
+		Align.Center -> Arrangement.Center
+		Align.End -> Arrangement.End
+	}
+
+private fun textAlignOf(align: Align): TextAlign =
+	when (align) {
+		Align.Start -> TextAlign.Start
+		Align.Center -> TextAlign.Center
+		Align.End -> TextAlign.End
+	}
+
+/**
+ * Where [row] is, as the listing's location column says it: a search's result's folder, a trashed entry's folder before
+ * it was trashed, from `~` where it is under [home]; an entry of a place, the folders it sits under there.
+ */
+private fun whereOf(row: Row, home: Path): String =
+	when (val item = row.item) {
+		is Item.InTrash -> folderOf(item.trashed.original, home)
+		is Item.OnDisk -> folderOf(item.path, home)
+		is Item.InPlace ->
+			Part.Parent
+				.of(item.key)
+				.trimStart('/')
+				.ifEmpty { "/" }
 	}
 
 /** The folder [path] is in, from `~` where it is under [home]. */
@@ -2114,12 +2083,58 @@ internal fun folderOf(path: Path, home: Path): String {
 		folder.toString()
 }
 
+/**
+ * How wide the widest date, and the widest time, the listing's date columns show are, as [format] writes them in
+ * [style]: each column's dates are set in one width, and its times in another after them, so that every row's line up,
+ * whatever the font. Measured once, of a day of each month that writes widest.
+ */
+@Immutable
+data class DateWidths(
+	val date: Dp,
+	val time: Dp,
+) {
+	val whole: Dp get() = date + Dims.gap + time
+}
+
+@Composable
+private fun rememberDateWidths(format: DateFormat, style: TextStyle): DateWidths {
+	val measurer = rememberTextMeasurer()
+	val density = LocalDensity.current
+
+	return remember(format, style, density) {
+		val samples =
+			(1..12).flatMap { month ->
+				listOf(28 to 22, 28 to 12).map { (day, hour) ->
+					java.time.LocalDateTime
+						.of(
+							2026,
+							month,
+							day,
+							hour,
+							58,
+						).atZone(java.time.ZoneId.systemDefault())
+						.toInstant()
+				}
+			}
+
+		val parts = samples.map(format::parts)
+
+		fun widest(texts: List<String>): Dp =
+			with(density) { texts.maxOf { measurer.measure(it, style).size.width }.toDp() + 1.dp }
+
+		DateWidths(widest(parts.map { it.first }), widest(parts.map { it.second }))
+	}
+}
+
+/** Digits each as wide as the next, so that numbers in a column line up under each other. */
+private fun TextStyle.tabular(): TextStyle = copy(fontFeatureSettings = "tnum")
+
 @Composable
 private fun EntryRow(
 	row: Row,
-	columns: Set<Column>,
-	where: String?,
-	date: DateShown,
+	columns: List<ColumnSetting>,
+	home: Path,
+	widths: DateWidths,
 	chosen: Boolean,
 	cursor: Boolean,
 	zoom: Float,
@@ -2133,7 +2148,7 @@ private fun EntryRow(
 ) {
 	val palette = LocalPalette.current
 	val type = LocalType.current
-	val dates = LocalDateFormat.current
+	val rows = LocalRows.current
 	val hover = remember { MutableInteractionSource() }
 	val hovered by hover.collectIsHoveredAsState()
 	val pressed by rememberUpdatedState(onPress)
@@ -2151,7 +2166,7 @@ private fun EntryRow(
 		modifier
 			.alpha(if (row.hidden) 0.6f else 1f)
 			.fillMaxWidth()
-			.height(Dims.row * zoom)
+			.height(rowHeightOf(rows) * zoom)
 			.background(background, shape)
 			.border(
 				1.dp,
@@ -2165,62 +2180,169 @@ private fun EntryRow(
 			.pressing({ pressed(it) }, onRelease)
 			.semantics { selected = chosen }
 			.testTag("row:${row.name}")
-			.padding(horizontal = Dims.gap),
+			.padding(horizontal = Dims.edge),
 		verticalAlignment = Alignment.CenterVertically,
 	) {
-		Row(
-			Modifier.weight(Dims.nameColumn).fillMaxHeight().then(nameMenu),
-			verticalAlignment = Alignment.CenterVertically,
-		) {
-			GlyphIcon(
-				if (row.isFolder) Glyph.Folder else Glyph.File,
-				palette.text,
-				Dims.icon * zoom,
-				category = row.category,
-			)
-			Spacer(Modifier.width(Dims.gap + 2.dp))
-			NameOf(row, renamed, body, stops, onEvent, Modifier.weight(1f, fill = renamed != null))
+		for (column in columns) {
+			val cell =
+				Modifier
+					.weight(column.id.share)
+					.widthIn(min = minWidthOf(column.id, widths * zoom))
+					.padding(horizontal = Dims.cell)
+
+			when (column.id) {
+				// The row's menu over its name, and the space after it in the name's column.
+				ColumnId.Name ->
+					Row(
+						Modifier
+							.weight(
+								column.id.share,
+							).fillMaxHeight()
+							.then(nameMenu)
+							.padding(horizontal = Dims.cell),
+						verticalAlignment = Alignment.CenterVertically,
+						horizontalArrangement = arrangementOf(column.aligned),
+					) {
+						GlyphIcon(
+							if (row.isFolder) Glyph.Folder else Glyph.File,
+							palette.text,
+							rowIconOf(rows) * zoom,
+							category = row.category,
+						)
+						Spacer(Modifier.width(Dims.gap + 2.dp))
+						NameOf(
+							row,
+							renamed,
+							body,
+							stops,
+							onEvent,
+							Modifier.weight(
+								1f,
+								fill =
+									renamed != null,
+							),
+						)
+					}
+				ColumnId.Modified ->
+					DateCell(
+						row.modified,
+						null,
+						column.aligned,
+						widths * zoom,
+						muted,
+						cell,
+					)
+				ColumnId.Deleted ->
+					DateCell(
+						row.deleted,
+						null,
+						column.aligned,
+						widths * zoom,
+						muted,
+						cell,
+					)
+				ColumnId.Created ->
+					when (val created = row.created) {
+						is Created.At ->
+							DateCell(
+								created.time,
+								null,
+								column.aligned,
+								widths * zoom,
+								muted,
+								cell,
+							)
+						// Read behind, those in sight first: blank until it is; a dash where the file system keeps none.
+						Created.Unread -> DateCell(null, null, column.aligned, widths * zoom, muted, cell)
+						Created.Unkept -> DateCell(null, "—", column.aligned, widths * zoom, muted, cell)
+					}
+				ColumnId.Location -> TextCell(whereOf(row, home), column.aligned, muted, cell)
+				ColumnId.Type -> TextCell(row.type, column.aligned, muted, cell)
+				ColumnId.Size ->
+					TextCell(
+						row.size?.text.orEmpty(),
+						column.aligned,
+						muted.tabular(),
+						cell,
+					)
+				ColumnId.Extension ->
+					TextCell(
+						extensionOf(row.name).orEmpty(),
+						column.aligned,
+						muted,
+						cell,
+					)
+			}
 		}
-		if (Column.Folder in columns)
-			Text(
-				where.orEmpty(),
-				style = muted,
-				maxLines = 1,
-				overflow = TextOverflow.Ellipsis,
-				modifier = Modifier.weight(Dims.folderColumn).padding(end = Dims.gap),
-			)
-		if (Column.Date in columns)
-			Text(
-				when (date) {
-					DateShown.Modified -> row.modified?.let(dates::write).orEmpty()
-					DateShown.Created ->
-						when (val created = row.created) {
-							is Created.At -> dates.write(created.time)
-							// Read behind, those in sight first: blank until it is; a dash where the file system keeps none.
-							Created.Unread -> ""
-							Created.Unkept -> "—"
-						}
-				},
-				style = muted,
-				maxLines = 1,
-				modifier = Modifier.weight(Dims.dateColumn),
-			)
-		if (Column.Type in columns)
-			Text(
-				row.type,
-				style = muted,
-				maxLines = 1,
-				overflow = TextOverflow.Ellipsis,
-				modifier = Modifier.weight(Dims.typeColumn),
-			)
-		if (Column.Size in columns)
-			Text(
-				row.size?.text.orEmpty(),
-				style = muted,
-				maxLines = 1,
-				textAlign = TextAlign.End,
-				modifier = Modifier.weight(Dims.sizeColumn),
-			)
+	}
+}
+
+/** [widths] drawn [factor] times as large. */
+private operator fun DateWidths.times(factor: Float): DateWidths =
+	DateWidths(date * factor, time * factor)
+
+@Composable
+private fun RowScope.TextCell(
+	text: String,
+	align: Align,
+	style: TextStyle,
+	modifier: Modifier,
+) {
+	Text(
+		text,
+		style = style,
+		maxLines = 1,
+		overflow = TextOverflow.Ellipsis,
+		textAlign = textAlignOf(align),
+		modifier = modifier,
+	)
+}
+
+/**
+ * A date, in two parts set apart: its date, in a width every row's date fits, and its time, to the right of a width
+ * every row's time fits, its digits each as wide as the next; the two together sit as [align] says. Nothing where there
+ * is no date, or [instead] where something stands for one.
+ */
+@Composable
+private fun RowScope.DateCell(
+	instant: Instant?,
+	instead: String?,
+	align: Align,
+	widths: DateWidths,
+	style: TextStyle,
+	modifier: Modifier,
+) {
+	val format = LocalDateFormat.current
+	val tabular = style.tabular()
+
+	Row(
+		modifier,
+		horizontalArrangement = arrangementOf(align),
+		verticalAlignment = Alignment.CenterVertically,
+	) {
+		when {
+			instant != null -> {
+				val (date, time) = format.parts(instant)
+
+				Text(
+					date,
+					style = tabular,
+					maxLines = 1,
+					softWrap = false,
+					modifier = Modifier.width(widths.date),
+				)
+				Spacer(Modifier.width(Dims.gap))
+				Text(
+					time,
+					style = tabular,
+					maxLines = 1,
+					softWrap = false,
+					textAlign = TextAlign.End,
+					modifier = Modifier.width(widths.time),
+				)
+			}
+			instead != null -> Text(instead, style = tabular, maxLines = 1)
+		}
 	}
 }
 
@@ -2488,9 +2610,9 @@ private fun statusOf(state: BrowserState): String {
 
 	val ordering =
 		found?.let {
-			when (val column = it.pending(state.arrangement.results.order)) {
+			when (val column = it.pending(state.arrangement.order)) {
 				null -> null
-				else -> "ordering by ${headingOf(column).lowercase()}…"
+				else -> "ordering by ${state.kind.labelOf(column).lowercase()}…"
 			}
 		}
 

@@ -7,7 +7,10 @@ import java.time.format.FormatStyle
 import java.util.Locale
 import kotlinx.serialization.Serializable
 
-/** How a date and its time are written: each of the common ways, and the system's own. */
+/**
+ * How a date and its time are written: each of the common ways, and the system's own. Each is a date, then its time,
+ * which a listing sets apart, so that every row's times line up whatever the font.
+ */
 @Serializable
 enum class DateFormat(
 	val label: String,
@@ -34,19 +37,55 @@ enum class DateFormat(
 	System("The system's own"),
 	;
 
-	private val formatter: DateTimeFormatter by lazy {
+	/** How the date is written, how its time is, and what is between them. */
+	private val forms: Triple<DateTimeFormatter, DateTimeFormatter, String> by lazy {
+		val clock24 = DateTimeFormatter.ofPattern("HH:mm", Locale.ROOT)
+		val clock12 = DateTimeFormatter.ofPattern("h:mm a", Locale.ENGLISH)
+
 		when (this) {
-			Written -> DateTimeFormatter.ofPattern("d MMM yyyy, HH:mm", Locale.ENGLISH)
-			WrittenMonthFirst -> DateTimeFormatter.ofPattern("MMM d, yyyy, h:mm a", Locale.ENGLISH)
-			Iso -> DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm", Locale.ROOT)
-			DayFirst -> DateTimeFormatter.ofPattern("dd/MM/yyyy, HH:mm", Locale.ROOT)
-			MonthFirst -> DateTimeFormatter.ofPattern("MM/dd/yyyy, h:mm a", Locale.ENGLISH)
-			Dotted -> DateTimeFormatter.ofPattern("dd.MM.yyyy, HH:mm", Locale.ROOT)
-			System -> DateTimeFormatter.ofLocalizedDateTime(FormatStyle.MEDIUM, FormatStyle.SHORT)
+			Written ->
+				Triple(
+					DateTimeFormatter.ofPattern("d MMM yyyy", Locale.ENGLISH),
+					clock24,
+					", ",
+				)
+			WrittenMonthFirst ->
+				Triple(
+					DateTimeFormatter.ofPattern("MMM d, yyyy", Locale.ENGLISH),
+					clock12,
+					", ",
+				)
+			Iso -> Triple(DateTimeFormatter.ofPattern("yyyy-MM-dd", Locale.ROOT), clock24, " ")
+			DayFirst ->
+				Triple(
+					DateTimeFormatter.ofPattern("dd/MM/yyyy", Locale.ROOT),
+					clock24,
+					", ",
+				)
+			MonthFirst ->
+				Triple(
+					DateTimeFormatter.ofPattern("MM/dd/yyyy", Locale.ROOT),
+					clock12,
+					", ",
+				)
+			Dotted -> Triple(DateTimeFormatter.ofPattern("dd.MM.yyyy", Locale.ROOT), clock24, ", ")
+			System ->
+				Triple(
+					DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM),
+					DateTimeFormatter.ofLocalizedTime(FormatStyle.SHORT),
+					" ",
+				)
 		}
 	}
 
-	/** [instant], written this way, in [zone]. */
+	/** [instant]'s date, and its time, each written this way, in [zone]. */
+	fun parts(
+		instant: Instant,
+		zone: ZoneId = ZoneId.systemDefault(),
+	): Pair<String, String> =
+		instant.atZone(zone).let { forms.first.format(it) to forms.second.format(it) }
+
+	/** [instant], written this way, in [zone]: its date, then its time. */
 	fun write(instant: Instant, zone: ZoneId = ZoneId.systemDefault()): String =
-		formatter.format(instant.atZone(zone))
+		parts(instant, zone).let { (date, time) -> date + forms.third + time }
 }

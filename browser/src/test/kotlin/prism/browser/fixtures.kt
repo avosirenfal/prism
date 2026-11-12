@@ -5,6 +5,7 @@ import java.time.Instant
 import kotlin.io.path.Path
 import prism.desktop.Place
 import prism.preferences.Builtin
+import prism.preferences.Hidden
 import prism.preferences.QuickAccess
 
 /** What the picker's tests share: rows made as the source makes them, a home folder of them, and a disk in memory. */
@@ -215,7 +216,7 @@ object Fixtures {
 
 			Row(
 				RowId.Trashed(trashed.bin, trashed.name),
-				Item.InTrash(trashed),
+				Item.InTrash(trashed, Instant.parse(at)),
 				trashed.original.fileName.toString(),
 				if (folder)
 					Category.Folder
@@ -246,7 +247,7 @@ object Fixtures {
 		hidden: Hidden = NO_HIDDEN,
 	): BrowserState {
 		val opened = opened(choosing, folder, home, sidebar, filters = filters).settled(Memory)
-		val shown = opened.arrangement.hidden
+		val shown = opened.entryFilters.hidden
 
 		return listOfNotNull(
 			BrowserEvent.ToggledHiddenFiles.takeIf { hidden.files != shown.files },

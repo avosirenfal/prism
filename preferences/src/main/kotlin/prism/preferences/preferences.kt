@@ -58,13 +58,17 @@ data class Preferences(
 	/** What of the menus is left out. */
 	val menu: MenuSpec = MenuSpec(),
 	/**
-	 * How a new window lists a folder ([folders]) and a search's results ([results]). A window keeps the look the user
-	 * gives it as its own from then on, wherever it goes, and these change no window already open.
+	 * How listings look and what they leave out as a window opens: each kind's columns and order, and its filters, in an
+	 * explorer and in a picker. A window keeps what the user gives it as its own from then on, and these change no
+	 * window already open.
 	 */
-	val folders: FolderView = FolderView(),
-	val results: ResultsView = ResultsView(),
+	val listings: Listings = Listings(),
 	/** How large the text of each part of a window is. */
 	val text: TextSizes = TextSizes(),
+	/** The font of each part of a window. */
+	val fonts: Fonts = Fonts(),
+	/** How tall the list's rows are, and how large their icons. */
+	val rows: Rows = Rows.Larger,
 	/** How large the listing, the sidebar and the other windows are drawn. */
 	val scales: Scales = Scales(),
 	/** How dates are written. */

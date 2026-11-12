@@ -20,7 +20,6 @@ import prism.browser.FileClipboard
 import prism.browser.Finder
 import prism.browser.FolderWatcher
 import prism.browser.Landing
-import prism.browser.Look
 import prism.browser.Outcome
 import prism.browser.Request
 import prism.browser.RowId
@@ -33,10 +32,12 @@ import prism.browser.TypeFilter
 import prism.browser.opened
 import prism.browser.openedIn
 import prism.browser.sidebarOf
+import prism.browser.zoomOf
 import prism.desktop.Application
 import prism.desktop.Desktop
 import prism.desktop.MimeType
 import prism.preferences.PreferenceStore
+import prism.preferences.Role
 
 /*
  * The explorer: the browser as a file manager, in as many windows as the user opens. What it has open is one immutable
@@ -176,7 +177,8 @@ class Explorer(
 						home,
 						sidebar,
 						search = search,
-						look = Look.of(preferences.preferences.value, picker = false),
+						listings = preferences.preferences.value.listings,
+						zoom = zoomOf(preferences.preferences.value, Role.Explorer),
 					).let { step ->
 						chosen?.let {
 							Step(step.state.copy(landing = Landing.On(RowId(it), choose = true)), step.effects)
@@ -189,7 +191,8 @@ class Explorer(
 						home,
 						sidebar,
 						search,
-						Look.of(preferences.preferences.value, picker = false),
+						preferences.preferences.value.listings,
+						zoomOf(preferences.preferences.value, Role.Explorer),
 					)
 			}
 
@@ -269,7 +272,8 @@ class Explorer(
 						home,
 						sidebarOf(desktop.places, home, preferences.preferences.value),
 						title = request.title,
-						look = Look.of(preferences.preferences.value, picker = true),
+						listings = preferences.preferences.value.listings,
+						zoom = zoomOf(preferences.preferences.value, Role.Picker),
 						search = search,
 					),
 					services,
@@ -303,16 +307,15 @@ class Explorer(
 				sidebarOf(desktop.places, home, preferences.preferences.value),
 				title = asking.title,
 				filters = asking.filters,
-				look = Look.of(preferences.preferences.value, picker = true),
+				listings = preferences.preferences.value.listings,
+				zoom = zoomOf(preferences.preferences.value, Role.Picker),
 				search = search,
 			).let { step ->
 				Step(
 					step.state.copy(
 						acceptLabel = asking.acceptLabel,
-						arrangement =
-							step.state.arrangement.copy(
-								filter = asking.filter?.takeIf { it in asking.filters } ?: asking.filters.first(),
-							),
+						typeFilter =
+							asking.filter?.takeIf { it in asking.filters } ?: asking.filters.first(),
 					),
 					step.effects,
 				)
@@ -332,7 +335,7 @@ class Explorer(
 		return try {
 			val outcome = picking.session.outcome.await()
 
-			Answered(outcome, picking.session.state.value.arrangement.filter)
+			Answered(outcome, picking.session.state.value.typeFilter)
 		} finally {
 			close(picking)
 		}

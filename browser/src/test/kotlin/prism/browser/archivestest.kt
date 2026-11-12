@@ -20,6 +20,7 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.TestFactory
 import org.junit.jupiter.api.io.TempDir
 import prism.desktop.freedesktop.XdgPlaces
+import prism.preferences.Kind
 
 /**
  * The archives that ship with prism (docs/menus.md), each kind through each program that can do it: a kind is read as

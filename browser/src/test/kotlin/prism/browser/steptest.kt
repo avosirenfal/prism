@@ -13,11 +13,17 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import prism.browser.Fixtures.home
 import prism.browser.Fixtures.picker
-import prism.preferences.Column
-import prism.preferences.DateShown
-import prism.preferences.FolderView
+import prism.preferences.Align
+import prism.preferences.ColumnId
+import prism.preferences.Filters
+import prism.preferences.Hidden
+import prism.preferences.Kind
+import prism.preferences.Layout
+import prism.preferences.ListingKind
+import prism.preferences.Listings
+import prism.preferences.Look
 import prism.preferences.Order
-import prism.preferences.ResultsView
+import prism.preferences.Role
 import prism.preferences.Sort
 
 /**
@@ -183,55 +189,31 @@ class StepTest {
 
 		fun order(state: BrowserState) = (0 until state.rows.size).map { state.rows[it].name }
 
-		val newest = step(state, BrowserEvent.Sorted(Sort.Column.Created)).state
+		val newest = step(state, BrowserEvent.Sorted(ColumnId.Created)).state
 
 		assertEquals(listOf("c", "a", "b", "d"), order(newest))
 		assertEquals(
 			listOf("a", "c", "b", "d"),
-			order(step(newest, BrowserEvent.Sorted(Sort.Column.Created)).state),
+			order(step(newest, BrowserEvent.Sorted(ColumnId.Created)).state),
 		)
 
-		// Shown created while ordered by modified: ordered by created, the same way round; and back.
-		val byModified =
+		// When files were made is a column of its own, shown as any other is.
+		assertFalse(state.columns.isShown(ColumnId.Created))
+		assertTrue(
 			step(
 				state,
-				BrowserEvent.SortedBy(Sort(Sort.Column.Modified, ascending = false)),
-			).state
-
-		val created = step(byModified, BrowserEvent.ShowedDate(DateShown.Created)).state
-
-		assertEquals(DateShown.Created, created.arrangement.folders.dateShown)
-		assertEquals(
-			Sort(Sort.Column.Created, ascending = false),
-			created.arrangement.folders.sort,
-		)
-		assertEquals(
-			Sort.Column.Modified,
-			step(created, BrowserEvent.ShowedDate(DateShown.Modified))
-				.state.arrangement.folders.sort.by,
-		)
-		// Ordered by name, it stays so whichever time is shown.
-		assertEquals(
-			Sort.BY_NAME,
-			step(state, BrowserEvent.ShowedDate(DateShown.Created))
-				.state.arrangement.folders.sort,
-		)
-		// A window opened ordered by when files were made shows that time.
-		assertEquals(
-			DateShown.Created,
-			opened(
-				Choosing.Exploring(),
-				folder,
-				home,
-				Fixtures.sidebar,
-				look = Look(FolderView(Sort(Sort.Column.Created, false))),
-			).state.arrangement.folders.dateShown,
+				BrowserEvent.ShowedColumn(ColumnId.Created, true),
+			).state.columns.isShown(ColumnId.Created),
 		)
 	}
 
 	@Test
-	fun aWindowOpensInTheDefaultOrderAndKeepsTheOrderItIsGivenWhereverItGoes() {
-		val newest = Sort(Sort.Column.Modified, ascending = false)
+	fun aWindowOpensInTheDefaultLookAndKeepsTheLookItIsGivenWhereverItGoes() {
+		val newest = Sort(ColumnId.Modified, ascending = false)
+		val look =
+			Look(Order.By(newest)).let {
+				it.with(it.columns(ListingKind.Folder).showing(ColumnId.Type, false))
+			}
 
 		val first =
 			opened(
@@ -239,38 +221,65 @@ class StepTest {
 				home.resolve("Documents"),
 				home,
 				Fixtures.sidebar,
-				look = Look(FolderView(newest, hidden = setOf(Column.Type))),
+				listings = Listings().looking(Role.Explorer, ListingKind.Folder, look),
 			).state
 
-		assertEquals(newest, first.arrangement.folders.sort)
-		assertEquals(setOf(Column.Type), first.arrangement.folders.hidden)
+		assertEquals(newest, first.look.order.sort)
+		assertFalse(first.columns.isShown(ColumnId.Type))
 
-		// Ordered otherwise by its headings, and its columns shown otherwise, it keeps them as it goes up, and on.
-		val bySize =
-			step(
-				step(first, BrowserEvent.Sorted(Sort.Column.Size)).state,
-				BrowserEvent.ShowedColumn(Column.Type, true),
-			).state
+		// Ordered otherwise by its headings, its columns shown and aligned otherwise, it keeps them as it goes up, and on.
+		val changed =
+			listOf(
+				BrowserEvent.Sorted(ColumnId.Size),
+				BrowserEvent.ShowedColumn(ColumnId.Type, true),
+				BrowserEvent.AlignedColumn(ColumnId.Type, Align.End),
+			).fold(first) { state, event -> step(state, event).state }
 
-		assertEquals(Sort.Column.Size, bySize.arrangement.folders.sort.by)
-		assertEquals(emptySet<Column>(), bySize.arrangement.folders.hidden)
 		assertEquals(
-			bySize.arrangement.folders,
-			step(bySize, BrowserEvent.Up).state.arrangement.folders,
+			ColumnId.Size,
+			changed.look.order.sort
+				?.by,
+		)
+		assertTrue(changed.columns.isShown(ColumnId.Type))
+		assertEquals(
+			Align.End,
+			changed.columns.settings
+				.single {
+					it.id == ColumnId.Type
+				}.aligned,
+		)
+		assertEquals(changed.look, step(changed, BrowserEvent.Up).state.look)
+		// A picker opened from the same preferences looks as the explorer would, where they say nothing of pickers.
+		assertEquals(
+			newest,
+			opened(
+				Choosing.OneFile(),
+				home,
+				home,
+				Fixtures.sidebar,
+				listings = Listings().looking(Role.Explorer, ListingKind.Folder, look),
+			).state.look.order.sort,
 		)
 	}
 
 	@Test
-	fun aSearchsResultsLookAsTheirOwnDefaultSays_ApartFromAFoldersListing() {
-		val look =
-			Look(
-				FolderView(hidden = setOf(Column.Size)),
-				ResultsView(
-					Order.By(Sort(Sort.Column.Name, ascending = false)),
-					hidden = setOf(Column.Folder),
-				),
-				zoom = 1.5f,
-			)
+	fun eachKindOfListingLooksAsItsOwnDefaultSays_AndEachLayoutFiltersAsItsOwnDoes() {
+		val listings =
+			Listings()
+				.looking(
+					Role.Explorer,
+					ListingKind.Folder,
+					Look(Order.By(Sort(ColumnId.Size, false))),
+				).looking(
+					Role.Explorer,
+					ListingKind.Results,
+					Look(Order.By(Sort(ColumnId.Name, ascending = false))),
+				).filtering(
+					Role.Explorer,
+					ListingKind.Folder,
+					Layout.Gallery,
+					Filters(Hidden(files = false)),
+				)
 
 		val first =
 			opened(
@@ -278,11 +287,31 @@ class StepTest {
 				home,
 				home,
 				Fixtures.sidebar,
-				look = look,
+				listings = listings,
+				zoom = 1.5f,
 			).state
 
-		assertEquals(look.folders, first.arrangement.folders)
-		assertEquals(look.results, first.arrangement.results)
+		assertEquals(
+			ColumnId.Size,
+			first.look.order.sort
+				?.by,
+		)
+		assertEquals(
+			ListingKind.Results.offered,
+			ListingKind.Results
+				.columnsOf(
+					emptyList(),
+				).settings
+				.map {
+					it.id
+				},
+		)
+		// A list shows hidden files, as the defaults have it; a gallery of the same folder, as its own filters say, does not.
+		assertTrue(first.entryFilters.hidden.files)
+		assertFalse(
+			step(first, BrowserEvent.Viewed(Layout.Gallery))
+				.state.entryFilters.hidden.files,
+		)
 		// The listing as large as the default says, the nearest the wheel's steps come to it.
 		assertEquals(1.5f, first.zooms.list.factor)
 	}
@@ -483,9 +512,9 @@ class StepTest {
 
 	@Test
 	fun aHeaderClickedSortsByItAndAgainTheOtherWay() {
-		val bySize = after(picker(), BrowserEvent.Sorted(Sort.Column.Size))
+		val bySize = after(picker(), BrowserEvent.Sorted(ColumnId.Size))
 
-		assertEquals(Sort(Sort.Column.Size, ascending = false), bySize.arrangement.folders.sort)
+		assertEquals(Sort(ColumnId.Size, ascending = false), bySize.look.order.sort)
 		assertEquals(
 			"backup.tar.gz",
 			bySize.rows.list
@@ -493,7 +522,7 @@ class StepTest {
 				.name,
 		)
 
-		val smallest = after(bySize, BrowserEvent.Sorted(Sort.Column.Size))
+		val smallest = after(bySize, BrowserEvent.Sorted(ColumnId.Size))
 
 		assertEquals(
 			"todo.txt",
@@ -529,7 +558,7 @@ class StepTest {
 				Fixtures.sidebar,
 			).settled(Fixtures.Memory)
 
-		assertEquals(Hidden(files = true, folders = false), opened.arrangement.hidden)
+		assertEquals(Hidden(files = true, folders = false), opened.entryFilters.hidden)
 		assertEquals(
 			listOf(".bashrc"),
 			opened.rows.list
@@ -562,15 +591,15 @@ class StepTest {
 	fun ctrlHShowsEveryHiddenEntryOrNone() {
 		val all = after(picker(), BrowserEvent.ToggledEveryHidden)
 
-		assertEquals(Hidden(files = true, folders = true), all.arrangement.hidden)
+		assertEquals(Hidden(files = true, folders = true), all.entryFilters.hidden)
 		assertEquals(
 			Fixtures.NO_HIDDEN,
-			after(all, BrowserEvent.ToggledEveryHidden).arrangement.hidden,
+			after(all, BrowserEvent.ToggledEveryHidden).entryFilters.hidden,
 		)
 		// From the usual (files shown, folders not), it shows every one.
 		assertEquals(
 			Hidden(files = true, folders = true),
-			after(picker(hidden = Hidden()), BrowserEvent.ToggledEveryHidden).arrangement.hidden,
+			after(picker(hidden = Hidden()), BrowserEvent.ToggledEveryHidden).entryFilters.hidden,
 		)
 	}
 
@@ -591,7 +620,7 @@ class StepTest {
 		)
 		assertEquals(
 			setOf(Kind.Images, Kind.Videos),
-			after(images, BrowserEvent.ToggledKind(Kind.Videos)).arrangement.kinds,
+			after(images, BrowserEvent.ToggledKind(Kind.Videos)).entryFilters.kinds,
 		)
 	}
 
@@ -662,7 +691,7 @@ class StepTest {
 		val hiding = after(folders, BrowserEvent.ToggledHiddenFolders)
 
 		assertFalse(hiding.rows.list.any { it.name == ".config" })
-		assertEquals(setOf(Kind.Folders), hiding.arrangement.kinds)
+		assertEquals(setOf(Kind.Folders), hiding.entryFilters.kinds)
 	}
 
 	@Test
@@ -674,7 +703,7 @@ class StepTest {
 				BrowserEvent.Opened(home.resolve("Pictures")),
 			)
 
-		assertEquals(setOf(Kind.Images), pictures.arrangement.kinds)
+		assertEquals(setOf(Kind.Images), pictures.entryFilters.kinds)
 		assertEquals(listOf("cat.png"), pictures.rows.list.map { it.name })
 	}
 
@@ -1443,11 +1472,11 @@ class StepTest {
 
 	@Test
 	fun aMenuSortsAsItSays() {
-		val sort = Sort(Sort.Column.Size, ascending = true)
+		val sort = Sort(ColumnId.Size, ascending = true)
 
 		assertEquals(
 			sort,
-			after(picker(), BrowserEvent.SortedBy(sort)).arrangement.folders.sort,
+			after(picker(), BrowserEvent.SortedBy(sort)).look.order.sort,
 		)
 	}
 

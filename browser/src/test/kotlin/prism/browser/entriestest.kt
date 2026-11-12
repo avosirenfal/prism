@@ -14,6 +14,7 @@ import org.junit.jupiter.api.DynamicTest.dynamicTest
 import org.junit.jupiter.api.TestFactory
 import org.junit.jupiter.api.io.TempDir
 import prism.desktop.freedesktop.XdgPlaces
+import prism.preferences.Kind
 
 /**
  * Every shape of thing brought out of every kind of archive, by every program that reads that kind, from archives made

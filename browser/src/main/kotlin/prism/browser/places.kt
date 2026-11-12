@@ -63,6 +63,8 @@ sealed interface Item {
 	/** An entry of a trash, which is put back or deleted for good, and nothing else. */
 	data class InTrash(
 		val trashed: Trashed,
+		/** When it was trashed, as its record says. */
+		val deleted: java.time.Instant?,
 	) : Item
 }
 

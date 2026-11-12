@@ -35,7 +35,7 @@ a device, so a test that ran and a test that could not run are never confused.
 | the preferences in memory and in a watched file, written by another process, unreadable and kept aside (`preferences`) | Linux | never |
 | file types, desktop entries, `Exec` lines, defaults in `mimeapps.list`, places, and a real launch left detached (`desktop`) | Linux, `setsid` | never |
 | the explorer's windows around real sessions, properties, the application chooser, the preferences' edits merged on saving (`ExplorerTest`, `PropertiesTest`, `OpenWithTest`, `SettingsTest`) | the JDK | never |
-| the bindings window clicked, typed and mouse-pressed at, headless; found by words (Ctrl+F) and by a chord pressed (`SettingsViewTest`) | the JDK | never |
+| the bindings window clicked, typed and mouse-pressed at, headless; found by words (Ctrl+F), and by a shortcut pressed in "Find Shortcut", which takes keys only while it is open (`SettingsViewTest`) | the JDK | never |
 | drops: the default action's rule, the line under the listing, files read from what another application drags, drops on folders, an explorer's listing and a picker's, links on disk, undo, volumes told apart (`DropTest`) | Linux | never (the second volume, `/dev/shm`, where it is one) |
 | renaming, making and removing folders, and the trash both ways, on real files (`DiskTest`) | Linux | never |
 | a trash for each mount, over mounts made up of folders: the home trash, one made at a drive's top, a shared one used only where it is sticky, none on tmpfs; deleting for good, emptying, every trash's entries (`TrashTest`) | Linux | never |

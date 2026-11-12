@@ -12,6 +12,7 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import prism.browser.Fixtures.home
 import prism.preferences.ActionsFile
+import prism.preferences.Look
 import prism.preferences.MenuSpec
 import prism.preferences.Preferences
 import prism.preferences.Sort
