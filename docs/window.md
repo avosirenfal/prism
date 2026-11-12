@@ -38,6 +38,14 @@ Compose 1.12 has platforms drive frames). When the scene says something changed,
 loop then runs the recomposer's frame, lays the scene out and draws it. A window with nothing to change draws nothing,
 and the loop sleeps until an event comes.
 
+**Events, a frame's worth at a time** (`queue.kt`). Between frames the loop takes the events queued when it looks, and
+no more: what comes while they are handled waits for the next frame. Of the pointer's moves one after another (the same
+mouse, over the same window, with the same buttons held) only the last is told, since each says only where the pointer
+is now. A mouse can report a thousand moves a second, and a move can take longer than a millisecond to answer: Compose
+lays a list out again within the move that scrolls it, so dragging a long list by its bar lays out every row the bar
+brings into sight. Told each move, the loop fell behind for as long as the mouse moved, and drew nothing meanwhile; told
+the last of each run, it lays the list out once a frame, where the pointer is.
+
 **Drawing, with nothing copied.** Two ways, chosen once, before the first window:
 
 | | where it draws | when |
@@ -53,7 +61,9 @@ using a buffer again once the compositor has let it go. On X11, SDL is told to g
 server as it is, rather than first trying a GPU renderer.
 
 Which one is found by a hidden OpenGL window, asked for its renderer's name. `PRISM_DRAWING=gpu` or `cpu` (or
-`-Dprism.window.drawing=`) says otherwise. Skia is given OpenGL's functions as SDL finds them, so it draws with
+`-Dprism.window.drawing=`) says otherwise. Each window then makes OpenGL and Skia's context of its own; where it cannot,
+it is drawn on the CPU, and says why (`Drawn.FellBack`): on standard error, whatever the log says, and on the Renderer
+page, since a window that should be drawn on the GPU and is not costs the CPU dearly while it scrolls. Skia is given OpenGL's functions as SDL finds them, so it draws with
 whichever of EGL, GLX, WGL or CGL made the context; skiko's own lookup is GLX's alone, and finds nothing under Wayland's
 EGL.
 
@@ -77,7 +87,8 @@ used without knowing where to look:
    driver (after an update, before a restart) is said to be.
 
 The first of these missing is the device's verdict; a device that OpenGL draws on is drawing, whatever else is said of
-it. What draws the windows is said in one (`Summary`): the GPU, as OpenGL found it; or the CPU, and why, by the device
+it, unless the window could not be drawn with it, which is said instead, with the reason the window was given. A device
+the PCI ids' list does not name is named as OpenGL's renderer names it, where OpenGL runs on it. What draws the windows is said in one (`Summary`): the GPU, as OpenGL found it; or the CPU, and why, by the device
 held back that got furthest toward drawing, since what stopped it is all that is left in the way. Where devices are
 found and which libraries a driver draws through are each platform's (`GraphicsDevices`, `DriverLibraries`); only
 Linux's are looked for yet, and the others say so. Loading is `dlopen` on Linux and macOS, `LoadLibrary` on Windows.

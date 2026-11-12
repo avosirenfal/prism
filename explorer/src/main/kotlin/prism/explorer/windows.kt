@@ -189,11 +189,12 @@ private fun SettingsWindow(explorer: Explorer, onClose: () -> Unit) {
 		value = withContext(Dispatchers.IO) { explorer.desktop.launcher.terminals() }
 	}
 	// How the windows are drawn, and the graphics devices, looked at afresh each time the Renderer page is opened.
-	val rendering = LocalNativeWindow.current?.rendering
+	val window = LocalNativeWindow.current
 	val examining = settings.page == Page.Renderer
-	val graphics by produceState<GraphicsReport?>(null, rendering, examining) {
-		if (examining && rendering != null)
-			value = withContext(Dispatchers.IO) { Graphics.examine(rendering) }
+	val graphics by produceState<GraphicsReport?>(null, window, examining) {
+		if (examining && window != null)
+			value =
+				withContext(Dispatchers.IO) { Graphics.examine(window.rendering, window.drawnOn) }
 	}
 
 	Box(Modifier.fillMaxSize().mouseChords { chords.tryEmit(it) }) {

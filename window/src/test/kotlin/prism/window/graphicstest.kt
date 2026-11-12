@@ -32,6 +32,7 @@ class GraphicsTest {
 						"0000:00:02.0",
 						null,
 						emptyList(),
+						named = false,
 					),
 					GraphicsDevice(
 						"NVIDIA GeForce RTX 4070",
@@ -163,10 +164,18 @@ class GraphicsTest {
 		val denied = DeviceNode(Path.of("/dev/dri/renderD128"), Access.Denied("render"))
 		val amd = Vendor(0x1002, "AMD")
 
-		assertEquals(Verdict.NoDriver, verdictOf(device(amd, null), emptyList(), wayland))
+		assertEquals(
+			Verdict.NoDriver,
+			verdictOf(device(amd, null), emptyList(), wayland, Drawn.OnCpu),
+		)
 		assertEquals(
 			Verdict.SetAside("vfio-pci"),
-			verdictOf(device(amd, KernelDriver("vfio-pci", null)), emptyList(), wayland),
+			verdictOf(
+				device(amd, KernelDriver("vfio-pci", null)),
+				emptyList(),
+				wayland,
+				Drawn.OnCpu,
+			),
 		)
 		assertEquals(
 			Verdict.NoAccess(denied),
@@ -174,6 +183,7 @@ class GraphicsTest {
 				device(amd, driver, listOf(denied)),
 				listOf(Library("libEGL_mesa.so.0", Loading.Fails("no"))),
 				wayland,
+				Drawn.OnCpu,
 			),
 		)
 		// A display node denied matters only where the device has no render node, which it is drawn through.
@@ -190,6 +200,7 @@ class GraphicsTest {
 				),
 				emptyList(),
 				wayland,
+				Drawn.OnCpu,
 			),
 		)
 		assertEquals(
@@ -198,12 +209,82 @@ class GraphicsTest {
 				device(amd, driver),
 				emptyList(),
 				wayland.copy(openGl = OpenGl.Unavailable("EGL not initialized")),
+				Drawn.OnCpu,
 			),
 		)
 		assertEquals(
 			Verdict.CpuAsked,
-			verdictOf(device(amd, driver), emptyList(), wayland.copy(asked = Drawing.Cpu)),
+			verdictOf(
+				device(amd, driver),
+				emptyList(),
+				wayland.copy(asked = Drawing.Cpu),
+				Drawn.OnCpu,
+			),
 		)
+	}
+
+	@Test
+	fun aWindowOpenGlCouldNotDrawSaysWhy_OnTheDeviceItRunsOn() {
+		val nvidia =
+			wayland.copy(
+				openGl =
+					OpenGl.Running(
+						"NVIDIA GeForce RTX 4070/PCIe/SSE2",
+						"NVIDIA Corporation",
+						"4.6",
+					),
+			)
+
+		val why = "Skia could not draw with its OpenGL: EGL_BAD_MATCH"
+		val report = examine(nvidia, drawn = Drawn.FellBack(why))
+		val refused = report.examined.single { it.device.vendor.id == 0x10de }
+
+		assertEquals(Verdict.Refused(why), refused.verdict)
+		assertEquals(Summary.HeldBack(refused), report.summary)
+		// With no device found that OpenGL runs on, the window says so itself.
+		assertEquals(
+			Summary.FellBack("NVIDIA GeForce RTX 4070/PCIe/SSE2", why),
+			examine(
+				nvidia,
+				GraphicsDevices {
+					DevicesFound.Found(emptyList())
+				},
+				drawn = Drawn.FellBack(why),
+			).summary,
+		)
+	}
+
+	@Test
+	fun aDeviceTheSystemDoesNotNameIsNamedAsOpenGlNamesIt() {
+		val nvidia =
+			wayland.copy(
+				openGl =
+					OpenGl.Running(
+						"NVIDIA GeForce RTX 3090 Ti/PCIe/SSE2",
+						"NVIDIA Corporation",
+						"4.6",
+					),
+			)
+
+		val unnamed =
+			device(
+				Vendor(0x10de, "NVIDIA"),
+				KernelDriver("nvidia", null),
+			).copy(name = "NVIDIA device 2203", named = false)
+
+		val report = examine(nvidia, GraphicsDevices { DevicesFound.Found(listOf(unnamed)) })
+
+		assertEquals(
+			"NVIDIA GeForce RTX 3090 Ti",
+			report.examined
+				.single()
+				.device.name,
+		)
+		assertEquals(
+			"AMD Radeon RX 7800 XT",
+			modelOf("AMD Radeon RX 7800 XT (radeonsi, navi32, LLVM 19.1.7, DRM 3.61)"),
+		)
+		assertEquals("Mesa Intel(R) Graphics", modelOf("Mesa Intel(R) Graphics (ADL GT2)"))
 	}
 
 	@Test
@@ -338,9 +419,15 @@ class GraphicsTest {
 		devices: GraphicsDevices = laptop(),
 		fails: Map<String, String> = emptyMap(),
 		from: Map<String, Path> = emptyMap(),
+		drawn: Drawn =
+			if (rendering.onGpu)
+				Drawn.ByOpenGl
+			else
+				Drawn.OnCpu,
 	): GraphicsReport =
 		Graphics.examine(
 			rendering,
+			drawn,
 			devices,
 			{ name -> fails[name]?.let(Loading::Fails) ?: Loading.Loads(from[name]) },
 			LinuxLibraries,

@@ -68,6 +68,7 @@ class SysfsDevices(
 			device.name,
 			driver,
 			nodesOf(device, driver),
+			named = modelName != null,
 		)
 	}
 
@@ -81,6 +82,8 @@ class SysfsDevices(
 			device.name,
 			driver,
 			nodesOf(device, driver),
+			// Its driver's name, which OpenGL's renderer says better where it runs on it.
+			named = false,
 		)
 	}
 

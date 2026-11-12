@@ -1573,7 +1573,11 @@ private fun ListingPane(
 											}
 										}
 									}
-									ScrollbarBeside(rememberScrollbarAdapter(list), Modifier.matchParentSize())
+									ScrollbarBeside(
+										rememberScrollbarAdapter(list),
+										Modifier.matchParentSize(),
+										tag = "listing-bar",
+									)
 									if (sideways)
 										ScrollbarBelow(rememberScrollbarAdapter(across), Modifier.matchParentSize())
 								}
@@ -1709,14 +1713,19 @@ private fun NameOf(
 	textAlign: TextAlign? = null,
 ) {
 	if (renamed == null) {
-		Text(
-			row.name,
-			modifier,
-			style = style,
-			maxLines = maxLines,
-			overflow = TextOverflow.Ellipsis,
-			textAlign = textAlign,
-		)
+		// A row's name, from the cells' cache, so a row scrolled back into sight is not laid out again; a tile's, on
+		// two lines, as text.
+		if (maxLines == 1)
+			CellText(row.name, style, modifier, textAlign ?: TextAlign.Start)
+		else
+			Text(
+				row.name,
+				modifier,
+				style = style,
+				maxLines = maxLines,
+				overflow = TextOverflow.Ellipsis,
+				textAlign = textAlign,
+			)
 
 		return
 	}
@@ -2433,13 +2442,11 @@ private fun EntryRow(
 					}
 				ColumnId.Location -> TextCell(whereOf(row, home), column.aligned, muted, cell)
 				ColumnId.Type -> TextCell(row.type, column.aligned, muted, cell)
+				// A figure at a time, each from the cells' cache: every size is drawn from the same ten.
 				ColumnId.Size ->
-					TextCell(
-						row.size?.text.orEmpty(),
-						column.aligned,
-						muted.tabular(),
-						cell,
-					)
+					row.size?.text.orEmpty().let { size ->
+						CellText(figuresOf(size), muted.tabular(), size, cell, textAlignOf(column.aligned))
+					}
 				ColumnId.Extension ->
 					TextCell(
 						extensionOf(row.name).orEmpty(),
@@ -2459,14 +2466,7 @@ private fun RowScope.TextCell(
 	style: TextStyle,
 	modifier: Modifier,
 ) {
-	Text(
-		text,
-		style = style,
-		maxLines = 1,
-		overflow = TextOverflow.Ellipsis,
-		textAlign = textAlignOf(align),
-		modifier = modifier,
-	)
+	CellText(text, style, modifier, textAlignOf(align))
 }
 
 /**
@@ -2487,22 +2487,15 @@ private fun RowScope.DateCell(
 	val format = LocalDateFormat.current
 	val tabular = style.tabular()
 
-	@Composable
-	fun Parts(parts: List<DatePart>, widths: List<Dp>, at: Instant) =
-		parts.forEachIndexed { index, part ->
-			Text(
+	fun runsOf(parts: List<DatePart>, widths: List<Dp>, at: Instant): List<Run> =
+		parts.mapIndexed { index, part ->
+			Run(
 				format.write(part, at),
-				style = tabular,
-				maxLines = 1,
-				softWrap = false,
-				textAlign =
-					if ((part as? DatePart.Field)?.numeric ==
-						true
-					)
-						TextAlign.End
-					else
-						TextAlign.Start,
-				modifier = Modifier.width(widths[index]),
+				widths[index],
+				if ((part as? DatePart.Field)?.numeric == true)
+					TextAlign.End
+				else
+					TextAlign.Start,
 			)
 		}
 
@@ -2512,12 +2505,16 @@ private fun RowScope.DateCell(
 		verticalAlignment = Alignment.CenterVertically,
 	) {
 		when {
-			instant != null -> {
-				Parts(format.dateParts, widths.date, instant)
-				Spacer(Modifier.width(widths.gap))
-				Parts(format.timeParts, widths.time, instant)
-			}
-			instead != null -> Text(instead, style = tabular, maxLines = 1)
+			// Its parts, the room between date and time, then the time's, drawn by one node from the cells' cache.
+			instant != null ->
+				CellText(
+					runsOf(format.dateParts, widths.date, instant) +
+						Run("", widths.gap) +
+						runsOf(format.timeParts, widths.time, instant),
+					tabular,
+					format.write(instant),
+				)
+			instead != null -> CellText(instead, tabular)
 		}
 	}
 }

@@ -14,6 +14,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.platform.SystemFont
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -438,6 +439,7 @@ fun BrowserTheme(
 		LocalPalette provides palette,
 		LocalTypes provides types,
 		LocalType provides types.general,
+		LocalCells provides rememberTextMeasurer(CELLS_KEPT),
 		androidx.compose.foundation.LocalContextMenuRepresentation provides PrismContextMenus,
 	) {
 		MaterialTheme(colorScheme = scheme, content = content)

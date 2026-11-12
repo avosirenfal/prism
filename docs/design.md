@@ -89,6 +89,10 @@ while the keyboard was used last.
 
 - `Page`: a headline, what the page is for, then its sections, scrolled with a bar beside them.
 - `Section`, `Card`, `CardItem`, `SettingRow`, `Labelled`, `ListRow` and `ListHeading`.
+- `CellText` (`cells.kt`): a line of a listing's text, laid out once in a cache every row shares (`LocalCells`) and
+  drawn from there, so a row coming into sight lays out only what no row before it showed. A date's parts are runs
+  side by side in one node, each in the width of the widest of its kind; a size is drawn a figure at a time
+  (`figuresOf`), so every size comes from the same ten figures. A listing's names, sizes, types and dates are drawn so.
 - `Notice`: a line of a card that says how something is, rather than setting it: a glyph for its `Tone` (a tick where
   it is as it should be, a warning, in red, where it is not, an i otherwise), its title, and what more there is to say.
 - `ButtonRow`: the buttons at a dialog's foot. They are given as what they are, not where they go: what is aside (Reset,

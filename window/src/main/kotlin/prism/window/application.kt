@@ -18,8 +18,6 @@ import androidx.compose.ui.platform.FrameRecomposer
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.IntOffset
 import org.lwjgl.sdl.SDLEvents.SDL_EVENT_QUIT
-import org.lwjgl.sdl.SDLEvents.SDL_PollEvent
-import org.lwjgl.sdl.SDLEvents.SDL_WaitEventTimeout
 import org.lwjgl.sdl.SDLMouse.SDL_DestroyCursor
 import org.lwjgl.sdl.SDL_Event
 
@@ -112,7 +110,7 @@ internal class Application(
 				CompositionLocalApplication(this) { scope.content() }
 		}
 
-		SDL_Event.malloc().use { event ->
+		Queue().use { queue ->
 			while (running || open.isNotEmpty()) {
 				Ui.drain()
 
@@ -126,17 +124,9 @@ internal class Application(
 				open.values.toList().forEach { it.frame(now) }
 
 				val waiting = wantsFrame || Ui.hasWork || open.values.any { it.wantsFrame }
-				val got =
-					if (waiting)
-						SDL_PollEvent(event)
-					else
-						SDL_WaitEventTimeout(event, IDLE_MILLIS)
 
-				if (got) {
-					handle(event)
-					while (SDL_PollEvent(event))
-						handle(event)
-				}
+				// What is queued now, before the next frame; what comes meanwhile, after it.
+				queue.take(if (waiting) 0 else IDLE_MILLIS, ::handle)
 
 				if (!running)
 					open.values.toList().forEach(::closed)
