@@ -307,7 +307,7 @@ private fun Option(
 }
 
 /** Under what opens it, its start at its start; above it where there is no room below; inside the window either way. */
-private object Below : PopupPositionProvider {
+internal object Below : PopupPositionProvider {
 	override fun calculatePosition(
 		anchorBounds: IntRect,
 		windowSize: IntSize,

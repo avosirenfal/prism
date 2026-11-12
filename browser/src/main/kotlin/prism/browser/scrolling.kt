@@ -1,8 +1,5 @@
 package prism.browser
 
-import androidx.compose.animation.core.LinearOutSlowInEasing
-import androidx.compose.animation.core.animate
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.HorizontalScrollbar
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.ScrollbarStyle
@@ -25,6 +22,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.v2.ScrollbarAdapter
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.PointerEventPass
@@ -92,10 +90,16 @@ fun Modifier.wheelScrolled(
 						event.changes.none { it.isConsumed }
 					) {
 						event.changes.forEach { it.consume() }
+
+						// A wheel's notch is a whole one; a touchpad's, and a smooth wheel's, a fraction.
+						val notched = along % 1f == 0f && by % 1f == 0f
+						// A row is laid out in whole pixels, so a notch moves whole rows, however many it turns.
+						val pixels = line.roundToPx().toFloat()
+
 						if (along != 0f)
-							down.by(this@coroutineScope, along * lines * line.toPx())
+							down.by(this@coroutineScope, along * lines * pixels, notched)
 						if (by != 0f)
-							sideways?.by(this@coroutineScope, by * lines * line.toPx())
+							sideways?.by(this@coroutineScope, by * lines * pixels, notched)
 					}
 				}
 			}
@@ -103,40 +107,73 @@ fun Modifier.wheelScrolled(
 	}
 
 /**
- * A scroll that glides to where the notches turned so far take it: a notch turned while it glides adds to where it is
- * going, rather than starting again from where it is. Reaching an end, it goes no further, and forgets what is left.
+ * The scrolling a wheel does. Where it turns smoothly (a touchpad, or a wheel that reports fractions of a notch), each
+ * of its scrolls is moved at once, as far as it says, since it is already as smooth as the hand that moves it. Where it
+ * turns a notch at a time, it glides to where the notches turned so far take it: a notch turned while it glides adds
+ * to where it is going, and it goes on gliding, rather than starting again from rest. It moves from the first frame,
+ * a share of what is left each frame, so it is never behind the wheel by more than a moment. Reaching an end, it
+ * goes no further, and forgets what is left.
  */
 private class Glide(
 	private val state: ScrollableState,
 ) {
+	/** How far the notches turned so far are still to take it, in pixels. */
 	private var left = 0f
 	private var going: Job? = null
 
-	fun by(scope: CoroutineScope, pixels: Float) {
+	fun by(scope: CoroutineScope, pixels: Float, notched: Boolean) {
+		if (!notched) {
+			state.dispatchRawDelta(pixels)
+
+			return
+		}
+
 		left += pixels
-		going?.cancel()
+
+		if (going?.isActive == true)
+			return
+
 		going =
-			scope.launch {
-				val whole = left
-				var done = 0f
+			scope
+				.launch {
+					state.scroll {
+						var then = 0L
 
-				state.scroll {
-					animate(
-						0f,
-						whole,
-						animationSpec = tween(140, easing = LinearOutSlowInEasing),
-					) { at, _ ->
-						val step = at - done
-						val moved = scrollBy(step)
+						while (kotlin.math.abs(left) > 0.5f) {
+							val now = withFrameNanos { it }
+							val passed =
+								if (then == 0L)
+									FRAME_NANOS
+								else
+									now - then
+							val step = left * (1f - kotlin.math.exp(-passed / GLIDE_NANOS))
+							val moved = scrollBy(step)
 
-						done += step
-						left -= step
-						// At an end: what is left would only pile up against it.
-						if (kotlin.math.abs(moved - step) > 0.5f)
+							then = now
+							left -= step
+							// At an end: what is left would only pile up against it.
+							if (kotlin.math.abs(moved - step) > 0.5f)
+								left = 0f
+						}
+						// The last of it, less than a pixel, so that a notch moves exactly its rows.
+						scrollBy(left)
+						left = 0f
+					}
+				}.also { job ->
+					// Stopped by another scroll (the keyboard's, say): what was left of this one is forgotten.
+					job.invokeOnCompletion {
+						if (it != null)
 							left = 0f
 					}
 				}
-			}
+	}
+
+	private companion object {
+		/** How long a glide takes to cover all but a third of what is left: about a tenth of a second all but done. */
+		const val GLIDE_NANOS = 40_000_000f
+
+		/** A frame, for the first step, before a frame's time has passed. */
+		const val FRAME_NANOS = 16_666_667L
 	}
 }
 

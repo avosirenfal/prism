@@ -7,6 +7,7 @@ import prism.desktop.ExecArg
 import prism.desktop.FolderArgs
 import prism.desktop.KnownTerminals
 import prism.desktop.Terminal
+import prism.desktop.TerminalOption
 
 /*
  * The user's terminal on a freedesktop.org desktop. There is no one standard for it, so each place one is said is
@@ -94,6 +95,41 @@ class FreedesktopTerminals(
 						listOf(found.toString()) + it.program.drop(1),
 				)
 			}
+	}
+
+	/**
+	 * Every terminal there is to choose from: each prism knows, by its program's name, installed or not; then each
+	 * installed desktop entry of the category `TerminalEmulator` whose program prism does not know, by the entry's id.
+	 */
+	fun options(): List<TerminalOption> {
+		val known =
+			KnownTerminals.unix.map {
+				TerminalOption(it.name, it.program.first(), find(it.program.first()) != null)
+			}
+		val programs = known.map { it.name }.toSet()
+
+		val entries =
+			installedEntries().mapNotNull { id ->
+				entryOf(id)?.let { (_, keys) ->
+					val program =
+						Exec
+							.split(
+								keys["Exec"].orEmpty(),
+							)?.firstOrNull()
+							?.substringAfterLast('/')
+
+					TerminalOption(
+						keys["Name"] ?: id.removeSuffix(".desktop"),
+						id,
+						program?.let(find) != null,
+					).takeIf {
+						"TerminalEmulator" in itemsOf(keys["Categories"]) && program != null &&
+							program !in programs
+					}
+				}
+			}
+
+		return (known + entries).distinctBy { it.name }
 	}
 
 	/** Whether [name] is installed, as [named] would look for it. */

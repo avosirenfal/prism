@@ -349,6 +349,29 @@ object KnownTerminals {
 	}
 }
 
+/**
+ * A terminal the preferences can name: what it is called ([label]), the name the preferences keep for it ([name]: its
+ * program's, `ghostty`, or its desktop entry's), and whether it is [installed], its program on the `PATH`.
+ */
+data class TerminalOption(
+	val label: String,
+	val name: String,
+	val installed: Boolean,
+)
+
+/**
+ * The terminals there are to choose from: every one prism knows or has found ([options]), and the one the desktop says
+ * is the user's ([preferred], by what it is called), where it says one.
+ */
+data class TerminalOptions(
+	val preferred: String?,
+	val options: List<TerminalOption>,
+) {
+	companion object {
+		val NONE = TerminalOptions(null, emptyList())
+	}
+}
+
 /** The command a terminal is opened with, or why there is none. */
 sealed interface TerminalCommand {
 	data class Ready(

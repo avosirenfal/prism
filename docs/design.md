@@ -76,6 +76,11 @@ listing's text and a menu's rows with the menus'.
 - `Stepper`: a value, and − and + either side of it.
 - `Chip`, `Tabs`, `Spinner` and `EmptyState`.
 - `Select` (`select.kt`): a drop-down list, with a field that narrows a long one (every font the system has).
+- `ComboBox` (`combo.kt`): a field that is a drop-down list too. Clicked, it lists every option; typed into, those whose
+  names have what is typed in them, the first lit for Enter. Its options come in groups (`OptionGroup`), each set apart
+  from the one before, under a heading where it has one, and faint where they can be chosen but are not the likely
+  choice. The field keeps the keyboard throughout, and its text is selected when it is clicked, so typing starts a
+  new search.
 
 Each control draws its own hovered, pressed, focused and disabled looks. Its ring for the keyboard is drawn only
 while the keyboard was used last.
@@ -95,7 +100,10 @@ None of them takes padding from its caller.
 `LazyScrollArea` (a lazy list), each with its bar drawn whenever there is more than fits. The wheel scrolls either by
 `LINES_A_NOTCH` (three) of its own lines a notch, gliding there, rather than by a distance that knows nothing of what
 is shown. The listing and the gallery use the same rule with their rows and lines of tiles (`wheelScrolled`), so a
-notch moves three rows at any zoom. What is wider than its room (the listing, zoomed in far) scrolls across too, with a
+notch moves three rows at any zoom. A touchpad's scrolls, and a wheel's that turns smoothly (fractions of a notch,
+many a second), move the list at once, by what they say. A notched wheel's glide to where the notches turned so far
+take it, a share of what is left each frame from the first. A notch turned meanwhile adds to where the glide is going,
+and never starts it again from rest, which would hold the list still for as long as the wheel kept turning. What is wider than its room (the listing, zoomed in far) scrolls across too, with a
 bar under it, by the wheel with Shift held or a touchpad's sideways scroll; nothing is cut off out of reach.
 
 The wheel is handled by what holds the list and its bar, and the list's own scrolling by the wheel is off. The wheel

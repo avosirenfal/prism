@@ -11,6 +11,7 @@ import prism.desktop.Launched
 import prism.desktop.Launcher
 import prism.desktop.TerminalChoice
 import prism.desktop.TerminalCommand
+import prism.desktop.TerminalOptions
 
 /*
  * Starting what prism opens as processes of their own. A process the JVM starts is its child, in its session and its
@@ -64,6 +65,9 @@ class DetachedLauncher(
 
 	/** The user's terminal, wherever on the desktop it is said (freedesktop/terminals.kt). */
 	private val terminals = FreedesktopTerminals(xdg, ::find)
+
+	override fun terminals(): TerminalOptions =
+		TerminalOptions(terminals.preferred()?.name, terminals.options())
 
 	override fun terminalCommand(
 		folder: Path,

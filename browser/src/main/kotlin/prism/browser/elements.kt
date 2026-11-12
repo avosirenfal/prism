@@ -362,7 +362,8 @@ fun ToolButton(
  * is its caller's; the caret and the selection are the field's own. When the keyboard comes to it, [selecting]
  * says what of its text is selected (all of it, by default, as a desktop's fields do), and [onKey] sees each key
  * before the field does, for Enter and Escape and the like. [onLeave] is told when the keyboard leaves it, having
- * been there.
+ * been there. Each time [reselect] changes while the keyboard is in it, what [selecting] says is selected again, as
+ * though the keyboard had just arrived: a combo box's text clicked, to be typed over.
  */
 @Composable
 fun Field(
@@ -376,6 +377,7 @@ fun Field(
 	height: Dp = LocalType.current.control,
 	focus: FocusRequester = remember { FocusRequester() },
 	selecting: (String) -> TextRange = { TextRange(0, it.length) },
+	reselect: Int = 0,
 	onLeave: () -> Unit = {},
 	onKey: (KeyEvent) -> Boolean = { false },
 	colouring: VisualTransformation = VisualTransformation.None,
@@ -405,7 +407,7 @@ fun Field(
 	}
 
 	// What is selected as the keyboard arrives, once the field has settled its own caret from the focus.
-	LaunchedEffect(felt.focused) {
+	LaunchedEffect(felt.focused, reselect) {
 		if (felt.focused)
 			typed = shown.copy(selection = selecting(shown.text))
 	}

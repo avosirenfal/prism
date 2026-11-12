@@ -170,6 +170,9 @@ interface Launcher {
 	): TerminalCommand =
 		TerminalCommand.Failed("a terminal", "there is no terminal on this desktop")
 
+	/** The terminals there are to choose from, and the one the desktop says is the user's; none, for a launcher that knows none. */
+	fun terminals(): TerminalOptions = TerminalOptions.NONE
+
 	/** [choice]'s terminal started in [folder]. */
 	fun terminal(folder: Path, choice: TerminalChoice): Launched =
 		started(terminalCommand(folder, choice), folder)

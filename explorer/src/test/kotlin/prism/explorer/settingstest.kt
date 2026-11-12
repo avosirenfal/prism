@@ -153,41 +153,52 @@ class SettingsTest {
 		assertEquals(Page.Listings, applied.page)
 		assertEquals(saved, applied.base)
 
-		// The terminal emptied is the desktop's own.
+		// Automatic chosen, it is the desktop's own.
 		assertEquals(
 			TerminalChoice.Found,
-			opened.copy(terminal = TerminalForm(name = "  ")).over(base).terminal,
+			opened
+				.copy(
+					terminal = opened.terminal.picked(TerminalPick.Automatic),
+				).over(base)
+				.terminal,
 		)
 	}
 
 	@Test
-	fun theTerminalsFieldsMakeTheChoiceTheyShowAndOneThatCannotBeIsSaidSo() {
+	fun theTerminalChosenIsTheChoiceSaved_AndCustomLinesThatCannotBeOneAreSaidSo() {
 		assertEquals(TerminalChoice.Found, TerminalForm().choice())
-		assertEquals(TerminalChoice.Named("ghostty"), TerminalForm(name = "ghostty").choice())
+		assertEquals(
+			TerminalChoice.Named("ghostty"),
+			TerminalForm(TerminalPick.Named("ghostty")).choice(),
+		)
 
 		val lines =
-			TerminalForm(
-				open = "ghostty --working-directory={folder}",
-				run = "ghostty --working-directory={folder} -e {command}",
-			).choice()
+			TerminalForm()
+				.typed(
+					open = "ghostty --working-directory={folder}",
+					run = "ghostty --working-directory={folder} -e {command}",
+				).choice()
 
 		assertTrue(
 			lines is TerminalChoice.CommandLines && lines.opensInFolder && lines.runsCommands,
 		)
 		assertEquals(lines, TerminalForm.of(lines).choice())
 
-		// A name and lines both, or a line that cannot be filled in rightly: said to be wrong, and why.
-		val both =
-			TerminalForm(
-				name = "ghostty",
-				open = "ghostty --working-directory={folder}",
-			).choice()
+		// Lines typed are kept while another terminal is chosen, to come back to.
+		val typed = TerminalForm().typed(open = "ghostty --working-directory={folder}")
 
-		val noFolder = TerminalForm(open = "ghostty --font-size=14").choice()
+		assertEquals(
+			typed.choice(),
+			typed.picked(TerminalPick.Named("foot")).picked(TerminalPick.Custom).choice(),
+		)
 
-		assertTrue(both is TerminalChoice.Unreadable && "not both" in both.why)
+		// Custom with nothing written, or a line that cannot be filled in rightly: said to be wrong, and why.
+		val empty = TerminalForm().picked(TerminalPick.Custom).choice()
+		val noFolder = TerminalForm().typed(open = "ghostty --font-size=14").choice()
+
+		assertTrue(empty is TerminalChoice.Unreadable && "none is written" in empty.why)
 		assertTrue(noFolder is TerminalChoice.Unreadable && "{folder}" in noFolder.why)
-		// A choice the file holds that cannot be read is kept while nothing is typed over it.
+		// A choice the file holds that cannot be read is kept while nothing is changed.
 		assertEquals(noFolder, TerminalForm.of(noFolder).choice())
 	}
 

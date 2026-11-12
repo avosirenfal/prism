@@ -389,8 +389,17 @@ or else is started in the folder and given `-e`. On macOS (Terminal, iTerm, Ghos
 ### Choosing the terminal
 
 Where prism finds the wrong terminal, or none, or knows one wrong, or the user wants options of their own, the
-preferences say which (the preferences window's Terminal page has one field for it, and shows what would run in the
-home folder as it is typed):
+preferences say which. The preferences window's Terminal page chooses it from a combo box, which is clicked to list
+every choice, or typed into to narrow them:
+
+1. Automatic, the desktop's own as found, and every terminal installed: each prism knows on the `PATH`, and each
+   desktop entry of the category `TerminalEmulator` whose program it doesn't know (`Launcher.terminals`).
+2. Custom, under them; or alone, where the desktop names none and none is installed.
+3. Set apart and faint, but still choosable, the terminals prism knows that are not on the `PATH`. One chosen is said
+   in red, under the box, not to be.
+
+Custom shows its two command lines, kept as typed while another is chosen. What would run in the home folder is
+always shown, as it is chosen and typed. In the file, the choice is one of these:
 
 ```json
 "terminal": null

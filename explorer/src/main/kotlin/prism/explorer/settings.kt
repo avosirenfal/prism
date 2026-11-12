@@ -221,32 +221,46 @@ data class Settings(
 	}
 }
 
+/** What the Terminal page has chosen: the desktop's own terminal, one by its name, or command lines of the user's own. */
+sealed interface TerminalPick {
+	data object Automatic : TerminalPick
+
+	data class Named(
+		val name: String,
+	) : TerminalPick
+
+	data object Custom : TerminalPick
+}
+
 /**
- * The terminal chosen, as the preferences window's fields have it, each as typed: a terminal's [name]; or its command
- * lines, [open] (opened in a folder) and [run] (opened in a folder running a command); all empty for the desktop's own.
- * [kept] is a choice the file holds that could not be read, kept as it is while nothing is typed over it.
+ * The terminal as the Terminal page has it: what is chosen ([pick]), and the custom command lines as typed, [open]
+ * (opened in a folder) and [run] (opened in a folder running a command), which are kept while another is chosen, to
+ * come back to. [kept] is a choice the file holds that could not be read, kept as it is while nothing is changed.
  */
 data class TerminalForm(
-	val name: String = "",
+	val pick: TerminalPick = TerminalPick.Automatic,
 	val open: String = "",
 	val run: String = "",
 	val kept: TerminalChoice.Unreadable? = null,
 ) {
-	/** The choice the fields make; one that cannot be, as a choice that cannot be read, which says why. */
-	fun choice(): TerminalChoice {
-		val named = name.trim()
-		val lines = wordsOf(open) to wordsOf(run)
-
-		return when {
-			named.isEmpty() && lines.first.isEmpty() && lines.second.isEmpty() ->
-				kept
-					?: TerminalChoice.Found
-			named.isNotEmpty() && (lines.first.isNotEmpty() || lines.second.isNotEmpty()) ->
-				wrongly("it is a terminal's name, or its command lines, not both")
-			named.isNotEmpty() -> TerminalChoice.Named(named)
-			else -> TerminalChoiceSerializer.choiceOf(json())
+	/** The choice the page makes; custom lines that cannot be one, as a choice that cannot be read, which says why. */
+	fun choice(): TerminalChoice =
+		kept ?: when (pick) {
+			TerminalPick.Automatic -> TerminalChoice.Found
+			is TerminalPick.Named -> TerminalChoice.Named(pick.name)
+			TerminalPick.Custom ->
+				if (wordsOf(open).isEmpty() && wordsOf(run).isEmpty())
+					wrongly("a custom terminal is its command lines, and none is written")
+				else
+					TerminalChoiceSerializer.choiceOf(json())
 		}
-	}
+
+	/** These, with [pick] chosen. */
+	fun picked(pick: TerminalPick): TerminalForm = copy(pick = pick, kept = null)
+
+	/** These, the custom command lines typed as [open] and [run]. */
+	fun typed(open: String = this.open, run: String = this.run): TerminalForm =
+		copy(pick = TerminalPick.Custom, open = open, run = run, kept = null)
 
 	/** What the command lines' fields say, as the file writes it. */
 	private fun json() =
@@ -268,13 +282,14 @@ data class TerminalForm(
 		)
 
 	companion object {
-		/** [choice] in the fields. */
+		/** [choice] on the page. */
 		fun of(choice: TerminalChoice): TerminalForm =
 			when (choice) {
 				TerminalChoice.Found -> TerminalForm()
-				is TerminalChoice.Named -> TerminalForm(name = choice.name)
+				is TerminalChoice.Named -> TerminalForm(TerminalPick.Named(choice.name))
 				is TerminalChoice.CommandLines ->
 					TerminalForm(
+						TerminalPick.Custom,
 						open =
 							choice.inFolder
 								?.words
@@ -286,7 +301,7 @@ data class TerminalForm(
 								?.let(::textOf)
 								.orEmpty(),
 					)
-				is TerminalChoice.Unreadable -> TerminalForm(kept = choice)
+				is TerminalChoice.Unreadable -> TerminalForm(TerminalPick.Custom, kept = choice)
 			}
 	}
 }

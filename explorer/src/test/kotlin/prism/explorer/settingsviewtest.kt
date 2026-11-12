@@ -30,6 +30,8 @@ import prism.browser.BrowserTheme
 import prism.browser.Chord
 import prism.browser.MouseButton
 import prism.browser.Trigger
+import prism.desktop.TerminalOption
+import prism.desktop.TerminalOptions
 import prism.preferences.Align
 import prism.preferences.ColumnId
 import prism.preferences.Layout
@@ -229,5 +231,62 @@ class SettingsViewTest {
 			waitForIdle()
 			assertTrue(settings.listings.ownLook(Role.Picker, zip))
 			onNodeWithText("Apply").assertIsEnabled()
+		}
+
+	@Test
+	fun aTerminalIsFoundByTypingItsName_OneNotInstalledSaidSo_AndCustomShowsItsLines() =
+		runComposeUiTest {
+			var settings by mutableStateOf(Settings(Preferences.DEFAULT, page = Page.Terminal))
+
+			val terminals =
+				TerminalOptions(
+					"Ghostty",
+					listOf(
+						TerminalOption("Ghostty", "ghostty", installed = true),
+						TerminalOption("foot", "foot", installed = true),
+						TerminalOption("kitty", "kitty", installed = false),
+					),
+				)
+
+			setContent {
+				BrowserTheme {
+					SettingsView(settings, {
+						settings = it
+					}, onApply = {}, onClose = {}, terminals = terminals)
+				}
+			}
+
+			// The box shows what is chosen; clicked, every terminal, those not installed among them.
+			onNodeWithText("Automatic: Ghostty").assertExists()
+			onNodeWithTag("terminal").performClick()
+			waitForIdle()
+			onNodeWithTag("option:foot").assertExists()
+			onNodeWithTag("option:kitty").assertExists()
+			onNodeWithTag("option:Custom").assertExists()
+
+			// Typed into, only those whose names have what is typed; Enter chooses the first.
+			onNode(
+				hasSetTextAction() and hasAnyAncestor(hasTestTag("terminal")),
+			).performTextReplacement("kit")
+			waitForIdle()
+			onNodeWithTag("option:foot").assertDoesNotExist()
+			onNode(hasSetTextAction() and hasAnyAncestor(hasTestTag("terminal"))).performKeyInput {
+				pressKey(Key.Enter)
+			}
+			waitForIdle()
+			assertEquals(TerminalPick.Named("kitty"), settings.terminal.pick)
+			// Not installed: said under the box.
+			onNodeWithTag("terminal-missing").assertExists()
+			onNodeWithTag("terminal-open").assertDoesNotExist()
+
+			// Custom: its lines are shown, and what they would run.
+			onNodeWithTag("terminal").performClick()
+			waitForIdle()
+			onNodeWithTag("option:Custom").performClick()
+			waitForIdle()
+			assertEquals(TerminalPick.Custom, settings.terminal.pick)
+			onNodeWithTag("terminal-missing").assertDoesNotExist()
+			onNodeWithTag("terminal-open").assertExists()
+			onNodeWithText("What runs").assertExists()
 		}
 }

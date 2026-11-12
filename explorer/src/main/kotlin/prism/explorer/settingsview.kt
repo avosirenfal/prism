@@ -65,6 +65,7 @@ import prism.browser.CardItem
 import prism.browser.CheckBox
 import prism.browser.Chip
 import prism.browser.Chord
+import prism.browser.ComboBox
 import prism.browser.Dims
 import prism.browser.Divider
 import prism.browser.Field
@@ -76,6 +77,7 @@ import prism.browser.ListHeading
 import prism.browser.ListRow
 import prism.browser.LocalPalette
 import prism.browser.LocalType
+import prism.browser.OptionGroup
 import prism.browser.Radio
 import prism.browser.Radius
 import prism.browser.ReorderableColumn
@@ -94,6 +96,8 @@ import prism.browser.systemFontFamilies
 import prism.browser.tabular
 import prism.desktop.TerminalChoice
 import prism.desktop.TerminalCommand
+import prism.desktop.TerminalOption
+import prism.desktop.TerminalOptions
 import prism.preferences.Align
 import prism.preferences.ColumnId
 import prism.preferences.DateFormat
@@ -134,6 +138,7 @@ fun SettingsView(
 	terminalPreview: (TerminalChoice, List<String>?) -> TerminalCommand = { _, _ ->
 		TerminalCommand.Failed("a terminal", "there is no desktop")
 	},
+	terminals: TerminalOptions = TerminalOptions.NONE,
 ) {
 	val palette = LocalPalette.current
 	val type = LocalType.current
@@ -217,7 +222,7 @@ fun SettingsView(
 				when (settings.page) {
 					Page.Display -> DisplayPage(settings, onChange)
 					Page.Listings -> ListingsPage(settings, onChange)
-					Page.Terminal -> TerminalPage(settings, onChange, terminalPreview)
+					Page.Terminal -> TerminalPage(settings, onChange, terminalPreview, terminals)
 					Page.Bindings ->
 						BindingsPage(rebinding, filter) {
 							onChange(settings.copy(rebinding = it))
@@ -872,14 +877,17 @@ private fun ActionsPage(actions: Actions) {
 }
 
 /**
- * The terminal "Open terminal here" opens, and what runs in a terminal runs in: found, or chosen by its name or its
- * command line; with what it would run in the home folder ([preview]), and what it is used for, said as it is typed.
+ * The terminal "Open terminal here" opens, and the one actions and applications that run in a terminal open in: chosen
+ * from a box that lists the desktop's own, every terminal installed, Custom, then those prism knows that are not
+ * installed (faint, still choosable, and said not to be once chosen); Custom's command lines, where it is chosen; and
+ * what would run in the home folder ([preview]), always, as it is chosen and typed.
  */
 @Composable
 private fun TerminalPage(
 	settings: Settings,
 	onChange: (Settings) -> Unit,
 	preview: (TerminalChoice, List<String>?) -> TerminalCommand,
+	terminals: TerminalOptions,
 ) {
 	val palette = LocalPalette.current
 	val type = LocalType.current
@@ -887,63 +895,124 @@ private fun TerminalPage(
 	val choice = remember(form) { form.choice() }
 	val opens = remember(choice) { preview(choice, null) }
 	val runs = remember(choice) { preview(choice, EXAMPLE) }
+	val pick = form.pick
+	// A terminal the preferences name that prism neither knows nor has found is listed too, installed or not as it is.
+	val named = (pick as? TerminalPick.Named)?.name
 
-	fun edit(change: (TerminalForm) -> TerminalForm) =
-		onChange(settings.copy(terminal = change(form).copy(kept = null)))
+	val listed =
+		terminals.options +
+			listOfNotNull(
+				named
+					?.takeIf { name -> terminals.options.none { it.name == name } }
+					?.let { TerminalOption(it, it, opens is TerminalCommand.Ready) },
+			)
+
+	val (installed, missing) = listed.partition { it.installed }
+	val labels = listed.associate { it.name to it.label }
+
+	fun labelOf(pick: TerminalPick): String =
+		when (pick) {
+			TerminalPick.Automatic -> terminals.preferred?.let { "Automatic: $it" } ?: "Automatic"
+			is TerminalPick.Named -> labels[pick.name] ?: pick.name
+			TerminalPick.Custom -> "Custom"
+		}
+
+	fun edit(form: TerminalForm) = onChange(settings.copy(terminal = form))
+
+	// The desktop's own, where it names one; the terminals installed; and Custom, which is always there. Then, apart,
+	// those prism knows that are not installed.
+	val groups =
+		listOf<OptionGroup<TerminalPick>>(
+			OptionGroup(
+				listOfNotNull<TerminalPick>(
+					TerminalPick.Automatic.takeIf {
+						terminals.preferred !=
+							null ||
+							pick == it
+					},
+				) +
+					installed.map { TerminalPick.Named(it.name) } +
+					TerminalPick.Custom,
+			),
+			OptionGroup(
+				missing.map<TerminalOption, TerminalPick> { TerminalPick.Named(it.name) },
+				heading = "Not found on your PATH",
+				faint = true,
+			),
+		).filter { it.options.isNotEmpty() }
 
 	PageLayout(
 		"Terminal",
-		"What “Open terminal here” opens, and what runs in a terminal runs in. Left empty, the desktop's own is found.",
+		"The terminal “Open terminal here” opens, and the one that actions and applications " +
+			"which run in a terminal open in.",
 	) {
 		Section(
-			"By its name",
+			"Which terminal",
 			description =
-				"A terminal prism, or its desktop entry, knows how to give a folder and a command",
+				"Automatic is the one your desktop names, in \$TERMINAL or its own settings. prism " +
+					"knows how to tell each terminal listed which folder to open in, and what to run " +
+					"there; for one it doesn't, choose Custom.",
 		) {
 			Card {
 				CardItem {
-					Labelled("Terminal") {
-						Field(form.name, { text ->
-							edit {
-								it.copy(name = text)
-							}
-						}, Modifier.fillMaxWidth(), hint = "ghostty, say")
-					}
+					ComboBox(
+						groups,
+						pick,
+						::labelOf,
+						Modifier.fillMaxWidth(),
+						tag = "terminal",
+						hint = "Type a terminal's name",
+					) { edit(form.picked(it)) }
+					// Chosen, though it is not installed: said under the box, in red.
+					(pick as? TerminalPick.Named)
+						?.takeIf { chosen -> missing.any { it.name == chosen.name } }
+						?.let {
+							Text(
+								"${labelOf(it)} wasn't found on your PATH. Install it, or choose another.",
+								style = type.muted.copy(color = palette.dangerText),
+								modifier = Modifier.testTag("terminal-missing"),
+							)
+						}
 				}
 			}
 		}
+		if (pick == TerminalPick.Custom)
+			Section(
+				"Custom",
+				description =
+					"The terminal's command lines, each in full. {folder} stands for the folder, and " +
+						"{command} for the words of the command to run, as a word of its own. A line " +
+						"left empty turns off what it is for.",
+			) {
+				Card {
+					CardItem {
+						Labelled("Opening in a folder") {
+							Field(
+								form.open,
+								{ edit(form.typed(open = it)) },
+								Modifier.fillMaxWidth().testTag("terminal-open"),
+								hint = "ghostty --working-directory={folder}",
+								style = type.mono,
+							)
+						}
+					}
+					CardItem {
+						Labelled("Running a command in a folder") {
+							Field(
+								form.run,
+								{ edit(form.typed(run = it)) },
+								Modifier.fillMaxWidth().testTag("terminal-run"),
+								hint = "ghostty --working-directory={folder} -e {command}",
+								style = type.mono,
+							)
+						}
+					}
+				}
+			}
 		Section(
-			"Or by its command lines",
-			description =
-				"Each in full: {folder} where the folder goes, {command} where a command's words " +
-					"go. A line left empty is not used, and what it is for is off.",
+			"What runs",
+			description = "The commands prism would run, opening in your home folder.",
 		) {
-			Card {
-				CardItem {
-					Labelled("Opened in a folder") {
-						Field(
-							form.open,
-							{ text -> edit { it.copy(open = text) } },
-							Modifier.fillMaxWidth(),
-							hint = "ghostty --working-directory={folder}",
-							style = type.mono,
-						)
-					}
-				}
-				CardItem {
-					Labelled("Running a command in a folder") {
-						Field(
-							form.run,
-							{ text -> edit { it.copy(run = text) } },
-							Modifier.fillMaxWidth(),
-							hint = "ghostty --working-directory={folder} -e {command}",
-							style = type.mono,
-						)
-					}
-				}
-			}
-		}
-		Section("What runs", description = "In your home folder, as what is typed above says") {
 			Card {
 				Preview("Open terminal here", opens, palette.dangerText) {
 					"“Open terminal here” is off: $it"

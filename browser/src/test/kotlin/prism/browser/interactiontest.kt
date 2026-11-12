@@ -1262,6 +1262,56 @@ class InteractionTest {
 		}
 
 	@Test
+	fun aTouchpadsScrollsMoveTheListAsTheyCome_AndANotchGlidesFromItsFirstFrameOn() =
+		picking(
+			folder =
+				work.also {
+					(1..60).forEach { n ->
+						it.resolve("dir %02d".format(n)).createDirectories()
+					}
+				},
+		) {
+			waitForIdle()
+
+			val first = top("dir 05")
+			// A row's height, from eight of them, each top whole pixels.
+			val row = (top("dir 09") - top("dir 01")) / 8
+
+			fun turned(notches: Float) =
+				onNodeWithTag("listing").performMouseInput {
+					moveTo(center)
+					scroll(notches)
+				}
+
+			mainClock.autoAdvance = false
+
+			// A touchpad's scroll, half a notch: moved at once, a frame later, by all of it, a row and a half.
+			turned(0.5f)
+			mainClock.advanceTimeByFrame()
+			assertEquals(first - row * 1.5f, top("dir 05"), 1.5f)
+
+			// A notch moves from its first frame; another turned while it glides adds to where it is going, and it
+			// goes on rather than stopping to start again.
+			val before = top("dir 05")
+
+			turned(1f)
+			mainClock.advanceTimeByFrame()
+
+			val once = top("dir 05")
+
+			assertTrue(once < before, "moved on the first frame")
+			turned(1f)
+			mainClock.advanceTimeByFrame()
+			assertTrue(top("dir 05") < once, "still moving")
+
+			// Done, it is where the three scrolls take it, seven and a half rows down: the twelfth row, seven below the
+			// fifth, is half a row above where the fifth was.
+			mainClock.autoAdvance = true
+			waitForIdle()
+			assertEquals(first - row * 0.5f, top("dir 12"), 1.5f)
+		}
+
+	@Test
 	fun aListingTooWideForItsWindowScrollsAcross_ItsHeadingsWithItsRows() {
 		val wide = mutableStateOf(1000.dp)
 

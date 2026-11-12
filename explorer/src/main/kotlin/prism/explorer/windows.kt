@@ -19,6 +19,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -33,8 +34,10 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.withContext
 import prism.browser.BrowserEvent
 import prism.browser.Chord
 import prism.browser.HostedBrowser
@@ -48,6 +51,7 @@ import prism.browser.Space
 import prism.browser.TransientFor
 import prism.browser.mouseChords
 import prism.browser.zoomedByWheel
+import prism.desktop.TerminalOptions
 import prism.preferences.DateFormat
 import prism.preferences.Typography
 import prism.preferences.WindowKind
@@ -176,6 +180,11 @@ private fun SettingsWindow(explorer: Explorer, onClose: () -> Unit) {
 		mutableStateOf(Settings(explorer.preferences.preferences.value))
 	}
 
+	// The terminals there are to choose from, found on the disk as the window opens.
+	val terminals by produceState(TerminalOptions.NONE) {
+		value = withContext(Dispatchers.IO) { explorer.desktop.launcher.terminals() }
+	}
+
 	Box(Modifier.fillMaxSize().mouseChords { chords.tryEmit(it) }) {
 		SettingsView(
 			settings,
@@ -190,6 +199,7 @@ private fun SettingsWindow(explorer: Explorer, onClose: () -> Unit) {
 			terminalPreview = { choice, command ->
 				explorer.desktop.launcher.terminalCommand(explorer.home, choice, command)
 			},
+			terminals = terminals,
 		)
 	}
 }
