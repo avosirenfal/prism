@@ -147,6 +147,9 @@ private fun SettingsWindow(explorer: Explorer, onClose: () -> Unit) {
 			},
 			onCancel = onClose,
 			mouseChords = chords,
+			terminalPreview = { choice ->
+				explorer.desktop.launcher.terminalCommand(explorer.home, choice)
+			},
 		)
 	}
 }

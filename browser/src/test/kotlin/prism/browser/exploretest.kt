@@ -23,6 +23,7 @@ import prism.desktop.Launcher
 import prism.desktop.MimeType
 import prism.desktop.Place
 import prism.desktop.Places
+import prism.desktop.TerminalChoice
 import prism.preferences.MemoryPreferences
 
 /**
@@ -82,7 +83,11 @@ class ExploreTest {
 				}
 			override val launcher =
 				object : Launcher {
-					override fun launch(application: Application, paths: List<Path>): Launched {
+					override fun launch(
+						application: Application,
+						paths: List<Path>,
+						terminal: TerminalChoice,
+					): Launched {
 						started += application.name to paths
 
 						return Launched.Started(application.name)
@@ -91,7 +96,7 @@ class ExploreTest {
 					override fun run(command: List<String>, folder: Path) =
 						Launched.Started(command.first())
 
-					override fun terminal(folder: Path, preferred: List<String>?) =
+					override fun terminal(folder: Path, choice: TerminalChoice) =
 						Launched.Started("terminal")
 				}
 			override val places =

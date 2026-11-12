@@ -1,12 +1,20 @@
 package prism.explorer
 
 import java.nio.file.Path
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import prism.browser.Actions
 import prism.browser.Bindable
 import prism.browser.Bindings
 import prism.browser.Chord
+import prism.desktop.ExecArg
+import prism.desktop.FolderArgs
 import prism.desktop.Place
+import prism.desktop.TerminalChoice
 import prism.preferences.Preferences
+import prism.preferences.TerminalChoiceSerializer
 
 /*
  * The preferences as their window edits them, as one immutable value: the places pinned, the terminal, and every
@@ -82,14 +90,14 @@ data class Rebinding(
 
 /**
  * The preferences window's edits: [base], the preferences as they were when it opened; the places [pinned] (null for
- * the desktop's own, those of the [known] places); the [terminal] as it is typed; the bindings being rebound; and the
+ * the desktop's own, those of the [known] places); the [terminal] as its fields are typed; the bindings being rebound; and the
  * [page] shown.
  */
 data class Settings(
 	val base: Preferences,
 	val known: List<Place>,
 	val pinned: List<Path>? = base.pinned,
-	val terminal: String = base.terminal?.let(::textOf).orEmpty(),
+	val terminal: TerminalForm = TerminalForm.of(base.terminal),
 	val rebinding: Rebinding = Rebinding(Bindings.of(base)),
 	val page: Page = Page.Sidebar,
 ) {
@@ -102,9 +110,6 @@ data class Settings(
 	/** What the sidebar calls the place pinned at [path]: a known place's name, or the folder's. */
 	fun labelOf(path: Path): String =
 		known.firstOrNull { it.path == path }?.label ?: (path.fileName ?: path).toString()
-
-	/** The terminal's words, as they would be written; null for the desktop's own. */
-	val terminalWords: List<String>? get() = wordsOf(terminal).ifEmpty { null }
 
 	/** Whether anything is changed from what the window opened on. */
 	val changed: Boolean get() = over(base) != base
@@ -123,7 +128,7 @@ data class Settings(
 
 		return current.copy(
 			pinned = kept(Preferences::pinned, pinned),
-			terminal = kept(Preferences::terminal, terminalWords),
+			terminal = kept(Preferences::terminal, terminal.choice()),
 			bindings = bindings ?: current.bindings,
 		)
 	}
@@ -162,6 +167,109 @@ data class Settings(
 			this
 		else
 			copy(pinned = pins.plusElement(path))
+}
+
+/**
+ * The terminal chosen, as the preferences window's fields have it, each as it is typed: its [command] (a program and
+ * options of the user's, or words to run as written); and, blank for what is known of it, its [folder] words, the
+ * words before a command it [run]s, and what has it open a window of its own ([alone]). [cannotRun] and [unreadable]
+ * are what the file said that no field shows: a terminal that cannot be given a command, and a choice that could not be
+ * read, kept as they are while nothing is typed over them.
+ */
+data class TerminalForm(
+	val command: String = "",
+	val folder: String = "",
+	val run: String = "",
+	val alone: String = "",
+	val cannotRun: Boolean = false,
+	val unreadable: TerminalChoice.Unreadable? = null,
+) {
+	/** Whether the command's words are run as they are written, which the other fields then say nothing of. */
+	val written: Boolean get() =
+		wordsOf(command).let { words ->
+			words.isNotEmpty() &&
+				listed(words) is TerminalChoice.Written
+		}
+
+	/** The choice these fields make; one that says something that cannot be, as a choice that cannot be read. */
+	fun choice(): TerminalChoice {
+		val words = wordsOf(command)
+
+		if (words.isEmpty())
+			return if (folder.isBlank() && run.isBlank() &&
+				alone.isBlank()
+			)
+				unreadable ?: TerminalChoice.Found
+			else
+				wrongly("there is no command")
+
+		val listed = listed(words)
+
+		if (listed is TerminalChoice.Written)
+			return listed
+
+		val folderArgs =
+			folder.takeIf { it.isNotBlank() }?.let { text ->
+				FolderArgs.of(wordsOf(text))
+					?: return wrongly(
+						"the folder's words do not say once where the folder goes: write {folder} in one",
+					)
+			}
+
+		return TerminalChoice.Described(
+			words,
+			folderArgs,
+			run.takeIf { it.isNotBlank() }?.let { ExecArg.Before(wordsOf(it)) }
+				?: ExecArg.Unsupported.takeIf { cannotRun },
+			alone.takeIf { it.isNotBlank() }?.let(::wordsOf),
+		)
+	}
+
+	private fun listed(words: List<String>): TerminalChoice =
+		TerminalChoiceSerializer.choiceOf(JsonArray(words.map(::JsonPrimitive)))
+
+	/** What was typed, kept as the file would write it, with [why] it cannot be. */
+	private fun wrongly(why: String): TerminalChoice.Unreadable =
+		TerminalChoice.Unreadable(
+			buildJsonObject {
+				put("command", JsonArray(wordsOf(command).map(::JsonPrimitive)))
+				folder
+					.takeIf {
+						it.isNotBlank()
+					}?.let { put("folder", JsonArray(wordsOf(it).map(::JsonPrimitive))) }
+				run
+					.takeIf {
+						it.isNotBlank()
+					}?.let { put("run", JsonArray(wordsOf(it).map(::JsonPrimitive))) }
+				alone
+					.takeIf {
+						it.isNotBlank()
+					}?.let { put("alone", JsonArray(wordsOf(it).map(::JsonPrimitive))) }
+			}.toString(),
+			"the terminal in the preferences can't be read: $why",
+		)
+
+	companion object {
+		/** [choice] in the fields. */
+		fun of(choice: TerminalChoice): TerminalForm =
+			when (choice) {
+				TerminalChoice.Found -> TerminalForm()
+				is TerminalChoice.Written -> TerminalForm(command = textOf(choice.words))
+				is TerminalChoice.Described ->
+					TerminalForm(
+						command = textOf(choice.command),
+						folder =
+							choice.folder
+								?.template
+								?.let(::textOf)
+								.orEmpty(),
+						run = (choice.exec as? ExecArg.Before)?.words?.let(::textOf).orEmpty(),
+						alone = choice.alone?.let(::textOf).orEmpty(),
+						cannotRun = choice.exec == ExecArg.Unsupported,
+					)
+				is TerminalChoice.Unreadable -> TerminalForm(unreadable = choice)
+			}
+	}
 }
 
 /**

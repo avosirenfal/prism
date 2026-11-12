@@ -9,6 +9,8 @@ import java.util.concurrent.TimeUnit
 import prism.desktop.Application
 import prism.desktop.Launched
 import prism.desktop.Launcher
+import prism.desktop.TerminalChoice
+import prism.desktop.TerminalCommand
 
 /*
  * Starting what prism opens as processes of their own. A process the JVM starts is its child, in its session and its
@@ -29,12 +31,19 @@ class DetachedLauncher(
 	/** What starts a command, its words in full, in a folder: a process, unless a test says otherwise. */
 	private val spawn: (List<String>, Path) -> Launched = ::spawned,
 ) : Launcher {
-	override fun launch(application: Application, paths: List<Path>): Launched =
+	override fun launch(
+		application: Application,
+		paths: List<Path>,
+		terminal: TerminalChoice,
+	): Launched =
 		Exec
 			.expand(application.command, paths, application)
 			.map {
 				if (application.inTerminal)
-					inTerminal(it, xdg.home, label = application.id)
+					when (val opening = terminalCommand(xdg.home, terminal, it)) {
+						is TerminalCommand.Ready -> run(opening.words, xdg.home, label = application.id)
+						is TerminalCommand.Failed -> Launched.Failed(application.name, opening.why)
+					}
 				else
 					run(it, xdg.home, label = application.id)
 			}.firstOrNull { it is Launched.Failed }
@@ -56,47 +65,38 @@ class DetachedLauncher(
 	/** The user's terminal, wherever on the desktop it is said (freedesktop/terminals.kt). */
 	private val terminals = FreedesktopTerminals(xdg, ::find)
 
-	/**
-	 * A terminal in [folder]: [preferred] as it is written where it says where the folder goes (`{folder}`); otherwise
-	 * the terminal it names, or the user's, told the folder as it takes one.
-	 */
-	override fun terminal(folder: Path, preferred: List<String>?): Launched {
-		if (preferred != null && preferred.any { "{folder}" in it })
-			return run(preferred.map { it.replace("{folder}", folder.toString()) }, folder)
-
+	override fun terminalCommand(
+		folder: Path,
+		choice: TerminalChoice,
+		command: List<String>?,
+	): TerminalCommand {
 		val terminal =
-			(preferred?.let(terminals::ofCommandLine) ?: terminals.preferred())
-				?: return Launched.Failed(
-					preferred?.firstOrNull() ?: "a terminal",
-					if (preferred != null)
-						"“${preferred.first()}” is not installed, or not on the PATH"
-					else
-						"no terminal was found: set one in the preferences",
-				)
+			when (choice) {
+				TerminalChoice.Found ->
+					terminals.preferred()
+						?: return TerminalCommand.Failed(
+							"a terminal",
+							"no terminal was found: choose one in the preferences",
+						)
+				// Words as written; a command, where they have no place for one, runs in the desktop's own.
+				is TerminalChoice.Written ->
+					return choice.opening(folder, command)?.let(TerminalCommand::Ready)
+						?: terminalCommand(folder, TerminalChoice.Found, command)
+				is TerminalChoice.Described ->
+					terminals.ofCommandLine(choice.command)?.with(choice)
+						?: return TerminalCommand.Failed(
+							choice.command.firstOrNull() ?: "a terminal",
+							if (choice.command.isEmpty())
+								"the terminal chosen in the preferences has no command"
+							else
+								"“${choice.command.first()}” is not installed, or not on the PATH",
+						)
+				is TerminalChoice.Unreadable ->
+					return TerminalCommand.Failed("the terminal in the preferences", choice.why)
+			}
 
-		return run(
-			terminal.opening(folder)
-				?: return Launched.Failed(terminal.name, "it cannot be opened in a folder"),
-			folder,
-		)
-	}
-
-	override fun inTerminal(command: List<String>, folder: Path): Launched =
-		inTerminal(command, folder, label = null)
-
-	private fun inTerminal(command: List<String>, folder: Path, label: String?): Launched {
-		val terminal =
-			terminals.preferred()
-				?: return Launched.Failed(
-					command.firstOrNull() ?: "nothing",
-					"no terminal to run it in was found",
-				)
-
-		val opening =
-			terminal.opening(folder, command)
-				?: return Launched.Failed(terminal.name, "it cannot be given a command to run")
-
-		return run(opening, folder, label)
+		return terminal.opening(folder, command)?.let(TerminalCommand::Ready)
+			?: TerminalCommand.Failed(terminal.name, "it cannot be given a command to run")
 	}
 
 	/** [command] started in a session of its own, and in a scope of its own where the user's systemd is running. */

@@ -394,7 +394,7 @@ class DesktopTest {
 				Launched.Started("")
 			}
 
-		inTerminal.terminal(files, listOf("xterm", "-T", "{folder}"))
+		inTerminal.terminal(files, TerminalChoice.Written(listOf("xterm", "-T", "{folder}")))
 		inTerminal.launch(
 			DesktopEntries(xdg, SharedMimeInfo(xdg)).all().single {
 				it.name ==

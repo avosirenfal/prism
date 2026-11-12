@@ -293,7 +293,14 @@ private fun confirmed(
 					chooser.always
 				}?.let { explorer.setDefault(it, application) }
 
-			when (val launched = explorer.desktop.launcher.launch(application, choice.paths)) {
+			when (
+				val launched =
+					explorer.desktop.launcher.launch(
+						application,
+						choice.paths,
+						explorer.preferences.preferences.value.terminal,
+					)
+			) {
 				is Launched.Started -> null
 				is Launched.Failed -> "Couldn't start ${launched.what}: ${launched.why}"
 			}

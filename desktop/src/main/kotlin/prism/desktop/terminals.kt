@@ -16,46 +16,52 @@ import java.nio.file.Path
  * likes, typically the home folder. Those are told the folder, and to open a window of their own.
  */
 
-/** How a terminal is told the folder to start in. */
-sealed interface DirArg {
-	/** An option the folder is joined to: `--working-directory=` and the folder, one word. */
-	data class Joined(
-		val option: String,
-	) : DirArg
-
-	/** An option the folder follows as the next word: `--workdir`, then the folder. */
-	data class Separate(
-		val option: String,
-	) : DirArg
-
-	/** The folder alone, as a word of its own: what macOS's `open -a Terminal` takes. */
-	data object Positional : DirArg
-
-	/** No option at all: it starts where its process is started, which is the folder. */
-	data object ProcessFolder : DirArg
-
+/** How a terminal is told the folder to start in: words, [FOLDER] standing for the folder in one of them. */
+@JvmInline
+value class FolderArgs private constructor(
+	val template: List<String>,
+) {
 	/** The words that say [folder]. */
 	fun words(folder: Path): List<String> =
-		when (this) {
-			is Joined -> listOf(option + folder)
-			is Separate -> listOf(option, folder.toString())
-			Positional -> listOf(folder.toString())
-			ProcessFolder -> emptyList()
-		}
+		template.map { it.replace(FOLDER, folder.toString()) }
 
 	companion object {
+		const val FOLDER = "{folder}"
+
+		/** No words at all: it starts in the folder it is started in. */
+		val None = FolderArgs(emptyList())
+
+		/** The folder alone, a word of its own: what macOS's `open -a Terminal` takes. */
+		val Positional = FolderArgs(listOf(FOLDER))
+
+		/** An option the folder is joined to: `--working-directory=` and the folder, one word. */
+		fun joined(option: String) = FolderArgs(listOf(option + FOLDER))
+
+		/** An option the folder follows as a word of its own: `--workdir`, then the folder. */
+		fun separate(option: String) = FolderArgs(listOf(option, FOLDER))
+
 		/** As a desktop entry's `X-TerminalArgDir=` says it: an option ending in `=` takes the folder joined. */
-		fun of(option: String): DirArg =
+		fun ofOption(option: String): FolderArgs =
 			if (option.endsWith("="))
-				Joined(option)
+				joined(option)
 			else
-				Separate(option)
+				separate(option)
+
+		/**
+		 * [template] as written by a person: none, or words of which exactly one says where the folder goes; null for
+		 * words that do not say it, or say it twice, which would tell a terminal no folder, or two.
+		 */
+		fun of(template: List<String>): FolderArgs? =
+			FolderArgs(template).takeIf {
+				template.isEmpty() ||
+					template.count { FOLDER in it } == 1
+			}
 	}
 }
 
 /** How a terminal is given a command to run. */
 sealed interface ExecArg {
-	/** Words before the command (`-e`, `-x`, `--`): the command's own words follow, each as a word of its own. */
+	/** Words before the command (`-e`, `-x`, `--`, or none): the command's own words follow, each a word of its own. */
 	data class Before(
 		val words: List<String>,
 	) : ExecArg
@@ -71,14 +77,14 @@ sealed interface ExecArg {
 }
 
 /**
- * A terminal: [program], its words before any option (a program, or a launcher and what it launches); how it is told
- * a folder ([dir]) and given a command ([exec]); and [alone], what has it open a window in a process of its own rather
- * than in one already running, where a running one would start where it likes.
+ * A terminal: [program], its words before any option (a program, or a launcher and what it launches, and the user's
+ * own options); how it is told a folder ([folder]) and given a command ([exec]); and [alone], what has it open a window
+ * in a process of its own rather than in one already running, where a running one would start where it likes.
  */
 data class Terminal(
 	val name: String,
 	val program: List<String>,
-	val dir: DirArg,
+	val folder: FolderArgs,
 	val exec: ExecArg,
 	val alone: List<String> = emptyList(),
 ) {
@@ -91,13 +97,71 @@ data class Terminal(
 				else -> return null
 			}
 
-		return program + alone + dir.words(folder) + running
+		return program + alone + this.folder.words(folder) + running
 	}
+
+	/** This, told a folder and given a command as [described] says where it says; what it does not say is as it was. */
+	fun with(described: TerminalChoice.Described): Terminal =
+		copy(
+			folder = described.folder ?: folder,
+			exec = described.exec ?: exec,
+			alone = described.alone ?: alone,
+		)
+}
+
+/**
+ * The terminal the user has chosen, as the preferences say it: none (the desktop's own, as found), words to run as
+ * they are written, a terminal described, or a choice that could not be read, which is said rather than guessed at.
+ */
+sealed interface TerminalChoice {
+	/** None chosen: the desktop's own, as the platform finds it. */
+	data object Found : TerminalChoice
+
+	/**
+	 * [words] run as they are written: [FolderArgs.FOLDER] where the folder goes, and [COMMAND], a word of its own,
+	 * where a command's words go. Without [COMMAND] it opens in a folder only, and a command runs in the desktop's own.
+	 */
+	data class Written(
+		val words: List<String>,
+	) : TerminalChoice {
+		/** These words for [folder], running [command] where one is given; null where they have no place for one. */
+		fun opening(folder: Path, command: List<String>?): List<String>? {
+			val filled = words.map { it.replace(FolderArgs.FOLDER, folder.toString()) }
+
+			return when {
+				command == null -> filled.filter { it != COMMAND }
+				COMMAND in filled -> filled.flatMap { if (it == COMMAND) command else listOf(it) }
+				else -> null
+			}
+		}
+
+		companion object {
+			const val COMMAND = "{command}"
+		}
+	}
+
+	/**
+	 * A terminal described: [command], its program and the user's own options; and, where they are said (not null),
+	 * how it is told a folder, how it is given a command, and what opens a window of its own. What is not said is as
+	 * the terminal's desktop entry says, or as prism knows the program to take it.
+	 */
+	data class Described(
+		val command: List<String>,
+		val folder: FolderArgs? = null,
+		val exec: ExecArg? = null,
+		val alone: List<String>? = null,
+	) : TerminalChoice
+
+	/** A choice written so that it could not be read: [why], and what was written, [written], to be kept as it is. */
+	data class Unreadable(
+		val written: String,
+		val why: String,
+	) : TerminalChoice
 }
 
 /** The terminals prism knows how to tell a folder and a command, for those whose desktop entry does not say. */
 object KnownTerminals {
-	private fun joined(option: String) = DirArg.Joined(option)
+	private fun joined(option: String) = FolderArgs.joined(option)
 
 	private fun before(vararg words: String) = ExecArg.Before(words.toList())
 
@@ -137,7 +201,7 @@ object KnownTerminals {
 				joined("--working-directory="),
 				before("--"),
 			),
-			Terminal("Konsole", listOf("konsole"), DirArg.Separate("--workdir"), before("-e")),
+			Terminal("Konsole", listOf("konsole"), FolderArgs.separate("--workdir"), before("-e")),
 			Terminal(
 				"Xfce Terminal",
 				listOf("xfce4-terminal"),
@@ -163,10 +227,15 @@ object KnownTerminals {
 				joined("--working-directory="),
 				before("-e"),
 			),
-			Terminal("QTerminal", listOf("qterminal"), DirArg.Separate("--workdir"), before("-e")),
-			Terminal("st", listOf("st"), DirArg.Separate("-d"), before("-e")),
-			Terminal("urxvt", listOf("urxvt"), DirArg.Separate("-cd"), before("-e")),
-			Terminal("XTerm", listOf("xterm"), DirArg.ProcessFolder, before("-e")),
+			Terminal(
+				"QTerminal",
+				listOf("qterminal"),
+				FolderArgs.separate("--workdir"),
+				before("-e"),
+			),
+			Terminal("st", listOf("st"), FolderArgs.separate("-d"), before("-e")),
+			Terminal("urxvt", listOf("urxvt"), FolderArgs.separate("-cd"), before("-e")),
+			Terminal("XTerm", listOf("xterm"), FolderArgs.None, before("-e")),
 		)
 
 	/**
@@ -184,13 +253,13 @@ object KnownTerminals {
 			Terminal(
 				"iTerm",
 				listOf("open", "-a", "iTerm"),
-				DirArg.Positional,
+				FolderArgs.Positional,
 				ExecArg.Unsupported,
 			),
 			Terminal(
 				"Terminal",
 				listOf("open", "-a", "Terminal"),
-				DirArg.Positional,
+				FolderArgs.Positional,
 				ExecArg.Unsupported,
 			),
 		)
@@ -198,11 +267,11 @@ object KnownTerminals {
 	/** On Windows: Windows Terminal (`wt.exe -d`), and PowerShell in a console of its own where there is none. */
 	val windows: List<Terminal> =
 		listOf(
-			Terminal("Windows Terminal", listOf("wt.exe"), DirArg.Separate("-d"), before()),
+			Terminal("Windows Terminal", listOf("wt.exe"), FolderArgs.separate("-d"), before()),
 			Terminal(
 				"PowerShell",
 				listOf("cmd.exe", "/c", "start", "", "powershell.exe", "-NoExit"),
-				DirArg.ProcessFolder,
+				FolderArgs.None,
 				before("-Command"),
 			),
 		)
@@ -218,4 +287,16 @@ object KnownTerminals {
 			)
 		}
 	}
+}
+
+/** The command a terminal is opened with, or why there is none. */
+sealed interface TerminalCommand {
+	data class Ready(
+		val words: List<String>,
+	) : TerminalCommand
+
+	data class Failed(
+		val what: String,
+		val why: String,
+	) : TerminalCommand
 }

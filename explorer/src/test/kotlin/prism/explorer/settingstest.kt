@@ -9,7 +9,10 @@ import org.junit.jupiter.api.Test
 import prism.browser.Action
 import prism.browser.Bindings
 import prism.browser.Chord
+import prism.desktop.ExecArg
+import prism.desktop.FolderArgs
 import prism.desktop.Place
+import prism.desktop.TerminalChoice
 import prism.preferences.ActionsFile
 import prism.preferences.Preferences
 
@@ -84,7 +87,7 @@ class SettingsTest {
 
 	@Test
 	fun onlyWhatWasChangedHereIsSavedOverThePreferencesAsTheyAreBySaving() {
-		val base = Preferences(terminal = listOf("foot"))
+		val base = Preferences(terminal = TerminalChoice.Described(listOf("foot")))
 		val opened = Settings(base, places)
 
 		assertFalse(opened.changed)
@@ -126,7 +129,52 @@ class SettingsTest {
 		)
 
 		// The terminal emptied is the desktop's own.
-		assertNull(opened.copy(terminal = "  ").over(base).terminal)
+		assertEquals(
+			TerminalChoice.Found,
+			opened.copy(terminal = TerminalForm(command = "  ")).over(base).terminal,
+		)
+	}
+
+	@Test
+	fun theTerminalsFieldsMakeTheChoiceTheyShowAndOneThatCannotBeIsSaidSo() {
+		// Nothing typed: the desktop's own. A program and options: a terminal, told the rest as it is known.
+		assertEquals(TerminalChoice.Found, TerminalForm().choice())
+		assertEquals(
+			TerminalChoice.Described(listOf("ghostty", "--font-size=14")),
+			TerminalForm(command = "ghostty --font-size=14").choice(),
+		)
+		// Words saying where the folder goes: run as written, whatever the other fields say.
+		assertEquals(
+			TerminalChoice.Written(listOf("foot", "-D", "{folder}")),
+			TerminalForm(command = "foot -D {folder}", folder = "ignored").choice(),
+		)
+		// Each field said overrides what is known; one left blank does not.
+		assertEquals(
+			TerminalChoice.Described(
+				listOf("my-term"),
+				FolderArgs.of(listOf("--in", "{folder}")),
+				ExecArg.Before(listOf("--run")),
+				null,
+			),
+			TerminalForm(command = "my-term", folder = "--in {folder}", run = "--run").choice(),
+		)
+
+		// Folder words that do not say where the folder goes cannot be: kept, and said to be wrong.
+		val wrong = TerminalForm(command = "my-term", folder = "--in").choice()
+
+		assertTrue(wrong is TerminalChoice.Unreadable && "{folder}" in wrong.why)
+
+		// What the fields show reads back as the choice they were filled from, so opening the page changes nothing.
+		val described =
+			TerminalChoice.Described(
+				listOf("kitty", "-o", "font_size=14"),
+				FolderArgs.joined("--directory="),
+				ExecArg.Unsupported,
+				listOf("-1"),
+			)
+
+		assertEquals(described, TerminalForm.of(described).choice())
+		assertEquals(wrong, TerminalForm.of(wrong).choice())
 	}
 
 	@Test

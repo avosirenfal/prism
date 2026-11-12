@@ -23,7 +23,7 @@ interface Desktop {
 	 * is given where it takes one at a time, or one for all of them where it takes several. What no application opens
 	 * is said, for the user to choose one ("Open with").
 	 */
-	fun open(paths: List<Path>): Opening {
+	fun open(paths: List<Path>, terminal: TerminalChoice = TerminalChoice.Found): Opening {
 		val defaults =
 			paths.map { it to types.of(it) }.associate { (path, type) ->
 				path to
@@ -34,7 +34,7 @@ interface Desktop {
 			paths
 				.filter { defaults[it] != null }
 				.groupBy { defaults.getValue(it)!! }
-				.map { (application, files) -> launcher.launch(application, files) }
+				.map { (application, files) -> launcher.launch(application, files, terminal) }
 
 		return Opening(started, unopened)
 	}
@@ -149,18 +149,43 @@ sealed interface Launched {
  * nothing it opened with it.
  */
 interface Launcher {
-	/** [application] started with [paths]: once, or once for each where it takes one at a time. */
-	fun launch(application: Application, paths: List<Path>): Launched
+	/** [application] started with [paths]: once, or once for each where it takes one at a time; in [terminal] if it runs in one. */
+	fun launch(
+		application: Application,
+		paths: List<Path>,
+		terminal: TerminalChoice = TerminalChoice.Found,
+	): Launched
 
 	/** [command] started in [folder]. */
 	fun run(command: List<String>, folder: Path): Launched
 
-	/** A terminal started in [folder]: [preferred] (its words; `{folder}` is the folder) or the desktop's own. */
-	fun terminal(folder: Path, preferred: List<String>?): Launched
+	/**
+	 * The command [choice]'s terminal is opened with in [folder], running [command] there where one is given; or why
+	 * it cannot be. A launcher that knows no terminal says so.
+	 */
+	fun terminalCommand(
+		folder: Path,
+		choice: TerminalChoice,
+		command: List<String>? = null,
+	): TerminalCommand =
+		TerminalCommand.Failed("a terminal", "there is no terminal on this desktop")
 
-	/** [command] started in a terminal, in [folder]; a launcher that knows no terminal to run one in says so. */
-	fun inTerminal(command: List<String>, folder: Path): Launched =
-		Launched.Failed(command.firstOrNull() ?: "nothing", "there is no terminal to run it in")
+	/** [choice]'s terminal started in [folder]. */
+	fun terminal(folder: Path, choice: TerminalChoice): Launched =
+		started(terminalCommand(folder, choice), folder)
+
+	/** [command] started in [choice]'s terminal, in [folder]. */
+	fun inTerminal(
+		command: List<String>,
+		folder: Path,
+		choice: TerminalChoice = TerminalChoice.Found,
+	): Launched = started(terminalCommand(folder, choice, command), folder)
+
+	private fun started(command: TerminalCommand, folder: Path): Launched =
+		when (command) {
+			is TerminalCommand.Ready -> run(command.words, folder)
+			is TerminalCommand.Failed -> Launched.Failed(command.what, command.why)
+		}
 }
 
 /** A place the sidebar offers. */

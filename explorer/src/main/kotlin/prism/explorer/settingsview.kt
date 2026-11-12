@@ -20,7 +20,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -57,6 +59,8 @@ import prism.browser.LocalPalette
 import prism.browser.LocalType
 import prism.browser.PushButton
 import prism.browser.Scope
+import prism.desktop.TerminalChoice
+import prism.desktop.TerminalCommand
 
 /*
  * The preferences window. Its edits are one value ([Settings]) that the window replaces with each change and saves
@@ -76,6 +80,9 @@ fun SettingsView(
 	onSave: () -> Unit,
 	onCancel: () -> Unit,
 	mouseChords: Flow<Chord> = emptyFlow(),
+	terminalPreview: (
+		TerminalChoice,
+	) -> TerminalCommand = { TerminalCommand.Failed("a terminal", "there is no desktop") },
 ) {
 	val palette = LocalPalette.current
 	val root = remember { FocusRequester() }
@@ -132,7 +139,7 @@ fun SettingsView(
 			Box(Modifier.weight(1f).fillMaxWidth()) {
 				when (settings.page) {
 					Page.Sidebar -> SidebarPage(settings, onChange)
-					Page.Terminal -> TerminalPage(settings, onChange)
+					Page.Terminal -> TerminalPage(settings, onChange, terminalPreview)
 					Page.Bindings -> BindingsPage(rebinding) { onChange(settings.copy(rebinding = it)) }
 					Page.Actions -> ActionsPage(settings.actions)
 				}
@@ -344,30 +351,85 @@ private fun PinRow(
 	}
 }
 
-/** The terminal "Open terminal here" runs. */
+/**
+ * The terminal "Open terminal here" opens, and what runs in a terminal runs in: found, or chosen and described, field
+ * by field, with what it would run in the home folder ([preview]) said as it is typed.
+ */
 @Composable
-private fun TerminalPage(settings: Settings, onChange: (Settings) -> Unit) {
+private fun TerminalPage(
+	settings: Settings,
+	onChange: (Settings) -> Unit,
+	preview: (TerminalChoice) -> TerminalCommand,
+) {
 	val type = LocalType.current
+	val palette = LocalPalette.current
+	val form = settings.terminal
+	val choice = remember(form) { form.choice() }
+	val runs = remember(choice) { preview(choice) }
 
-	Column {
+	fun edit(change: (TerminalForm) -> TerminalForm) =
+		onChange(settings.copy(terminal = change(form)))
+
+	@Composable
+	fun Labelled(
+		label: String,
+		text: String,
+		hint: String,
+		enabled: Boolean,
+		onText: (String) -> Unit,
+	) {
+		Text(label, style = type.body)
+		Field(text, onText, Modifier.fillMaxWidth(), hint = hint, readOnly = !enabled)
+		Spacer(Modifier.height(Dims.gap))
+	}
+
+	Column(Modifier.verticalScroll(rememberScrollState())) {
 		Heading(
 			"Terminal",
-			"What “Open terminal here” runs, in the folder it is for; " +
-				"{folder} stands for the folder's path. Left empty, the " +
-				"desktop's own is run: \$TERMINAL, xdg-terminal-exec, or the " +
-				"first terminal found.",
+			"What “Open terminal here” opens, and what runs in a terminal runs in. Left empty, the desktop's own is " +
+				"found: \$TERMINAL, xdg-terminals.list, the desktop's setting, or the first terminal installed. A " +
+				"terminal named is told the folder and given a command as it is known to take them; the fields below " +
+				"say otherwise where it is not known, or known wrong. Words with {folder} or {command} in them are " +
+				"run as they are written.",
 		)
-		Field(
-			settings.terminal,
-			{ onChange(settings.copy(terminal = it)) },
-			Modifier.fillMaxWidth(),
-			hint = "The desktop's own",
-		)
-		Spacer(Modifier.height(Dims.gap))
+		Labelled("Command", form.command, "The desktop's own", enabled = true) { text ->
+			edit { it.copy(command = text, unreadable = null) }
+		}
+
+		val described = !form.written
+
+		Labelled(
+			"Folder",
+			form.folder,
+			"As it is known: --working-directory={folder}, say",
+			described,
+		) { text ->
+			edit { it.copy(folder = text) }
+		}
+		Labelled(
+			"Before a command",
+			form.run,
+			if (form.cannotRun)
+				"It cannot be given a command"
+			else
+				"As it is known: -e, say",
+			described,
+		) { text -> edit { it.copy(run = text, cannotRun = false) } }
+		Labelled("For a window of its own", form.alone, "As it is known", described) { text ->
+			edit { it.copy(alone = text) }
+		}
 		Text(
-			settings.terminalWords?.let { words -> "Runs ${words.joinToString(" ") { "“$it”" }}" }
-				?: "Runs the desktop's own",
-			style = type.muted,
+			when (runs) {
+				is TerminalCommand.Ready ->
+					"In your home folder, runs " +
+						runs.words.joinToString(" ") { "“$it”" }
+				is TerminalCommand.Failed -> "Can't open it: ${runs.why}"
+			},
+			style =
+				if (runs is TerminalCommand.Failed)
+					type.body
+				else
+					type.muted,
 		)
 	}
 }

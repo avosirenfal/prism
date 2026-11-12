@@ -193,11 +193,11 @@ class TerminalsTest {
 			}
 
 		// The desktop's own: started in the folder, and told it.
-		launcher.terminal(folder, null)
+		launcher.terminal(folder, TerminalChoice.Found)
 		// A preference naming a program alone is told the folder as that program takes it.
-		launcher.terminal(folder, listOf("foot"))
+		launcher.terminal(folder, TerminalChoice.Described(listOf("foot")))
 		// One that says where the folder goes is run as it is written.
-		launcher.terminal(folder, listOf("foot", "-D", "{folder}"))
+		launcher.terminal(folder, TerminalChoice.Written(listOf("foot", "-D", "{folder}")))
 
 		val words =
 			started.map { (command, _) ->
@@ -214,5 +214,92 @@ class TerminalsTest {
 		assertEquals(listOf("foot", "--working-directory=$folder"), words[1])
 		assertEquals(listOf("foot", "-D", folder.toString()), words[2])
 		assertEquals(listOf(folder, folder, folder), started.map { it.second })
+	}
+
+	@Test
+	fun aTerminalChosenIsOpenedAsTheUserSaysWhereTheySayAndAsKnownWhereNot() {
+		installed("ghostty", "foot", "my-term")
+
+		val launcher = DetachedLauncher(xdg()) { _, _ -> Launched.Started("") }
+
+		fun opened(choice: TerminalChoice, command: List<String>? = null): Any =
+			when (val opening = launcher.terminalCommand(folder, choice, command)) {
+				is TerminalCommand.Ready ->
+					listOf(Path.of(opening.words.first()).fileName.toString()) +
+						opening.words.drop(1)
+				is TerminalCommand.Failed -> opening.why
+			}
+
+		// The user's own options kept, and the folder and a window of its own as Ghostty is known to take them.
+		assertEquals(
+			listOf(
+				"ghostty",
+				"--font-size=14",
+				"--gtk-single-instance=false",
+				"--working-directory=$folder",
+				"-e",
+				"htop",
+			),
+			opened(TerminalChoice.Described(listOf("ghostty", "--font-size=14")), listOf("htop")),
+		)
+		// What the user says in place of what is known: a terminal that has changed how it takes a folder, say.
+		assertEquals(
+			listOf("ghostty", "--cwd", folder.toString(), "-e", "htop"),
+			opened(
+				TerminalChoice.Described(
+					listOf("ghostty"),
+					FolderArgs.separate("--cwd"),
+					alone = emptyList(),
+				),
+				listOf("htop"),
+			),
+		)
+		// A terminal prism does not know, described in full.
+		assertEquals(
+			listOf("my-term", "--in=$folder", "--run", "htop"),
+			opened(
+				TerminalChoice.Described(
+					listOf("my-term"),
+					FolderArgs.joined("--in="),
+					ExecArg.Before(listOf("--run")),
+				),
+				listOf("htop"),
+			),
+		)
+		// Words as written: a command where {command} is; where there is none, a command runs in the desktop's own.
+		assertEquals(
+			listOf("foot", "-D", folder.toString(), "htop", "-d", "1"),
+			opened(
+				TerminalChoice.Written(listOf("foot", "-D", "{folder}", "{command}")),
+				listOf("htop", "-d", "1"),
+			),
+		)
+		assertEquals(
+			listOf("foot", "-D", folder.toString()),
+			opened(TerminalChoice.Written(listOf("foot", "-D", "{folder}"))),
+		)
+		assertEquals(
+			listOf(
+				"ghostty",
+				"--gtk-single-instance=false",
+				"--working-directory=$folder",
+				"-e",
+				"htop",
+			),
+			opened(TerminalChoice.Written(listOf("foot", "-D", "{folder}")), listOf("htop")),
+		)
+		// What cannot be: said, not guessed at.
+		assertEquals(
+			"“not-here” is not installed, or not on the PATH",
+			opened(TerminalChoice.Described(listOf("not-here"))),
+		)
+		assertEquals("it's wrong", opened(TerminalChoice.Unreadable("{}", "it's wrong")))
+		assertEquals(
+			"it cannot be given a command to run",
+			opened(
+				TerminalChoice.Described(listOf("my-term"), exec = ExecArg.Unsupported),
+				listOf("htop"),
+			),
+		)
 	}
 }

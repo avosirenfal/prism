@@ -103,15 +103,14 @@ window here. So a folder pinned in the explorer is in the next picker's sidebar 
         "SearchIndex": ["Ctrl+K"],
         "Up": ["Alt+Up", "Backspace", "Mouse Back"]
     },
-    "terminal": ["foot", "--working-directory", "{folder}"]
+    "terminal": ["ghostty", "--font-size=14"]
 }
 ```
 
 `pinned` is null until the user pins or unpins something; until then the sidebar shows the desktop's own places (the
 home folder and the well-known folders in it). `bindings` holds only the actions whose chords differ from their
 defaults; an action named with an empty list has no chord at all. `terminal` is null for the desktop's own terminal;
-a list that says where the folder goes (`{folder}`) is run as it is written, and one that names a terminal alone
-(`["ghostty"]`) is told the folder as that terminal takes it ("Open terminal here", below). A file that does not read as
+otherwise the terminal chosen, in one of the forms "Choosing the terminal" (below) shows. A file that does not read as
 preferences leaves every default in place, and is copied beside itself with `.unreadable` after its name before
 anything is written over it, so nothing written by hand is lost.
 
@@ -254,6 +253,48 @@ on the `PATH` (`desktop/freedesktop/terminals.kt`). A terminal named by a deskto
 as the entry says (`X-TerminalArgDir=`, `X-TerminalArgExec=`), or else as prism knows it (`KnownTerminals`, about twenty),
 or else is started in the folder and given `-e`. On macOS (Terminal, iTerm, Ghostty, through `open`) and Windows
 (Windows Terminal, PowerShell) the forms are described the same way, for the launchers those platforms are to have.
+
+### Choosing the terminal
+
+Where prism finds the wrong terminal, or none, or a terminal changes how it takes a folder, or the user wants options
+of their own, the preferences say so (the preferences window's Terminal page has a field for each, and shows what would
+run in the home folder as it is typed):
+
+```json
+"terminal": null
+```
+
+The desktop's own, as found.
+
+```json
+"terminal": ["ghostty", "--font-size=14"]
+```
+
+A terminal, with options of the user's own: told the folder, and given a command, as it is known to take them.
+
+```json
+"terminal": ["foot", "-D", "{folder}", "{command}"]
+```
+
+Words run as they are written: `{folder}` is the folder, and `{command}`, a word of its own, a command's words. Without
+`{command}`, a command runs in the desktop's own terminal.
+
+```json
+"terminal": {
+    "command": ["my-term", "--login"],
+    "folder": ["--start-in", "{folder}"],
+    "run": ["-x"],
+    "alone": ["--new-process"]
+}
+```
+
+A terminal described, where what is known of it is wrong or nothing is: `folder` is the words that say the folder
+(`{folder}` once, in a word of its own or joined to an option; `[]` for none, started in the folder), `run` what comes
+before a command's words (`[]` for nothing, `null` for a terminal that cannot be given one), and `alone` what has it
+open a window of its own. Each key left out is as the terminal's desktop entry says, or as prism knows it.
+
+A choice that cannot be read is kept as it was written, and "Open terminal here" says why it cannot open it, rather
+than losing the rest of the preferences, or guessing.
 
 ## Not done yet
 

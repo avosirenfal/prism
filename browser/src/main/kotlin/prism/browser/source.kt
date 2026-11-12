@@ -257,7 +257,10 @@ fun Services.answer(
 				orderOf(asking.matches, Stats.none(asking.matches.size), asking.column),
 			)
 		is Effect.Open ->
-			Answer.Opened(desktop?.open(asking.paths) ?: Opening(emptyList(), asking.paths))
+			Answer.Opened(
+				desktop?.open(asking.paths, preferences.preferences.value.terminal)
+					?: Opening(emptyList(), asking.paths),
+			)
 		is Effect.Terminal ->
 			Answer.Started(
 				desktop?.launcher?.terminal(asking.folder, preferences.preferences.value.terminal)
@@ -309,7 +312,7 @@ private fun Services.launched(job: Job, terminal: Boolean): Launched {
 						invocation.words
 
 			if (terminal)
-				launcher.inTerminal(words, invocation.folder)
+				launcher.inTerminal(words, invocation.folder, preferences.preferences.value.terminal)
 			else
 				launcher.run(words, invocation.folder)
 		}

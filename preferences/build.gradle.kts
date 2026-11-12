@@ -9,4 +9,6 @@ plugins {
 dependencies {
 	api(libs.kotlinx.serialization.json)
 	api(libs.kotlinx.coroutines.core)
+	// The terminal chosen is the desktop's description of one (prism.desktop.TerminalChoice), written here.
+	api(project(":desktop"))
 }

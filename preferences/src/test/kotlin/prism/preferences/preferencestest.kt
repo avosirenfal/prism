@@ -12,6 +12,7 @@ import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
+import prism.desktop.TerminalChoice
 
 /**
  * The preferences: every default where nothing is set; written whole and read back as they were; a file written wrong
@@ -40,7 +41,9 @@ class PreferencesTest {
 				.pinning(listOf(Path.of("/home/avery/Projects"), Path.of("/mnt/data")))
 				.binding("SearchIndex", listOf("Ctrl+Space"))
 				.binding("Back", listOf("Mouse Back", "Alt+Left"))
-				.copy(terminal = listOf("foot", "--working-directory", "{folder}"))
+				.copy(
+					terminal = TerminalChoice.Written(listOf("foot", "--working-directory", "{folder}")),
+				)
 
 		PreferenceFile.open(file).use { it.update { set } }
 
@@ -79,7 +82,10 @@ class PreferencesTest {
 		Files.createDirectories(file.parent)
 		file.writeText("{ \"terminal\": [\"kitty\"], \"from-the-future\": true }")
 
-		assertEquals(listOf("kitty"), PreferenceFile.read(file).preferences.terminal)
+		assertEquals(
+			TerminalChoice.Described(listOf("kitty")),
+			PreferenceFile.read(file).preferences.terminal,
+		)
 	}
 
 	@Test
@@ -105,7 +111,10 @@ class PreferencesTest {
 	fun preferencesInMemoryChangeAsAFile() {
 		val store = MemoryPreferences()
 
-		store.update { it.copy(terminal = listOf("alacritty")) }
-		assertEquals(listOf("alacritty"), store.preferences.value.terminal)
+		store.update { it.copy(terminal = TerminalChoice.Described(listOf("alacritty"))) }
+		assertEquals(
+			TerminalChoice.Described(listOf("alacritty")),
+			store.preferences.value.terminal,
+		)
 	}
 }

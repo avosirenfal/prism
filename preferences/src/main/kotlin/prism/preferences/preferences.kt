@@ -8,6 +8,7 @@ import kotlinx.serialization.descriptors.PrimitiveSerialDescriptor
 import kotlinx.serialization.encoding.Decoder
 import kotlinx.serialization.encoding.Encoder
 import kotlinx.serialization.json.JsonElement
+import prism.desktop.TerminalChoice
 
 /*
  * What the user has set, as one immutable value. Every window reads the same one, and a change to it is a new value
@@ -33,10 +34,11 @@ data class Preferences(
 	 */
 	val bindings: Map<String, List<String>> = emptyMap(),
 	/**
-	 * The command "Open terminal here" runs, as its words, in the folder it is for; null for the desktop's own
-	 * terminal, as the platform finds it.
+	 * The terminal "Open terminal here" opens, and what runs in a terminal runs in: the desktop's own, as the platform
+	 * finds it, unless one is chosen here (terminal.kt).
 	 */
-	val terminal: List<String>? = null,
+	@Serializable(with = TerminalChoiceSerializer::class)
+	val terminal: TerminalChoice = TerminalChoice.Found,
 	/**
 	 * The user's own actions, each as it is written (actions.kt): what the context menus offer beyond prism's own. Each
 	 * is read on its own, so that one written wrong does not lose the rest.

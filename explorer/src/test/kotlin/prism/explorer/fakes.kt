@@ -11,6 +11,7 @@ import prism.desktop.Launcher
 import prism.desktop.MimeType
 import prism.desktop.Place
 import prism.desktop.Places
+import prism.desktop.TerminalChoice
 
 /** A desktop of the tests': everything is text, an editor opens it, and only [home] is pinned until the user says. */
 class FakeDesktop(
@@ -50,13 +51,16 @@ class FakeDesktop(
 		}
 	override val launcher =
 		object : Launcher {
-			override fun launch(application: Application, paths: List<Path>) =
-				Launched.Started(application.name)
+			override fun launch(
+				application: Application,
+				paths: List<Path>,
+				terminal: TerminalChoice,
+			) = Launched.Started(application.name)
 
 			override fun run(command: List<String>, folder: Path) =
 				Launched.Started(command.first())
 
-			override fun terminal(folder: Path, preferred: List<String>?) =
+			override fun terminal(folder: Path, choice: TerminalChoice) =
 				Launched.Started("terminal")
 		}
 	override val places =

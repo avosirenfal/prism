@@ -3,8 +3,8 @@ package prism.desktop.freedesktop
 import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.Path
-import prism.desktop.DirArg
 import prism.desktop.ExecArg
+import prism.desktop.FolderArgs
 import prism.desktop.KnownTerminals
 import prism.desktop.Terminal
 
@@ -58,7 +58,7 @@ class FreedesktopTerminals(
 			?: Terminal(
 				program,
 				listOf(found.toString()) + words.drop(1),
-				DirArg.ProcessFolder,
+				FolderArgs.None,
 				ExecArg.Before(listOf("-e")),
 			)
 	}
@@ -127,7 +127,7 @@ class FreedesktopTerminals(
 			?: Terminal(
 				"x-terminal-emulator",
 				listOf(link.toString()),
-				DirArg.ProcessFolder,
+				FolderArgs.None,
 				ExecArg.Before(listOf("-e")),
 			)
 	}
@@ -189,7 +189,9 @@ class FreedesktopTerminals(
 		return Terminal(
 			name = keys["Name"] ?: id.removeSuffix(".desktop"),
 			program = listOf(found.toString()) + words.drop(1),
-			dir = keys["X-TerminalArgDir"]?.let(DirArg::of) ?: known?.dir ?: DirArg.ProcessFolder,
+			folder =
+				keys["X-TerminalArgDir"]?.let(FolderArgs::ofOption) ?: known?.folder
+					?: FolderArgs.None,
 			exec =
 				keys["X-TerminalArgExec"]?.let(ExecArg::of) ?: known?.exec
 					?: ExecArg.Before(listOf("-e")),
