@@ -29,6 +29,21 @@ val toolchainJdk =
 			JavaLanguageVersion.of(libs.versions.jdk.get())
 	}
 
+val jfr: Boolean = providers.gradleProperty("jfr").map(String::toBoolean).getOrElse(false)
+
+tasks.withType<JavaExec>().named { it == "run" }.configureEach {
+	if (jfr)
+		jvmArgumentProviders += CommandLineArgumentProvider {
+			listOf(
+				"-XX:+UnlockDiagnosticVMOptions",
+				"-XX:+DebugNonSafepoints",
+				"-XX:StartFlightRecording=filename=profile.jfr,settings=profile,dumponexit=true",
+			)
+		}
+
+	standardInput = System.`in`
+}
+
 compose.desktop {
 	application {
 		mainClass = "prism.app.MainKt"
