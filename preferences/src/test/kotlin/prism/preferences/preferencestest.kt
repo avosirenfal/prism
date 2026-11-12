@@ -42,7 +42,7 @@ class PreferencesTest {
 				.binding("SearchIndex", listOf("Ctrl+Space"))
 				.binding("Back", listOf("Mouse Back", "Alt+Left"))
 				.copy(
-					terminal = TerminalChoice.Written(listOf("foot", "--working-directory", "{folder}")),
+					terminal = TerminalChoice.Named("foot"),
 				)
 
 		PreferenceFile.open(file).use { it.update { set } }
@@ -83,7 +83,7 @@ class PreferencesTest {
 		file.writeText("{ \"terminal\": [\"kitty\"], \"from-the-future\": true }")
 
 		assertEquals(
-			TerminalChoice.Described(listOf("kitty")),
+			TerminalChoice.Named("kitty"),
 			PreferenceFile.read(file).preferences.terminal,
 		)
 	}
@@ -111,9 +111,9 @@ class PreferencesTest {
 	fun preferencesInMemoryChangeAsAFile() {
 		val store = MemoryPreferences()
 
-		store.update { it.copy(terminal = TerminalChoice.Described(listOf("alacritty"))) }
+		store.update { it.copy(terminal = TerminalChoice.Named("alacritty")) }
 		assertEquals(
-			TerminalChoice.Described(listOf("alacritty")),
+			TerminalChoice.Named("alacritty"),
 			store.preferences.value.terminal,
 		)
 	}

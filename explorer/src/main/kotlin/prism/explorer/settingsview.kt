@@ -352,8 +352,8 @@ private fun PinRow(
 }
 
 /**
- * The terminal "Open terminal here" opens, and what runs in a terminal runs in: found, or chosen and described, field
- * by field, with what it would run in the home folder ([preview]) said as it is typed.
+ * The terminal "Open terminal here" opens, and what runs in a terminal runs in: found, or chosen by its name or its
+ * command line; with what it would run in the home folder ([preview]), and what it is used for, said as it is typed.
  */
 @Composable
 private fun TerminalPage(
@@ -362,62 +362,37 @@ private fun TerminalPage(
 	preview: (TerminalChoice) -> TerminalCommand,
 ) {
 	val type = LocalType.current
-	val palette = LocalPalette.current
 	val form = settings.terminal
 	val choice = remember(form) { form.choice() }
 	val runs = remember(choice) { preview(choice) }
-
-	fun edit(change: (TerminalForm) -> TerminalForm) =
-		onChange(settings.copy(terminal = change(form)))
-
-	@Composable
-	fun Labelled(
-		label: String,
-		text: String,
-		hint: String,
-		enabled: Boolean,
-		onText: (String) -> Unit,
-	) {
-		Text(label, style = type.body)
-		Field(text, onText, Modifier.fillMaxWidth(), hint = hint, readOnly = !enabled)
-		Spacer(Modifier.height(Dims.gap))
-	}
 
 	Column(Modifier.verticalScroll(rememberScrollState())) {
 		Heading(
 			"Terminal",
 			"What “Open terminal here” opens, and what runs in a terminal runs in. Left empty, the desktop's own is " +
-				"found: \$TERMINAL, xdg-terminals.list, the desktop's setting, or the first terminal installed. A " +
-				"terminal named is told the folder and given a command as it is known to take them; the fields below " +
-				"say otherwise where it is not known, or known wrong. Words with {folder} or {command} in them are " +
-				"run as they are written.",
+				"found. A terminal's name (ghostty) is told the folder, and given a command, as prism or the terminal's " +
+				"own desktop entry knows it takes them. Or write its command line: {folder} where the folder goes, " +
+				"{command} where a command's words go; what it has no place for, it is not used for.",
 		)
-		Labelled("Command", form.command, "The desktop's own", enabled = true) { text ->
-			edit { it.copy(command = text, unreadable = null) }
-		}
-
-		val described = !form.written
-
-		Labelled(
-			"Folder",
-			form.folder,
-			"As it is known: --working-directory={folder}, say",
-			described,
-		) { text ->
-			edit { it.copy(folder = text) }
-		}
-		Labelled(
-			"Before a command",
-			form.run,
-			if (form.cannotRun)
-				"It cannot be given a command"
-			else
-				"As it is known: -e, say",
-			described,
-		) { text -> edit { it.copy(run = text, cannotRun = false) } }
-		Labelled("For a window of its own", form.alone, "As it is known", described) { text ->
-			edit { it.copy(alone = text) }
-		}
+		Field(
+			form.text,
+			{
+				onChange(
+					settings.copy(
+						terminal =
+							TerminalForm(
+								it,
+								form.kept.takeIf { _ ->
+									it.isBlank()
+								},
+							),
+					),
+				)
+			},
+			Modifier.fillMaxWidth(),
+			hint = "The desktop's own",
+		)
+		Spacer(Modifier.height(Dims.gap))
 		Text(
 			when (runs) {
 				is TerminalCommand.Ready ->
@@ -425,12 +400,21 @@ private fun TerminalPage(
 						runs.words.joinToString(" ") { "“$it”" }
 				is TerminalCommand.Failed -> "Can't open it: ${runs.why}"
 			},
-			style =
-				if (runs is TerminalCommand.Failed)
-					type.body
-				else
-					type.muted,
+			style = type.muted,
 		)
+		if (choice !is TerminalChoice.Unreadable &&
+			!(choice.opensInFolder && choice.runsCommands)
+		) {
+			Spacer(Modifier.height(Dims.gap))
+			Text(
+				when {
+					!choice.opensInFolder && !choice.runsCommands -> "Used for nothing: it says neither {folder} nor {command}."
+					!choice.opensInFolder -> "“Open terminal here” is off: the command line says no {folder}."
+					else -> "Actions that run in a terminal are off: the command line says no {command}."
+				},
+				style = type.muted,
+			)
+		}
 	}
 }
 

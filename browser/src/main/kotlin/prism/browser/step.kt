@@ -303,8 +303,11 @@ private fun did(state: BrowserState, event: BrowserEvent): Step =
 					),
 				),
 			)
+		// Where the terminal chosen has no place for a folder, nothing opens one in a folder: its menu item is off.
 		is BrowserEvent.OpenedTerminal ->
-			(event.folder ?: state.folder)?.let { Step(state, listOf(Effect.Terminal(it))) }
+			(event.folder ?: state.folder)
+				?.takeIf { state.terminal.opensInFolder }
+				?.let { Step(state, listOf(Effect.Terminal(it))) }
 				?: Step(state)
 		is BrowserEvent.Requested -> Step(state, listOf(Effect.Ask(event.request)))
 		is BrowserEvent.Did -> state.doing(Pending(event.action, event.subject, event.answers))
@@ -917,7 +920,10 @@ private fun answered(state: BrowserState, answer: Answer): Step =
 				Step(state)
 		is Answer.TempMade -> state.openingOut(answer.folder, answer.carried)
 		is Answer.ScratchMade -> state.scratched(answer.folder, answer.pending)
-		is Answer.Configured -> Step(state.copy(actions = answer.actions))
+		is Answer.Configured ->
+			Step(
+				state.copy(actions = answer.actions, terminal = answer.terminal),
+			)
 		is Answer.Placed -> Step(state.copy(sidebar = answer.sidebar))
 		// A read of a folder no longer shown is too late to matter.
 		is Answer.Arrived ->

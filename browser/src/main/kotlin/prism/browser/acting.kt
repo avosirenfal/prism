@@ -135,12 +135,19 @@ private fun BrowserState.done(pending: Pending, filling: Filling): Step {
 						),
 					)
 				How.Terminal ->
-					Step(
-						this,
-						listOf(
-							Effect.Launch(Job(action.label, invocations, scratch = scratch), terminal = true),
-						),
-					)
+					if (!terminal.runsCommands)
+						failed(
+							action,
+							"The terminal chosen in the preferences has no place for a command: its command line says " +
+								"no {command}.",
+						)
+					else
+						Step(
+							this,
+							listOf(
+								Effect.Launch(Job(action.label, invocations, scratch = scratch), terminal = true),
+							),
+						)
 				is How.Watched -> {
 					val after =
 						pending.after

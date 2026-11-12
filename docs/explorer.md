@@ -103,7 +103,7 @@ window here. So a folder pinned in the explorer is in the next picker's sidebar 
         "SearchIndex": ["Ctrl+K"],
         "Up": ["Alt+Up", "Backspace", "Mouse Back"]
     },
-    "terminal": ["ghostty", "--font-size=14"]
+    "terminal": "ghostty"
 }
 ```
 
@@ -239,11 +239,12 @@ drag through, and says what each platform does with it.
 
 ## Open terminal here
 
-A terminal has to be told the folder to start in: starting it in the folder is not enough for every one. Ghostty and
-Ptyxis run one process for all their windows, and a new launch only asks the one running for a window, which opens
-where that one likes (the home folder); and every terminal takes the folder, and a command to run, by an option of its
-own (`--working-directory=`, `--directory=`, `--workdir`, `--cwd=`, or none). So a terminal is described by what its
-command line takes (`Terminal`, `desktop/terminals.kt`), and opened by a function of that description.
+A terminal has to be told the folder to start in: starting it in the folder is not enough for every one. Ghostty runs
+one process for all its windows, and a launch given no options only asks that process for a window, which opens where
+it likes (the home folder); told the folder (`--working-directory=`), it opens there. Every terminal takes the folder,
+and a command to run, by an option of its own (`--working-directory=`, `--directory=`, `--workdir`, `--cwd=`, or
+none). So a terminal is described by what its command line takes (`Terminal`, `desktop/terminals.kt`), and opened by a
+function of that description.
 
 Which terminal is the user's is not standardized on Linux. prism asks, the most deliberate first: its own preference;
 `$TERMINAL`; `xdg-terminals.list`, the proposed standard's list of desktop entries (xdg-terminal-exec's), the user's,
@@ -256,9 +257,9 @@ or else is started in the folder and given `-e`. On macOS (Terminal, iTerm, Ghos
 
 ### Choosing the terminal
 
-Where prism finds the wrong terminal, or none, or a terminal changes how it takes a folder, or the user wants options
-of their own, the preferences say so (the preferences window's Terminal page has a field for each, and shows what would
-run in the home folder as it is typed):
+Where prism finds the wrong terminal, or none, or knows one wrong, or the user wants options of their own, the
+preferences say which (the preferences window's Terminal page has one field for it, and shows what would run in the
+home folder as it is typed):
 
 ```json
 "terminal": null
@@ -267,34 +268,25 @@ run in the home folder as it is typed):
 The desktop's own, as found.
 
 ```json
-"terminal": ["ghostty", "--font-size=14"]
+"terminal": "ghostty"
 ```
 
-A terminal, with options of the user's own: told the folder, and given a command, as it is known to take them.
+A terminal by its name, or its desktop entry's (`"com.mitchellh.ghostty.desktop"`): told the folder and given a command
+as its desktop entry says, or as prism knows it to take them. A name neither says anything of is not guessed at: prism
+says to write its command line.
 
 ```json
-"terminal": ["foot", "-D", "{folder}", "{command}"]
+"terminal": ["ghostty", "--font-size=14", "--working-directory={folder}", "-e", "{command}"]
 ```
 
-Words run as they are written: `{folder}` is the folder, and `{command}`, a word of its own, a command's words. Without
-`{command}`, a command runs in the desktop's own terminal.
+Its command line, as it is to be run: `{folder}` where the folder goes (a word of its own, or joined to an option), and
+`{command}`, a word of its own, where a command's words go. Opened with no command, `{command}` is left out, and the
+options just before it that introduce it (`-e`, `-x`, `--`). What a command line has no place for, it is not used for:
+without `{folder}`, "Open terminal here" is off; without `{command}`, the actions that run in a terminal are; and
+nothing else is run in its place.
 
-```json
-"terminal": {
-    "command": ["my-term", "--login"],
-    "folder": ["--start-in", "{folder}"],
-    "run": ["-x"],
-    "alone": ["--new-process"]
-}
-```
-
-A terminal described, where what is known of it is wrong or nothing is: `folder` is the words that say the folder
-(`{folder}` once, in a word of its own or joined to an option; `[]` for none, started in the folder), `run` what comes
-before a command's words (`[]` for nothing, `null` for a terminal that cannot be given one), and `alone` what has it
-open a window of its own. Each key left out is as the terminal's desktop entry says, or as prism knows it.
-
-A choice that cannot be read is kept as it was written, and "Open terminal here" says why it cannot open it, rather
-than losing the rest of the preferences, or guessing.
+A choice that cannot be read (a command line that says neither, or either twice) is kept as it was written, and "Open
+terminal here" says why it cannot open it, rather than losing the rest of the preferences, or guessing.
 
 ## Not done yet
 

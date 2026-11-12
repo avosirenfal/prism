@@ -12,8 +12,8 @@ import java.nio.file.Path
  * (freedesktop/terminals.kt for Linux).
  *
  * Merely starting a terminal in the folder is not enough for some: a terminal that runs as one process for all its
- * windows (Ghostty, Ptyxis) hands a new launch to the process already running, and that one opens its window where it
- * likes, typically the home folder. Those are told the folder, and to open a window of their own.
+ * windows (Ghostty) hands a launch given no options to the process already running, and that one opens its window
+ * where it likes, typically the home folder. So a terminal is always told the folder, never left to find it.
  */
 
 /** How a terminal is told the folder to start in: words, [FOLDER] standing for the folder in one of them. */
@@ -77,16 +77,14 @@ sealed interface ExecArg {
 }
 
 /**
- * A terminal: [program], its words before any option (a program, or a launcher and what it launches, and the user's
- * own options); how it is told a folder ([folder]) and given a command ([exec]); and [alone], what has it open a window
- * in a process of its own rather than in one already running, where a running one would start where it likes.
+ * A terminal: [program], its words before any option (a program, or a launcher and what it launches); and how it is
+ * told a folder ([folder]) and given a command ([exec]).
  */
 data class Terminal(
 	val name: String,
 	val program: List<String>,
 	val folder: FolderArgs,
 	val exec: ExecArg,
-	val alone: List<String> = emptyList(),
 ) {
 	/** The command that opens this terminal in [folder], running [command] there where one is given; null where it cannot run one. */
 	fun opening(folder: Path, command: List<String>? = null): List<String>? {
@@ -97,60 +95,110 @@ data class Terminal(
 				else -> return null
 			}
 
-		return program + alone + this.folder.words(folder) + running
+		return program + this.folder.words(folder) + running
 	}
-
-	/** This, told a folder and given a command as [described] says where it says; what it does not say is as it was. */
-	fun with(described: TerminalChoice.Described): Terminal =
-		copy(
-			folder = described.folder ?: folder,
-			exec = described.exec ?: exec,
-			alone = described.alone ?: alone,
-		)
 }
 
 /**
- * The terminal the user has chosen, as the preferences say it: none (the desktop's own, as found), words to run as
- * they are written, a terminal described, or a choice that could not be read, which is said rather than guessed at.
+ * The terminal the user has chosen, as the preferences say it: none (the desktop's own, as found), a terminal by its
+ * name (which prism knows how to tell a folder and give a command, or whose desktop entry says), the terminal's
+ * command line written out, or a choice that could not be read, which is said rather than guessed at.
  */
 sealed interface TerminalChoice {
+	/** Whether a terminal can be opened in a folder: "Open terminal here". */
+	val opensInFolder: Boolean get() = true
+
+	/** Whether a command can be run in a terminal: the actions and applications that run in one. */
+	val runsCommands: Boolean get() = true
+
 	/** None chosen: the desktop's own, as the platform finds it. */
 	data object Found : TerminalChoice
 
+	/** A terminal by its program's name (`ghostty`) or its desktop entry's (`com.mitchellh.ghostty.desktop`). */
+	data class Named(
+		val name: String,
+	) : TerminalChoice
+
 	/**
-	 * [words] run as they are written: [FolderArgs.FOLDER] where the folder goes, and [COMMAND], a word of its own,
-	 * where a command's words go. Without [COMMAND] it opens in a folder only, and a command runs in the desktop's own.
+	 * The terminal's command line as it is to be run: [words], with [FolderArgs.FOLDER] where the folder goes (in a word
+	 * of its own, or joined to an option) and [COMMAND], a word of its own, where a command's words go; opened with no
+	 * command, [COMMAND] is left out, and the options just before it that introduce it (`-e`, `-x`, `--`). What it has
+	 * no place for, it is not used for: without [FolderArgs.FOLDER] nothing opens a terminal in a folder, and without
+	 * [COMMAND] nothing runs a command in one. Made by [of], which refuses words that say neither, or either twice.
 	 */
-	data class Written(
+	@ConsistentCopyVisibility
+	data class Written private constructor(
 		val words: List<String>,
 	) : TerminalChoice {
-		/** These words for [folder], running [command] where one is given; null where they have no place for one. */
-		fun opening(folder: Path, command: List<String>?): List<String>? {
-			val filled = words.map { it.replace(FolderArgs.FOLDER, folder.toString()) }
+		override val opensInFolder: Boolean get() = words.any { FolderArgs.FOLDER in it }
 
-			return when {
-				command == null -> filled.filter { it != COMMAND }
-				COMMAND in filled -> filled.flatMap { if (it == COMMAND) command else listOf(it) }
-				else -> null
+		override val runsCommands: Boolean get() = COMMAND in words
+
+		/** These words for [folder], running [command] where one is given; null for what they have no place for. */
+		fun opening(folder: Path, command: List<String>?): List<String>? {
+			if (if (command == null)
+					!opensInFolder
+				else
+					!runsCommands
+			)
+				return null
+
+			// With nothing to run, the command goes, and the options that introduce it with it (-e, -x, --).
+			val at = words.indexOf(COMMAND)
+
+			val kept =
+				if (command != null || at < 0)
+					words
+				else
+					words
+						.subList(
+							0,
+							at,
+						).dropLastWhile { it.startsWith("-") && FolderArgs.FOLDER !in it } +
+						words.subList(at + 1, words.size)
+
+			return kept.flatMap { word ->
+				when {
+					word == COMMAND -> command.orEmpty()
+					else -> listOf(word.replace(FolderArgs.FOLDER, folder.toString()))
+				}
 			}
 		}
 
 		companion object {
 			const val COMMAND = "{command}"
+
+			/** [words] as a command line, or why they cannot be one. */
+			fun of(words: List<String>): Either =
+				when {
+					words.isEmpty() -> Either.Wrong("the command line is empty")
+					words.any {
+						COMMAND in it && it != COMMAND
+					} -> Either.Wrong("$COMMAND is a word of its own: a command's words take its place")
+					words.count { it == COMMAND } > 1 -> Either.Wrong("it says $COMMAND twice")
+					words.count {
+						FolderArgs.FOLDER in it
+					} > 1 -> Either.Wrong("it says ${FolderArgs.FOLDER} twice")
+					words.none { FolderArgs.FOLDER in it || it == COMMAND } ->
+						Either.Wrong(
+							"it says neither where the folder goes (${FolderArgs.FOLDER}) nor where a command does " +
+								"($COMMAND): write those, or the terminal's name alone",
+						)
+					else -> Either.Right(Written(words))
+				}
+		}
+
+		/** A command line read, or why it could not be. */
+		sealed interface Either {
+			data class Right(
+				val written: Written,
+			) : Either
+
+			data class Wrong(
+				val why: String,
+			) : Either
 		}
 	}
-
-	/**
-	 * A terminal described: [command], its program and the user's own options; and, where they are said (not null),
-	 * how it is told a folder, how it is given a command, and what opens a window of its own. What is not said is as
-	 * the terminal's desktop entry says, or as prism knows the program to take it.
-	 */
-	data class Described(
-		val command: List<String>,
-		val folder: FolderArgs? = null,
-		val exec: ExecArg? = null,
-		val alone: List<String>? = null,
-	) : TerminalChoice
 
 	/** A choice written so that it could not be read: [why], and what was written, [written], to be kept as it is. */
 	data class Unreadable(
@@ -169,13 +217,9 @@ object KnownTerminals {
 	val unix: List<Terminal> =
 		listOf(
 			// One process for all its windows, unless it is told otherwise: then the window opens where it likes.
-			Terminal(
-				"Ghostty",
-				listOf("ghostty"),
-				joined("--working-directory="),
-				before("-e"),
-				listOf("--gtk-single-instance=false"),
-			),
+			// Told a folder, Ghostty opens it in a process of its own: its one process for every window (GTK's single
+			// instance) is for launches given no options, and would open where it likes.
+			Terminal("Ghostty", listOf("ghostty"), joined("--working-directory="), before("-e")),
 			Terminal("foot", listOf("foot"), joined("--working-directory="), before()),
 			Terminal("kitty", listOf("kitty"), joined("--directory="), before()),
 			Terminal(
@@ -186,14 +230,7 @@ object KnownTerminals {
 			),
 			Terminal("WezTerm", listOf("wezterm", "start"), joined("--cwd="), before("--")),
 			Terminal("Rio", listOf("rio"), joined("--working-dir="), before("-e")),
-			// GNOME's: Ptyxis keeps one process too, and opens a window of the new one's own with --new-window.
-			Terminal(
-				"Ptyxis",
-				listOf("ptyxis"),
-				joined("--working-directory="),
-				before("--"),
-				listOf("--new-window"),
-			),
+			Terminal("Ptyxis", listOf("ptyxis"), joined("--working-directory="), before("--")),
 			Terminal("Console", listOf("kgx"), joined("--working-directory="), before("--")),
 			Terminal(
 				"GNOME Terminal",

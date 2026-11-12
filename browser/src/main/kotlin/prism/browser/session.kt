@@ -107,12 +107,13 @@ class Session(
 				}
 			}
 
-		// The user's actions and places, with prism's own: read again whenever what the preferences say of them changes.
+		// The user's actions and places, with prism's own, and the terminal chosen: read again whenever what the
+		// preferences say of them changes.
 		scope.launch(io) {
 			services.preferences.preferences
-				.map { it.written to it.menu }
+				.map { Triple(it.written, it.menu, it.terminal) }
 				.distinctUntilChanged()
-				.collect { (written, menu) ->
+				.collect { (written, menu, terminal) ->
 					inputs.send(
 						Answer.Configured(
 							// Read for this machine: each action as the first of its ways whose programs are here.
@@ -121,6 +122,7 @@ class Session(
 								menu.hidden.toSet(),
 								services.world::installed,
 							),
+							terminal,
 						),
 					)
 				}

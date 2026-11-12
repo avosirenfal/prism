@@ -360,6 +360,38 @@ class ExploreTest {
 			listOf("New window", "Open terminal here", "—", "Preferences…", "Close window"),
 			labels(appMenuOf(explorer)),
 		)
+
+		// A terminal chosen whose command line has no place for a folder opens in none: its items are off, and its
+		// key does nothing.
+		val noFolder =
+			explorer.copy(
+				terminal =
+					(
+						TerminalChoice.Written.of(
+							listOf("foot", "{command}"),
+						) as TerminalChoice.Written.Either.Right
+					).written,
+			)
+
+		fun terminalItems(menu: Menu<BrowserEvent>) =
+			menu.entries.filterIsInstance<MenuEntry.Item<BrowserEvent>>().filter {
+				it.label ==
+					"Open terminal here"
+			}
+
+		assertTrue(terminalItems(appMenuOf(explorer)).all { it.enabled })
+		assertTrue(terminalItems(appMenuOf(noFolder)).none { it.enabled })
+		assertTrue(
+			terminalItems(contextMenuOf(noFolder, Target.Rows(listOf(folder)))).none {
+				it.enabled
+			},
+		)
+		assertEquals(emptyList<Effect>(), step(noFolder, BrowserEvent.OpenedTerminal()).effects)
+		assertEquals(
+			listOf(Effect.Terminal(explorer.folder!!)),
+			step(explorer, BrowserEvent.OpenedTerminal()).effects,
+		)
+
 		// Closing the window ends the explorer's session, as cancelling ends a picker's.
 		assertEquals(
 			listOf(Effect.Finish(Outcome.Cancelled)),

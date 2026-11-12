@@ -46,7 +46,7 @@ class FreedesktopTerminals(
 	 * of the program, with the words given kept; or, for a program prism does not know, started in the folder with
 	 * `-e`. Null where the program is not installed.
 	 */
-	fun ofCommandLine(words: List<String>): Terminal? {
+	private fun ofCommandLine(words: List<String>): Terminal? {
 		val program = words.firstOrNull() ?: return null
 		val found = find(program) ?: return null
 		val known = KnownTerminals.unixOf(program)
@@ -65,6 +65,44 @@ class FreedesktopTerminals(
 
 	private fun ofCommandLine(line: String): Terminal? =
 		Exec.split(line)?.let(::ofCommandLine)
+
+	/**
+	 * The terminal [name] names: a desktop entry (`com.mitchellh.ghostty.desktop`), or a program (`ghostty`), as the
+	 * installed desktop entry of that program says it takes a folder and a command, or else as prism knows it to; null
+	 * where it is not installed, or is a program neither says anything of, which would be guessed at.
+	 */
+	fun named(name: String): Terminal? {
+		if (name.endsWith(".desktop"))
+			return ofEntry(name)
+
+		val program = name.substringAfterLast('/')
+		val found = find(name) ?: return null
+
+		return installedEntries()
+			.asSequence()
+			.mapNotNull { id -> entryOf(id)?.let { (_, keys) -> id to keys } }
+			.filter { (_, keys) ->
+				"TerminalEmulator" in itemsOf(keys["Categories"]) &&
+					keys.containsKey("X-TerminalArgDir")
+			}.firstOrNull { (_, keys) ->
+				Exec.split(keys["Exec"].orEmpty())?.firstOrNull()?.substringAfterLast('/') ==
+					program
+			}?.let { (id, _) -> ofEntry(id) }
+			?: KnownTerminals.unixOf(name)?.let {
+				it.copy(
+					program =
+						listOf(found.toString()) + it.program.drop(1),
+				)
+			}
+	}
+
+	/** Whether [name] is installed, as [named] would look for it. */
+	fun installed(name: String): Boolean =
+		if (name.endsWith(".desktop"))
+			entryOf(name) !=
+				null
+		else
+			find(name) != null
 
 	/** The first installed terminal the `xdg-terminals.list` files name. */
 	private fun listed(): Terminal? {
@@ -132,24 +170,26 @@ class FreedesktopTerminals(
 			)
 	}
 
+	/** The ids of the desktop entries installed, the user's first. */
+	private fun installedEntries(): List<String> =
+		xdg.data
+			.map { it.resolve("applications") }
+			.flatMap { folder ->
+				try {
+					Files.list(folder).use { files ->
+						files
+							.filter { it.fileName.toString().endsWith(".desktop") }
+							.map { it.fileName.toString() }
+							.toList()
+					}
+				} catch (missing: IOException) {
+					emptyList()
+				}
+			}.distinct()
+
 	/** The installed terminals' desktop entries, those prism knows the program of first. */
 	private fun categorized(): Terminal? {
-		val ids =
-			xdg.data
-				.map { it.resolve("applications") }
-				.flatMap { folder ->
-					try {
-						Files.list(folder).use { files ->
-							files
-								.filter { it.fileName.toString().endsWith(".desktop") }
-								.map { it.fileName.toString() }
-								.toList()
-						}
-					} catch (missing: IOException) {
-						emptyList()
-					}
-				}.distinct()
-
+		val ids = installedEntries()
 		val terminals =
 			ids.mapNotNull { id ->
 				entryOf(id)
@@ -195,7 +235,6 @@ class FreedesktopTerminals(
 			exec =
 				keys["X-TerminalArgExec"]?.let(ExecArg::of) ?: known?.exec
 					?: ExecArg.Before(listOf("-e")),
-			alone = known?.alone.orEmpty(),
 		)
 	}
 }

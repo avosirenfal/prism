@@ -5,6 +5,7 @@ import java.nio.file.Path
 import java.time.Instant
 import java.util.concurrent.atomic.AtomicReference
 import prism.desktop.Place
+import prism.desktop.TerminalChoice
 
 /*
  * What the picker shows, as immutable data. The view (view.kt) is a pure function of a [BrowserState]: it draws what
@@ -848,6 +849,8 @@ data class BrowserState(
 	val search: Search = Search.Unavailable(NO_INDEX),
 	/** The user's actions and places, with prism's own: what the menus offer beyond what the browser does itself. */
 	val actions: Actions = Actions.NONE,
+	/** The terminal chosen: what says whether a terminal opens in a folder, and whether commands run in one. */
+	val terminal: TerminalChoice = TerminalChoice.Found,
 	/** An action begun and waiting for an answer (a folder being chosen in another window, a line being typed). */
 	val pending: Pending? = null,
 	/** What is under way and waited on (an action's commands, a place being listed): shown, and to be stopped. */

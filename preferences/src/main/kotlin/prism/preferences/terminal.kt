@@ -13,26 +13,16 @@ import kotlinx.serialization.json.JsonEncoder
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.put
-import prism.desktop.ExecArg
-import prism.desktop.FolderArgs
 import prism.desktop.TerminalChoice
 
 /*
- * The terminal the user chooses, as the preferences file writes it (docs/explorer.md, "Open terminal here"):
+ * The terminal the user chooses, as the preferences file writes it (docs/explorer.md, "Choosing the terminal"):
  *
- *     "terminal": null                                   the desktop's own, as found
- *     "terminal": ["ghostty", "--font-size=14"]          a terminal, with options of the user's own; told a folder
- *                                                        and given a command as it is known to take them
- *     "terminal": ["foot", "-D", "{folder}", "{command}"] words run as they are written
- *     "terminal": {                                      a terminal described, where what is known of it is wrong
- *         "command": ["my-term", "--login"],             or nothing is: each key left out is as it is known
- *         "folder": ["--start-in", "{folder}"],          the folder's words ([] for none: started in the folder)
- *         "run": ["-x"],                                 what comes before a command's words ([] for nothing;
- *                                                        null, for a terminal that cannot be given one)
- *         "alone": ["--new-process"]                     what has it open a window of its own
- *     }
+ *     "terminal": null                                     the desktop's own, as found
+ *     "terminal": "ghostty"                                a terminal by its name, told a folder and given a
+ *                                                          command as prism (or its desktop entry) knows it takes them
+ *     "terminal": ["ghostty", "--working-directory={folder}", "-e", "{command}"]
+ *                                                          its command line, as it is to be run
  *
  * What does not read as one of these is kept as it was written, and said to be wrong where the terminal is asked for,
  * rather than losing the rest of the preferences with it.
@@ -47,98 +37,53 @@ object TerminalChoiceSerializer : KSerializer<TerminalChoice> {
 		(encoder as JsonEncoder).encodeJsonElement(jsonOf(value))
 
 	/** [json] as the user's choice of terminal. */
-	fun choiceOf(json: JsonElement): TerminalChoice =
-		try {
-			when (json) {
-				JsonNull -> TerminalChoice.Found
-				is JsonArray -> wordsOf(json, "terminal").let(::listed)
-				is JsonObject -> described(json)
-				is JsonPrimitive -> throw wrong(
-					"it is a list of words, or a description of a terminal",
-				)
-			}
-		} catch (failed: Wrong) {
-			TerminalChoice.Unreadable(json.toString(), failed.why)
-		}
-
-	/** A list of words: run as written where they say where the folder or a command goes; a terminal otherwise. */
-	private fun listed(words: List<String>): TerminalChoice =
-		when {
-			words.isEmpty() -> TerminalChoice.Found
-			words.any {
-				FolderArgs.FOLDER in it || it == TerminalChoice.Written.COMMAND
-			} -> TerminalChoice.Written(words)
-			else -> TerminalChoice.Described(words)
-		}
-
-	private fun described(json: JsonObject): TerminalChoice.Described {
-		val unknown = json.keys - setOf("command", "folder", "run", "alone")
-
-		if (unknown.isNotEmpty())
-			throw wrong(
-				"it says ${unknown.joinToString {
-					"“$it”"
-				}}, which is not one of command, folder, run, alone",
+	fun choiceOf(json: JsonElement): TerminalChoice {
+		fun wrong(why: String) =
+			TerminalChoice.Unreadable(
+				json.toString(),
+				"the terminal in the preferences can't be read: $why",
 			)
 
-		val command =
-			wordsOf(
-				json["command"]
-					?: throw wrong("it has no “command”: the terminal's program, and options"),
-				"command",
-			).ifEmpty { throw wrong("its “command” is empty") }
+		return when (json) {
+			JsonNull -> TerminalChoice.Found
+			is JsonPrimitive ->
+				json
+					.takeIf {
+						it.isString && it.content.isNotBlank()
+					}?.let { TerminalChoice.Named(it.content.trim()) }
+					?: wrong("it is a terminal's name, or its command line as a list of words")
+			is JsonArray -> {
+				val words =
+					json.map { (it as? JsonPrimitive)?.takeIf { word -> word.isString }?.content }
 
-		val folder =
-			json["folder"]?.let { words ->
-				FolderArgs.of(wordsOf(words, "folder"))
-					?: throw wrong(
-						"its “folder” does not say once where the folder goes: write {folder} in one word",
-					)
+				when {
+					words.any { it == null } -> wrong("its command line has a word that is not text")
+					// A name alone, as a list of one.
+					words.size == 1 &&
+						commandLineOf(words.filterNotNull()) is TerminalChoice.Written.Either.Wrong ->
+						TerminalChoice.Named(words.single()!!)
+					else ->
+						when (val read = commandLineOf(words.filterNotNull())) {
+							is TerminalChoice.Written.Either.Right -> read.written
+							is TerminalChoice.Written.Either.Wrong -> wrong(read.why)
+						}
+				}
 			}
-
-		val exec =
-			json["run"]?.let { words ->
-				if (words == JsonNull)
-					ExecArg.Unsupported
-				else
-					ExecArg.Before(wordsOf(words, "run"))
-			}
-		val alone = json["alone"]?.let { wordsOf(it, "alone") }
-
-		return TerminalChoice.Described(command, folder, exec, alone)
+			is JsonObject ->
+				wrong(
+					"it is a terminal's name, or its command line as a list of words",
+				)
+		}
 	}
 
-	private fun wordsOf(json: JsonElement, name: String): List<String> =
-		(json as? JsonArray)
-			?.map {
-				(it as? JsonPrimitive)?.takeIf { word -> word.isString }?.content
-					?: throw wrong("“$name” has a word that is not text")
-			}
-			?: throw wrong("“$name” is not a list of words")
+	private fun commandLineOf(words: List<String>) = TerminalChoice.Written.of(words)
 
-	/** [choice] as the file writes it: as briefly as it reads back the same. */
+	/** [choice] as the file writes it. */
 	fun jsonOf(choice: TerminalChoice): JsonElement =
 		when (choice) {
 			TerminalChoice.Found -> JsonNull
+			is TerminalChoice.Named -> JsonPrimitive(choice.name)
 			is TerminalChoice.Written -> JsonArray(choice.words.map(::JsonPrimitive))
-			is TerminalChoice.Described ->
-				if (choice.folder == null && choice.exec == null && choice.alone == null)
-					JsonArray(choice.command.map(::JsonPrimitive))
-				else
-					buildJsonObject {
-						put("command", JsonArray(choice.command.map(::JsonPrimitive)))
-						choice.folder?.let { put("folder", JsonArray(it.template.map(::JsonPrimitive))) }
-						choice.exec?.let {
-							put(
-								"run",
-								when (it) {
-									is ExecArg.Before -> JsonArray(it.words.map(::JsonPrimitive))
-									ExecArg.Unsupported -> JsonNull
-								},
-							)
-						}
-						choice.alone?.let { put("alone", JsonArray(it.map(::JsonPrimitive))) }
-					}
 			// What could not be read is written back as it was, for the user to mend.
 			is TerminalChoice.Unreadable ->
 				try {
@@ -147,11 +92,4 @@ object TerminalChoiceSerializer : KSerializer<TerminalChoice> {
 					JsonPrimitive(choice.written)
 				}
 		}
-
-	private class Wrong(
-		val why: String,
-	) : Exception(why)
-
-	private fun wrong(why: String) =
-		Wrong("the terminal in the preferences can't be read: $why")
 }

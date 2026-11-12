@@ -2,6 +2,7 @@ package prism.browser
 
 import androidx.compose.runtime.Immutable
 import java.nio.file.Path
+import prism.desktop.TerminalChoice
 
 /*
  * The picker's menus, worked out from its state: pure functions, so what each offers is a test of values. Each
@@ -58,7 +59,7 @@ fun contextMenuOf(
 			(target as? Target.Rows)?.rows?.size ==
 				1
 		}
-	val own = ownActions(offered - setOfNotNull(opener), subject, bindings)
+	val own = ownActions(offered - setOfNotNull(opener), subject, bindings, state.terminal)
 
 	return when (target) {
 		is Target.Rows ->
@@ -85,7 +86,12 @@ private fun ownActions(
 	offered: List<UserAction>,
 	subject: Subject,
 	bindings: Bindings,
+	terminal: TerminalChoice,
 ): List<MenuEntry<BrowserEvent>> {
+	// An action that runs in a terminal is off where the terminal chosen has no place for a command.
+	fun runs(action: UserAction): Boolean =
+		terminal.runsCommands || (action.deed as? Deed.Run)?.how != How.Terminal
+
 	fun entries(actions: List<UserAction>, depth: Int): List<MenuEntry<BrowserEvent>> {
 		val here = actions.filter { it.submenu.size == depth }
 		val below = actions.filter { it.submenu.size > depth }.groupBy { it.submenu[depth] }
@@ -95,6 +101,7 @@ private fun ownActions(
 				it.label,
 				BrowserEvent.Did(it, subject) as BrowserEvent,
 				keys = bindings.keys(Custom(it)),
+				enabled = runs(it),
 				id = it.id,
 			)
 		} +
@@ -214,7 +221,12 @@ private fun rowsMenuOf(
 		folder?.let { pinning(state, it) }
 		if (exploring)
 			folder?.let {
-				item("Open terminal here", BrowserEvent.OpenedTerminal(it), id = "builtin.terminal")
+				item(
+					"Open terminal here",
+					BrowserEvent.OpenedTerminal(it),
+					enabled = state.terminal.opensInFolder,
+					id = "builtin.terminal",
+				)
 			}
 		// The trash apart from the rest, last, where it is not pressed in passing. Chosen from a menu, it is meant: the
 		// trash at once, as Shift+Delete does; Delete alone asks first.
@@ -346,6 +358,7 @@ private fun folderMenuOf(
 					"Open terminal here",
 					BrowserEvent.OpenedTerminal(it),
 					keys = bindings.keys(Action.OpenTerminal),
+					enabled = state.terminal.opensInFolder,
 					id = "builtin.terminal",
 				)
 		}
@@ -386,6 +399,7 @@ fun appMenuOf(
 				"Open terminal here",
 				BrowserEvent.OpenedTerminal(it),
 				keys = bindings.keys(Action.OpenTerminal),
+				enabled = state.terminal.opensInFolder,
 			)
 		}
 		separator()

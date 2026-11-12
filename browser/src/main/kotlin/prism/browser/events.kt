@@ -4,6 +4,7 @@ import androidx.compose.runtime.Immutable
 import java.nio.file.Path
 import prism.desktop.Launched
 import prism.desktop.Opening
+import prism.desktop.TerminalChoice
 import prism.index.query.Query
 
 /*
@@ -478,9 +479,13 @@ sealed interface Answer : Input {
 		val carried: Carried,
 	) : Answer
 
-	/** The actions and places, as the preferences (which another window may have changed) now make them. */
+	/**
+	 * The actions and places, and the terminal chosen, as the preferences (which another window may have changed) now
+	 * make them.
+	 */
 	data class Configured(
 		val actions: Actions,
+		val terminal: TerminalChoice = TerminalChoice.Found,
 	) : Answer
 
 	/** The sidebar, as the places pinned (which another window may have changed) and the drives now make it. */

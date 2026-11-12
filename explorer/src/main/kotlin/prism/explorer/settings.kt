@@ -3,14 +3,10 @@ package prism.explorer
 import java.nio.file.Path
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.put
 import prism.browser.Actions
 import prism.browser.Bindable
 import prism.browser.Bindings
 import prism.browser.Chord
-import prism.desktop.ExecArg
-import prism.desktop.FolderArgs
 import prism.desktop.Place
 import prism.desktop.TerminalChoice
 import prism.preferences.Preferences
@@ -170,104 +166,32 @@ data class Settings(
 }
 
 /**
- * The terminal chosen, as the preferences window's fields have it, each as it is typed: its [command] (a program and
- * options of the user's, or words to run as written); and, blank for what is known of it, its [folder] words, the
- * words before a command it [run]s, and what has it open a window of its own ([alone]). [cannotRun] and [unreadable]
- * are what the file said that no field shows: a terminal that cannot be given a command, and a choice that could not be
- * read, kept as they are while nothing is typed over them.
+ * The terminal chosen, as the preferences window's field has it: [text], as typed: nothing, for the desktop's own; a
+ * terminal's name; or its command line, `{folder}` and `{command}` where they go. [kept] is a choice the file holds
+ * that could not be read, kept as it is while nothing is typed over it.
  */
 data class TerminalForm(
-	val command: String = "",
-	val folder: String = "",
-	val run: String = "",
-	val alone: String = "",
-	val cannotRun: Boolean = false,
-	val unreadable: TerminalChoice.Unreadable? = null,
+	val text: String = "",
+	val kept: TerminalChoice.Unreadable? = null,
 ) {
-	/** Whether the command's words are run as they are written, which the other fields then say nothing of. */
-	val written: Boolean get() =
-		wordsOf(command).let { words ->
-			words.isNotEmpty() &&
-				listed(words) is TerminalChoice.Written
-		}
-
-	/** The choice these fields make; one that says something that cannot be, as a choice that cannot be read. */
+	/** The choice the field makes; one that cannot be, as a choice that cannot be read, which says why. */
 	fun choice(): TerminalChoice {
-		val words = wordsOf(command)
+		val words = wordsOf(text)
 
-		if (words.isEmpty())
-			return if (folder.isBlank() && run.isBlank() &&
-				alone.isBlank()
-			)
-				unreadable ?: TerminalChoice.Found
-			else
-				wrongly("there is no command")
-
-		val listed = listed(words)
-
-		if (listed is TerminalChoice.Written)
-			return listed
-
-		val folderArgs =
-			folder.takeIf { it.isNotBlank() }?.let { text ->
-				FolderArgs.of(wordsOf(text))
-					?: return wrongly(
-						"the folder's words do not say once where the folder goes: write {folder} in one",
-					)
-			}
-
-		return TerminalChoice.Described(
-			words,
-			folderArgs,
-			run.takeIf { it.isNotBlank() }?.let { ExecArg.Before(wordsOf(it)) }
-				?: ExecArg.Unsupported.takeIf { cannotRun },
-			alone.takeIf { it.isNotBlank() }?.let(::wordsOf),
-		)
+		return when {
+			words.isEmpty() -> kept ?: TerminalChoice.Found
+			else -> TerminalChoiceSerializer.choiceOf(JsonArray(words.map(::JsonPrimitive)))
+		}
 	}
 
-	private fun listed(words: List<String>): TerminalChoice =
-		TerminalChoiceSerializer.choiceOf(JsonArray(words.map(::JsonPrimitive)))
-
-	/** What was typed, kept as the file would write it, with [why] it cannot be. */
-	private fun wrongly(why: String): TerminalChoice.Unreadable =
-		TerminalChoice.Unreadable(
-			buildJsonObject {
-				put("command", JsonArray(wordsOf(command).map(::JsonPrimitive)))
-				folder
-					.takeIf {
-						it.isNotBlank()
-					}?.let { put("folder", JsonArray(wordsOf(it).map(::JsonPrimitive))) }
-				run
-					.takeIf {
-						it.isNotBlank()
-					}?.let { put("run", JsonArray(wordsOf(it).map(::JsonPrimitive))) }
-				alone
-					.takeIf {
-						it.isNotBlank()
-					}?.let { put("alone", JsonArray(wordsOf(it).map(::JsonPrimitive))) }
-			}.toString(),
-			"the terminal in the preferences can't be read: $why",
-		)
-
 	companion object {
-		/** [choice] in the fields. */
+		/** [choice] in the field. */
 		fun of(choice: TerminalChoice): TerminalForm =
 			when (choice) {
 				TerminalChoice.Found -> TerminalForm()
-				is TerminalChoice.Written -> TerminalForm(command = textOf(choice.words))
-				is TerminalChoice.Described ->
-					TerminalForm(
-						command = textOf(choice.command),
-						folder =
-							choice.folder
-								?.template
-								?.let(::textOf)
-								.orEmpty(),
-						run = (choice.exec as? ExecArg.Before)?.words?.let(::textOf).orEmpty(),
-						alone = choice.alone?.let(::textOf).orEmpty(),
-						cannotRun = choice.exec == ExecArg.Unsupported,
-					)
-				is TerminalChoice.Unreadable -> TerminalForm(unreadable = choice)
+				is TerminalChoice.Named -> TerminalForm(textOf(listOf(choice.name)))
+				is TerminalChoice.Written -> TerminalForm(textOf(choice.words))
+				is TerminalChoice.Unreadable -> TerminalForm(kept = choice)
 			}
 	}
 }

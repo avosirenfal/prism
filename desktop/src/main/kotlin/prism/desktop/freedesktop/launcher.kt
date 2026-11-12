@@ -7,6 +7,7 @@ import java.nio.file.Path
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 import prism.desktop.Application
+import prism.desktop.FolderArgs
 import prism.desktop.Launched
 import prism.desktop.Launcher
 import prism.desktop.TerminalChoice
@@ -78,18 +79,26 @@ class DetachedLauncher(
 							"a terminal",
 							"no terminal was found: choose one in the preferences",
 						)
-				// Words as written; a command, where they have no place for one, runs in the desktop's own.
+				// The command line as written; what it has no place for, it is not used for.
 				is TerminalChoice.Written ->
 					return choice.opening(folder, command)?.let(TerminalCommand::Ready)
-						?: terminalCommand(folder, TerminalChoice.Found, command)
-				is TerminalChoice.Described ->
-					terminals.ofCommandLine(choice.command)?.with(choice)
-						?: return TerminalCommand.Failed(
-							choice.command.firstOrNull() ?: "a terminal",
-							if (choice.command.isEmpty())
-								"the terminal chosen in the preferences has no command"
+						?: TerminalCommand.Failed(
+							"the terminal in the preferences",
+							if (command == null)
+								"its command line says nowhere for the folder to go (${FolderArgs.FOLDER})"
 							else
-								"“${choice.command.first()}” is not installed, or not on the PATH",
+								"its command line says nowhere for a command to go (${TerminalChoice.Written.COMMAND})",
+						)
+				is TerminalChoice.Named ->
+					terminals.named(choice.name)
+						?: return TerminalCommand.Failed(
+							choice.name,
+							if (!terminals.installed(choice.name))
+								"“${choice.name}” is not installed, or not on the PATH"
+							else
+								"prism does not know how to tell “${choice.name}” a folder or give it a command: write " +
+									"its command line in the preferences, with ${FolderArgs.FOLDER} and " +
+									"${TerminalChoice.Written.COMMAND} where they go",
 						)
 				is TerminalChoice.Unreadable ->
 					return TerminalCommand.Failed("the terminal in the preferences", choice.why)
