@@ -81,15 +81,20 @@ internal fun isSoftware(renderer: String): Boolean =
 	SOFTWARE_GL.any { renderer.contains(it, ignoreCase = true) }
 
 /**
- * What OpenGL is here, for drawing as [wanted]: what a window of OpenGL's own, never shown, says it is, asked once
- * before the first window (a window is made for one way of drawing or the other). Not asked where the CPU is asked for,
- * which may be because OpenGL is broken here.
+ * What OpenGL is here, for drawing as [wanted], its library [loaded] or not: what a window of OpenGL's own, never
+ * shown, says it is, asked once before the first window (a window is made for one way of drawing or the other). Not
+ * asked where the CPU is asked for, which may be because OpenGL is broken here.
  */
-internal fun openGlFor(wanted: Drawing): OpenGl =
-	if (wanted == Drawing.Cpu)
-		OpenGl.NotAsked
-	else
-		probe().also { Log.say { "OpenGL: $it" } }
+internal fun openGlFor(wanted: Drawing, loaded: Boolean): OpenGl =
+	when {
+		wanted == Drawing.Cpu -> OpenGl.NotAsked
+		!loaded ->
+			OpenGl.Unavailable(
+				"OpenGL's library could not be loaded: ${org.lwjgl.sdl.SDLError
+					.SDL_GetError() ?: "SDL said nothing more"}",
+			)
+		else -> probe()
+	}.also { Log.say { "OpenGL: $it" } }
 
 /** What OpenGL says it is, or why it could not be started, as SDL says. */
 private fun probe(): OpenGl {

@@ -13,6 +13,8 @@ import org.lwjgl.sdl.SDLInit.SDL_Init
 import org.lwjgl.sdl.SDLInit.SDL_Quit
 import org.lwjgl.sdl.SDLProperties.SDL_GetNumberProperty
 import org.lwjgl.sdl.SDLProperties.SDL_GetPointerProperty
+import org.lwjgl.sdl.SDLVideo.SDL_GL_LoadLibrary
+import org.lwjgl.sdl.SDLVideo.SDL_GL_UnloadLibrary
 import org.lwjgl.sdl.SDLVideo.SDL_GetCurrentVideoDriver
 import org.lwjgl.sdl.SDLVideo.SDL_GetWindowProperties
 import org.lwjgl.sdl.SDLVideo.SDL_PROP_WINDOW_COCOA_WINDOW_POINTER
@@ -112,13 +114,21 @@ internal object Log {
 	}
 }
 
-/** What SDL was started with, for as long as it runs. */
+/**
+ * What SDL was started with, for as long as it runs: how windows are drawn, and whether OpenGL's library is kept loaded
+ * for them ([keepsGl]).
+ */
 internal class Sdl private constructor(
 	val rendering: Rendering,
+	private val keepsGl: Boolean,
 ) : AutoCloseable {
 	val video: Video get() = rendering.video
 
-	override fun close() = SDL_Quit()
+	override fun close() {
+		if (keepsGl)
+			SDL_GL_UnloadLibrary()
+		SDL_Quit()
+	}
 
 	companion object {
 		/**
@@ -144,7 +154,16 @@ internal class Sdl private constructor(
 
 			Pixels.Gpu.configure()
 
-			val rendering = Rendering(video, drawing, openGlFor(drawing))
+			// OpenGL's library, loaded once for the probe and for every window drawn with it after. Left to SDL, it is
+			// unloaded with the last window made for it (the probe's, at first) and loaded anew for the next: EGL's
+			// display shut and started again, after which NVIDIA's EGL under Wayland makes no context current
+			// (EGL_BAD_DISPLAY), and every window falls back to the CPU. Kept only where windows will be drawn with it.
+			val loaded = drawing != Drawing.Cpu && SDL_GL_LoadLibrary(null as CharSequence?)
+			val rendering = Rendering(video, drawing, openGlFor(drawing, loaded))
+			val keepsGl = loaded && rendering.onGpu
+
+			if (loaded && !keepsGl)
+				SDL_GL_UnloadLibrary()
 
 			// Drawn by the CPU on X11, the pixels go to the X server as they are (shared memory), not through a GPU
 			// renderer SDL would otherwise try first, copying them into a texture.
@@ -154,7 +173,7 @@ internal class Sdl private constructor(
 				"$video, drawn on the ${if (rendering.onGpu) "GPU" else "CPU"} (asked for: $drawing)"
 			}
 
-			return Sdl(rendering)
+			return Sdl(rendering, keepsGl)
 		}
 	}
 }
