@@ -29,10 +29,13 @@ import kotlin.math.ceil
  * - A picture under the pointer, as the drag's icon: a surface of its own, given to `start_drag`, the picture drawn
  *   into it at the window's density. Its top left corner is at the pointer, as thunar puts a file's icon.
  * - What letting go would do, as the pointer's cursor: a copy, a move, a link, or nothing taking it there. The
- *   compositor says which window under the pointer takes what is offered (`target`) and what it chose to make of it
- *   (`action`); over one of this process's own windows, the place under the pointer says, since SDL takes every drag
- *   it is given as a copy, whatever prism will make of it. The cursor is set by cursor-shape, where the compositor
- *   lets the process a drag began in set it while it goes.
+ *   compositor says what it chose to make of a drop on the window under the pointer (`action`), of what this offers
+ *   and what that window takes: nothing, where it takes nothing, or the pointer is over no window. That is what the
+ *   protocol has the cursor follow, and what GTK's follows. (Whether the window takes what is offered at all is said
+ *   by `target` too, but not by every compositor: Smithay's, niri's, never sends it.) Over one of this process's own
+ *   windows, the place under the pointer says, since SDL takes every drag it is given as a copy, whatever prism will
+ *   make of it. The cursor is set by cursor-shape, where the compositor lets the process a drag began in set it while
+ *   it goes.
  */
 
 /** A drag begun by the platform's own protocol: what a [NativeDrags] starts. */
@@ -64,28 +67,49 @@ internal interface NativeDrags : AutoCloseable {
 	}
 }
 
+/** Over one of this process's windows, where a drop would make [effect] of what is dragged; null: nothing takes it. */
+internal data class OwnPlace(
+	val effect: DropEffect?,
+)
+
+/**
+ * What the pointer's cursor during a drag is decided by: the [action] the compositor chose for a drop on the window
+ * under the pointer (one of `wl_data_device_manager`'s, or none); and, over one of this process's windows, [own], what
+ * the place there says.
+ */
+internal data class DragSeen(
+	val action: Int = WaylandDrags.ACTION_NONE,
+	val own: OwnPlace? = null,
+) {
+	/**
+	 * The cursor for what letting go would do. Over this process's windows, as the place there says; elsewhere, as the
+	 * compositor chose: a move or a copy (or the user asked, where the target asks them), and nothing where it chose
+	 * nothing, as it does over a window that takes nothing, and over none. None to show where the compositor's data
+	 * device is older than [version] 3, which says nothing of actions.
+	 */
+	fun cursor(version: Int): CursorShape? =
+		when {
+			own != null ->
+				when (own.effect) {
+					DropEffect.Copy -> CursorShape.Copy
+					DropEffect.Move -> CursorShape.Move
+					DropEffect.Link -> CursorShape.Alias
+					null -> CursorShape.NoDrop
+				}
+			version < 3 -> null
+			action == WaylandDrags.ACTION_COPY -> CursorShape.Copy
+			action == WaylandDrags.ACTION_MOVE -> CursorShape.Move
+			action == WaylandDrags.ACTION_ASK -> CursorShape.DndAsk
+			else -> CursorShape.NoDrop
+		}
+}
+
 /** Wayland's drags, on prism's own connection to the seat: see the top of this file. Made by [WaylandDrags.of]. */
 internal class WaylandDrags private constructor(
 	private val seat: WaylandSeat,
 	private val manager: Bound,
 	private val device: MemorySegment,
 ) : NativeDrags {
-	/**
-	 * What the pointer's cursor is decided by: whether the window under it [taken] what is offered, and the [action]
-	 * the compositor chose for it, as the compositor says; and, over one of this process's windows, [own], what the
-	 * place there says.
-	 */
-	private data class Seen(
-		val taken: Boolean = false,
-		val action: Int = ACTION_NONE,
-		val own: Own? = null,
-	)
-
-	/** Over one of this process's windows, where a drop would make [effect] of what is dragged; null: nothing takes it. */
-	private data class Own(
-		val effect: DropEffect?,
-	)
-
 	/** A drag's picture: a surface of its own, and the one buffer it shows, of [scale] pixels a point. */
 	private class Icon(
 		val surface: MemorySegment,
@@ -105,7 +129,7 @@ internal class WaylandDrags private constructor(
 
 		// Changed on the seat's thread (what the compositor says) and the windows' (what the place says), so only as
 		// the drag is held: what is seen and what is shown change together.
-		var seen = Seen()
+		var seen = DragSeen()
 		var shown: CursorShape? = null
 	}
 
@@ -119,7 +143,8 @@ internal class WaylandDrags private constructor(
 		onEnd: (DragEnd) -> Unit,
 	): Boolean {
 		val serial =
-			seat.pressed ?: return false.also { Log.say { "drag: no press heard to begin it from" } }
+			seat.pressed
+				?: return false.also { Log.say { "drag: no press heard to begin it from" } }
 
 		Log.say {
 			"drag: begun by Wayland's protocol, from the press of serial $serial, offering ${offer.types.keys}"
@@ -200,7 +225,8 @@ internal class WaylandDrags private constructor(
 		val density = Density(window.displayScale / perPoint * scale)
 
 		/** [length] in the buffer's pixels, made a whole number of points, as a buffer's size must be. */
-		fun pixels(length: Float): Int = (ceil(length * density.density / scale).toInt() * scale).coerceAtLeast(scale)
+		fun pixels(length: Float): Int =
+			(ceil(length * density.density / scale).toInt() * scale).coerceAtLeast(scale)
 
 		val width = pixels(picture.size.width.value)
 		val height = pixels(picture.size.height.value)
@@ -229,7 +255,7 @@ internal class WaylandDrags private constructor(
 	}
 
 	override fun overOwn(effect: DropEffect?) {
-		under?.let { drag -> seen(drag) { it.copy(own = Own(effect)) } }
+		under?.let { drag -> seen(drag) { it.copy(own = OwnPlace(effect)) } }
 	}
 
 	override fun offOwn() {
@@ -237,49 +263,27 @@ internal class WaylandDrags private constructor(
 	}
 
 	/** What [drag]'s pointer is decided by, changed as [change] says, and the cursor it comes to shown, if it is another. */
-	private fun seen(drag: Under, change: (Seen) -> Seen) =
+	private fun seen(drag: Under, change: (DragSeen) -> DragSeen) =
 		synchronized(drag) {
 			drag.seen = change(drag.seen)
 
-			val shape = shapeOf(drag.seen)
+			val shape = drag.seen.cursor(manager.version)
 
-			if (shape != drag.shown) {
+			if (shape != null && shape != drag.shown) {
 				drag.shown = shape
 				Log.say { "drag: the pointer shows $shape, as ${drag.seen}" }
 				seat.show(shape)
 			}
 		}
 
-	/**
-	 * The cursor for what [seen] says letting go would do. Over this process's windows, as the place there says;
-	 * elsewhere, as the compositor chose, a move or a copy (or the user asked, where the target asks them), and
-	 * nothing where no window takes it. A compositor too old to choose (before version 3) leaves a copy, as the source
-	 * can tell.
-	 */
-	private fun shapeOf(seen: Seen): CursorShape =
-		when {
-			seen.own != null ->
-				when (seen.own.effect) {
-					DropEffect.Copy -> CursorShape.Copy
-					DropEffect.Move -> CursorShape.Move
-					DropEffect.Link -> CursorShape.Alias
-					null -> CursorShape.NoDrop
-				}
-			!seen.taken -> CursorShape.NoDrop
-			manager.version < 3 -> CursorShape.Copy
-			seen.action == ACTION_COPY -> CursorShape.Copy
-			seen.action == ACTION_MOVE -> CursorShape.Move
-			seen.action == ACTION_ASK -> CursorShape.DndAsk
-			else -> CursorShape.NoDrop
-		}
-
 	// ---- what the compositor says of the drag, on the seat's thread --------------------------------------------------
 
-	/** The window under the pointer takes what is offered as [type], or (NULL) nothing of it. */
+	/**
+	 * The window under the pointer takes what is offered as [type], or (NULL) nothing of it. Not what the cursor
+	 * follows: Smithay's compositors never say it, and what they choose to make of a drop ([action]) says as much.
+	 */
 	@Suppress("unused", "UNUSED_PARAMETER")
-	fun target(data: MemorySegment, source: MemorySegment, type: MemorySegment) {
-		mine(source)?.let { drag -> seen(drag) { it.copy(taken = type.address() != 0L) } }
-	}
+	fun target(data: MemorySegment, source: MemorySegment, type: MemorySegment) = Unit
 
 	/** A window asks for what is dragged as [type], to be written to [fd]: written, and the pipe closed. */
 	@Suppress("unused", "UNUSED_PARAMETER")
@@ -336,7 +340,11 @@ internal class WaylandDrags private constructor(
 	}
 
 	/** The drag under way, where [source] is its. */
-	private fun mine(source: MemorySegment): Under? = under?.takeIf { it.source.address() == source.address() }
+	private fun mine(source: MemorySegment): Under? =
+		under?.takeIf {
+			it.source.address() ==
+				source.address()
+		}
 
 	/** [drag] over: its source and its picture let go of, and who began it told how it ended, on the windows' thread. */
 	private fun ended(drag: Under, how: DragEnd) {
@@ -393,14 +401,15 @@ internal class WaylandDrags private constructor(
 		private const val SOURCE_OFFER = 0
 		private const val SOURCE_DESTROY = 1
 		private const val SOURCE_SET_ACTIONS = 2
-		private const val ACTION_NONE = 0
-		private const val ACTION_COPY = 1
-		private const val ACTION_MOVE = 2
-		private const val ACTION_ASK = 4
+		const val ACTION_NONE = 0
+		const val ACTION_COPY = 1
+		const val ACTION_MOVE = 2
+		const val ACTION_ASK = 4
 
 		/** Drags through [seat]'s data device, where its compositor has drag and drop; null where it has not. */
 		fun of(seat: WaylandSeat): WaylandDrags? {
 			val manager = seat.dataDevices ?: return null
+
 			val device =
 				Wl.marshalObject.invokeExact(
 					manager.proxy,

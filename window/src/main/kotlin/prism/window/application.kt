@@ -122,7 +122,11 @@ internal class Application(
 				.mapNotNull { (it.handle as? NativeHandle.Wayland)?.surface }
 				.firstOrNull { it == press?.surface }
 
-		Log.say { "activation: from the press of serial ${press?.serial}, in ${surface?.let { "a window" } ?: "none open"}" }
+		Log.say {
+			"activation: from the press of serial ${press?.serial}, in ${surface?.let {
+				"a window"
+			} ?: "none open"}"
+		}
 
 		return seat.token(press?.serial, surface?.let(MemorySegment::ofAddress), appId)
 	}

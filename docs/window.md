@@ -146,10 +146,12 @@ A drag shows two things as it goes, as other file managers' do. The first is a p
 (`DragPicture`, which the browser draws: the icon of the row taken, and how many go with it on a badge). It is the
 drag's icon: a surface of its own given to `start_drag`, drawn into shared memory at the window's density, its top left
 corner at the pointer, as thunar puts a file's icon. The second is the pointer's cursor, which says what letting go
-would do: a copy, a move, a link, or nothing taking it there (`no-drop`). The compositor says which window under the
-pointer takes what is offered (`wl_data_source.target`) and what it chose to make of it (`action`); over one of
-prism's own windows the place under the pointer says (`DropTarget.effect`), since SDL takes every drag it is given as
-a copy, whatever prism will make of it. The cursor is set through cursor-shape (`wp_cursor_shape_device_v1`) on
+would do: a copy, a move, a link, or nothing taking it there (`no-drop`). It follows the action the compositor chose
+for a drop on the window under the pointer (`wl_data_source.action`), as the protocol has it, and GTK's does: none
+over a window that takes nothing, or over no window. Whether the window takes what is offered at all
+(`wl_data_source.target`) is not followed, since Smithay's compositors (niri) never send it: a cursor waiting for it
+showed `no-drop` over every program there. Over one of prism's own windows the place under the pointer says
+(`DropTarget.effect`), since SDL takes every drag it is given as a copy, whatever prism will make of it. The cursor is set through cursor-shape (`wp_cursor_shape_device_v1`) on
 prism's own pointer, which compositors built on Smithay (niri) let the program a drag began in do while it goes;
 others (GNOME's, KDE's) draw their own cursor for a drag from what was chosen, and sway leaves the pointer as it was.
 

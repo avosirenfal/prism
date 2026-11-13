@@ -72,7 +72,11 @@ class DetachedLauncher(
 			return Launched.Failed(program, "“$program” is not installed, or not on the PATH")
 
 		// Asked for only now, for what is surely started: a desktop entry's name is the application's, as a token names it.
-		return spawn(detached(command, label), folder, activation.token(label?.removeSuffix(".desktop")))
+		return spawn(
+			detached(command, label),
+			folder,
+			activation.token(label?.removeSuffix(".desktop")),
+		)
 	}
 
 	/** The user's terminal, wherever on the desktop it is said (freedesktop/terminals.kt). */

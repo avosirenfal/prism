@@ -36,10 +36,15 @@ class DragPictureTest {
 	}
 
 	private val density = Density(2f)
-	private val measurer = TextMeasurer(createFontFamilyResolver(), density, LayoutDirection.Ltr)
+	private val measurer =
+		TextMeasurer(createFontFamilyResolver(), density, LayoutDirection.Ltr)
 
 	/** [carrying]'s picture in [palette], drawn into pixels of its own at [density]. */
-	private fun drawn(carrying: Carrying, palette: Palette = Palette.Light, name: String? = null): ImageBitmap {
+	private fun drawn(
+		carrying: Carrying,
+		palette: Palette = Palette.Light,
+		name: String? = null,
+	): ImageBitmap {
 		val picture = dragPictureOf(carrying, palette, measurer)
 		val width = (picture.size.width.value * density.density).roundToInt()
 		val height = (picture.size.height.value * density.density).roundToInt()
@@ -76,7 +81,8 @@ class DragPictureTest {
 		return width - badge / 2 to badge / 2
 	}
 
-	private fun ImageBitmap.at(spot: Pair<Int, Int>): Color = toPixelMap()[spot.first, spot.second]
+	private fun ImageBitmap.at(spot: Pair<Int, Int>): Color =
+		toPixelMap()[spot.first, spot.second]
 
 	@Test
 	fun oneFileShowsItsIconAloneOnNothing() {
@@ -100,7 +106,11 @@ class DragPictureTest {
 
 			assertEquals(palette.accent, edge.copy(alpha = 1f), name)
 			// The folder, below and to the left of it.
-			assertEquals(palette.folderFront, image.at(image.width * 2 / 5 to image.height * 3 / 4), name)
+			assertEquals(
+				palette.folderFront,
+				image.at(image.width * 2 / 5 to image.height * 3 / 4),
+				name,
+			)
 		}
 	}
 

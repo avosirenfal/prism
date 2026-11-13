@@ -495,6 +495,7 @@ class NativeWindow internal constructor(
 			SDL_EVENT_DROP_POSITION -> {
 				val drop = event.drop()
 				val own = app.drags.ownDropped()
+
 				val effect =
 					drops.hover(
 						pixelOf(drop.x(), drop.y()),
@@ -595,10 +596,17 @@ class NativeWindow internal constructor(
 	internal val pointerPosition: Offset get() = pointer
 
 	/** How many of the window's pixels a point of the platform's is: more than one on a screen scaled up. */
-	internal val pixelsPerPoint: Float get() = SDL_GetWindowPixelDensity(sdl).takeIf { it > 0f } ?: 1f
+	internal val pixelsPerPoint: Float get() =
+		SDL_GetWindowPixelDensity(sdl).takeIf {
+			it >
+				0f
+		}
+			?: 1f
 
 	/** How many of the window's pixels a dp is: the scale its display is shown at. */
-	internal val displayScale: Float get() = SDL_GetWindowDisplayScale(sdl).takeIf { it > 0f } ?: 1f
+	internal val displayScale: Float get() =
+		SDL_GetWindowDisplayScale(sdl).takeIf { it > 0f }
+			?: 1f
 
 	internal val sdlWindow: Long get() = sdl
 

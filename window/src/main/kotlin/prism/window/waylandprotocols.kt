@@ -60,6 +60,7 @@ internal object Protocols {
 
 		messages.forEachIndexed { at, it ->
 			val entry = table.asSlice(at * message.byteSize(), message)
+
 			val types =
 				if (it.types.isEmpty())
 					MemorySegment.NULL
@@ -134,7 +135,11 @@ internal object Protocols {
 		interfaceOf(
 			"wp_cursor_shape_device_v1",
 			2,
-			requests = listOf(Message("destroy", ""), Message("set_shape", "uu", listOf(null, null))),
+			requests =
+				listOf(
+					Message("destroy", ""),
+					Message("set_shape", "uu", listOf(null, null)),
+				),
 		)
 
 	/** `wp_cursor_shape_manager_v1`: what a pointer's [cursorShapeDevice] is asked of. */

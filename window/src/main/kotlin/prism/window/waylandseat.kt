@@ -115,12 +115,15 @@ internal class WaylandSeat private constructor(
 			arena,
 			lookup,
 			this,
-			"pointerEnter" to FunctionDescriptor.ofVoid(ADDRESS, ADDRESS, JAVA_INT, ADDRESS, JAVA_INT, JAVA_INT),
+			"pointerEnter" to
+				FunctionDescriptor.ofVoid(ADDRESS, ADDRESS, JAVA_INT, ADDRESS, JAVA_INT, JAVA_INT),
 			"pointerLeave" to FunctionDescriptor.ofVoid(ADDRESS, ADDRESS, JAVA_INT, ADDRESS),
-			"pointerMotion" to FunctionDescriptor.ofVoid(ADDRESS, ADDRESS, JAVA_INT, JAVA_INT, JAVA_INT),
+			"pointerMotion" to
+				FunctionDescriptor.ofVoid(ADDRESS, ADDRESS, JAVA_INT, JAVA_INT, JAVA_INT),
 			"pointerButton" to
 				FunctionDescriptor.ofVoid(ADDRESS, ADDRESS, JAVA_INT, JAVA_INT, JAVA_INT, JAVA_INT),
-			"pointerAxis" to FunctionDescriptor.ofVoid(ADDRESS, ADDRESS, JAVA_INT, JAVA_INT, JAVA_INT),
+			"pointerAxis" to
+				FunctionDescriptor.ofVoid(ADDRESS, ADDRESS, JAVA_INT, JAVA_INT, JAVA_INT),
 		)
 
 	private val keyboardListener =
@@ -129,11 +132,21 @@ internal class WaylandSeat private constructor(
 			lookup,
 			this,
 			"keymap" to FunctionDescriptor.ofVoid(ADDRESS, ADDRESS, JAVA_INT, JAVA_INT, JAVA_INT),
-			"keyboardEnter" to FunctionDescriptor.ofVoid(ADDRESS, ADDRESS, JAVA_INT, ADDRESS, ADDRESS),
+			"keyboardEnter" to
+				FunctionDescriptor.ofVoid(ADDRESS, ADDRESS, JAVA_INT, ADDRESS, ADDRESS),
 			"keyboardLeave" to FunctionDescriptor.ofVoid(ADDRESS, ADDRESS, JAVA_INT, ADDRESS),
-			"key" to FunctionDescriptor.ofVoid(ADDRESS, ADDRESS, JAVA_INT, JAVA_INT, JAVA_INT, JAVA_INT),
+			"key" to
+				FunctionDescriptor.ofVoid(ADDRESS, ADDRESS, JAVA_INT, JAVA_INT, JAVA_INT, JAVA_INT),
 			"modifiers" to
-				FunctionDescriptor.ofVoid(ADDRESS, ADDRESS, JAVA_INT, JAVA_INT, JAVA_INT, JAVA_INT, JAVA_INT),
+				FunctionDescriptor.ofVoid(
+					ADDRESS,
+					ADDRESS,
+					JAVA_INT,
+					JAVA_INT,
+					JAVA_INT,
+					JAVA_INT,
+					JAVA_INT,
+				),
 		)
 
 	private val seatListener =
@@ -145,7 +158,12 @@ internal class WaylandSeat private constructor(
 		)
 
 	private val tokenListener =
-		listenerOf(arena, lookup, this, "done" to FunctionDescriptor.ofVoid(ADDRESS, ADDRESS, ADDRESS))
+		listenerOf(
+			arena,
+			lookup,
+			this,
+			"done" to FunctionDescriptor.ofVoid(ADDRESS, ADDRESS, ADDRESS),
+		)
 
 	private val thread =
 		Thread({ dispatching() }, "prism wayland seat").apply {
@@ -167,7 +185,11 @@ internal class WaylandSeat private constructor(
 	 * attention, rather than bring it forward: niri checks the press, sway that there is a window, and wlroots that it
 	 * is the one with the keyboard.
 	 */
-	fun token(serial: Int?, surface: MemorySegment?, appId: String?): CompletableFuture<String>? {
+	fun token(
+		serial: Int?,
+		surface: MemorySegment?,
+		appId: String?,
+	): CompletableFuture<String>? {
 		val activation = activation ?: return null
 		val answer = CompletableFuture<String>()
 
@@ -185,7 +207,15 @@ internal class WaylandSeat private constructor(
 		asked[token.address()] = answer
 		Wl.addListener.invokeExact(token, tokenListener, MemorySegment.NULL) as Int
 		serial?.let {
-			Wl.marshalSerial.invokeExact(token, TOKEN_SET_SERIAL, MemorySegment.NULL, 1, 0, it, seat)
+			Wl.marshalSerial.invokeExact(
+				token,
+				TOKEN_SET_SERIAL,
+				MemorySegment.NULL,
+				1,
+				0,
+				it,
+				seat,
+			)
 				as MemorySegment
 		}
 		appId?.let { id ->
@@ -204,7 +234,14 @@ internal class WaylandSeat private constructor(
 			Wl.marshalNone.invokeExact(token, TOKEN_SET_SURFACE, MemorySegment.NULL, 1, 0, it)
 				as MemorySegment
 		}
-		Wl.marshalNone.invokeExact(token, TOKEN_COMMIT, MemorySegment.NULL, 1, 0, MemorySegment.NULL)
+		Wl.marshalNone.invokeExact(
+			token,
+			TOKEN_COMMIT,
+			MemorySegment.NULL,
+			1,
+			0,
+			MemorySegment.NULL,
+		)
 			as MemorySegment
 		Wl.flush.invokeExact(display) as Int
 
@@ -220,7 +257,11 @@ internal class WaylandSeat private constructor(
 	fun show(shape: CursorShape) {
 		val device = cursor ?: return
 		val version = cursorShapes?.version ?: return
-		val shown = if (shape.since <= version) shape else shape.otherwise ?: return
+		val shown =
+			if (shape.since <= version)
+				shape
+			else
+				shape.otherwise ?: return
 
 		Wl.marshalInts.invokeExact(
 			device,
@@ -275,9 +316,9 @@ internal class WaylandSeat private constructor(
 			pressed = null
 		}
 
-		if (hasKeyboard && keyboard == null)
+		if (hasKeyboard && keyboard == null) {
 			keyboard = got(SEAT_GET_KEYBOARD, "wl_keyboard_interface", keyboardListener)
-		else if (!hasKeyboard) {
+		} else if (!hasKeyboard) {
 			keyboard?.let { Wl.destroy.invoke(it) }
 			keyboard = null
 			keyboardIn = 0
@@ -311,13 +352,24 @@ internal class WaylandSeat private constructor(
 	}
 
 	@Suppress("unused", "UNUSED_PARAMETER")
-	fun pointerLeave(data: MemorySegment, pointer: MemorySegment, serial: Int, surface: MemorySegment) {
+	fun pointerLeave(
+		data: MemorySegment,
+		pointer: MemorySegment,
+		serial: Int,
+		surface: MemorySegment,
+	) {
 		if (pointerIn == surface.address())
 			pointerIn = 0
 	}
 
 	@Suppress("unused", "UNUSED_PARAMETER")
-	fun pointerMotion(data: MemorySegment, pointer: MemorySegment, time: Int, x: Int, y: Int) = Unit
+	fun pointerMotion(
+		data: MemorySegment,
+		pointer: MemorySegment,
+		time: Int,
+		x: Int,
+		y: Int,
+	) = Unit
 
 	@Suppress("unused", "UNUSED_PARAMETER")
 	fun pointerButton(
@@ -335,11 +387,23 @@ internal class WaylandSeat private constructor(
 	}
 
 	@Suppress("unused", "UNUSED_PARAMETER")
-	fun pointerAxis(data: MemorySegment, pointer: MemorySegment, time: Int, axis: Int, value: Int) = Unit
+	fun pointerAxis(
+		data: MemorySegment,
+		pointer: MemorySegment,
+		time: Int,
+		axis: Int,
+		value: Int,
+	) = Unit
 
 	/** The keyboard's keymap, which is SDL's to read: its file, given to this one too, closed. */
 	@Suppress("unused", "UNUSED_PARAMETER")
-	fun keymap(data: MemorySegment, keyboard: MemorySegment, format: Int, fd: Int, size: Int) {
+	fun keymap(
+		data: MemorySegment,
+		keyboard: MemorySegment,
+		format: Int,
+		fd: Int,
+		size: Int,
+	) {
 		Wl.close.invokeExact(fd) as Int
 	}
 
@@ -355,7 +419,12 @@ internal class WaylandSeat private constructor(
 	}
 
 	@Suppress("unused", "UNUSED_PARAMETER")
-	fun keyboardLeave(data: MemorySegment, keyboard: MemorySegment, serial: Int, surface: MemorySegment) {
+	fun keyboardLeave(
+		data: MemorySegment,
+		keyboard: MemorySegment,
+		serial: Int,
+		surface: MemorySegment,
+	) {
 		if (keyboardIn == surface.address())
 			keyboardIn = 0
 	}
@@ -496,7 +565,14 @@ internal class WaylandSeat private constructor(
 						arena,
 						MethodHandles.lookup(),
 						globals,
-						"global" to FunctionDescriptor.ofVoid(ADDRESS, ADDRESS, JAVA_INT, ADDRESS, JAVA_INT),
+						"global" to
+							FunctionDescriptor.ofVoid(
+								ADDRESS,
+								ADDRESS,
+								JAVA_INT,
+								ADDRESS,
+								JAVA_INT,
+							),
 						"removed" to FunctionDescriptor.ofVoid(ADDRESS, ADDRESS, JAVA_INT),
 					),
 					MemorySegment.NULL,
@@ -524,7 +600,8 @@ internal class WaylandSeat private constructor(
 						)
 					}
 
-				fun core(name: String, highest: Int): Bound? = bound(name, Wl.iface("${name}_interface"), highest)
+				fun core(name: String, highest: Int): Bound? =
+					bound(name, Wl.iface("${name}_interface"), highest)
 
 				val seat = core("wl_seat", 1) ?: return null.also { arena.close() }
 
@@ -548,8 +625,8 @@ internal class WaylandSeat private constructor(
 				Wl.flush.invokeExact(display) as Int
 				made.thread.start()
 				Log.say {
-					"wayland: seat bound; drags ${made.dataDevices != null}, activation ${made.activation != null}, " +
-						"cursor shapes ${made.cursorShapes != null}"
+					"wayland: seat bound; drags ${made.dataDevices != null}, " +
+						"activation ${made.activation != null}, cursor shapes ${made.cursorShapes != null}"
 				}
 
 				made
@@ -583,12 +660,17 @@ internal fun listenerOf(
 					else -> MemorySegment::class.java
 				}
 			}
+
 		val handle =
 			lookup
 				.findVirtual(target.javaClass, name, MethodType.methodType(Void.TYPE, types))
 				.bindTo(target)
 
-		table.setAtIndex(ADDRESS, at.toLong(), Linker.nativeLinker().upcallStub(handle, descriptor, arena))
+		table.setAtIndex(
+			ADDRESS,
+			at.toLong(),
+			Linker.nativeLinker().upcallStub(handle, descriptor, arena),
+		)
 	}
 
 	return table

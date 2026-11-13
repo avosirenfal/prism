@@ -71,6 +71,7 @@ open "$work/one/src"; open "$work/one/dst"
 drag 300 103 900 400 "$work/during-drag.png"
 grim "$work/across-processes.png"
 check "a file dragged to another prism is moved there" "[ -f '$work/one/dst/a.txt' ] && [ ! -e '$work/one/src/a.txt' ]"
+check "over another program, the pointer shows the copy its compositor chose" "grep -q 'the pointer shows Copy' '$work/prism.log'"
 done_with
 
 # 2. One process: the folder "inner" opened in a new window from its menu, and a.txt dragged into it.
@@ -80,6 +81,7 @@ pointer "abs 300 103" "sleep 0.3" "rpress" "rrelease" "sleep 1" "abs 360 155" "s
 drag 290 157 900 400
 grim "$work/within-a-process.png"
 check "a file dragged to another window of one prism is moved there" "[ -f '$work/two/src/inner/a.txt' ] && [ ! -e '$work/two/src/a.txt' ]"
+check "over prism's own folder, the pointer shows the move prism makes" "grep -q 'the pointer shows Move' '$work/prism.log'"
 done_with
 
 # 3. One process: an archive opened with a double click, and its entry dragged to the folder's window.
