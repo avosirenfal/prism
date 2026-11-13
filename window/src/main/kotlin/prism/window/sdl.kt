@@ -13,6 +13,8 @@ import org.lwjgl.sdl.SDLInit.SDL_Init
 import org.lwjgl.sdl.SDLInit.SDL_Quit
 import org.lwjgl.sdl.SDLProperties.SDL_GetNumberProperty
 import org.lwjgl.sdl.SDLProperties.SDL_GetPointerProperty
+import org.lwjgl.sdl.SDLStdinc.SDL_getenv_unsafe
+import org.lwjgl.sdl.SDLStdinc.SDL_setenv_unsafe
 import org.lwjgl.sdl.SDLVideo.SDL_GL_LoadLibrary
 import org.lwjgl.sdl.SDLVideo.SDL_GL_UnloadLibrary
 import org.lwjgl.sdl.SDLVideo.SDL_GetCurrentVideoDriver
@@ -23,6 +25,7 @@ import org.lwjgl.sdl.SDLVideo.SDL_PROP_WINDOW_WAYLAND_SURFACE_POINTER
 import org.lwjgl.sdl.SDLVideo.SDL_PROP_WINDOW_WIN32_HWND_POINTER
 import org.lwjgl.sdl.SDLVideo.SDL_PROP_WINDOW_X11_DISPLAY_POINTER
 import org.lwjgl.sdl.SDLVideo.SDL_PROP_WINDOW_X11_WINDOW_NUMBER
+import org.lwjgl.system.Platform
 
 /** Which display server SDL speaks to, as its video driver is named. */
 enum class Video {
@@ -114,6 +117,21 @@ internal object Log {
 	}
 }
 
+/** NVIDIA's switch for its OpenGL's threading, as its driver reads it from the environment. */
+internal const val NVIDIA_THREADED = "__GL_THREADED_OPTIMIZATIONS"
+
+/**
+ * NVIDIA's threading of OpenGL turned off, unless the user has set it. Its driver (580) turns it on of its own accord
+ * for a process that loads LWJGL (by an application profile), and under Wayland its EGL display then goes bad once the
+ * first context is made: every EGL call that needs it after fails with EGL_BAD_DISPLAY, and every window falls back to
+ * the CPU. Set in the process's own environment, where the driver reads it, before EGL is loaded; nothing but NVIDIA's
+ * driver reads it, and prism's drawing gains nothing from it.
+ */
+internal fun unthreadNvidia() {
+	if (Platform.get() == Platform.LINUX)
+		SDL_setenv_unsafe(NVIDIA_THREADED, "0", 0)
+}
+
 /**
  * What SDL was started with, for as long as it runs: how windows are drawn, and whether OpenGL's library is kept loaded
  * for them ([keepsGl]).
@@ -147,6 +165,8 @@ internal class Sdl private constructor(
 			)
 				SDL_SetHint(SDL_HINT_VIDEO_DRIVER, "wayland,x11")
 
+			unthreadNvidia()
+			Log.say { "$NVIDIA_THREADED=${SDL_getenv_unsafe(NVIDIA_THREADED)}" }
 			if (!SDL_Init(SDL_INIT_VIDEO))
 				throw NoDisplay(SDL_GetError() ?: "SDL could not start its video")
 
@@ -154,10 +174,9 @@ internal class Sdl private constructor(
 
 			Pixels.Gpu.configure()
 
-			// OpenGL's library, loaded once for the probe and for every window drawn with it after. Left to SDL, it is
-			// unloaded with the last window made for it (the probe's, at first) and loaded anew for the next: EGL's
-			// display shut and started again, after which NVIDIA's EGL under Wayland makes no context current
-			// (EGL_BAD_DISPLAY), and every window falls back to the CPU. Kept only where windows will be drawn with it.
+			// OpenGL's library, loaded once for the probe and for every window drawn with it after: left to SDL, it is
+			// unloaded with the last window made for it (the probe's, at first) and loaded anew for the next, EGL's
+			// display shut and started again in between. Kept only where windows will be drawn with it.
 			val loaded = drawing != Drawing.Cpu && SDL_GL_LoadLibrary(null as CharSequence?)
 			val rendering = Rendering(video, drawing, openGlFor(drawing, loaded))
 			val keepsGl = loaded && rendering.onGpu
