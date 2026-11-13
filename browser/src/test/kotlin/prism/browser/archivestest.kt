@@ -29,6 +29,11 @@ import prism.preferences.Kind
  * not run, and its test says so by not being among them.
  */
 class ArchivesTest {
+	private companion object {
+		/** Enough entries, with names long enough, for an archive's listing to be longer than 128 KiB. */
+		const val MANY = 2000
+	}
+
 	@TempDir
 	lateinit var root: Path
 
@@ -61,12 +66,13 @@ class ArchivesTest {
 			it.resolve("README.md").writeText("read me")
 		}
 
-	/** A kind of archive: a file of it, what makes one here, and the programs of each way of reading it. */
+	/** A kind of archive: a file of it, what makes one here, and the programs of each way of reading it, as [place]. */
 	private class Kind(
 		val file: String,
 		val make: String,
 		val makers: List<String>,
 		val ways: List<Set<String>>,
+		val place: String,
 		/** The programs with which entries can be removed from one and files added, where any can. */
 		val changing: List<Set<String>> = emptyList(),
 	)
@@ -85,18 +91,21 @@ class ArchivesTest {
 				"tar -czf ../code.tar.gz src 'with space' README.md",
 				listOf("tar", "gzip"),
 				listOf(setOf("bsdtar"), setOf("tar")),
+				"archive.tar",
 			),
 			Kind(
 				"code.tzst",
 				"tar --zstd -cf ../code.tzst src 'with space' README.md",
 				listOf("tar", "zstd"),
 				listOf(setOf("bsdtar"), setOf("tar")),
+				"archive.tar",
 			),
 			Kind(
 				"code.tar",
 				"tar -cf ../code.tar src 'with space' README.md",
 				listOf("tar"),
 				listOf(setOf("bsdtar"), setOf("tar")),
+				"archive.tar",
 				changing = listOf(setOf("tar")),
 			),
 			Kind(
@@ -104,6 +113,7 @@ class ArchivesTest {
 				"zip -qr ../code.zip src 'with space' README.md",
 				listOf("zip"),
 				listOf(setOf("unzip", "zipinfo"), seven, setOf("bsdtar")),
+				"archive.zip",
 				changing = listOf(setOf("unzip", "zipinfo", "zip"), seven),
 			),
 			Kind(
@@ -111,6 +121,7 @@ class ArchivesTest {
 				"7z a -bso0 -bsp0 ../code.7z src 'with space' README.md",
 				listOf("7z"),
 				listOf(seven, setOf("bsdtar")),
+				"archive.7z",
 				changing = listOf(seven),
 			),
 			Kind(
@@ -118,6 +129,7 @@ class ArchivesTest {
 				"rar a -r -idq ../code.rar src 'with space' README.md",
 				listOf("rar"),
 				listOf(setOf("unrar"), seven, setOf("bsdtar")),
+				"archive.rar",
 				changing = listOf(setOf("unrar", "rar")),
 			),
 			Kind(
@@ -125,6 +137,7 @@ class ArchivesTest {
 				"genisoimage -quiet -R -J -o ../code.iso .",
 				listOf("genisoimage"),
 				listOf(seven, setOf("bsdtar")),
+				"archive.disk",
 			),
 		)
 
@@ -386,6 +399,76 @@ class ArchivesTest {
 						assertEquals(setOf("with space", "new.txt"), added.names())
 					}
 					assertTrue(archive.exists())
+				}
+			}
+
+	/**
+	 * Each kind listed by each program that can, an archive whose listing is longer than one word of a program's
+	 * environment may be (128 KiB), where the environment exports names the listing scripts use for their own (a Nix
+	 * shell exports `out`): the listing is the script's own, and never reaches what it runs.
+	 */
+	@TestFactory
+	fun aLongListingIsReadWhateverTheEnvironmentExports(): List<DynamicTest> =
+		kinds
+			.filter { has(*it.makers.toTypedArray()) }
+			.flatMap { kind ->
+				kind.ways.filter { it.isNotEmpty() && has(*it.toTypedArray()) }.map {
+					kind to
+						it
+				}
+			}.map { (kind, programs) ->
+				dynamicTest("${kind.file} with ${programs.joinToString()}") {
+					val work = Files.createTempDirectory(root, "long")
+
+					val stage =
+						work.resolve("stage").also { stage ->
+							stage
+								.resolve(
+									"with space",
+								).createDirectories()
+								.resolve("my file.txt")
+								.writeText("spaced")
+							stage.resolve("README.md").writeText("read me")
+							stage.resolve("src").createDirectories().let { src ->
+								repeat(MANY) {
+									src
+										.resolve(
+											"an entry with a long enough name to fill a listing $it.txt",
+										).writeText("")
+								}
+							}
+						}
+
+					sh(kind.make, stage)
+
+					val type = exploring(work, programs).actions.places.getValue(kind.place)
+
+					val nixShell =
+						Commands { invocation, watch ->
+							ProcessCommands.run(
+								invocation.copy(
+									environment =
+										invocation.environment + ("out" to "/nix/store/shell-out") + ("listed" to "x"),
+								),
+								watch,
+							)
+						}
+
+					val listing =
+						listingOf(
+							Placed(
+								type,
+								mapOf("archive" to work.resolve(kind.file).toString()),
+							),
+							nixShell,
+							work,
+						)
+
+					assertTrue(listing is PlaceListing.Listed, "$listing")
+					assertTrue(
+						(listing as PlaceListing.Listed).tree.entries.size >= MANY,
+						"${listing.tree.entries.size}",
+					)
 				}
 			}
 

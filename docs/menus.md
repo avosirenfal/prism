@@ -185,6 +185,13 @@ browser: how it ended, and the last of what it wrote, to standard error where it
 output, in a box that scrolls. The words can be selected and copied, and "Copy" copies all of it. A place whose listing fails says the same where its entries would be. Nothing fails
 without saying so.
 
+**What a command is given.** A command runs with prism's own environment, which is the one prism was started from, and
+with the values it names (`archive`, `folder`) added to it. Whatever the shell prism was started from exported is
+there too: a Nix shell exports `out`, say. A script's own variables should be cleared before it fills them (`unset
+listed; listed=$(…)`): a shell keeps exporting a variable the environment brought, so filling one of the same name
+would hand its value to every program the script runs after, and a value longer than 128 KiB (an archive's whole
+listing) stops each of them starting ("Argument list too long"). prism's own listings do this.
+
 ### Several ways, and the programs there are
 
 The same thing is done by different programs on different machines: a zip is read by `unzip`, by 7-Zip, by `bsdtar`.
