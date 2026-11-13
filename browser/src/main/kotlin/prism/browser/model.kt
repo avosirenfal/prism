@@ -5,6 +5,7 @@ import java.nio.file.Path
 import java.time.Instant
 import java.util.concurrent.atomic.AtomicReference
 import prism.desktop.Place
+import prism.desktop.Storage
 import prism.desktop.TerminalChoice
 import prism.preferences.Builtin
 import prism.preferences.ColumnId
@@ -646,6 +647,14 @@ sealed interface Location {
 
 	/** The trash: every trash's entries, the home trash's and each drive's, together. */
 	data object Trash : Location
+
+	/**
+	 * The System page: the machine's drives, what is on each and how full it is, as [storage] says, as it was last
+	 * read; null until the first read arrives. It lists no files.
+	 */
+	data class System(
+		val storage: Storage? = null,
+	) : Location
 }
 
 /** Where the keyboard's cursor goes when the next read of the folder shown arrives. */
@@ -848,6 +857,12 @@ sealed interface SidebarItem {
 		override val path: Path? get() = null
 	}
 
+	/** The System page: the machine's drives, and how full each is. */
+	data object System : SidebarItem {
+		override val label: String get() = "System"
+		override val path: Path? get() = null
+	}
+
 	/** A drive. */
 	data class Drive(
 		val place: Place,
@@ -908,12 +923,13 @@ data class Sidebar(
 	/** Whether quick access shows [path]. */
 	fun shows(path: Path): Boolean = shown.any { it.path == path }
 
-	/** The item [builtin] is: the trash, or one of prism's own folders where it is there; null where it is not. */
+	/** The item [builtin] is: the trash, the System page, or one of prism's own folders where it is there; null where not. */
 	private fun itemOf(builtin: Builtin): SidebarItem? =
-		if (builtin == Builtin.Trash)
-			SidebarItem.Trash
-		else
-			known[builtin]?.let { SidebarItem.Own(builtin, it) }
+		when (builtin) {
+			Builtin.Trash -> SidebarItem.Trash
+			Builtin.System -> SidebarItem.System
+			else -> known[builtin]?.let { SidebarItem.Own(builtin, it) }
+		}
 
 	/** A folder pinned, named as the desktop names it where it is one of its own, and by its own name otherwise. */
 	private fun pinnedPlaceOf(path: Path): Place =
@@ -1011,10 +1027,14 @@ data class BrowserState(
 				is Location.Results -> at.within?.let { Where.Place(it.placed) } ?: Where.Results
 				is Location.Place -> Where.Place(at.placed, at.within)
 				Location.Trash -> Where.Trash
+				is Location.System -> Where.System
 			}
 
 	/** Whether the trash is shown. */
 	val inTrash: Boolean get() = at == Location.Trash
+
+	/** The System page shown, where it is. */
+	val system: Location.System? get() = at as? Location.System
 
 	/** What the window is for, as how its listings look goes. */
 	val role: Role get() =
@@ -1031,6 +1051,8 @@ data class BrowserState(
 				is Location.Results -> ListingKind.Results
 				is Location.Place -> ListingKind.Place(at.placed.type.id)
 				Location.Trash -> ListingKind.Trash
+				// It lists no files: as far as how a listing would look goes, it is a folder's, which it never draws.
+				is Location.System -> ListingKind.Folder
 			}
 
 	/** How what it shows looks: its order and its columns. */
@@ -1092,6 +1114,7 @@ data class BrowserState(
 				is Location.Results -> "results for “${at.finding.text}”"
 				is Location.Place -> at.within.lastOrNull() ?: at.placed.title
 				Location.Trash -> "the trash"
+				is Location.System -> "System"
 			}
 
 	/** The rows chosen, in the order they are shown. */

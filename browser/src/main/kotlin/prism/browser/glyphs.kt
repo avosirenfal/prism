@@ -83,6 +83,15 @@ enum class Glyph {
 
 	/** A chip with its pins: what draws a window, a GPU or a CPU. */
 	Chip,
+
+	/** A ring with a part of it filled: how full the machine's drives are, the System page. */
+	System,
+
+	/** A drive that plugs in: a USB stick, a card. */
+	Removable,
+
+	/** A drive reached over the network. */
+	Network,
 }
 
 /** [glyph] at [size], in [tint]; a file's icon is marked with [category]'s colour. */
@@ -224,6 +233,42 @@ fun DrawScope.drawGlyph(
 			drawCircle(tint, 8.5f * unit, at(unit, 12f, 12f), style = line(unit))
 			drawCircle(tint, 1.1f * unit, at(unit, 12f, 8f))
 			stroked(unit, tint, listOf(12f to 11f, 12f to 16.5f))
+		}
+		Glyph.System -> {
+			drawCircle(tint, 8.5f * unit, at(unit, 12f, 12f), style = line(unit))
+			drawArc(
+				tint,
+				startAngle = -90f,
+				sweepAngle = 125f,
+				useCenter = true,
+				topLeft = at(unit, 6f, 6f),
+				size = Size(12f * unit, 12f * unit),
+			)
+		}
+		Glyph.Removable -> {
+			drawRoundRect(
+				tint,
+				at(unit, 7f, 9f),
+				Size(10f * unit, 12.5f * unit),
+				CornerRadius(2f * unit),
+				style = line(unit),
+			)
+			drawRect(tint, at(unit, 9f, 3.5f), Size(6f * unit, 5.5f * unit), style = line(unit))
+			stroked(unit, tint, listOf(11f to 5.5f, 11f to 6.5f))
+			stroked(unit, tint, listOf(13f to 5.5f, 13f to 6.5f))
+		}
+		Glyph.Network -> {
+			drawRoundRect(
+				tint,
+				at(unit, 4f, 3.5f),
+				Size(16f * unit, 9f * unit),
+				CornerRadius(1.5f * unit),
+				style = line(unit),
+			)
+			drawCircle(tint, 1f * unit, at(unit, 7.5f, 8f))
+			stroked(unit, tint, listOf(12f to 12.5f, 12f to 17.5f))
+			stroked(unit, tint, listOf(4f to 17.5f, 20f to 17.5f))
+			drawCircle(tint, 1.6f * unit, at(unit, 12f, 17.5f))
 		}
 		Glyph.Chip -> {
 			drawRoundRect(

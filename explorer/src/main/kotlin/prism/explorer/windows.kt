@@ -96,6 +96,7 @@ fun ExplorerWindows(explorer: Explorer, palette: Palette, decorated: Boolean) {
 								is Location.Results -> "Search"
 								is Location.Place -> at.placed.title
 								Location.Trash -> "Trash"
+								is Location.System -> "System"
 							},
 						size = DpSize(1100.dp, 680.dp),
 						decorated = decorated,

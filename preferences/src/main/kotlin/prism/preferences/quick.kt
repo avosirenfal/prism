@@ -9,7 +9,8 @@ import kotlinx.serialization.encoding.Decoder
 import kotlinx.serialization.encoding.Encoder
 
 /*
- * The sidebar's quick access: prism's own places (the home folder, its well-known folders, the trash) and the folders
+ * The sidebar's quick access: prism's own places (the home folder, its well-known folders, the trash, the system's
+ * drives) and the folders
  * the user pinned, in the user's order. Prism's own are always there, each once: the user shows or hides one, and
  * moves it, but cannot remove it, so a place this version adds is in every user's list, at its end, without asking.
  */
@@ -25,6 +26,9 @@ enum class Builtin {
 	Music,
 	Videos,
 	Trash,
+
+	/** The machine's drives, and how full each is: the System page. */
+	System,
 }
 
 /** One entry of quick access. */

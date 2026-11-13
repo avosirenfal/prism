@@ -74,6 +74,7 @@ whether it is on the same volume, is known only once it is dropped.
 | running the daemon | a systemd user service | a launchd agent | a scheduled task, or a service |
 | the picker for other applications | the portal, over D-Bus | none: the command line | none: the command line |
 | file types, applications, defaults, launching | freedesktop's: shared-mime-info, desktop entries, `mimeapps.list`, `setsid` | uniform type identifiers, Launch Services, `open -a` | the registry, `ShellExecuteEx` |
+| drives, and how full each is (the System page) | /sys/block, mountinfo, udev's records, statvfs, `zfs list` (`LinuxStorage`) | `getfsstat`, IOKit, and APFS containers' volumes | the volume management API |
 | bringing forward what is started | Wayland's xdg-activation token, in `XDG_ACTIVATION_TOKEN`; on X11, a startup notification (not yet) | Launch Services, which activates what it opens | `ShellExecuteEx`, from a process the user just pressed something in |
 | the trash | freedesktop's trash, one for each mount (`Trash`) | the system's (`NSFileManager trashItemAtURL`, which says where each item went, for undo) | the Recycle Bin |
 | the colour scheme | the portal's | the system's appearance | the registry's app theme |

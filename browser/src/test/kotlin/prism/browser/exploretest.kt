@@ -296,7 +296,7 @@ class ExploreTest {
 
 		val shown = placed.sidebar.shown
 
-		assertEquals(listOf("Home", "Trash", "projects"), shown.map { it.label })
+		assertEquals(listOf("Home", "Trash", "System", "projects"), shown.map { it.label })
 		assertInstanceOf(SidebarItem.Pinned::class.java, shown.last())
 
 		// One of prism's own is hidden, never removed; a folder pinned is unpinned.
@@ -336,7 +336,7 @@ class ExploreTest {
 		val quick = quickAccessOf(older, known)
 
 		// The pins in their order, prism's own among them; those of prism's own they left out, hidden, since the user
-		// had unpinned them; and the trash, which is newer than they are, shown.
+		// had unpinned them; and the trash and the System page, which are newer than they are, shown.
 		assertEquals(
 			listOf(
 				QuickItem.Own(Builtin.Documents),
@@ -348,6 +348,7 @@ class ExploreTest {
 				QuickItem.Own(Builtin.Music, shown = false),
 				QuickItem.Own(Builtin.Videos, shown = false),
 				QuickItem.Own(Builtin.Trash),
+				QuickItem.Own(Builtin.System),
 			),
 			quick.items,
 		)

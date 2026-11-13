@@ -5,6 +5,7 @@ import java.nio.file.Path
 import java.time.Instant
 import prism.desktop.Launched
 import prism.desktop.Opening
+import prism.desktop.Storage
 import prism.desktop.TerminalChoice
 import prism.index.query.Query
 import prism.preferences.Align
@@ -231,6 +232,9 @@ sealed interface BrowserEvent : Input {
 
 	/** The trash shown: every trash's entries together. */
 	data object OpenedTrash : BrowserEvent
+
+	/** The System page shown: the machine's drives, and how full each is. */
+	data object OpenedSystem : BrowserEvent
 
 	/** A folder made in the folder shown, its name then typed over (Ctrl+Shift+N). */
 	data object MadeFolder : BrowserEvent
@@ -461,6 +465,11 @@ sealed interface Answer : Input {
 	/** Every trash's entries, read for the trash's window. */
 	data class TrashRead(
 		val read: Listing.Read,
+	) : Answer
+
+	/** The machine's storage, read for the System page. */
+	data class StorageRead(
+		val storage: Storage,
 	) : Answer
 
 	/** What a search asked for [purpose] found. */
@@ -990,6 +999,9 @@ sealed interface Effect {
 
 	/** Every trash's entries read, and sent back as [Answer.TrashRead]. */
 	data object ReadTrash : Asking
+
+	/** The machine's storage read, and sent back as [Answer.StorageRead]. */
+	data object ReadStorage : Asking
 
 	/**
 	 * [query] searched for, as [text] was read, and what it found sent back as [Answer.Searched]. A search for the

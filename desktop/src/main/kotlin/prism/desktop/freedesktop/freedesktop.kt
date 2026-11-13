@@ -18,6 +18,7 @@ class Freedesktop(
 	override val applications = DesktopEntries(xdg, types)
 	override val launcher = DetachedLauncher(xdg, activation)
 	override val places = XdgPlaces()
+	override val storage = LinuxStorage()
 	override val facts: FileFacts = JvmFacts(types, ::bornAt)
 
 	private companion object {

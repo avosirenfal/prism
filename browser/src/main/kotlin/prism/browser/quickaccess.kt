@@ -242,6 +242,7 @@ private fun EntryLine(
 				when {
 					entry.item == null -> "Not on this computer"
 					entry.item is SidebarItem.Trash -> "Every drive's trash"
+					entry.item is SidebarItem.System -> "Every drive, and how full it is"
 					else -> entry.item.path?.let { tildeOf(it, home) }
 				}
 
@@ -301,6 +302,7 @@ private fun nameOf(builtin: Builtin): String =
 		Builtin.Music -> "Music"
 		Builtin.Videos -> "Videos"
 		Builtin.Trash -> "Trash"
+		Builtin.System -> "System"
 	}
 
 /** [path], from `~` where it is in [home]. */

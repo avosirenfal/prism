@@ -693,11 +693,12 @@ fun <A> MenuButton(
 	onAction: (A) -> Unit,
 	modifier: Modifier = Modifier,
 	selected: Boolean = false,
+	enabled: Boolean = true,
 ) {
 	var open by remember { mutableStateOf(false) }
 
 	Box {
-		ToolButton(glyph, label, enabled = true, modifier, selected = selected || open) {
+		ToolButton(glyph, label, enabled = enabled, modifier, selected = selected || open) {
 			open =
 				!open
 		}
