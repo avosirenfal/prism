@@ -24,7 +24,7 @@ a device, so a test that ran and a test that could not run are never confused.
 | places: what a command prints read into a tree, files told from entries, and the archive tool listed, gone about, extracted from (by the menu, a drop, a paste, and to open), added to and removed from, on real archives (`PlacesTest`) | Linux | without `tar`, `zip`, `unzip` or `git`, the tests that run them |
 | a drag between two real windows, made by X's own pointer (xdotool): an archive's entry dropped on a folder's window and extracted there, and a click with an unsteady hand and the other buttons dragging nothing (`DragTest`) | an X display, xdotool, and `-Pbrowser.display`: `xvfb-run ./gradlew :browser:test --tests prism.browser.DragTest -Pbrowser.display` | unless asked for |
 | drags on native Wayland, end to end: a file from one prism to another (its picture under the pointer), between two windows of one prism, and an archive's entry out of its window, by a pointer of wlroots' virtual-pointer protocol on a headless sway; and a file opened in an editor running already, brought forward by the token prism gave (`tools/wayland/check.sh`) | sway, grim, python3 with venv, libwayland-dev; the app image built | unless asked for |
-| a real window of the window module's, clicked, typed in, dropped on from another program and copied from, through SDL's own events (`WindowTest`) | a display, X11's or Wayland's, and `-Pwindow.display`: `xvfb-run ./gradlew :window:test -Pwindow.display` | unless asked for |
+| a real window of the window module's, clicked, typed in, dropped on from another program and copied from, through SDL's own events; six windows failing in six ways, each told of alone, beside one that goes on working; a window with nobody to tell ending the application (`WindowTest`) | a display, X11's or Wayland's, and `-Pwindow.display`: `xvfb-run ./gradlew :window:test -Pwindow.display` | unless asked for |
 | an index of a tree that was given, held and searched as one read from disk (`GivenTest`) | the JDK | never |
 | every shape of entry (file, folder, nested, empty, several, names with `[x]`, `*`, `?`) brought out of every kind of archive, with and without folder entries, by every program that reads it; and removed from every kind that can be changed (`EntriesTest`) | Linux | each case, without the programs it is of |
 | what a notice says, selected with the pointer and copied with Ctrl+C, in a real window with the system's clipboard (`SelectionTest`) | a display, and `-Pbrowser.display` | unless asked for |
@@ -35,7 +35,10 @@ a device, so a test that ran and a test that could not run are never confused.
 | the preferences in memory and in a watched file, written by another process, unreadable and kept aside (`preferences`) | Linux | never |
 | file types, desktop entries, `Exec` lines, defaults in `mimeapps.list`, places, and a real launch left detached and given its activation token (`desktop`) | Linux, `setsid` | never |
 | the machine's storage read from a workstation made in a folder (its /sys, /proc and udev records: btrfs on LUKS, a mirrored ZFS pool, an unmounted NTFS partition, a USB stick, a share that does not answer), and this machine's own (`StorageTest`); the System page read, narrowed and drawn in both palettes (`SystemPageTest`, `-Pbrowser.screenshots`) | Linux | never |
-| the explorer's windows around real sessions, properties, the application chooser, the preferences' edits merged on saving (`ExplorerTest`, `PropertiesTest`, `OpenWithTest`, `SettingsTest`) | the JDK | never |
+| the explorer's windows around real sessions, properties, the application chooser, the preferences' edits merged on saving; a window whose work fails closed, reported and shown, and a picker whose window fails answering whoever asked (`ExplorerTest`, `PropertiesTest`, `OpenWithTest`, `SettingsTest`) | the JDK | never |
+| one prism asking another: requests and answers written and read, a prism of another version, who listens where, a socket left by a prism that was killed, two started at once (`InstanceTest`) | Linux | never |
+| what the Nix package and the NixOS module name (the backend's bus name, the file manager's, the daemon's words) being what prism serves and reads (`PackagingTest`) | a checkout | where `nix/` is not beside the module |
+| what a program prism starts is given of prism's environment (`EnvironmentTest`) | the JDK | never |
 | the preferences window clicked, typed and mouse-pressed at, headless: the bindings found by words (Ctrl+F), and by a shortcut pressed in "Find Shortcut", which takes keys only while it is open; a listing found by its name, a gallery's filters set apart from a list's, a column aligned, and a picker given its own; a terminal found by typing its name, one not installed said so, and Custom's lines shown (`SettingsViewTest`) | the JDK | never |
 | drops: the default action's rule, the line under the listing, files read from what another application drags, drops on folders, an explorer's listing and a picker's, links on disk, undo, volumes told apart (`DropTest`) | Linux | never (the second volume, `/dev/shm`, where it is one) |
 | renaming, making and removing folders, and the trash both ways, on real files (`DiskTest`) | Linux | never |
@@ -46,14 +49,21 @@ a device, so a test that ran and a test that could not run are never confused.
 | the index's file and the store that keeps it (`FileTest`) | Linux | never |
 | a folder reconciled, devices by mount, the rules matching a place, a query's places (`ReconcileTest`) | Linux | never |
 | the live index: opening, reading again, changes, changes during a scan made again, places read for searches alone (`LiveIndexTest`) | Linux | never |
-| the daemon, with a feed of the test's own, and once with the kernel's watcher, which runs or says why not (`DaemonTest`) | Linux | never (the kernel's watcher is refused in the development container, and the test sees that said) |
+| the daemon, with a feed of the test's own, and once with the kernel's watcher, which runs or says why not; a watcher that fails to start, and an index that cannot be written, each reported and gone on from (`DaemonTest`) | Linux | never (the kernel's watcher is refused in the development container, and the test sees that said) |
 | search over an index the size of a desktop (`SearchBenchmark`) | `-Pindex.benchmark=N` | unless asked for |
 | D-Bus's wire format and types (`WireTest`, `SerialTest`) | the JDK | never |
 | D-Bus, live (`ConnectionTest`, `AppearanceTest`, `ThemeTest`) | dbus-daemon, which each test starts on a socket of its own | without dbus-daemon |
 | D-Bus against other implementations (in `ConnectionTest`) | gdbus, dbus-send, busctl | each, without that tool |
 
-In this project's development container everything runs and nothing skips. On a CI runner, the loader's tests skip
-(they run as an unprivileged user) and everything else runs.
+In this project's development container everything runs but what needs a display, which is asked for
+(`xvfb-run ... -Pwindow.display`). On a CI runner, the loader's tests skip as well (they run as an unprivileged user).
+
+The flake has checks of its own, which need Nix and nothing else (docs/nixos.md): the package built, and the NixOS
+module evaluated each way it can be set.
+
+```bash
+nix flake check
+```
 
 ## The loader, end to end
 
@@ -236,6 +246,23 @@ and the watcher's own:
 ```bash
 ./gradlew :app:run --args="probe c"
 ```
+
+## The daemon, end to end
+
+`tools/daemon/check.sh` runs prism as it runs for a session (docs/running.md), on a virtual display, in folders of
+its own: a prism started alone and a second handed to it; a daemon started apart from the terminal that waits for the
+session's windows and takes them when the first prism's last window closes; the daemon opening a window and going on
+with none; and, stopped, its index written and its socket gone. It says PASSED or FAILED:
+
+```bash
+./gradlew :app:createDistributable
+```
+
+```bash
+tools/daemon/check.sh
+```
+
+It needs Xvfb and xdotool. `PRISM=` names another prism to run it against, a Nix build's `result/bin/prism` say.
 
 ## The portal, end to end
 

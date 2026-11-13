@@ -14,8 +14,14 @@ explorer's sidebar at once.
 
 ![The picker, light](docs/picker-light.png)
 
-It is early: the parts exist and are tested, and are not yet joined into the daemon. docs/plan.md says what prism is
-for and how it is meant to work; docs/inprogress.md says where it stands.
+It runs as one process for the session, the daemon: it keeps the index, and every prism window opens in it, so a
+`prism` typed in a terminal or started from a launcher hands over what it was asked and is gone, rather than starting
+a Java program of its own. A window that fails is closed and says so; the rest, and the index, go on
+(docs/running.md). On NixOS, the flake's module sets it all up in one line (docs/nixos.md).
+
+It is early: the kernel's watcher has not yet been loaded on a real machine, and a user's service cannot load it at
+all yet, so the daemon reads its folders again every half hour in its place. docs/plan.md says what prism is for and
+how it is meant to work; docs/inprogress.md says where it stands.
 
 ```bash
 ./gradlew build
@@ -30,6 +36,10 @@ for and how it is meant to work; docs/inprogress.md says where it stands.
 ```
 
 ```bash
+./gradlew :app:run --args="daemon --foreground"
+```
+
+```bash
 ./gradlew :app:run --args="scan /usr --runs 5"
 ```
 
@@ -38,12 +48,13 @@ for and how it is meant to work; docs/inprogress.md says where it stands.
 | command | what it does |
 |---|---|
 | `pick [FOLDER]` | the picker in a window over a folder (your home folder by default), in the desktop's light or dark palette as it changes; prints each path chosen on a line of its own, or nothing and exit status 1 when cancelled; `--save NAME`, `--multiple`, `--folder`, `--theme auto\|light\|dark`; `--decorated` for the window manager's title bar (none by default); `--index [FILE]` searches an index with Ctrl+Shift+F (the usual one, or FILE's), read once and never updated |
-| `explore [FOLDER]` | the file explorer, in as many windows as it is asked for, until the last is closed; double-click opens with the desktop's application, Ctrl+W closes a window; `--index [FILE]`, `--theme`, `--decorated` as `pick` takes them |
-| `portal serve` | the desktop's file chooser (as the portal's backend) and file manager (`org.freedesktop.FileManager1`): a window for each request, until stopped; D-Bus starts it once it is installed |
+| `explore [ITEM...]`, or no command at all | the file explorer on a folder (your home, unless named), or on a file's folder with the file chosen: opened by the prism already running where there is one, which this hands its words to and is done; where none is, by this one, which is then the session's prism until its last window is closed. Double-click opens with the desktop's application, Ctrl+W closes a window; `--isolated` keeps it to a process of its own; `--index [FILE]`, `--theme`, `--decorated` as `pick` takes them, each of which also asks for a process of its own |
+| `daemon [PATH...]` | the one prism that stays (docs/running.md): the index kept current (the watcher started first, or why it could not be, then the index read or built, every change made as it is seen), every prism's windows, each searching that index, and the portal's file chooser and `org.freedesktop.FileManager1`. Started apart from the terminal, unless `--foreground` runs it in place; `--no-windows`, `--no-file-chooser`, `--no-file-manager`, `--replace`, `--theme`, `--decorated`; `--find QUERY` searches once the roots are read, reading places the rules leave out for the search alone; `--in-memory`, `--for N` |
+| `status` | what the prism already running says of itself: its index, whether changes are watched, its windows |
+| `portal serve` | the daemon without its index: the desktop's file chooser (as the portal's backend) and file manager (`org.freedesktop.FileManager1`), a window for each request, until stopped; what D-Bus starts, once it is installed, where no daemon runs |
 | `portal install`, `portal uninstall` | make prism your file chooser and file manager, or stop it being them: files in your own folders only, each prism's (docs/portal.md) |
 | `portal show [ITEM...]` | show folders and files in the file manager; what opening a folder runs, once installed |
 | `snapshot [FOLDER] --out FILE` | the picker drawn headless into a PNG |
-| `daemon [PATH...]` | the index kept current: the watcher started first (or why it could not be), then the index read or built, every change made as it is seen; `--find QUERY` searches once the roots are read, reading places the rules leave out for the search alone; `--in-memory`, `--for N` |
 | `index [PATH...]` | folders indexed into the index's file (`/` by default), or the file read where there is one, with what it holds and how long that took; `--find QUERY` searches it, in the search language, with what is wrong with the query underlined and how long each search took; `--fresh` indexes anew |
 | `scan [PATH]` | a tree read by each scanner backend, several times, with what each found and how fast |
 | `probe c` | the watcher's C, as emitted from its Kotlin declaration |
@@ -71,7 +82,7 @@ for and how it is meant to work; docs/inprogress.md says where it stands.
 | `window` | Compose, SDL3 and OpenGL (LWJGL) | Compose in native windows on every platform (Wayland, X11, Windows, macOS): drawn on the GPU where there is one and on the CPU into the window's own pixels where not, keys, the pointer, the clipboard by MIME type, and drag and drop (docs/window.md) |
 | `browser` | index, desktop, preferences, window, coroutines | browsing, as the picker and the explorer both do: an immutable state, a pure reducer from one state to the next, a session that carries out what it asks for, and a view made of controls of its own, worked by the pointer and the keyboard alike; a filter menu of kinds, a gallery with thumbnails, zoom, context menus (menus as data, one component to draw them) that rename, trash, copy, cut, paste and make files and folders, with undo; every key an action the user can bind again; and Ctrl+Shift+F's search of the index, its results shown as a folder holding them all |
 | `explorer` | browser | the file explorer: its windows as one immutable list, properties, "Open with", and the preferences window with its bindings page |
-| `app` | everything | the command line and the windows |
+| `app` | everything | the command line; the windows, opened one way whatever opens them; the socket one prism asks another through; and the daemon, which is the index and the windows in one process |
 
 The modules share their Gradle setup through convention plugins in `build-logic`, as kotlin-engine-test's do
 (build-logic/README.md); style is the same house ktlint rules (`./gradlew ktlintCheck`, `./gradlew ktlintFormat`).
@@ -111,11 +122,17 @@ sudo apt-get install clang libbpf1
 
 A clang other than the one on the PATH is named with `-Pprism.clang=PATH` or `$PRISM_CLANG`.
 
+The flake also builds prism as a package (`nix build`, `nix run`), and has a NixOS module that installs it, runs the
+daemon in your session and makes it your file chooser and file manager: `programs.prism.enable = true`
+(docs/nixos.md).
+
 ## Docs
 
 | doc | what |
 |---|---|
 | docs/plan.md | what prism is for, how it is put together, and how what is not built yet is meant to work |
+| docs/running.md | how prism runs: the daemon, one prism for a session's windows and how another finds it, `--isolated` and `--foreground`, and what happens when a window, every window, or the indexer fails |
+| docs/nixos.md | prism on NixOS: the lines for a system's flake, the module's options, the same written out by hand, and what to look at when something is not as it should be |
 | docs/picker.md | the picker: one example followed through, then its state, its rules, its filters, its gallery, its session, its controls and its keys |
 | docs/portal.md | prism as the desktop's file chooser (a portal backend) and file manager: installing it, a request followed from an application through the portal to a picker and back, and how it is tested end to end |
 | docs/explorer.md | the explorer: a double-click followed from the listing to a detached application, then its windows, the preferences every window shares, properties, "Open with", the bindings window, and what other platforms would need |

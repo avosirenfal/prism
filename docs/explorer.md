@@ -83,10 +83,17 @@ Nothing else says what is open, so there is nothing to keep in step: a window is
 closed by taking it out. A browser's window also closes when its session ends, which is what Ctrl+W, the app menu's
 "Close window", and the window manager's close button all do, the same way a picker is cancelled.
 
-`prism explore` composes `ExplorerWindows` inside its own `application {}` and exits when the list is empty. The daemon
-is meant to compose the same thing inside its own application, where it would stay running with no windows, and open
-one when an application asks it to show a folder (`org.freedesktop.FileManager1`'s `ShowFolders` and `ShowItems` are
-the D-Bus methods desktops use for that). That hosting is not written yet.
+Whatever opens the explorer's windows opens them one way (`Windows`, in `app/host.kt`): `ExplorerWindows` composed
+inside an `application {}`, with one `Explorer`, asked for windows by whoever wants one. `prism explore` run where no
+prism is running ends when the list is empty. The daemon stays running with none, and opens one when another `prism`
+asks through the socket, when an application asks it to show a folder (`org.freedesktop.FileManager1`'s `ShowFolders`
+and `ShowItems` are the D-Bus methods desktops use for that), or when the portal asks for a picker (docs/running.md).
+
+A window that fails is taken out of the list like any other, and one more is added in its place:
+`ExplorerWindow.Failed`, which says what the window was, what went wrong in a line and in full, and, for a window
+that was browsing, where to open a browser again. Each window's work is done in a scope of its own, so a failure in
+it is that window's (`Explorer.failed`), whichever of its coroutines it was in, and whether it came from the window's
+drawing or from its work.
 
 Each window has the title bar the window manager draws only with `--decorated`; without it, the dialogs show their
 title at the top and close with their own buttons or Escape.
@@ -551,8 +558,6 @@ terminal here" says why it cannot open it, rather than losing the rest of the pr
 - **The System page's LVM free room**: a volume group's room no logical volume takes is not read (it needs LVM's own
   tools), so a drive given to LVM shows its file systems and nothing for the rest.
 
-- **Hosting in the daemon.** `prism portal serve` hosts the explorer and answers `org.freedesktop.FileManager1`
-  (docs/portal.md), in a process of its own; the daemon, which keeps the index, does not host it yet.
 - **The rest of the context menus the user configures**: docs/menus.md says what is built (actions, places, the
   archive tool made of them) and what is not (the menu's order, items made as it opens, an editor).
 - **Renaming from the properties window** (rename from the listing, with F2, as before), and the properties of several

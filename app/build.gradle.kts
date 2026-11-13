@@ -44,6 +44,28 @@ tasks.withType<JavaExec>().named { it == "run" }.configureEach {
 	standardInput = System.`in`
 }
 
+// prism's own jar and every jar it runs with, side by side in one folder: what a package that brings its own Java
+// runs prism from (the flake's, nix/package.nix), where an app image with a Java inside it is not wanted. Each is
+// named after its group as well as itself, since two of Compose's have one file name; the natives of platforms other
+// than Linux are left out, a Linux package having no use for them.
+tasks.register<Sync>("installJars") {
+	val elsewhere = Regex("natives-(windows|macos)")
+
+	from(tasks.jar)
+	from(configurations.runtimeClasspath) {
+		exclude { elsewhere.containsMatchIn(it.name) }
+		eachFile {
+			// A jar from a repository is kept by Gradle under its group's name: files-2.1/GROUP/NAME/VERSION/HASH/.
+			val folders = file.invariantSeparatorsPath.split('/')
+			val group = folders.getOrNull(folders.indexOf("files-2.1") + 1)
+
+			if ("files-2.1" in folders && group != null)
+				name = "$group-$name"
+		}
+	}
+	into(layout.buildDirectory.dir("install/lib"))
+}
+
 compose.desktop {
 	application {
 		mainClass = "prism.app.MainKt"

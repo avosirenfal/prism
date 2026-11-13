@@ -18,7 +18,9 @@ The project is set up and every part named in the first brief exists, builds, an
 | the watcher | `probe`: hooks on the exits of `vfs_mkdir`, `vfs_rmdir`, `vfs_unlink`, `vfs_create`, `vfs_symlink`, `vfs_link`, `vfs_mknod`, `vfs_rename` and `do_filp_open`; compiled by the build into `index`'s resources |
 | the scanner | `index`: one traversal, two backends (getdents64 through FFM, and the JVM's own), names as bytes, what each directory is gathered into the caller's to say; the ignore rules (names and path endings anywhere, absolute paths), pseudo file systems skipped from mountinfo, read once |
 | the index | `index`: entries as columns in preorder (`Block`), inodes among them, a folder found by device and inode as the watcher names it; an immutable `Index` that changes by hiding and grafting and compacts back to a block a root, changes that say what is so and so can be made twice; its file a zstd-compressed snapshot and appended frames of changes, a torn frame dropped, compacted by rename (docs/format.md); `IndexStore` keeps an index and its file in step; `prism index` builds or reads one and searches it |
-| the daemon | `watcher`: the eBPF watcher, its program compiled into the module, read on a thread of its own; `daemon`: a `LiveIndex` that opens at once and reads its roots behind, reads places again when told (`rescan`), makes changes it is told of and makes them again once a scan they happened during lands, and reads places the rules leave out for searches alone, in memory, never written; and a `Daemon` that starts the watcher before the index is read, queues what it sees onto a thread of its own, writes every few seconds, and reads the roots again where changes were lost or there is no watcher (docs/daemon.md); `prism daemon` runs one |
+| the daemon | `watcher`: the eBPF watcher, its program compiled into the module, read on a thread of its own; `daemon`: a `LiveIndex` that opens at once and reads its roots behind, reads places again when told (`rescan`), makes changes it is told of and makes them again once a scan they happened during lands, and reads places the rules leave out for searches alone, in memory, never written; and a `Daemon` that starts the watcher before the index is read, queues what it sees onto a thread of its own, writes every few seconds, reads the roots again where changes were lost or there is no watcher, and reports and goes on from whatever fails in it (docs/daemon.md); `prism daemon` runs one, as the session's prism |
+| running | `app`: one prism for a session's windows (a socket in the runtime folder, held by a lock; a prism started for a window asks the one running, and does it itself where that one cannot); the windows opened one way whatever opens them, on a host that starts them again when they fail all at once and needs no display to start; the daemon as the index, the windows (searching the live index) and the bus's names in one process, started apart from a terminal or run in the foreground; `prism status`; a window that fails closed alone, shown and reported (docs/running.md) |
+| packaging | the flake: prism as a Nix package (its jars, run by nixpkgs' Java, with a cache of the classes a start loads), an overlay, and a NixOS module (`programs.prism`) for the daemon's user service, the portal and the file manager, each of which can be turned off (docs/nixos.md) |
 | search | `index`: queries as an immutable tree, for every term of the language (names, globs, quoted and raw terms, paths, regexes, `dir:`, `ext:`, `type:`, `is:`, `recent:`, `mount:`, negation), built with a Kotlin DSL or read from text by parser combinators that read any text at all into a tree with spans, problems (unfinished, and searched for as far as it goes; or invalid, and left out) and marks to colour it by; run over the columns as bytes, with ancestors' states kept per level, on every core; each result scored as it is found (how the words match the name, how much it and its folder have been picked, how new it is, where it is) and the results given best first; what was picked kept in a file of its own, in `$XDG_STATE_HOME` (docs/search.md) |
 | the picker | `browser`: an immutable `BrowserState`, a pure reducer, a session that reads folders, looks up typed paths and makes changes on a background thread, and a view made of its own controls; it browses (back, forward, up, the mouse's side buttons, places, a typed path), chooses (click, Ctrl, Shift, the arrows, type-ahead), searches, sorts, filters by kind from a menu (one, or several with Ctrl; hidden files shown and hidden folders not until the user says), zooms with Ctrl and the wheel (the gallery up to one picture at a time, fitted to the window), and saves (asking before replacing), as a list or a gallery with thumbnails of images; context menus (menus as data, one component for any menu) rename, trash (the desktop's own; the Delete key asks first) and make folders, each undone and redone with Ctrl+Z and Ctrl+Shift+Z; Ctrl+Shift+F searches the index, its first matches listed as the query is typed (coloured as it is read), a match gone to as the kind of picker says, every match shown in the listing as a folder holding them would show them (filtered, ordered best first or by a column, read on disk as they come into sight, millions without making millions of rows), Back returning to them; `prism pick` prints what is chosen, and `--index [FILE]` gives it an index to search; the same browser is the explorer's, below (docs/picker.md) |
 | the explorer | `explorer`: `prism explore`, the browser as a file manager in as many windows as it is asked for, kept as one immutable list; a file accepted opened with the desktop's application, started detached (its own session, and a systemd scope where there is one); copy, cut and paste through the desktop's clipboard, with undo; new files; properties (type, size counted, times, what opens it, permissions changed as ticked); "Open with", setting a type's default in `mimeapps.list`; a preferences window for pins, the terminal, and every key and mouse binding, rebound as a game's are (docs/explorer.md); a plan for configurable context menus (docs/menus.md) |
@@ -27,8 +29,10 @@ The project is set up and every part named in the first brief exists, builds, an
 | D-Bus | `dbus`: the connection (handshake and `Hello` as it opens), messages as data, kotlinx.serialization for bodies with signatures worked out from the types and checked before decoding, calls with replies as values, signals as flows, `watch`, served methods (docs/dbus.md) |
 | the colour scheme | `portal`: the portal's Settings declared; `prism pick` opens in the desktop's palette and follows its changes; light where there is no bus or portal; `--theme` overrides |
 
-379 tests (364 of prism's own, 15 of the house formatting rules), all passing in the development container; one
-skipped there, the search benchmark, which runs only when asked for (`-Pindex.benchmark=N`). The D-Bus ones run against a real dbus-daemon each test starts, and against gdbus, dbus-send and busctl.
+About 640 tests, passing in the development container but for one of the archives' (`code.zip` with `unzip` and
+`zipinfo` alone), which fails there with or without this work; eleven skipped there, those that need a display or
+are run only when asked for. The D-Bus ones run against a real dbus-daemon each test starts, and against gdbus,
+dbus-send and busctl.
 
 ## Measured
 
@@ -42,6 +46,10 @@ in 1.2 s and read in 0.28 s (docs/search.md has every query's time). Reading a q
 **getdents64 against the JVM** (docs/scanning.md), `/usr`, 92,611 entries, warm caches, 4 cores: getdents64 takes
 **0.23x** the JVM's time on one thread (48.5 ms against 214.8 ms) and **0.44x** on four (32.4 ms against 73.4 ms);
 `/root`, 38,272 entries, four threads: 0.40x. Both read identical trees. The FFM backend is the one the index uses.
+
+**A window asked of a running prism** (docs/running.md): `prism FOLDER` handed to the prism already running takes
+about 0.35 s from the app image and about 0.13 s from the Nix package (whose Java has a cache of the classes a
+start loads), all of it Java starting; `java -version` alone is 0.04 s.
 
 Not measured yet: a cold scan on real hardware, and a home directory of millions of entries. `prism scan ~ --runs 5`
 does both; the first run is the cold one.
@@ -60,6 +68,12 @@ does both; the first run is the cold one.
   (docs/testing.md says how). Its windows are now SDL3's (docs/window.md), native under Wayland: `prism explore` has been run as a Wayland client
   under weston's headless backend. How it sits with a real compositor (niri: focus on opening, the title bar, drags
   from Nautilus) is untried.
+- **The daemon has not been run as a real session's service.** It has been run in the development container on a
+  virtual X display: started alone and apart from the terminal, asked for windows by other prisms, serving a picker
+  and a file manager's request on a session bus, taking the session's place from a prism started before it, and
+  stopped with its index written (docs/running.md, "How it is tested"). Under a real systemd user manager, with a
+  real compositor's environment, with the NixOS module's unit: not yet. The module is evaluated by the flake's checks,
+  and the package is built and run from its wrapper there; neither has been through a `nixos-rebuild`.
 - **The explorer has been opened under X too**, on the same virtual display, and driven by xdotool: a file's menu,
   its properties and a folder's (contents counted, a permission ticked and unticked on disk), "Open with" filtered,
   confirmed with "always" (Vim started in a terminal, its parent init and its session its own, and the default
@@ -73,17 +87,21 @@ In the order they unblock each other:
 
 1. **Run the watcher on a real machine**, with the privileges it needs, and read what it sends for a `mkdir`, a
    `touch`, a `mv`, an `rm -r`, a `git checkout` and an `npm install`. Fix what the verifier says about any hook.
-   Then `prism daemon` there, and the same changes seen made in its index.
-2. **The portal backend, with the daemon's index.** The backend is served (`prism portal serve`, docs/portal.md),
-   end to end through the real xdg-desktop-portal; what is left is the daemon hosting it and handing it a `Finder` over
-   its live index, writing the usage as things are picked, and a D-Bus method of the daemon's to read places again.
+   Then `sudo prism daemon --foreground --no-windows` there, and the same changes seen made in its index.
+2. **The watcher for a user's daemon.** The daemon is a user's service now, which cannot load the watcher, so it
+   reads its roots again every half hour instead. What is wanted is the privileged loader (docs/plan.md,
+   "Privileges"): a small system service that holds `CAP_BPF` and `CAP_PERFMON`, loads the watcher, and gives the
+   user's daemon its ring (a pinned map the daemon may open, or a descriptor passed over a socket), with a NixOS
+   option beside the module's others. Giving the daemon the capabilities itself would hand them on to every
+   application it starts, a thread's capabilities being its own and a JVM having many threads.
 3. **The picker reading its folders from the index** (an index-backed `Disk`), with the picker's kinds and `type:`
-   from one table of extensions; and a search that asks for a place the rules leave out waiting for it to be read.
-4. **A Graal native command line** that talks to the running daemon: queries in a terminal, jumping to places.
-5. **The daemon hosting the explorer**, as `prism portal serve` already does, and answering
-   `org.freedesktop.FileManager1` there.
+   from one table of extensions; and a window telling the index what it saw change.
+4. **A client that is not Java**, a few dozen lines of C or a Graal native image, that speaks the socket: the 0.13 s
+   a window still takes to ask for is all Java starting. The same program is the command line that asks the daemon
+   for searches in a terminal.
+5. **Asking the daemon for more through the socket**: to read places again, and to search.
 6. **Filtering in the kernel**: a bounded loop in the DSL, so the watcher drops a change under an ignored directory
-   before it is sent; and the privileged loader service that hands the ring to the user's daemon.
+   before it is sent.
 
 ## Notes for whoever picks this up
 

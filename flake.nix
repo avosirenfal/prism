@@ -1,50 +1,152 @@
 {
-  description = "prism: a file picker for Wayland's portals, over an eBPF-kept index";
+  description = "prism: a file explorer and a file picker for Wayland's portals, over an eBPF-kept index";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
-  outputs = { self, nixpkgs }:
+  # What the flake gives (docs/nixos.md):
+  #
+  #   packages.<system>.prism (and .default)   prism: `environment.systemPackages = [ prism.packages.${system}.prism ]`
+  #   overlays.default                         the same, as `pkgs.prism`
+  #   nixosModules.prism (and .default)        `programs.prism`: the package, its daemon, the portal and the file manager
+  #   apps.<system>.default                    `nix run`
+  #   devShells.<system>.default               what building it with Gradle needs
+  #   checks.<system>                          the package built, and the module evaluated each way it can be set
+  #   formatter.<system>                       `nix fmt`
+  outputs =
+    { self, nixpkgs }:
     let
-      system = "x86_64-linux";
-      pkgs = import nixpkgs { inherit system; };
+      inherit (nixpkgs) lib;
 
-      # What the JVM loads at run time: libbpf for the watcher, and what SDL's windows (prism.window) speak and draw
-      # with: Wayland and its keyboard, X11, OpenGL and EGL through glvnd, and libdecor for title bars where the
-      # compositor draws none.
-      runtimeLibs = with pkgs; [
-        libbpf
-        libGL
-        wayland
-        libxkbcommon
-        libdecor
-        fontconfig
-        xorg.libX11
-        xorg.libXext
-        xorg.libXrender
-        xorg.libXtst
-        xorg.libXi
-        xorg.libXrandr
-        xorg.libXcursor
-      ];
+      # Where prism is built: the lock of what Gradle fetches (nix/deps.json) holds this system's artifacts.
+      systems = [ "x86_64-linux" ];
+
+      eachSystem = perSystem: lib.genAttrs systems (system: perSystem nixpkgs.legacyPackages.${system});
     in
     {
-      devShells.${system}.default = pkgs.mkShell {
-        packages = with pkgs; [
-          jdk25
-          gradle
-          # The BPF target. The wrapped clang adds hardening flags (stack protector, zeroed call-used registers) the
-          # BPF target refuses, so the build is pointed at the unwrapped one.
-          llvmPackages.clang-unwrapped
-          llvmPackages.llvm
-          libbpf
-        ];
+      packages = eachSystem (pkgs: rec {
+        prism = pkgs.callPackage ./nix/package.nix { };
+        default = prism;
+      });
 
-        JAVA_HOME = pkgs.jdk25.home;
-        PRISM_CLANG = "${pkgs.llvmPackages.clang-unwrapped}/bin/clang";
-        # NixOS's graphics drivers (/run/opengl-driver/lib) first: glvnd finds NVIDIA's EGL and GL there by name, as
-        # NixOS's own packages do through their run path, and without them only Mesa's is found, which cannot drive
-        # an NVIDIA card ("failed to create dri2 screen").
-        LD_LIBRARY_PATH = "${pkgs.addDriverRunpath.driverLink}/lib:" + pkgs.lib.makeLibraryPath runtimeLibs;
+      overlays.default = final: _prev: {
+        prism = final.callPackage ./nix/package.nix { };
       };
+
+      nixosModules = rec {
+        prism = import ./nix/module.nix self;
+        default = prism;
+      };
+
+      apps = eachSystem (pkgs: {
+        default = {
+          type = "app";
+          program = lib.getExe self.packages.${pkgs.stdenv.hostPlatform.system}.prism;
+          meta.description = "prism: the file explorer, in the prism already running where there is one";
+        };
+      });
+
+      devShells = eachSystem (
+        pkgs:
+        let
+          prism = self.packages.${pkgs.stdenv.hostPlatform.system}.prism;
+        in
+        {
+          default = pkgs.mkShell {
+            packages = with pkgs; [
+              jdk25
+              gradle_9
+              # The BPF target. The wrapped clang adds hardening flags (stack protector, zeroed call-used registers)
+              # the BPF target refuses, so the build is pointed at the unwrapped one.
+              llvmPackages.clang-unwrapped
+              llvmPackages.llvm
+              libbpf
+            ];
+
+            JAVA_HOME = pkgs.jdk25.home;
+            PRISM_CLANG = prism.PRISM_CLANG;
+            # What the JVM loads at run time, as the package's wrapper gives it (nix/package.nix says what and why).
+            LD_LIBRARY_PATH = prism.libraryPath;
+          };
+        }
+      );
+
+      checks = eachSystem (
+        pkgs:
+        let
+          system = pkgs.stdenv.hostPlatform.system;
+
+          # A NixOS that has the module, set as [settings] say, evaluated: its options read, nothing built.
+          evaluated =
+            settings:
+            (lib.nixosSystem {
+              inherit system;
+              modules = [
+                self.nixosModules.prism
+                {
+                  programs.prism = {
+                    enable = true;
+                  }
+                  // settings;
+                  boot.loader.grub.enable = false;
+                  fileSystems."/" = {
+                    device = "none";
+                    fsType = "tmpfs";
+                  };
+                  system.stateVersion = lib.trivial.release;
+                }
+              ];
+            }).config;
+
+          asDefault = evaluated { };
+
+          withoutPortal = evaluated {
+            portal.enable = false;
+            daemon.roots = [ "/home" ];
+          };
+
+          withoutDaemon = evaluated {
+            daemon.enable = false;
+            fileManager.enable = false;
+          };
+
+          said = condition: message: lib.assertMsg condition "prism's module: ${message}";
+        in
+        {
+          package = self.packages.${system}.prism;
+
+          # The module, each way it is meant to be set: what it says of the unit, the portal and the file manager.
+          module =
+            assert said (
+              asDefault.xdg.portal.config.common."org.freedesktop.impl.portal.FileChooser" == "prism"
+            ) "the file chooser is prism's by default";
+            assert said
+              (lib.hasSuffix "/bin/prism daemon --foreground" asDefault.systemd.user.services.prism.serviceConfig.ExecStart)
+              "the daemon is run in the foreground, with nothing turned off, by default";
+            assert said (
+              asDefault.xdg.mime.defaultApplications."inode/directory" == "prism.desktop"
+            ) "folders open in prism by default";
+            assert said (
+              !(asDefault.systemd.user.services.prism.environment ? PATH)
+            ) "the daemon's unit sets no PATH of its own";
+            assert said (
+              !withoutPortal.xdg.portal.enable
+            ) "with the portal off, the portal is not turned on for prism";
+            assert said
+              (lib.hasSuffix "daemon --foreground --no-file-chooser /home" withoutPortal.systemd.user.services.prism.serviceConfig.ExecStart)
+              "with the portal off, the daemon runs all the same, without the file chooser";
+            assert said (
+              withoutDaemon.systemd.user.services.prism.wantedBy == [ ]
+            ) "with the daemon off, nothing starts prism with the session";
+            assert said
+              (lib.hasSuffix "/bin/prism portal serve --no-file-manager" withoutDaemon.systemd.user.services.prism.serviceConfig.ExecStart)
+              "with the daemon off, what D-Bus starts for the portal keeps no index";
+            assert said (
+              !(withoutDaemon.xdg.mime.defaultApplications ? "inode/directory")
+            ) "with the file manager off, folders are left to whatever opens them";
+            pkgs.runCommand "prism-module-evaluates" { } "touch $out";
+        }
+      );
+
+      formatter = eachSystem (pkgs: pkgs.nixfmt-tree);
     };
 }

@@ -174,11 +174,31 @@ attention). The token goes in `DESKTOP_STARTUP_ID` too, as GLib's launchers do o
 name; and a token prism was started with is never passed on, since it was used. The protocol's tables, which
 libwayland-client does not have built in, are written out in `waylandprotocols.kt`, as wayland-scanner would make them.
 
+**A window that fails.** Each window's scene and recomposer are its own, so what goes wrong in one window is that
+window's alone. What is thrown while it is composed for the first time, composed again, laid out, drawn, or handed an
+event is caught around that one window's frame or event; what is thrown later, in an effect or a coroutine of its
+content (on whatever thread), comes to a handler in that window's own recomposer. Either way it is told, once, to
+whoever opened the window (`Window`'s `onFailure`), and from then on the window draws nothing more and takes no more
+events, since a scene that threw halfway through a frame is not one to give another; it is closed as any window is,
+by being composed no longer. A window opened with no `onFailure` has nobody to tell, and its failure is the
+application's: `application` ends, throwing `WindowsFailed`. So does a failure in the composition of windows itself,
+which every window is opened from. prism's explorer gives every window an `onFailure` (docs/running.md).
+
+Closing the last window does not end the application: which windows are open, and whether the application goes on
+with none, is the application's to say (SDL's `QUIT_ON_LAST_WINDOW_CLOSE` is turned off), which is what lets a daemon
+stay with no window open. SDL's quit event is then only the platform's own: a display that went away.
+
+**Being given the keyboard.** A Wayland compositor gives a new window the keyboard only when it is shown to have been
+asked for, by a token (`XDG_ACTIVATION_TOKEN`) a launcher gives the program it starts. A window opened by one process
+for another has the other's token, so `Window` takes one (`activation`), and puts it where SDL looks as it shows the
+window.
+
 ## When no window opens
 
 `PRISM_WINDOW_LOG=1` says on standard error which display server SDL speaks to, what OpenGL's renderer is (or that
-there is none), how windows are drawn, and with what. A window that cannot be drawn at all stops the application, with
-SDL's reason, rather than staying empty: a Wayland window shows nothing until it is given a buffer.
+there is none), how windows are drawn, and with what. A window that cannot be drawn at all fails, with SDL's reason,
+as any window that fails does (above), rather than staying empty: a Wayland window shows nothing until it is given a
+buffer.
 
 On NixOS, NVIDIA's EGL and GL are in `/run/opengl-driver/lib`, which glvnd finds them in by name; a program that is not
 NixOS's own (a JVM loading SDL from LWJGL) finds them only with that folder on `LD_LIBRARY_PATH`, which the flake's
@@ -225,7 +245,8 @@ what prism's does not do itself.
 
 - `KeysTest`: keys by layout and by place, modifiers, typed text, and which OpenGL renderers are the CPU's.
 - `WindowTest` (`-Pwindow.display`): a real window clicked, typed in, dropped on from another program, and copied
-  from, through SDL's own events. It passes under Xvfb and under weston's headless Wayland, drawn by the GPU, by the
+  from, through SDL's own events; six windows failing in six ways, each told of alone, beside one that goes on working;
+  and a window with nobody to tell ending the application. It passes under Xvfb and under weston's headless Wayland, drawn by the GPU, by the
   CPU, and with no EGL at all (`__EGL_VENDOR_LIBRARY_FILENAMES=/nonexistent.json`); the clipboard is left out under
   weston's, which has no seat to give the input serial Wayland's clipboard asks for.
 - `tools/wayland/check.sh`: prism's app image on a headless sway, as native Wayland windows, and a pointer of wlroots'

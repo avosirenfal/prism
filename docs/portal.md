@@ -12,9 +12,11 @@ A **file manager** is reached in a different way, which is not a portal: applica
 What opens a folder from `xdg-open` and from a desktop's menus is the desktop entry that is the default for
 `inode/directory`.
 
-prism does all three: `prism portal serve` serves the file chooser backend and `org.freedesktop.FileManager1`, one
-process, a window for each request; `prism portal install` tells the desktop to use it; `prism portal uninstall`
-undoes that.
+prism does all three. The daemon (`prism daemon`, docs/running.md) serves the file chooser backend and
+`org.freedesktop.FileManager1`, one process, a window for each request, each searching the daemon's index;
+`prism portal serve` is the same without the index, for where no daemon runs. `prism portal install` tells the
+desktop to use it, and `prism portal uninstall` undoes that. On NixOS, the flake's module does what install does, in
+the system's configuration (docs/nixos.md).
 
 ## Using it
 
@@ -69,14 +71,23 @@ system's (`/usr/share/xdg-desktop-portal/portals`), where a package would put it
 ### NixOS
 
 Current nixpkgs (`xdg-desktop-portal` 1.22) reads backends from your data folder as above, so `prism portal install`
-works as it does elsewhere. To say it in the system's configuration instead:
+works as it does elsewhere. To say it in the system's configuration instead, the flake has a package and a module
+(docs/nixos.md):
+
+```nix
+programs.prism.enable = true;
+```
+
+which amounts, for the file chooser, to the package in `xdg.portal.extraPortals` (it holds `prism.portal` and the
+service file) and
 
 ```nix
 xdg.portal.config.common."org.freedesktop.impl.portal.FileChooser" = "prism";
 ```
 
-with `prism.portal` and the service file in a package in `xdg.portal.extraPortals`; the flake does not build one yet,
-since it builds no package of prism.
+One thing about that file is easy to trip on. In each folder the portal reads one file: the one for your desktop
+(`niri-portals.conf`) where there is one, and `portals.conf` only where there is not. So a system that sets
+`xdg.portal.config.niri` as well must say prism there too, which the module's `portal.desktops` is for.
 
 ## A request, followed through
 
@@ -129,8 +140,12 @@ the folder chosen, under a free name ("a (copy).txt") where something there has 
 | `ShowItemProperties` | the properties window of the items |
 
 `prism portal show PATH...` asks whichever file manager owns the name to show what it is given, folders as folders and
-files in theirs; it is what the folder entry runs, so `xdg-open ~/Documents` opens prism. Where no file manager answers
-(none installed, or D-Bus not running), it opens an explorer in its own process instead.
+files in theirs. Where no file manager answers (none installed, or D-Bus not running), it shows them as `prism explore`
+does: in the prism already running, or one of its own.
+
+What the folder entry runs is `prism explore`, given what is opened, so `xdg-open ~/Documents` opens prism: the
+prism already running shows it, through the socket one prism asks another by (docs/running.md), which is quicker than
+going through the bus.
 
 `prism portal serve --no-file-manager` serves the file chooser alone. Where another file manager has the name already,
 `serve` says so and serves the file chooser alone; `--replace` takes the name, where the other lets it go.
@@ -160,7 +175,6 @@ files in theirs; it is what the folder entry runs, so `xdg-open ~/Documents` ope
   child of; SDL does not do that for them yet.
 - **Choices.** The extra controls an application asks for (a list, a check box) are not shown; each is answered at the
   value it asked for at first.
-- **The daemon's index.** `serve` searches an index read once from its file (`--index`), as `prism pick` does; the
-  daemon's live index, kept current, is to be handed to it.
-- **A package.** Neither the flake nor a distribution package installs `prism.portal` system-wide yet.
+- **A package for other distributions.** The flake builds one for Nix (docs/nixos.md); nothing installs
+  `prism.portal` system-wide elsewhere yet, where `prism portal install` is the way.
 - **Other portals.** prism serves the file chooser alone; every other portal stays with the desktop's backends.

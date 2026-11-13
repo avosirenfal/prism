@@ -125,19 +125,23 @@ shows it: the place is read for that search (in this container, in under a secon
    cannot be known.
 
 Without a watcher (the kernel would not load it, or there was no build of it), the daemon runs all the same, and reads
-its roots again every half hour. `prism daemon` runs one in the foreground, saying which it is doing.
+its roots again every half hour. `prism daemon --foreground` runs one in place, saying which it is doing, and
+`prism status` asks one that is running.
+
+Nothing that fails in it stops it: each failure is reported and gone on from, by reading the disk again
+(docs/running.md, "What happens when something goes wrong", has each case). The daemon the command runs is also the
+session's prism: every prism window opens in it, and searches this index through a `Finder` over `LiveIndex.search`
+(`LiveFinder`), which gives its results ranked, its own and those of places read for a search alone together, and
+writes the usage file as things are picked.
 
 ## Not yet
 
 - A system service that holds `CAP_BPF` and `CAP_PERFMON`, loads the watcher at boot and hands its ring to the user's
   daemon (`SCM_RIGHTS`), so the daemon runs unprivileged; or BPF tokens, where distributions enable them.
-- Telling a running daemon to read places again from outside it: the API is `LiveIndex.rescan`; a D-Bus method for it
-  belongs with the portal's.
+- Telling a running daemon to read places again from outside it: the API is `LiveIndex.rescan`; a command asked
+  through the socket other prisms ask it by (docs/running.md) is where it belongs.
 - Dropping changes in left-out folders in the kernel, before they reach the ring: a bounded loop in the DSL, to walk a
   few parents up from a change.
 - The watcher has not been loaded on a real machine yet; this container refuses it.
-- Handing a live index to the pickers the daemon opens: the picker searches through a `Finder` (docs/picker.md,
-  "Where a search comes from"), and the daemon's is a few lines over `LiveIndex.search`, which gives its results ranked
-  (docs/search.md, "Which results come first"), its own and those of places read for a search alone ranked together;
-  it comes with the portal, which is what opens them. With it, the usage file is written as things are
-  picked, which `prism pick --index` only reads.
+- A window telling the index what it saw: a window watches the folder it shows and reads it again as it changes,
+  and the index finds out only at its next reading.

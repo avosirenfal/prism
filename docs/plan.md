@@ -39,7 +39,8 @@ kernel changes them, so that a few typed words find a file wherever it is. The g
 
 prism is a Kotlin program on the JVM, built with Gradle the way kotlin-engine-test is: convention plugins in an
 included `build-logic`, one version catalog, the house ktlint rules, JDK 25 provisioned by the toolchain resolver. It
-runs as a daemon in the user's session, which opens a picker window whenever the portal asks for one.
+runs as a daemon in the user's session, which opens a picker window whenever the portal asks for one, and an explorer
+window whenever a `prism` is started (docs/running.md).
 
 | module | depends on | what it is |
 |---|---|---|
@@ -194,8 +195,9 @@ explorer keeps its windows as one immutable list, and adds properties, "Open wit
 the places pinned, the terminal and every key binding are set, the keys as a game's controls are. The preferences are
 one file every window of every process watches, so what is pinned in one is pinned in all, pickers included.
 
-The daemon is meant to host the explorer as it will host the picker, and to answer `org.freedesktop.FileManager1` so
-applications can ask it to show a folder or a file. Context menus the user configures are planned in docs/menus.md.
+The daemon hosts the explorer as it hosts the picker, and answers `org.freedesktop.FileManager1` so applications can
+ask it to show a folder or a file; a `prism` started for a window asks the daemon for it and is gone (docs/running.md).
+Context menus the user configures are planned in docs/menus.md.
 
 ## The search language
 
