@@ -101,8 +101,14 @@ internal object Wl {
 	/** A request of a new object and another object (`wl_data_device_manager.get_data_device`). */
 	val marshalObject = marshal(ADDRESS, ADDRESS)
 
-	/** `wl_data_device.start_drag`: the source, the surface it starts on, its icon (none), the press's serial. */
+	/** `wl_data_device.start_drag`: the source, the surface it starts on, its icon, the press's serial. */
 	val marshalStartDrag = marshal(ADDRESS, ADDRESS, ADDRESS, JAVA_INT)
+
+	/** A request of a number and an object (`xdg_activation_token_v1.set_serial`: the serial, the seat). */
+	val marshalSerial = marshal(JAVA_INT, ADDRESS)
+
+	/** A request of two numbers (`wp_cursor_shape_device_v1.set_shape`: the serial, the shape). */
+	val marshalInts = marshal(JAVA_INT, JAVA_INT)
 
 	/** `wl_display_dispatch_queue`: [queue]'s events read and dispatched, waiting for one where there is none. */
 	val dispatchQueue =
@@ -150,23 +156,182 @@ internal object Wl {
 	const val POOL_CREATE_BUFFER = 0
 	const val POOL_DESTROY = 1
 	const val BUFFER_DESTROY = 0
+	const val COMPOSITOR_CREATE_SURFACE = 0
+	const val SURFACE_DESTROY = 0
 	const val SURFACE_ATTACH = 1
 	const val SURFACE_DAMAGE = 2
 	const val SURFACE_COMMIT = 6
+	const val SURFACE_SET_BUFFER_SCALE = 8
 	const val SURFACE_DAMAGE_BUFFER = 9
+	const val FORMAT_ARGB8888 = 0
 	const val FORMAT_XRGB8888 = 1
+
+	fun versionOf(proxy: MemorySegment): Int = version.invokeExact(proxy) as Int
+
+	/** [buffer] attached to [surface] (where it is to go, of [scale] pixels a point), all of it damaged, and committed. */
+	fun show(surface: MemorySegment, buffer: ShmBuffer, scale: Int = 1) {
+		val at = versionOf(surface)
+
+		marshalAttach.invokeExact(surface, SURFACE_ATTACH, MemorySegment.NULL, at, 0, buffer.proxy, 0, 0)
+			as MemorySegment
+		if (scale != 1 && at >= 3)
+			marshalInt.invokeExact(surface, SURFACE_SET_BUFFER_SCALE, MemorySegment.NULL, at, 0, scale)
+				as MemorySegment
+		if (at >= 4)
+			marshalDamage.invokeExact(
+				surface,
+				SURFACE_DAMAGE_BUFFER,
+				MemorySegment.NULL,
+				at,
+				0,
+				0,
+				0,
+				buffer.width,
+				buffer.height,
+			) as MemorySegment
+		else
+			marshalDamage.invokeExact(
+				surface,
+				SURFACE_DAMAGE,
+				MemorySegment.NULL,
+				at,
+				0,
+				0,
+				0,
+				Int.MAX_VALUE,
+				Int.MAX_VALUE,
+			) as MemorySegment
+		marshalNone.invokeExact(surface, SURFACE_COMMIT, MemorySegment.NULL, at, 0, MemorySegment.NULL)
+			as MemorySegment
+	}
 }
 
-/** A buffer the compositor is given: its memory, Skia's surface over it, and whether the compositor holds it now. */
-private class ShmBuffer(
+/**
+ * A buffer the compositor is given, in shared memory: its memory, Skia's surface over it, and whether the compositor
+ * holds it now. Made by [ShmBuffer.of].
+ */
+internal class ShmBuffer private constructor(
 	val proxy: MemorySegment,
-	val memory: MemorySegment,
-	val size: Long,
+	private val memory: MemorySegment,
+	private val size: Long,
 	val width: Int,
 	val height: Int,
 	val surface: Surface,
 ) {
 	var busy = false
+
+	/** Let go of: Skia's surface, the compositor's buffer, and the memory. */
+	fun free() {
+		surface.close()
+		Wl.marshalNone.invokeExact(
+			proxy,
+			Wl.BUFFER_DESTROY,
+			MemorySegment.NULL,
+			Wl.versionOf(proxy),
+			Wl.MARSHAL_DESTROY,
+			MemorySegment.NULL,
+		) as MemorySegment
+		Wl.munmap.invokeExact(memory, size) as Int
+	}
+
+	companion object {
+		private const val MFD_CLOEXEC = 1
+		private const val PROT_READ = 1
+		private const val PROT_WRITE = 2
+		private const val MAP_SHARED = 1
+		private const val MAP_FAILED = -1L
+
+		/**
+		 * A buffer of [width] by [height] pixels in shared memory, from [shm], and Skia's surface over it: [opaque], as a
+		 * window is, or with its alpha, as a drag's picture is. Null where none can be made.
+		 */
+		fun of(shm: MemorySegment, width: Int, height: Int, opaque: Boolean): ShmBuffer? {
+			val stride = width * 4
+			val size = stride.toLong() * height
+			val fd =
+				Arena.ofConfined().use {
+					Wl.memfd.invokeExact(it.allocateFrom("prism-buffer"), MFD_CLOEXEC) as Int
+				}
+
+			if (fd < 0)
+				return null
+
+			try {
+				if (Wl.truncate.invokeExact(fd, size) as Int != 0)
+					return null
+
+				val memory =
+					(
+						Wl.mmap.invokeExact(
+							MemorySegment.NULL,
+							size,
+							PROT_READ or PROT_WRITE,
+							MAP_SHARED,
+							fd,
+							0L,
+						) as MemorySegment
+					).takeIf { it.address() != MAP_FAILED }
+						?.reinterpret(size)
+						?: return null
+
+				val pool =
+					Wl.marshalPool.invokeExact(
+						shm,
+						Wl.SHM_CREATE_POOL,
+						Wl.iface("wl_shm_pool_interface"),
+						Wl.versionOf(shm),
+						0,
+						MemorySegment.NULL,
+						fd,
+						size.toInt(),
+					) as MemorySegment
+
+				val proxy =
+					Wl.marshalBuffer.invokeExact(
+						pool,
+						Wl.POOL_CREATE_BUFFER,
+						Wl.iface("wl_buffer_interface"),
+						Wl.versionOf(pool),
+						0,
+						MemorySegment.NULL,
+						0,
+						width,
+						height,
+						stride,
+						if (opaque) Wl.FORMAT_XRGB8888 else Wl.FORMAT_ARGB8888,
+					) as MemorySegment
+
+				// The pool is needed no longer once its one buffer is made: the buffer keeps the memory shared.
+				Wl.marshalNone.invokeExact(
+					pool,
+					Wl.POOL_DESTROY,
+					MemorySegment.NULL,
+					Wl.versionOf(pool),
+					Wl.MARSHAL_DESTROY,
+					MemorySegment.NULL,
+				)
+					as MemorySegment
+
+				// XRGB8888 and ARGB8888, as Wayland names them from the most significant bit: B, G, R and A (or a byte
+				// unused) in memory order. With alpha, its colours are premultiplied by it, as Wayland's are.
+				val skia =
+					Surface.makeRasterDirect(
+						ImageInfo(
+							width,
+							height,
+							ColorType.BGRA_8888,
+							if (opaque) ColorAlphaType.OPAQUE else ColorAlphaType.PREMUL,
+						),
+						memory.address(),
+						stride,
+					)
+
+				return ShmBuffer(proxy, memory, size, width, height, skia)
+			} finally {
+				Wl.close.invokeExact(fd) as Int
+			}
+		}
+	}
 }
 
 /**
@@ -223,7 +388,7 @@ internal class WaylandPixels private constructor(
 		buffers
 			.filter { !it.busy && (it.width != width || it.height != height) }
 			.forEach {
-				free(it)
+				it.free()
 				buffers.remove(it)
 			}
 
@@ -235,155 +400,20 @@ internal class WaylandPixels private constructor(
 		draw(buffer.surface.canvas)
 
 		buffer.busy = true
-		Wl.marshalAttach.invokeExact(
-			surface,
-			Wl.SURFACE_ATTACH,
-			MemorySegment.NULL,
-			version(surface),
-			0,
-			buffer.proxy,
-			0,
-			0,
-		)
-			as MemorySegment
-		if (version(surface) >= 4)
-			Wl.marshalDamage.invokeExact(
-				surface,
-				Wl.SURFACE_DAMAGE_BUFFER,
-				MemorySegment.NULL,
-				version(surface),
-				0,
-				0,
-				0,
-				width,
-				height,
-			) as MemorySegment
-		else
-			Wl.marshalDamage.invokeExact(
-				surface,
-				Wl.SURFACE_DAMAGE,
-				MemorySegment.NULL,
-				version(surface),
-				0,
-				0,
-				0,
-				Int.MAX_VALUE,
-				Int.MAX_VALUE,
-			) as MemorySegment
-		Wl.marshalNone.invokeExact(
-			surface,
-			Wl.SURFACE_COMMIT,
-			MemorySegment.NULL,
-			version(surface),
-			0,
-			MemorySegment.NULL,
-		)
-			as MemorySegment
+		Wl.show(surface, buffer)
 		Wl.flush.invokeExact(display) as Int
 
 		return true
 	}
 
-	private fun version(proxy: MemorySegment): Int = Wl.version.invokeExact(proxy) as Int
-
-	/** A buffer of [width] by [height] pixels in shared memory, and Skia's surface over it; null where none can be made. */
-	private fun made(width: Int, height: Int): ShmBuffer? {
-		val stride = width * 4
-		val size = stride.toLong() * height
-		val fd =
-			Arena.ofConfined().use {
-				Wl.memfd.invokeExact(it.allocateFrom("prism-window"), MFD_CLOEXEC) as Int
-			}
-
-		if (fd < 0)
-			return null
-
-		try {
-			if (Wl.truncate.invokeExact(fd, size) as Int != 0)
-				return null
-
-			val memory =
-				(
-					Wl.mmap.invokeExact(
-						MemorySegment.NULL,
-						size,
-						PROT_READ or PROT_WRITE,
-						MAP_SHARED,
-						fd,
-						0L,
-					) as MemorySegment
-				).takeIf { it.address() != MAP_FAILED }
-					?.reinterpret(size)
-					?: return null
-
-			val pool =
-				Wl.marshalPool.invokeExact(
-					shm,
-					Wl.SHM_CREATE_POOL,
-					Wl.iface("wl_shm_pool_interface"),
-					version(shm),
-					0,
-					MemorySegment.NULL,
-					fd,
-					size.toInt(),
-				) as MemorySegment
-
-			val proxy =
-				Wl.marshalBuffer.invokeExact(
-					pool,
-					Wl.POOL_CREATE_BUFFER,
-					Wl.iface("wl_buffer_interface"),
-					version(pool),
-					0,
-					MemorySegment.NULL,
-					0,
-					width,
-					height,
-					stride,
-					Wl.FORMAT_XRGB8888,
-				) as MemorySegment
-
-			// The pool is needed no longer once its one buffer is made: the buffer keeps the memory shared.
-			Wl.marshalNone.invokeExact(
-				pool,
-				Wl.POOL_DESTROY,
-				MemorySegment.NULL,
-				version(pool),
-				Wl.MARSHAL_DESTROY,
-				MemorySegment.NULL,
-			)
-				as MemorySegment
-			Wl.addListener.invokeExact(proxy, listener, MemorySegment.NULL) as Int
-
-			// XRGB8888, as Wayland names it from the most significant bit: B, G, R and a byte unused, in memory order.
-			val skia =
-				Surface.makeRasterDirect(
-					ImageInfo(width, height, ColorType.BGRA_8888, ColorAlphaType.OPAQUE),
-					memory.address(),
-					stride,
-				)
-
-			return ShmBuffer(proxy, memory, size, width, height, skia)
-		} finally {
-			Wl.close.invokeExact(fd) as Int
+	/** A buffer of [width] by [height] pixels, told to say when the compositor lets go of it; null where none can be made. */
+	private fun made(width: Int, height: Int): ShmBuffer? =
+		ShmBuffer.of(shm, width, height, opaque = true)?.also {
+			Wl.addListener.invokeExact(it.proxy, listener, MemorySegment.NULL) as Int
 		}
-	}
-
-	private fun free(buffer: ShmBuffer) {
-		buffer.surface.close()
-		Wl.marshalNone.invokeExact(
-			buffer.proxy,
-			Wl.BUFFER_DESTROY,
-			MemorySegment.NULL,
-			version(buffer.proxy),
-			Wl.MARSHAL_DESTROY,
-			MemorySegment.NULL,
-		) as MemorySegment
-		Wl.munmap.invokeExact(buffer.memory, buffer.size) as Int
-	}
 
 	override fun close() {
-		buffers.forEach(::free)
+		buffers.forEach(ShmBuffer::free)
 		buffers.clear()
 		Wl.destroy.invoke(shm)
 		Wl.flush.invokeExact(display) as Int
@@ -392,12 +422,6 @@ internal class WaylandPixels private constructor(
 	}
 
 	companion object {
-		private const val MFD_CLOEXEC = 1
-		private const val PROT_READ = 1
-		private const val PROT_WRITE = 2
-		private const val MAP_SHARED = 1
-		private const val MAP_FAILED = -1L
-
 		/** The registry's globals, as it announces them: what binding `wl_shm` needs, its name and version. */
 		private class Globals {
 			var shm: Pair<Int, Int>? = null

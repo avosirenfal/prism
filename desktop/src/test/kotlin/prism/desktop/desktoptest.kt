@@ -320,7 +320,7 @@ class DesktopTest {
 			)
 
 		val launcher =
-			DetachedLauncher(xdg) { command, _ ->
+			DetachedLauncher(xdg) { command, _, _ ->
 				started += command
 				Launched.Started(command.last())
 			}
@@ -371,7 +371,7 @@ class DesktopTest {
 			},
 		)
 		started.clear()
-		DetachedLauncher(xdg("PATH" to fakePath("editor", "setsid"))) { c, _ ->
+		DetachedLauncher(xdg("PATH" to fakePath("editor", "setsid"))) { c, _, _ ->
 			started += c
 			Launched.Started("")
 		}.run(listOf("editor", "x"), files)
@@ -382,14 +382,14 @@ class DesktopTest {
 			Launched.Failed::class.java,
 			DetachedLauncher(
 				xdg("PATH" to fakePath()),
-			) { _, _ -> error("started") }.run(listOf("nothing-here"), files),
+			) { _, _, _ -> error("started") }.run(listOf("nothing-here"), files),
 		)
 
 		// A terminal of the user's, in the folder; an application that runs in one, in it.
 		started.clear()
 
 		val inTerminal =
-			DetachedLauncher(xdg("PATH" to fakePath("setsid", "xterm", "top"))) { c, _ ->
+			DetachedLauncher(xdg("PATH" to fakePath("setsid", "xterm", "top"))) { c, _, _ ->
 				started += c
 				Launched.Started("")
 			}
@@ -410,6 +410,72 @@ class DesktopTest {
 		)
 		assertEquals(listOf("xterm", "-T", files.toString()), started[0].drop(2))
 		assertEquals(listOf("xterm", "-e", "top"), started[1].drop(2))
+	}
+
+	@Test
+	fun eachStartIsGivenATokenOfItsOwnForTheApplicationItStarts() {
+		mime()
+		applications()
+
+		val xdg = xdg("PATH" to fakePath("viewer", "editor", "setsid"))
+		val asked = ArrayList<String?>()
+		val given = ArrayList<ActivationToken?>()
+		val launcher =
+			DetachedLauncher(
+				xdg,
+				Activation { appId ->
+					asked += appId
+					ActivationToken("token-${asked.size}")
+				},
+			) { _, _, token ->
+				given += token
+				Launched.Started("")
+			}
+
+		val editor = DesktopEntries(xdg, SharedMimeInfo(xdg)).all().single { it.name == "Editor" }
+		val files = listOf("a.txt", "b.txt").map { root.resolve(it).also { f -> f.writeText("x") } }
+
+		// The editor takes one file at a time: two starts, each with a token of its own, made for it by its name.
+		launcher.launch(editor, files)
+		// A command of the user's is no application the desktop knows by name.
+		launcher.run(listOf("viewer"), root)
+		// What is not there is not started, and no token is asked for it.
+		launcher.run(listOf("nothing-here"), root)
+
+		assertEquals(listOf("editor", "editor", null), asked)
+		assertEquals(listOf("token-1", "token-2", "token-3"), given.map { it?.text })
+	}
+
+	@Test
+	fun aProcessStartedIsGivenItsTokenAndNoOtherInItsEnvironment() {
+		assumeTrue(Path.of("/usr/bin/setsid").exists())
+
+		fun environmentOf(activation: Activation): String {
+			val out = root.resolve("environment-${System.nanoTime()}")
+			val launched =
+				DetachedLauncher(Xdg(System.getenv() - "XDG_RUNTIME_DIR"), activation).run(
+					listOf(
+						"sh",
+						"-c",
+						"printf '%s|%s' \"\$XDG_ACTIVATION_TOKEN\" \"\$DESKTOP_STARTUP_ID\" > '$out.part' && " +
+							"mv '$out.part' '$out'",
+					),
+					root,
+				)
+
+			assertInstanceOf(Launched.Started::class.java, launched)
+
+			val deadline = System.currentTimeMillis() + 10_000
+
+			while (!out.exists() && System.currentTimeMillis() < deadline)
+				Thread.sleep(20)
+
+			return out.readText()
+		}
+
+		assertEquals("made-for-it|made-for-it", environmentOf { ActivationToken("made-for-it") })
+		// None given: none passed on, not even one prism itself was started with.
+		assertEquals("|", environmentOf(Activation.None))
 	}
 
 	@Test

@@ -94,6 +94,8 @@ class WindowTest {
 								object : DropTarget {
 									override fun hover(over: DragOver?) = Unit
 
+									override fun effect(over: DragOver) = DropEffect.Copy
+
 									override fun drop(dropped: Dropped): Boolean {
 										gotten = dropped
 

@@ -46,6 +46,12 @@ of its own and leaves it a child of init rather than of prism; where the user's 
 `systemd-run --user --scope --slice=app.slice` too, as desktops start applications, so it is not in prism's group of
 processes either. Closing the window, or stopping the daemon, takes nothing it opened with it.
 
+**Its window is brought forward.** The launcher gives the command a token of the desktop's in its environment
+(`XDG_ACTIVATION_TOKEN`), made from the double-click itself, which tells the compositor that the user asked for what
+opens. Evince's new window asks with it to be brought forward; an editor running already, given the file by a new start
+of itself, hands it to its window, which comes forward. Without one, a file sent to a window that is open already opens
+behind prism's, and nothing says it did. docs/window.md says how the token is made.
+
 **What came of it goes back to the reducer.** `Desktop.open` answers with an `Opening`: what was started (or why not),
 and the files nothing opens. The session sends that back as `Answer.Opened`. A failure becomes a notice in the window;
 a file nothing opens becomes a request, `Request.OpenWith([file])`, which the reducer asks of the window's owner with
@@ -257,6 +263,11 @@ A drag of prism's own carries what it drags as itself to any of prism's windows.
 which goes to other programs too, as files (a URI list), or a place's entries' names as text; on X11, Windows and
 macOS, it goes between prism's windows by where the pointer is on the screen, and not yet out to other programs
 (docs/window.md).
+
+As it goes, a drag on Wayland shows the icon of the row taken under the pointer, with a badge counting the rows that go
+with it where there are several (`rememberDragPictures`), and the pointer says what letting go would do: a copy, a
+move, a link, or that nothing there takes it. Over prism's own windows that is what the place under the pointer would
+make of the drop, the same as the line under the listing says.
 
 A drop is made by the reducer, as a paste is: `BrowserEvent.Dropped`, the files, where (a folder, or the listing
 itself), and copy, move or link. Which of those is the platform's convention for the keys held, and, for a drag of

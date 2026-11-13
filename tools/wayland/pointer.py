@@ -1,6 +1,7 @@
 """A virtual pointer for a wlroots compositor, driven from stdin: `abs X Y`, `press`/`release` (left), `rpress`/`rrelease`
-(right), `sleep S`. Run as: pointer.py WIDTH HEIGHT PROTOCOLS_DIR."""
-import sys, time
+(right), `sleep S`, and `shoot FILE`, the screen with its cursor, as grim takes it. Run as: pointer.py WIDTH HEIGHT
+PROTOCOLS_DIR."""
+import os, subprocess, sys, time
 sys.path.insert(0, __import__("os").path.dirname(sys.argv[3].rstrip("/")))
 from pywayland.client import Display
 from protocols.wayland import WlSeat
@@ -38,6 +39,12 @@ for line in sys.stdin:
     elif words[0] == "sleep":
         display.flush()
         time.sleep(float(words[1]))
+    elif words[0] == "shoot":
+        subprocess.run(["grim", "-c", words[1]], check=False)
     display.flush()
     display.roundtrip()
     print("done", line.strip(), flush=True)
+
+# Left at once: pywayland's own cleanup, as the interpreter ends, can crash once all is done.
+sys.stdout.flush()
+os._exit(0)

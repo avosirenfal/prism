@@ -1,6 +1,8 @@
 package prism.window
 
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.unit.DpSize
 import java.nio.file.Path
 import org.lwjgl.sdl.SDLKeyboard.SDL_GetModState
 import org.lwjgl.sdl.SDLKeycode.SDLK_ESCAPE
@@ -24,13 +26,24 @@ import org.lwjgl.system.MemoryStack
  */
 
 /**
+ * What is drawn under the pointer as a drag goes: [size] large, its top left corner at the pointer, drawn by [draw] at
+ * the density of the window the drag began in.
+ */
+class DragPicture(
+	val size: DpSize,
+	val draw: DrawScope.() -> Unit,
+)
+
+/**
  * What a drag carries: [local], the value given to this process's places; and what other programs are given, [files]
- * (a URI list, and their paths as text), or, where there are none, [text].
+ * (a URI list, and their paths as text), or, where there are none, [text]. [picture] is what it shows under the
+ * pointer, where the platform draws one (Wayland's drags, so far).
  */
 data class Outgoing(
 	val local: Any,
 	val files: List<Path>,
 	val text: String? = null,
+	val picture: DragPicture? = null,
 ) {
 	/**
 	 * What other programs are offered, by MIME type: files as a URI list alone, which is what every program that takes
@@ -90,7 +103,7 @@ internal class Drags(
 		// active one, it does nothing (finish).
 		lateinit var drag: Active
 		val native =
-			app.nativeDrags?.start(from, outgoing.offer) { how -> finish(drag, how) } == true
+			app.nativeDrags?.start(from, outgoing.offer, outgoing.picture) { how -> finish(drag, how) } == true
 
 		drag = Active(from, outgoing, onEnd, if (native) Way.Native else Way.Local, null)
 		Log.say { "drag: ${drag.way}" }
@@ -104,6 +117,21 @@ internal class Drags(
 
 	/** What a drop a window is told of by the platform is, where it is this process's own drag: what it carries. */
 	fun ownDropped(): Outgoing? = active?.takeIf { it.way == Way.Native }?.outgoing
+
+	/**
+	 * This process's own drag, by the platform's protocol, over a window of its own, where the place under it would make
+	 * [effect] of a drop (null: nothing there takes it).
+	 */
+	fun overOwn(effect: DropEffect?) {
+		if (active?.way == Way.Native)
+			app.nativeDrags?.overOwn(effect)
+	}
+
+	/** This process's own drag, by the platform's protocol, gone from a window of its own, or let go on it. */
+	fun offOwn() {
+		if (active?.way == Way.Native)
+			app.nativeDrags?.offOwn()
+	}
 
 	/** This process's own drag, by the platform's protocol, let go on a window of its own: [taken] or not. */
 	fun droppedHere(taken: Boolean) {

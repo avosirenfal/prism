@@ -17,7 +17,6 @@ import prism.cli.Args
 import prism.cli.Command
 import prism.cli.Outcome
 import prism.cli.ParamType
-import prism.desktop.currentDesktop
 import prism.explorer.Explorer
 import prism.explorer.ExplorerWindows
 import prism.preferences.PreferenceFile
@@ -67,7 +66,7 @@ internal fun explored(
 	theme: Theme,
 	decorated: Boolean,
 ) {
-	val desktop = currentDesktop()
+	val desktop = windowsDesktop()
 
 	PreferenceFile.open().use { preferences ->
 		preferences.problem?.let {

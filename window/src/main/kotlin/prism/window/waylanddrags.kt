@@ -1,15 +1,17 @@
 package prism.window
 
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.asComposeCanvas
+import androidx.compose.ui.graphics.drawscope.CanvasDrawScope
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.LayoutDirection
 import java.lang.foreign.Arena
 import java.lang.foreign.FunctionDescriptor
-import java.lang.foreign.Linker
 import java.lang.foreign.MemorySegment
 import java.lang.foreign.ValueLayout.ADDRESS
 import java.lang.foreign.ValueLayout.JAVA_INT
-import java.lang.foreign.ValueLayout.JAVA_LONG
-import java.lang.invoke.MethodHandle
 import java.lang.invoke.MethodHandles
-import java.lang.invoke.MethodType
+import kotlin.math.ceil
 
 /*
  * Drags out of a window on Wayland, by Wayland's own drag and drop: a `wl_data_source` offering what is dragged, as
@@ -17,79 +19,107 @@ import java.lang.invoke.MethodType
  * compositor then carries it to whatever window the pointer is let go over, this process's or another program's, and
  * that window asks the source for what it wants, by MIME type, through a pipe.
  *
- * SDL speaks none of this for a drag out (it takes drops, and starts no drags), so it is spoken here, through
- * libwayland-client, on SDL's own connection. Everything of this one's is on an event queue of its own, dispatched by
- * a thread of its own: a window of this process that a drag is dropped on is SDL's, which reads what is dropped at
- * once, on the windows' thread, waiting for the source to write it; the source's writing it must not wait for that
- * thread. And a drag must be started with the serial of the button press that began it, which SDL keeps to itself;
- * so the seat is bound here too, and its pointer's presses heard (the compositor tells every pointer a client has).
+ * SDL speaks none of this for a drag out (it takes drops, and starts no drags), so it is spoken here, on prism's own
+ * connection beside SDL's ([WaylandSeat]), whose queue has a thread of its own: a window of this process that a drag
+ * is dropped on is SDL's, which reads what is dropped at once, on the windows' thread, waiting for the source to write
+ * it; the source's writing it must not wait for that thread.
+ *
+ * As it goes, a drag shows two things, as other file managers' do:
+ *
+ * - A picture under the pointer, as the drag's icon: a surface of its own, given to `start_drag`, the picture drawn
+ *   into it at the window's density. Its top left corner is at the pointer, as thunar puts a file's icon.
+ * - What letting go would do, as the pointer's cursor: a copy, a move, a link, or nothing taking it there. The
+ *   compositor says which window under the pointer takes what is offered (`target`) and what it chose to make of it
+ *   (`action`); over one of this process's own windows, the place under the pointer says, since SDL takes every drag
+ *   it is given as a copy, whatever prism will make of it. The cursor is set by cursor-shape, where the compositor
+ *   lets the process a drag began in set it while it goes.
  */
 
 /** A drag begun by the platform's own protocol: what a [NativeDrags] starts. */
 internal interface NativeDrags : AutoCloseable {
 	/**
-	 * A drag of [offer] begun from [window], the pointer's button held there; [onEnd] told how it ended, on the windows'
-	 * thread. False where it cannot be begun here (no press of the pointer's to begin it from).
+	 * A drag of [offer] begun from [window], the pointer's button held there, showing [picture] under the pointer
+	 * (where there is one); [onEnd] told how it ended, on the windows' thread. False where it cannot be begun here (no
+	 * press of the pointer's to begin it from).
 	 */
-	fun start(window: NativeWindow, offer: ClipOffer, onEnd: (DragEnd) -> Unit): Boolean
+	fun start(
+		window: NativeWindow,
+		offer: ClipOffer,
+		picture: DragPicture?,
+		onEnd: (DragEnd) -> Unit,
+	): Boolean
+
+	/**
+	 * The drag over one of this process's windows, where the place under the pointer would make [effect] of a drop
+	 * (null: nothing there would take it): what the pointer shows, over what the compositor says.
+	 */
+	fun overOwn(effect: DropEffect?)
+
+	/** The drag gone from this process's windows, or let go on one: what the compositor says is shown again. */
+	fun offOwn()
 
 	companion object {
-		/** The drags of [handle]'s platform, where this speaks its protocol; none where it does not yet. */
-		fun of(handle: NativeHandle): NativeDrags? =
-			when (handle) {
-				is NativeHandle.Wayland -> WaylandDrags.of(MemorySegment.ofAddress(handle.display))
-				else -> null
-			}
+		/** The drags of [seat]'s compositor, where it has drag and drop; none where it has not, or there is no seat. */
+		fun of(seat: WaylandSeat?): NativeDrags? = seat?.let(WaylandDrags::of)
 	}
 }
 
-/** Wayland's drags, on [display] (SDL's connection), on an event queue of their own: see the top of this file. */
+/** Wayland's drags, on prism's own connection to the seat: see the top of this file. Made by [WaylandDrags.of]. */
 internal class WaylandDrags private constructor(
-	private val display: MemorySegment,
-	private val queue: MemorySegment,
-	private val arena: Arena,
+	private val seat: WaylandSeat,
+	private val manager: Bound,
+	private val device: MemorySegment,
 ) : NativeDrags {
-	@Volatile
-	private var running = true
+	/**
+	 * What the pointer's cursor is decided by: whether the window under it [taken] what is offered, and the [action]
+	 * the compositor chose for it, as the compositor says; and, over one of this process's windows, [own], what the
+	 * place there says.
+	 */
+	private data class Seen(
+		val taken: Boolean = false,
+		val action: Int = ACTION_NONE,
+		val own: Own? = null,
+	)
 
-	/** The serial of the last press of a pointer's button: what a drag is started from. */
-	@Volatile
-	var pressed: Int? = null
-		private set
+	/** Over one of this process's windows, where a drop would make [effect] of what is dragged; null: nothing takes it. */
+	private data class Own(
+		val effect: DropEffect?,
+	)
 
-	private lateinit var device: MemorySegment
-	private lateinit var manager: MemorySegment
-	private var managerVersion = 0
+	/** A drag's picture: a surface of its own, and the one buffer it shows, of [scale] pixels a point. */
+	private class Icon(
+		val surface: MemorySegment,
+		val buffer: ShmBuffer,
+		val scale: Int,
+	)
 
-	/** The drag under way: its source, what it offers, and who is told how it ended. */
+	/** The drag under way: its source, what it offers, its picture, and who is told how it ended. */
 	private class Under(
 		val source: MemorySegment,
 		val offer: ClipOffer,
+		val icon: Icon?,
 		val onEnd: (DragEnd) -> Unit,
-		@Volatile var dropped: Boolean = false,
-	)
+	) {
+		@Volatile
+		var dropped: Boolean = false
+
+		// Changed on the seat's thread (what the compositor says) and the windows' (what the place says), so only as
+		// the drag is held: what is seen and what is shown change together.
+		var seen = Seen()
+		var shown: CursorShape? = null
+	}
 
 	@Volatile
 	private var under: Under? = null
 
-	private val thread =
-		Thread({ dispatching() }, "prism wayland drags").apply {
-			isDaemon = true
-		}
-
-	private fun dispatching() {
-		while (running)
-			if ((Wl.dispatchQueue.invokeExact(display, queue) as Int) < 0)
-				return
-	}
-
 	override fun start(
 		window: NativeWindow,
 		offer: ClipOffer,
+		picture: DragPicture?,
 		onEnd: (DragEnd) -> Unit,
 	): Boolean {
 		val serial =
-			pressed ?: return false.also { Log.say { "drag: no press heard to begin it from" } }
+			seat.pressed ?: return false.also { Log.say { "drag: no press heard to begin it from" } }
 
 		Log.say {
 			"drag: begun by Wayland's protocol, from the press of serial $serial, offering ${offer.types.keys}"
@@ -101,10 +131,10 @@ internal class WaylandDrags private constructor(
 
 		val source =
 			Wl.marshalNone.invokeExact(
-				manager,
-				DEVICE_MANAGER_CREATE_DATA_SOURCE,
+				manager.proxy,
+				MANAGER_CREATE_DATA_SOURCE,
 				Wl.iface("wl_data_source_interface"),
-				managerVersion,
+				manager.version,
 				0,
 				MemorySegment.NULL,
 			) as MemorySegment
@@ -116,68 +146,148 @@ internal class WaylandDrags private constructor(
 					source,
 					SOURCE_OFFER,
 					MemorySegment.NULL,
-					managerVersion,
+					manager.version,
 					0,
 					names.allocateFrom(type),
 				) as MemorySegment
 			}
 		}
 		// Copied or moved, as the target and the keys held choose; a move is the target's to make.
-		if (managerVersion >= 3)
+		if (manager.version >= 3)
 			Wl.marshalInt.invokeExact(
 				source,
 				SOURCE_SET_ACTIONS,
 				MemorySegment.NULL,
-				managerVersion,
+				manager.version,
 				0,
 				ACTION_COPY or ACTION_MOVE,
 			) as MemorySegment
 
-		under = Under(source, offer, onEnd)
+		val icon = picture?.let { iconOf(it, window) }
+		val drag = Under(source, offer, icon, onEnd)
+
+		under = drag
 		Wl.marshalStartDrag.invokeExact(
 			device,
 			DEVICE_START_DRAG,
 			MemorySegment.NULL,
-			managerVersion,
+			manager.version,
 			0,
 			source,
 			MemorySegment.ofAddress(surface),
-			MemorySegment.NULL,
+			icon?.surface ?: MemorySegment.NULL,
 			serial,
 		) as MemorySegment
-		Wl.flush.invokeExact(display) as Int
+		// Its picture given once it is the drag's: a compositor places a drag's icon by what it is given from then on.
+		icon?.let { Wl.show(it.surface, it.buffer, it.scale) }
+		Wl.flush.invokeExact(seat.display) as Int
 
 		return true
 	}
 
-	// ---- what the compositor says, on this one's thread --------------------------------------------------------------
+	/**
+	 * [picture] drawn for a drag from [window]: into a buffer of whole pixels for each of the window's points (a
+	 * compositor scales a buffer by whole numbers; one scaling the screen by a fraction draws it a little smaller), as
+	 * large as it is at the window's density, on a surface of its own. Null where the compositor has no surfaces or
+	 * buffers for this connection.
+	 */
+	private fun iconOf(picture: DragPicture, window: NativeWindow): Icon? {
+		val compositor = seat.compositor ?: return null
+		val shm = seat.shm ?: return null
+		val perPoint = window.pixelsPerPoint
+		val scale = ceil(perPoint).toInt().coerceAtLeast(1)
+		// A dp in the buffer's pixels: as many of the window's points as it is, each [scale] of the buffer's pixels.
+		val density = Density(window.displayScale / perPoint * scale)
 
-	@Suppress("unused", "UNUSED_PARAMETER")
-	fun button(
-		data: MemorySegment,
-		pointer: MemorySegment,
-		serial: Int,
-		time: Int,
-		button: Int,
-		state: Int,
-	) {
-		if (state == BUTTON_PRESSED)
-			pressed = serial
+		/** [length] in the buffer's pixels, made a whole number of points, as a buffer's size must be. */
+		fun pixels(length: Float): Int = (ceil(length * density.density / scale).toInt() * scale).coerceAtLeast(scale)
+
+		val width = pixels(picture.size.width.value)
+		val height = pixels(picture.size.height.value)
+		val buffer = ShmBuffer.of(shm.proxy, width, height, opaque = false) ?: return null
+
+		CanvasDrawScope().draw(
+			density,
+			LayoutDirection.Ltr,
+			buffer.surface.canvas.asComposeCanvas(),
+			Size(width.toFloat(), height.toFloat()),
+		) {
+			picture.draw(this)
+		}
+
+		val surface =
+			Wl.marshalNone.invokeExact(
+				compositor.proxy,
+				Wl.COMPOSITOR_CREATE_SURFACE,
+				Wl.iface("wl_surface_interface"),
+				compositor.version,
+				0,
+				MemorySegment.NULL,
+			) as MemorySegment
+
+		return Icon(surface, buffer, scale)
 	}
 
+	override fun overOwn(effect: DropEffect?) {
+		under?.let { drag -> seen(drag) { it.copy(own = Own(effect)) } }
+	}
+
+	override fun offOwn() {
+		under?.let { drag -> seen(drag) { it.copy(own = null) } }
+	}
+
+	/** What [drag]'s pointer is decided by, changed as [change] says, and the cursor it comes to shown, if it is another. */
+	private fun seen(drag: Under, change: (Seen) -> Seen) =
+		synchronized(drag) {
+			drag.seen = change(drag.seen)
+
+			val shape = shapeOf(drag.seen)
+
+			if (shape != drag.shown) {
+				drag.shown = shape
+				Log.say { "drag: the pointer shows $shape, as ${drag.seen}" }
+				seat.show(shape)
+			}
+		}
+
+	/**
+	 * The cursor for what [seen] says letting go would do. Over this process's windows, as the place there says;
+	 * elsewhere, as the compositor chose, a move or a copy (or the user asked, where the target asks them), and
+	 * nothing where no window takes it. A compositor too old to choose (before version 3) leaves a copy, as the source
+	 * can tell.
+	 */
+	private fun shapeOf(seen: Seen): CursorShape =
+		when {
+			seen.own != null ->
+				when (seen.own.effect) {
+					DropEffect.Copy -> CursorShape.Copy
+					DropEffect.Move -> CursorShape.Move
+					DropEffect.Link -> CursorShape.Alias
+					null -> CursorShape.NoDrop
+				}
+			!seen.taken -> CursorShape.NoDrop
+			manager.version < 3 -> CursorShape.Copy
+			seen.action == ACTION_COPY -> CursorShape.Copy
+			seen.action == ACTION_MOVE -> CursorShape.Move
+			seen.action == ACTION_ASK -> CursorShape.DndAsk
+			else -> CursorShape.NoDrop
+		}
+
+	// ---- what the compositor says of the drag, on the seat's thread --------------------------------------------------
+
+	/** The window under the pointer takes what is offered as [type], or (NULL) nothing of it. */
 	@Suppress("unused", "UNUSED_PARAMETER")
-	fun target(data: MemorySegment, source: MemorySegment, type: MemorySegment) = Unit
+	fun target(data: MemorySegment, source: MemorySegment, type: MemorySegment) {
+		mine(source)?.let { drag -> seen(drag) { it.copy(taken = type.address() != 0L) } }
+	}
 
 	/** A window asks for what is dragged as [type], to be written to [fd]: written, and the pipe closed. */
 	@Suppress("unused", "UNUSED_PARAMETER")
 	fun send(data: MemorySegment, source: MemorySegment, type: MemorySegment, fd: Int) {
-		val bytes = under?.offer?.types?.get(type.reinterpret(Long.MAX_VALUE).getString(0))
+		val asked = type.reinterpret(Long.MAX_VALUE).getString(0)
+		val bytes = under?.offer?.types?.get(asked)
 
-		Log.say {
-			"drag: asked for ${type.reinterpret(
-				Long.MAX_VALUE,
-			).getString(0)}, ${bytes?.size ?: 0} bytes"
-		}
+		Log.say { "drag: asked for $asked, ${bytes?.size ?: 0} bytes" }
 
 		try {
 			if (bytes != null)
@@ -206,48 +316,65 @@ internal class WaylandDrags private constructor(
 
 	@Suppress("unused", "UNUSED_PARAMETER")
 	fun cancelled(data: MemorySegment, source: MemorySegment) {
-		under
-			?.takeIf {
-				it.source.address() == source.address()
-			}?.let { ended(it, DragEnd.Cancelled) }
+		mine(source)?.let { ended(it, DragEnd.Cancelled) }
 	}
 
 	@Suppress("unused", "UNUSED_PARAMETER")
 	fun dropPerformed(data: MemorySegment, source: MemorySegment) {
-		under?.takeIf { it.source.address() == source.address() }?.dropped = true
+		mine(source)?.dropped = true
 	}
 
 	@Suppress("unused", "UNUSED_PARAMETER")
 	fun finished(data: MemorySegment, source: MemorySegment) {
-		under
-			?.takeIf {
-				it.source.address() == source.address()
-			}?.let { ended(it, DragEnd.Taken) }
+		mine(source)?.let { ended(it, DragEnd.Taken) }
 	}
 
+	/** What the compositor chose to make of a drop there, of the actions offered and those the target takes. */
 	@Suppress("unused", "UNUSED_PARAMETER")
-	fun action(data: MemorySegment, source: MemorySegment, action: Int) = Unit
+	fun action(data: MemorySegment, source: MemorySegment, action: Int) {
+		mine(source)?.let { drag -> seen(drag) { it.copy(action = action) } }
+	}
 
-	/** [drag] over: its source let go, and who began it told how it ended, on the windows' thread. */
+	/** The drag under way, where [source] is its. */
+	private fun mine(source: MemorySegment): Under? = under?.takeIf { it.source.address() == source.address() }
+
+	/** [drag] over: its source and its picture let go of, and who began it told how it ended, on the windows' thread. */
 	private fun ended(drag: Under, how: DragEnd) {
-		if (under !== drag)
-			return
+		synchronized(this) {
+			if (under !== drag)
+				return
+			under = null
+		}
 		Log.say { "drag: ended, $how" }
-		under = null
 		Wl.marshalNone.invokeExact(
 			drag.source,
 			SOURCE_DESTROY,
 			MemorySegment.NULL,
-			managerVersion,
+			manager.version,
 			Wl.MARSHAL_DESTROY,
 			MemorySegment.NULL,
 		) as MemorySegment
+		drag.icon?.let {
+			Wl.marshalNone.invokeExact(
+				it.surface,
+				Wl.SURFACE_DESTROY,
+				MemorySegment.NULL,
+				Wl.versionOf(it.surface),
+				Wl.MARSHAL_DESTROY,
+				MemorySegment.NULL,
+			) as MemorySegment
+			it.buffer.free()
+		}
+		Wl.flush.invokeExact(seat.display) as Int
 		Ui.dispatch(kotlin.coroutines.EmptyCoroutineContext) { drag.onEnd(how) }
 	}
 
 	/** The listener for each data source: what the compositor says of a drag, each an upcall to this one. */
-	private val sourceListener: MemorySegment by lazy {
+	private val sourceListener: MemorySegment =
 		listenerOf(
+			seat.arena,
+			MethodHandles.lookup(),
+			this,
 			"target" to FunctionDescriptor.ofVoid(ADDRESS, ADDRESS, ADDRESS),
 			"send" to FunctionDescriptor.ofVoid(ADDRESS, ADDRESS, ADDRESS, JAVA_INT),
 			"cancelled" to FunctionDescriptor.ofVoid(ADDRESS, ADDRESS),
@@ -255,316 +382,39 @@ internal class WaylandDrags private constructor(
 			"finished" to FunctionDescriptor.ofVoid(ADDRESS, ADDRESS),
 			"action" to FunctionDescriptor.ofVoid(ADDRESS, ADDRESS, JAVA_INT),
 		)
-	}
 
-	/** A listener: a table of upcalls, one for each event, to the methods of this one named, in the events' order. */
-	private fun listenerOf(vararg events: Pair<String, FunctionDescriptor>): MemorySegment {
-		val table = arena.allocate(ADDRESS, events.size.toLong())
-
-		events.forEachIndexed { at, (name, descriptor) ->
-			table.setAtIndex(ADDRESS, at.toLong(), upcall(this, name, descriptor))
-		}
-
-		return table
-	}
-
-	private fun upcall(
-		target: Any,
-		name: String,
-		descriptor: FunctionDescriptor,
-	): MemorySegment =
-		Linker.nativeLinker().upcallStub(handleOf(target, name, descriptor), descriptor, arena)
-
-	override fun close() {
-		running = false
-
-		// The thread woken from its wait, by a reply on its queue, to see that it is to stop.
-		val wrapped = Wl.wrapper.invokeExact(display) as MemorySegment
-
-		Wl.setQueue.invoke(wrapped, queue)
-		Wl.marshalNone.invokeExact(
-			wrapped,
-			DISPLAY_SYNC,
-			Wl.iface("wl_callback_interface"),
-			1,
-			0,
-			MemorySegment.NULL,
-		) as MemorySegment
-		Wl.wrapperDestroy.invoke(wrapped)
-		Wl.flush.invokeExact(display) as Int
-		thread.join(1000)
-	}
+	/** Nothing of its own to close: its connection is the seat's, closed with it. */
+	override fun close() = Unit
 
 	companion object {
-		private const val DISPLAY_SYNC = 0
-		private const val SEAT_GET_POINTER = 0
-		private const val DEVICE_MANAGER_CREATE_DATA_SOURCE = 0
-		private const val DEVICE_MANAGER_GET_DATA_DEVICE = 1
+		private const val MANAGER_CREATE_DATA_SOURCE = 0
+		private const val MANAGER_GET_DATA_DEVICE = 1
 		private const val DEVICE_START_DRAG = 0
 		private const val SOURCE_OFFER = 0
 		private const val SOURCE_DESTROY = 1
 		private const val SOURCE_SET_ACTIONS = 2
+		private const val ACTION_NONE = 0
 		private const val ACTION_COPY = 1
 		private const val ACTION_MOVE = 2
-		private const val BUTTON_PRESSED = 1
-		private const val SEAT_POINTER = 1
+		private const val ACTION_ASK = 4
 
-		private fun handleOf(
-			target: Any,
-			name: String,
-			descriptor: FunctionDescriptor,
-		): MethodHandle {
-			val types =
-				descriptor.argumentLayouts().map {
-					when (it) {
-						JAVA_INT -> Int::class.javaPrimitiveType!!
-						JAVA_LONG -> Long::class.javaPrimitiveType!!
-						else -> MemorySegment::class.java
-					}
-				}
-
-			return MethodHandles
-				.lookup()
-				.findVirtual(target.javaClass, name, MethodType.methodType(Void.TYPE, types))
-				.bindTo(target)
-		}
-
-		/** The globals the registry announces: each one's name and version, by its interface. */
-		private class Globals {
-			val found = HashMap<String, Pair<Int, Int>>()
-
-			@Suppress("unused", "UNUSED_PARAMETER")
-			fun global(
-				data: MemorySegment,
-				registry: MemorySegment,
-				name: Int,
-				iface: MemorySegment,
-				version: Int,
-			) {
-				found.putIfAbsent(iface.reinterpret(256).getString(0), name to version)
-			}
-
-			@Suppress("unused", "UNUSED_PARAMETER")
-			fun removed(data: MemorySegment, registry: MemorySegment, name: Int) = Unit
-		}
-
-		/** A pointer's events, all heard and only its presses kept (a listener must answer every event of its version). */
-		private class PointerEvents(
-			val drags: WaylandDrags,
-		) {
-			@Suppress("unused", "UNUSED_PARAMETER")
-			fun enter(
-				data: MemorySegment,
-				pointer: MemorySegment,
-				serial: Int,
-				surface: MemorySegment,
-				x: Int,
-				y: Int,
-			) = Unit
-
-			@Suppress("unused", "UNUSED_PARAMETER")
-			fun leave(
-				data: MemorySegment,
-				pointer: MemorySegment,
-				serial: Int,
-				surface: MemorySegment,
-			) = Unit
-
-			@Suppress("unused", "UNUSED_PARAMETER")
-			fun motion(
-				data: MemorySegment,
-				pointer: MemorySegment,
-				time: Int,
-				x: Int,
-				y: Int,
-			) = Unit
-
-			@Suppress("unused")
-			fun button(
-				data: MemorySegment,
-				pointer: MemorySegment,
-				serial: Int,
-				time: Int,
-				button: Int,
-				state: Int,
-			) = drags.button(data, pointer, serial, time, button, state)
-
-			@Suppress("unused", "UNUSED_PARAMETER")
-			fun axis(
-				data: MemorySegment,
-				pointer: MemorySegment,
-				time: Int,
-				axis: Int,
-				value: Int,
-			) = Unit
-		}
-
-		/**
-		 * A seat's events (version 1's alone, which the seat is bound at): its pointer asked for once it has one, and
-		 * let go of if it loses it. A seat must not be asked for a pointer it has not got.
-		 */
-		private class SeatEvents(
-			val drags: WaylandDrags,
-			val pointerListener: MemorySegment,
-		) {
-			private var pointer: MemorySegment? = null
-
-			@Suppress("unused", "UNUSED_PARAMETER")
-			fun capabilities(data: MemorySegment, seat: MemorySegment, capabilities: Int) {
-				val has = capabilities and SEAT_POINTER != 0
-
-				if (has && pointer == null) {
-					val made =
-						Wl.marshalNone.invokeExact(
-							seat,
-							SEAT_GET_POINTER,
-							Wl.iface("wl_pointer_interface"),
-							1,
-							0,
-							MemorySegment.NULL,
-						) as MemorySegment
-
-					Wl.addListener.invokeExact(made, pointerListener, MemorySegment.NULL) as Int
-					pointer = made
-				} else if (!has && pointer != null) {
-					Wl.destroy.invoke(pointer)
-					pointer = null
-					drags.pressed = null
-				}
-			}
-		}
-
-		/**
-		 * Wayland's drags on [display], the seat and the data device manager bound on a queue of their own; null where
-		 * the compositor has neither, or libwayland-client cannot be had.
-		 */
-		fun of(display: MemorySegment): WaylandDrags? {
-			val arena = Arena.ofShared()
-
-			return try {
-				val queue = Wl.createQueue.invokeExact(display) as MemorySegment
-				val wrapped = Wl.wrapper.invokeExact(display) as MemorySegment
-
-				Wl.setQueue.invoke(wrapped, queue)
-
-				val registry =
-					Wl.marshalNone.invokeExact(
-						wrapped,
-						Wl.DISPLAY_GET_REGISTRY,
-						Wl.iface("wl_registry_interface"),
-						Wl.version.invokeExact(wrapped) as Int,
-						0,
-						MemorySegment.NULL,
-					) as MemorySegment
-
-				Wl.wrapperDestroy.invoke(wrapped)
-
-				val globals = Globals()
-				val registryListener = arena.allocate(ADDRESS, 2)
-
-				fun stub(target: Any, name: String, descriptor: FunctionDescriptor) =
-					Linker.nativeLinker().upcallStub(
-						handleOf(target, name, descriptor),
-						descriptor,
-						arena,
-					)
-
-				registryListener.setAtIndex(
-					ADDRESS,
+		/** Drags through [seat]'s data device, where its compositor has drag and drop; null where it has not. */
+		fun of(seat: WaylandSeat): WaylandDrags? {
+			val manager = seat.dataDevices ?: return null
+			val device =
+				Wl.marshalObject.invokeExact(
+					manager.proxy,
+					MANAGER_GET_DATA_DEVICE,
+					Wl.iface("wl_data_device_interface"),
+					manager.version,
 					0,
-					stub(
-						globals,
-						"global",
-						FunctionDescriptor.ofVoid(ADDRESS, ADDRESS, JAVA_INT, ADDRESS, JAVA_INT),
-					),
-				)
-				registryListener.setAtIndex(
-					ADDRESS,
-					1,
-					stub(globals, "removed", FunctionDescriptor.ofVoid(ADDRESS, ADDRESS, JAVA_INT)),
-				)
-				Wl.addListener.invokeExact(registry, registryListener, MemorySegment.NULL) as Int
-				Wl.roundtrip.invokeExact(display, queue) as Int
+					MemorySegment.NULL,
+					seat.seat,
+				) as MemorySegment
 
-				val (seatName, _) = globals.found["wl_seat"] ?: return null.also { arena.close() }
-				val (managerName, managerVersion) =
-					globals.found["wl_data_device_manager"] ?: return null.also { arena.close() }
-				val version = managerVersion.coerceAtMost(3)
+			Wl.flush.invokeExact(seat.display) as Int
 
-				fun bind(name: Int, iface: String, at: Int): MemorySegment =
-					Wl.marshalBind.invokeExact(
-						registry,
-						Wl.REGISTRY_BIND,
-						Wl.iface("${iface}_interface"),
-						at,
-						0,
-						name,
-						arena.allocateFrom(iface),
-						at,
-						MemorySegment.NULL,
-					) as MemorySegment
-
-				val seat = bind(seatName, "wl_seat", 1)
-				val manager = bind(managerName, "wl_data_device_manager", version)
-				val drags = WaylandDrags(display, queue, arena)
-
-				drags.manager = manager
-				drags.managerVersion = version
-
-				val events = PointerEvents(drags)
-				val pointerListener = arena.allocate(ADDRESS, 5)
-
-				listOf(
-					"enter" to
-						FunctionDescriptor.ofVoid(ADDRESS, ADDRESS, JAVA_INT, ADDRESS, JAVA_INT, JAVA_INT),
-					"leave" to FunctionDescriptor.ofVoid(ADDRESS, ADDRESS, JAVA_INT, ADDRESS),
-					"motion" to
-						FunctionDescriptor.ofVoid(
-							ADDRESS,
-							ADDRESS,
-							JAVA_INT,
-							JAVA_INT,
-							JAVA_INT,
-						),
-					"button" to
-						FunctionDescriptor.ofVoid(ADDRESS, ADDRESS, JAVA_INT, JAVA_INT, JAVA_INT, JAVA_INT),
-					"axis" to FunctionDescriptor.ofVoid(ADDRESS, ADDRESS, JAVA_INT, JAVA_INT, JAVA_INT),
-				).forEachIndexed { at, (name, descriptor) ->
-					pointerListener.setAtIndex(ADDRESS, at.toLong(), stub(events, name, descriptor))
-				}
-
-				// The pointer is asked for when the seat says it has one: on the queue's thread, from its capabilities.
-				val seatListener = arena.allocate(ADDRESS, 1)
-
-				seatListener.setAtIndex(
-					ADDRESS,
-					0,
-					stub(
-						SeatEvents(drags, pointerListener),
-						"capabilities",
-						FunctionDescriptor.ofVoid(ADDRESS, ADDRESS, JAVA_INT),
-					),
-				)
-				Wl.addListener.invokeExact(seat, seatListener, MemorySegment.NULL) as Int
-
-				drags.device =
-					Wl.marshalObject.invokeExact(
-						manager,
-						DEVICE_MANAGER_GET_DATA_DEVICE,
-						Wl.iface("wl_data_device_interface"),
-						version,
-						0,
-						MemorySegment.NULL,
-						seat,
-					) as MemorySegment
-				Wl.flush.invokeExact(display) as Int
-				drags.thread.start()
-
-				drags
-			} catch (missing: IllegalArgumentException) {
-				arena.close()
-				null
-			}
+			return WaylandDrags(seat, manager, device)
 		}
 	}
 }

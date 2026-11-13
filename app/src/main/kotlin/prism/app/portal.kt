@@ -26,7 +26,6 @@ import prism.cli.ParamType
 import prism.dbus.Connection
 import prism.dbus.Opening
 import prism.desktop.MimeType
-import prism.desktop.currentDesktop
 import prism.desktop.freedesktop.Freedesktop
 import prism.desktop.freedesktop.Xdg
 import prism.explorer.Explorer
@@ -92,7 +91,7 @@ object PortalServe : Command(
 
 		val home = Path(System.getProperty("user.home"))
 		val (search, finder) = indexing.searchOf(args, home)
-		val desktop = currentDesktop()
+		val desktop = windowsDesktop()
 
 		bus.use {
 			PreferenceFile.open().use { preferences ->

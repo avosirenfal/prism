@@ -58,7 +58,7 @@ whether it is on the same volume, is known only once it is dropped.
 
 | | files dropped on prism | prism's drags between its windows | prism's drags out to other applications |
 |---|---|---|---|
-| Wayland | SDL's data device | within a window; between windows needs Wayland's drag protocol | Wayland's data device (`wl_data_source`, `start_drag`), to be spoken through libwayland-client beside SDL's connection |
+| Wayland | SDL's data device | Wayland's drag protocol, as out to other applications | Wayland's data device (`wl_data_source`, `start_drag`), spoken through libwayland-client beside SDL's connection, with the drag's picture as its icon and its cursor by cursor-shape |
 | X11 | SDL's XDND | between windows, by where the pointer is on the screen | XDND, to be spoken through Xlib |
 | Windows | SDL's OLE drop target | between windows, as on X11 | OLE's `DoDragDrop` with `CF_HDROP` |
 | macOS | SDL's dragging destination | between windows, as on X11 | an `NSDraggingSession` with file URLs |
@@ -74,6 +74,7 @@ whether it is on the same volume, is known only once it is dropped.
 | running the daemon | a systemd user service | a launchd agent | a scheduled task, or a service |
 | the picker for other applications | the portal, over D-Bus | none: the command line | none: the command line |
 | file types, applications, defaults, launching | freedesktop's: shared-mime-info, desktop entries, `mimeapps.list`, `setsid` | uniform type identifiers, Launch Services, `open -a` | the registry, `ShellExecuteEx` |
+| bringing forward what is started | Wayland's xdg-activation token, in `XDG_ACTIVATION_TOKEN`; on X11, a startup notification (not yet) | Launch Services, which activates what it opens | `ShellExecuteEx`, from a process the user just pressed something in |
 | the trash | freedesktop's trash, one for each mount (`Trash`) | the system's (`NSFileManager trashItemAtURL`, which says where each item went, for undo) | the Recycle Bin |
 | the colour scheme | the portal's | the system's appearance | the registry's app theme |
 | keys | Ctrl | Cmd, as the defaults' "primary" modifier | Ctrl |

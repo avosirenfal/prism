@@ -13,15 +13,27 @@ import prism.cli.Given
 import prism.cli.Param
 import prism.cli.ParamType
 import prism.cli.Parsed
+import prism.desktop.Activation
+import prism.desktop.ActivationToken
+import prism.desktop.Desktop
+import prism.desktop.currentDesktop
 import prism.index.IndexFile
 import prism.index.IndexRead
 import prism.index.UsageFile
 import prism.index.UsageRead
+import prism.window.activationToken
 
 /*
  * What the commands that open windows (`prism pick`, `prism explore`) take alike: the index Ctrl+Shift+F searches, the
  * palette, and whether the window manager draws a title bar.
  */
+
+/**
+ * The desktop prism is on, for a command that opens windows: what it starts is brought forward from them, by the
+ * token the windows' platform makes of the user's last press in one (prism.window's `activationToken`).
+ */
+internal fun windowsDesktop(): Desktop =
+	currentDesktop(Activation { appId -> activationToken(appId)?.let(::ActivationToken) })
 
 /** `--theme`: the palette, the desktop's colour scheme by default. */
 internal fun Command.themeOption(): Param<Theme> =
