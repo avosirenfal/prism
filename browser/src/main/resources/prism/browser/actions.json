@@ -16,7 +16,7 @@
 					"list": [
 						"sh",
 						"-c",
-						"out=$(LC_ALL=C bsdtar -tvf \"$archive\") || exit 1; printf '%s\\n' \"$out\" | awk -v now=\"$(date +%Y%m)\" 'BEGIN { split(\"Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec\", names, \" \"); for (i = 1; i <= 12; i++) month[names[i]] = i } { name = $0; for (i = 0; i < 8; i++) sub(/^ *[^ ]+ +/, \"\", name); t = substr($1, 1, 1); if (t == \"l\") sub(/ -> .*$/, \"\", name); if (t == \"h\") sub(/ link to .*$/, \"\", name); sub(/\\/$/, \"\", name); mo = month[$6]; if ($8 ~ /:/) { y = substr(now, 1, 4) + 0; if (mo > substr(now, 5, 2) + 0) y--; clock = $8 } else { y = $8; clock = \"00:00\" } if (name != \"\" && name != \".\") printf \"%s%s\\tsize=%s\\ttime=%04d-%02d-%02d %s\\n\", name, (t == \"d\" ? \"/\" : \"\"), $5, y, mo, $7, clock }'",
+						"unset listed; listed=$(LC_ALL=C bsdtar -tvf \"$archive\") || exit 1; printf '%s\\n' \"$listed\" | awk -v now=\"$(date +%Y%m)\" 'BEGIN { split(\"Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec\", names, \" \"); for (i = 1; i <= 12; i++) month[names[i]] = i } { name = $0; for (i = 0; i < 8; i++) sub(/^ *[^ ]+ +/, \"\", name); t = substr($1, 1, 1); if (t == \"l\") sub(/ -> .*$/, \"\", name); if (t == \"h\") sub(/ link to .*$/, \"\", name); sub(/\\/$/, \"\", name); mo = month[$6]; if ($8 ~ /:/) { y = substr(now, 1, 4) + 0; if (mo > substr(now, 5, 2) + 0) y--; clock = $8 } else { y = $8; clock = \"00:00\" } if (name != \"\" && name != \".\") printf \"%s%s\\tsize=%s\\ttime=%04d-%02d-%02d %s\\n\", name, (t == \"d\" ? \"/\" : \"\"), $5, y, mo, $7, clock }'",
 						"sh"
 					]
 				},
@@ -27,7 +27,7 @@
 					"list": [
 						"sh",
 						"-c",
-						"if tar --version 2>/dev/null | grep -q \"GNU tar\"; then out=$(tar --quoting-style=literal -tvf \"$archive\") || exit 1; printf '%s\\n' \"$out\" | awk '{ size = $3; time = $4 \" \" $5; name = $0; for (i = 0; i < 5; i++) sub(/^[^ ]+ +/, \"\", name); if (substr($1, 1, 1) == \"l\") sub(/ -> .*$/, \"\", name); if (substr($1, 1, 1) == \"h\") sub(/ link to .*$/, \"\", name); if (name != \"\") printf \"%s\\tsize=%s\\ttime=%s\\n\", name, size, time }'; else out=$(LC_ALL=C tar -tvf \"$archive\") || exit 1; printf '%s\\n' \"$out\" | awk -v now=\"$(date +%Y%m)\" 'BEGIN { split(\"Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec\", names, \" \"); for (i = 1; i <= 12; i++) month[names[i]] = i } { name = $0; for (i = 0; i < 8; i++) sub(/^ *[^ ]+ +/, \"\", name); t = substr($1, 1, 1); if (t == \"l\") sub(/ -> .*$/, \"\", name); if (t == \"h\") sub(/ link to .*$/, \"\", name); sub(/\\/$/, \"\", name); mo = month[$6]; if ($8 ~ /:/) { y = substr(now, 1, 4) + 0; if (mo > substr(now, 5, 2) + 0) y--; clock = $8 } else { y = $8; clock = \"00:00\" } if (name != \"\" && name != \".\") printf \"%s%s\\tsize=%s\\ttime=%04d-%02d-%02d %s\\n\", name, (t == \"d\" ? \"/\" : \"\"), $5, y, mo, $7, clock }'; fi",
+						"unset listed; if tar --version 2>/dev/null | grep -q \"GNU tar\"; then listed=$(tar --quoting-style=literal -tvf \"$archive\") || exit 1; printf '%s\\n' \"$listed\" | awk '{ size = $3; time = $4 \" \" $5; name = $0; for (i = 0; i < 5; i++) sub(/^[^ ]+ +/, \"\", name); if (substr($1, 1, 1) == \"l\") sub(/ -> .*$/, \"\", name); if (substr($1, 1, 1) == \"h\") sub(/ link to .*$/, \"\", name); if (name != \"\") printf \"%s\\tsize=%s\\ttime=%s\\n\", name, size, time }'; else listed=$(LC_ALL=C tar -tvf \"$archive\") || exit 1; printf '%s\\n' \"$listed\" | awk -v now=\"$(date +%Y%m)\" 'BEGIN { split(\"Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec\", names, \" \"); for (i = 1; i <= 12; i++) month[names[i]] = i } { name = $0; for (i = 0; i < 8; i++) sub(/^ *[^ ]+ +/, \"\", name); t = substr($1, 1, 1); if (t == \"l\") sub(/ -> .*$/, \"\", name); if (t == \"h\") sub(/ link to .*$/, \"\", name); sub(/\\/$/, \"\", name); mo = month[$6]; if ($8 ~ /:/) { y = substr(now, 1, 4) + 0; if (mo > substr(now, 5, 2) + 0) y--; clock = $8 } else { y = $8; clock = \"00:00\" } if (name != \"\" && name != \".\") printf \"%s%s\\tsize=%s\\ttime=%04d-%02d-%02d %s\\n\", name, (t == \"d\" ? \"/\" : \"\"), $5, y, mo, $7, clock }'; fi",
 						"sh"
 					]
 				}
@@ -52,7 +52,7 @@
 					"list": [
 						"sh",
 						"-c",
-						"out=$(zipinfo -T \"$archive\") || exit 1; printf '%s\\n' \"$out\" | awk '/^[-dl?]/ && NF >= 8 { size = $4; time = $7; name = $0; for (i = 0; i < 7; i++) sub(/^[^ ]+ +/, \"\", name); printf \"%s\\tsize=%s\\ttime=%s\\n\", name, size, time }'",
+						"unset listed; listed=$(zipinfo -T \"$archive\") || exit 1; printf '%s\\n' \"$listed\" | awk '/^[-dl?]/ && NF >= 8 { size = $4; time = $7; name = $0; for (i = 0; i < 7; i++) sub(/^[^ ]+ +/, \"\", name); printf \"%s\\tsize=%s\\ttime=%s\\n\", name, size, time }'",
 						"sh"
 					]
 				},
@@ -63,7 +63,7 @@
 					"list": [
 						"sh",
 						"-c",
-						"out=$(\"$1\" l -slt -ba -- \"$archive\") || exit 1; printf '%s\\n' \"$out\" | awk 'function out() { if (p != \"\") printf \"%s%s\\tsize=%s\\ttime=%s\\n\", p, (d ? \"/\" : \"\"), s, m; p = \"\"; d = 0; s = \"\"; m = \"\" } /^Path = / { out(); p = substr($0, 8); next } /^Folder = \\+/ { d = 1 } /^Attributes = D/ { d = 1 } /^Size = / { s = substr($0, 8) } /^Modified = / { m = substr($0, 12, 19) } END { out() }'",
+						"unset listed; listed=$(\"$1\" l -slt -ba -- \"$archive\") || exit 1; printf '%s\\n' \"$listed\" | awk 'function out() { if (p != \"\") printf \"%s%s\\tsize=%s\\ttime=%s\\n\", p, (d ? \"/\" : \"\"), s, m; p = \"\"; d = 0; s = \"\"; m = \"\" } /^Path = / { out(); p = substr($0, 8); next } /^Folder = \\+/ { d = 1 } /^Attributes = D/ { d = 1 } /^Size = / { s = substr($0, 8) } /^Modified = / { m = substr($0, 12, 19) } END { out() }'",
 						"sh",
 						"{which:7zz|7z|7za|7zr}"
 					]
@@ -75,7 +75,7 @@
 					"list": [
 						"sh",
 						"-c",
-						"out=$(LC_ALL=C bsdtar -tvf \"$archive\") || exit 1; printf '%s\\n' \"$out\" | awk -v now=\"$(date +%Y%m)\" 'BEGIN { split(\"Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec\", names, \" \"); for (i = 1; i <= 12; i++) month[names[i]] = i } { name = $0; for (i = 0; i < 8; i++) sub(/^ *[^ ]+ +/, \"\", name); t = substr($1, 1, 1); if (t == \"l\") sub(/ -> .*$/, \"\", name); if (t == \"h\") sub(/ link to .*$/, \"\", name); sub(/\\/$/, \"\", name); mo = month[$6]; if ($8 ~ /:/) { y = substr(now, 1, 4) + 0; if (mo > substr(now, 5, 2) + 0) y--; clock = $8 } else { y = $8; clock = \"00:00\" } if (name != \"\" && name != \".\") printf \"%s%s\\tsize=%s\\ttime=%04d-%02d-%02d %s\\n\", name, (t == \"d\" ? \"/\" : \"\"), $5, y, mo, $7, clock }'",
+						"unset listed; listed=$(LC_ALL=C bsdtar -tvf \"$archive\") || exit 1; printf '%s\\n' \"$listed\" | awk -v now=\"$(date +%Y%m)\" 'BEGIN { split(\"Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec\", names, \" \"); for (i = 1; i <= 12; i++) month[names[i]] = i } { name = $0; for (i = 0; i < 8; i++) sub(/^ *[^ ]+ +/, \"\", name); t = substr($1, 1, 1); if (t == \"l\") sub(/ -> .*$/, \"\", name); if (t == \"h\") sub(/ link to .*$/, \"\", name); sub(/\\/$/, \"\", name); mo = month[$6]; if ($8 ~ /:/) { y = substr(now, 1, 4) + 0; if (mo > substr(now, 5, 2) + 0) y--; clock = $8 } else { y = $8; clock = \"00:00\" } if (name != \"\" && name != \".\") printf \"%s%s\\tsize=%s\\ttime=%04d-%02d-%02d %s\\n\", name, (t == \"d\" ? \"/\" : \"\"), $5, y, mo, $7, clock }'",
 						"sh"
 					]
 				}
@@ -100,7 +100,7 @@
 					"list": [
 						"sh",
 						"-c",
-						"out=$(\"$1\" l -slt -ba -- \"$archive\") || exit 1; printf '%s\\n' \"$out\" | awk 'function out() { if (p != \"\") printf \"%s%s\\tsize=%s\\ttime=%s\\n\", p, (d ? \"/\" : \"\"), s, m; p = \"\"; d = 0; s = \"\"; m = \"\" } /^Path = / { out(); p = substr($0, 8); next } /^Folder = \\+/ { d = 1 } /^Attributes = D/ { d = 1 } /^Size = / { s = substr($0, 8) } /^Modified = / { m = substr($0, 12, 19) } END { out() }'",
+						"unset listed; listed=$(\"$1\" l -slt -ba -- \"$archive\") || exit 1; printf '%s\\n' \"$listed\" | awk 'function out() { if (p != \"\") printf \"%s%s\\tsize=%s\\ttime=%s\\n\", p, (d ? \"/\" : \"\"), s, m; p = \"\"; d = 0; s = \"\"; m = \"\" } /^Path = / { out(); p = substr($0, 8); next } /^Folder = \\+/ { d = 1 } /^Attributes = D/ { d = 1 } /^Size = / { s = substr($0, 8) } /^Modified = / { m = substr($0, 12, 19) } END { out() }'",
 						"sh",
 						"{which:7zz|7z|7za|7zr}"
 					]
@@ -112,7 +112,7 @@
 					"list": [
 						"sh",
 						"-c",
-						"out=$(LC_ALL=C bsdtar -tvf \"$archive\") || exit 1; printf '%s\\n' \"$out\" | awk -v now=\"$(date +%Y%m)\" 'BEGIN { split(\"Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec\", names, \" \"); for (i = 1; i <= 12; i++) month[names[i]] = i } { name = $0; for (i = 0; i < 8; i++) sub(/^ *[^ ]+ +/, \"\", name); t = substr($1, 1, 1); if (t == \"l\") sub(/ -> .*$/, \"\", name); if (t == \"h\") sub(/ link to .*$/, \"\", name); sub(/\\/$/, \"\", name); mo = month[$6]; if ($8 ~ /:/) { y = substr(now, 1, 4) + 0; if (mo > substr(now, 5, 2) + 0) y--; clock = $8 } else { y = $8; clock = \"00:00\" } if (name != \"\" && name != \".\") printf \"%s%s\\tsize=%s\\ttime=%04d-%02d-%02d %s\\n\", name, (t == \"d\" ? \"/\" : \"\"), $5, y, mo, $7, clock }'",
+						"unset listed; listed=$(LC_ALL=C bsdtar -tvf \"$archive\") || exit 1; printf '%s\\n' \"$listed\" | awk -v now=\"$(date +%Y%m)\" 'BEGIN { split(\"Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec\", names, \" \"); for (i = 1; i <= 12; i++) month[names[i]] = i } { name = $0; for (i = 0; i < 8; i++) sub(/^ *[^ ]+ +/, \"\", name); t = substr($1, 1, 1); if (t == \"l\") sub(/ -> .*$/, \"\", name); if (t == \"h\") sub(/ link to .*$/, \"\", name); sub(/\\/$/, \"\", name); mo = month[$6]; if ($8 ~ /:/) { y = substr(now, 1, 4) + 0; if (mo > substr(now, 5, 2) + 0) y--; clock = $8 } else { y = $8; clock = \"00:00\" } if (name != \"\" && name != \".\") printf \"%s%s\\tsize=%s\\ttime=%04d-%02d-%02d %s\\n\", name, (t == \"d\" ? \"/\" : \"\"), $5, y, mo, $7, clock }'",
 						"sh"
 					]
 				}
@@ -137,7 +137,7 @@
 					"list": [
 						"sh",
 						"-c",
-						"out=$(unrar lt -cfg- -- \"$archive\") || exit 1; printf '%s\\n' \"$out\" | awk 'function out() { if (p != \"\") printf \"%s%s\\tsize=%s\\ttime=%s\\n\", p, (d ? \"/\" : \"\"), s, m; p = \"\"; d = 0; s = \"\"; m = \"\" } /^ *Name: / { out(); sub(/^ *Name: /, \"\"); p = $0; next } /^ *Type: Directory/ { d = 1 } /^ *Size: / { s = $2 } /^ *mtime: / { m = $2 \" \" substr($3, 1, 8) } END { out() }'",
+						"unset listed; listed=$(unrar lt -cfg- -- \"$archive\") || exit 1; printf '%s\\n' \"$listed\" | awk 'function out() { if (p != \"\") printf \"%s%s\\tsize=%s\\ttime=%s\\n\", p, (d ? \"/\" : \"\"), s, m; p = \"\"; d = 0; s = \"\"; m = \"\" } /^ *Name: / { out(); sub(/^ *Name: /, \"\"); p = $0; next } /^ *Type: Directory/ { d = 1 } /^ *Size: / { s = $2 } /^ *mtime: / { m = $2 \" \" substr($3, 1, 8) } END { out() }'",
 						"sh"
 					]
 				},
@@ -148,7 +148,7 @@
 					"list": [
 						"sh",
 						"-c",
-						"out=$(\"$1\" l -slt -ba -- \"$archive\") || exit 1; printf '%s\\n' \"$out\" | awk 'function out() { if (p != \"\") printf \"%s%s\\tsize=%s\\ttime=%s\\n\", p, (d ? \"/\" : \"\"), s, m; p = \"\"; d = 0; s = \"\"; m = \"\" } /^Path = / { out(); p = substr($0, 8); next } /^Folder = \\+/ { d = 1 } /^Attributes = D/ { d = 1 } /^Size = / { s = substr($0, 8) } /^Modified = / { m = substr($0, 12, 19) } END { out() }'",
+						"unset listed; listed=$(\"$1\" l -slt -ba -- \"$archive\") || exit 1; printf '%s\\n' \"$listed\" | awk 'function out() { if (p != \"\") printf \"%s%s\\tsize=%s\\ttime=%s\\n\", p, (d ? \"/\" : \"\"), s, m; p = \"\"; d = 0; s = \"\"; m = \"\" } /^Path = / { out(); p = substr($0, 8); next } /^Folder = \\+/ { d = 1 } /^Attributes = D/ { d = 1 } /^Size = / { s = substr($0, 8) } /^Modified = / { m = substr($0, 12, 19) } END { out() }'",
 						"sh",
 						"{which:7zz|7z|7za|7zr}"
 					]
@@ -160,7 +160,7 @@
 					"list": [
 						"sh",
 						"-c",
-						"out=$(LC_ALL=C bsdtar -tvf \"$archive\") || exit 1; printf '%s\\n' \"$out\" | awk -v now=\"$(date +%Y%m)\" 'BEGIN { split(\"Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec\", names, \" \"); for (i = 1; i <= 12; i++) month[names[i]] = i } { name = $0; for (i = 0; i < 8; i++) sub(/^ *[^ ]+ +/, \"\", name); t = substr($1, 1, 1); if (t == \"l\") sub(/ -> .*$/, \"\", name); if (t == \"h\") sub(/ link to .*$/, \"\", name); sub(/\\/$/, \"\", name); mo = month[$6]; if ($8 ~ /:/) { y = substr(now, 1, 4) + 0; if (mo > substr(now, 5, 2) + 0) y--; clock = $8 } else { y = $8; clock = \"00:00\" } if (name != \"\" && name != \".\") printf \"%s%s\\tsize=%s\\ttime=%04d-%02d-%02d %s\\n\", name, (t == \"d\" ? \"/\" : \"\"), $5, y, mo, $7, clock }'",
+						"unset listed; listed=$(LC_ALL=C bsdtar -tvf \"$archive\") || exit 1; printf '%s\\n' \"$listed\" | awk -v now=\"$(date +%Y%m)\" 'BEGIN { split(\"Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec\", names, \" \"); for (i = 1; i <= 12; i++) month[names[i]] = i } { name = $0; for (i = 0; i < 8; i++) sub(/^ *[^ ]+ +/, \"\", name); t = substr($1, 1, 1); if (t == \"l\") sub(/ -> .*$/, \"\", name); if (t == \"h\") sub(/ link to .*$/, \"\", name); sub(/\\/$/, \"\", name); mo = month[$6]; if ($8 ~ /:/) { y = substr(now, 1, 4) + 0; if (mo > substr(now, 5, 2) + 0) y--; clock = $8 } else { y = $8; clock = \"00:00\" } if (name != \"\" && name != \".\") printf \"%s%s\\tsize=%s\\ttime=%04d-%02d-%02d %s\\n\", name, (t == \"d\" ? \"/\" : \"\"), $5, y, mo, $7, clock }'",
 						"sh"
 					]
 				}
@@ -185,7 +185,7 @@
 					"list": [
 						"sh",
 						"-c",
-						"out=$(\"$1\" l -slt -ba -- \"$archive\") || exit 1; printf '%s\\n' \"$out\" | awk 'function out() { if (p != \"\") printf \"%s%s\\tsize=%s\\ttime=%s\\n\", p, (d ? \"/\" : \"\"), s, m; p = \"\"; d = 0; s = \"\"; m = \"\" } /^Path = / { out(); p = substr($0, 8); next } /^Folder = \\+/ { d = 1 } /^Attributes = D/ { d = 1 } /^Size = / { s = substr($0, 8) } /^Modified = / { m = substr($0, 12, 19) } END { out() }'",
+						"unset listed; listed=$(\"$1\" l -slt -ba -- \"$archive\") || exit 1; printf '%s\\n' \"$listed\" | awk 'function out() { if (p != \"\") printf \"%s%s\\tsize=%s\\ttime=%s\\n\", p, (d ? \"/\" : \"\"), s, m; p = \"\"; d = 0; s = \"\"; m = \"\" } /^Path = / { out(); p = substr($0, 8); next } /^Folder = \\+/ { d = 1 } /^Attributes = D/ { d = 1 } /^Size = / { s = substr($0, 8) } /^Modified = / { m = substr($0, 12, 19) } END { out() }'",
 						"sh",
 						"{which:7zz|7z|7za|7zr}"
 					]
@@ -197,7 +197,7 @@
 					"list": [
 						"sh",
 						"-c",
-						"out=$(LC_ALL=C bsdtar -tvf \"$archive\") || exit 1; printf '%s\\n' \"$out\" | awk -v now=\"$(date +%Y%m)\" 'BEGIN { split(\"Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec\", names, \" \"); for (i = 1; i <= 12; i++) month[names[i]] = i } { name = $0; for (i = 0; i < 8; i++) sub(/^ *[^ ]+ +/, \"\", name); t = substr($1, 1, 1); if (t == \"l\") sub(/ -> .*$/, \"\", name); if (t == \"h\") sub(/ link to .*$/, \"\", name); sub(/\\/$/, \"\", name); mo = month[$6]; if ($8 ~ /:/) { y = substr(now, 1, 4) + 0; if (mo > substr(now, 5, 2) + 0) y--; clock = $8 } else { y = $8; clock = \"00:00\" } if (name != \"\" && name != \".\") printf \"%s%s\\tsize=%s\\ttime=%04d-%02d-%02d %s\\n\", name, (t == \"d\" ? \"/\" : \"\"), $5, y, mo, $7, clock }'",
+						"unset listed; listed=$(LC_ALL=C bsdtar -tvf \"$archive\") || exit 1; printf '%s\\n' \"$listed\" | awk -v now=\"$(date +%Y%m)\" 'BEGIN { split(\"Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec\", names, \" \"); for (i = 1; i <= 12; i++) month[names[i]] = i } { name = $0; for (i = 0; i < 8; i++) sub(/^ *[^ ]+ +/, \"\", name); t = substr($1, 1, 1); if (t == \"l\") sub(/ -> .*$/, \"\", name); if (t == \"h\") sub(/ link to .*$/, \"\", name); sub(/\\/$/, \"\", name); mo = month[$6]; if ($8 ~ /:/) { y = substr(now, 1, 4) + 0; if (mo > substr(now, 5, 2) + 0) y--; clock = $8 } else { y = $8; clock = \"00:00\" } if (name != \"\" && name != \".\") printf \"%s%s\\tsize=%s\\ttime=%04d-%02d-%02d %s\\n\", name, (t == \"d\" ? \"/\" : \"\"), $5, y, mo, $7, clock }'",
 						"sh"
 					]
 				}
