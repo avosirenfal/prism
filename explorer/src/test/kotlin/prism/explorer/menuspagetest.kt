@@ -3,15 +3,22 @@ package prism.explorer
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.test.ComposeUiTest
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performKeyInput
 import androidx.compose.ui.test.performMouseInput
+import androidx.compose.ui.test.pressKey
 import androidx.compose.ui.test.rightClick
 import androidx.compose.ui.test.runComposeUiTest
+import androidx.compose.ui.test.withKeyDown
 import java.nio.file.Path
 import kotlin.io.path.createDirectories
 import kotlin.io.path.writeBytes
@@ -21,6 +28,7 @@ import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import prism.browser.BrowserTheme
+import prism.browser.Edits
 import prism.browser.Palette
 import prism.browser.World
 import prism.browser.renderedPng
@@ -233,7 +241,7 @@ class MenusPageTest {
 		val settings = Settings(reader)
 		val samples = samplesOf(fileMenu, settings.actions, settings.specs)
 		val epub = samples.single { it.label == ".epub" }
-		val zip = samples.single { it.label == ".zip" }
+		val zip = samples.single { it.name == "file.zip" }
 
 		// The files a menu can be seen for are those the actions are written for; none for the empty space.
 		assertEquals("file.epub", epub.name)
@@ -277,6 +285,65 @@ class MenusPageTest {
 				it is MenuLine.Line
 			} > several.shown.count { it is MenuLine.Line },
 		)
+	}
+
+	@Test
+	fun theFilesAMenuIsSeenForAreGroupedByTheActionsForThem() {
+		val samples = samplesOf(fileMenu, Settings(reader).actions, Settings(reader).specs)
+		val zip = samples.single { it.name == "file.zip" }
+
+		// A zip, a jar and the rest the zip actions are for are one; an .epub, which the user's action is also for, its own.
+		assertTrue(zip.label.startsWith(".zip, .jar, .war and "), zip.label)
+		assertEquals(".epub", samples.single { it.name == "file.epub" }.label)
+		assertTrue(samples.none { it.name == "file.jar" })
+		// A tarball's many names are one; a .gz, which is decompressed and not a tarball, another.
+		assertTrue(
+			samples
+				.single {
+					it.name == "file.tar"
+				}.label
+				.startsWith(".tar, .tar.gz, .tgz"),
+		)
+		assertEquals(".gz", samples.single { it.name == "file.gz" }.label)
+	}
+
+	@Test
+	fun ofTwoThatChangedPlaces_TheOneDraggedIsSaidToHaveMoved() {
+		val settings = Settings(Preferences.DEFAULT)
+		val prisms = menuOf(settings, fileMenu)
+		val compress = "submenu:Compress"
+
+		// .7z dragged down past .rar, and .rar dragged up past .7z, come to the same order.
+		val down = arranged(settings, fileMenu, movedWithin(prisms, compress, Moved.of(1, 2)))
+		val up = arranged(settings, fileMenu, movedWithin(prisms, compress, Moved.of(2, 1)))
+
+		assertEquals(placedOf(down), placedOf(up))
+
+		fun movedIn(menu: SeenMenu, dragged: String) =
+			changesOf(menu, prisms, setOf(dragged)).filterValues { Change.Moved in it }.keys
+
+		assertEquals(setOf("compress.7z"), movedIn(down, "compress.7z"))
+		assertEquals(setOf("compress.rar"), movedIn(up, "compress.rar"))
+	}
+
+	@Test
+	fun aChangeToWhatIsWrittenIsAStepToUndo_WhereTheWindowIsIsNot() {
+		val settings = Settings(Preferences.DEFAULT, page = Page.Menus)
+		val moved = settings.copy(page = Page.Layout)
+
+		val edited =
+			settings.copy(
+				menus = settings.menus.arranging(fileMenu, placedOf(menuOf(settings, fileMenu))),
+			)
+
+		assertEquals(Edits<Settings>(), Edits<Settings>().changed(settings, moved))
+
+		val edits = Edits<Settings>().changed(settings, edited)
+		val undone = edits.undo(edited)
+
+		assertEquals(settings, undone?.to)
+		assertEquals(edited, undone?.edits?.redo(settings)?.to)
+		assertEquals(null, Edits<Settings>().undo(settings))
 	}
 
 	@Test
@@ -398,6 +465,22 @@ class MenusPageTest {
 			onNodeWithTag("entry:builtin.unpin").assertExists()
 		}
 
+	/** The page wheeled down, over its right side, until [tag]'s node is wholly in the window. */
+	private fun ComposeUiTest.wheelTo(tag: String) {
+		repeat(40) {
+			val node = onNodeWithTag(tag).fetchSemanticsNode().boundsInRoot
+			val window = onRoot().fetchSemanticsNode().boundsInRoot
+
+			if (node.height > 0f && node.bottom <= window.bottom)
+				return
+			onRoot().performMouseInput {
+				moveTo(Offset(window.width * 0.7f, window.height * 0.7f))
+				scroll(1f)
+			}
+			waitForIdle()
+		}
+	}
+
 	@Test
 	fun anArrowFoldsASubmenu_ARightClickPutsALineBeside_AndEveryMenuIsResetTogether() =
 		runComposeUiTest {
@@ -421,6 +504,7 @@ class MenusPageTest {
 			waitForIdle()
 
 			// Right-clicked, Cut offers a line after it, between it and Copy; chosen, the line is there.
+			wheelTo("entry:builtin.cut")
 			onNodeWithTag("entry:builtin.cut").performMouseInput { rightClick() }
 			waitForIdle()
 			onNodeWithTag("menu:Insert line after").performClick()
@@ -435,11 +519,57 @@ class MenusPageTest {
 			)
 			assertTrue(settings.menus.arrangesItself(fileMenu))
 
-			// Every menu put back as prism has it, with one press.
+			// Every menu put back as prism has it, with one press, at the top of the page.
+			onRoot().performMouseInput {
+				moveTo(Offset(width * 0.7f, height * 0.7f))
+				scroll(-40f)
+			}
+			waitForIdle()
 			onNodeWithTag("reset-menus").performClick()
 			waitForIdle()
 			assertEquals(MenuSpec(), settings.menus)
 			onNodeWithTag("reset-menus").assertIsNotEnabled()
+		}
+
+	@Test
+	fun cancelTakesBackEveryChangeToTheMenusNotYetApplied_AndTheKeysForUndoAreHeard() =
+		runComposeUiTest {
+			var settings by mutableStateOf(Settings(Preferences.DEFAULT, page = Page.Menus))
+			var undone = 0
+			var redone = 0
+
+			setContent {
+				BrowserTheme {
+					SettingsView(
+						settings,
+						{ settings = it },
+						onApply = {},
+						onClose = {},
+						world = world,
+						onUndo = { undone++ },
+						onRedo = { redone++ },
+					)
+				}
+			}
+
+			onNodeWithTag("cancel-menus").assertIsNotEnabled()
+			onNodeWithTag("key:builtin.open:Ctrl").performClick()
+			waitForIdle()
+			assertTrue(settings.menus.arrangesItself(fileMenu))
+			onNodeWithTag("cancel-menus").performClick()
+			waitForIdle()
+			assertEquals(settings.base.menu, settings.menus)
+
+			// Ctrl+Z, and Ctrl+Shift+Z, wherever the keyboard is but a field.
+			onNodeWithTag("page:Context menus").performKeyInput {
+				withKeyDown(Key.CtrlLeft) { pressKey(Key.Z) }
+			}
+			onNodeWithTag("page:Context menus").performKeyInput {
+				withKeyDown(Key.CtrlLeft) { withKeyDown(Key.ShiftLeft) { pressKey(Key.Z) } }
+			}
+			waitForIdle()
+			assertEquals(1, undone)
+			assertEquals(1, redone)
 		}
 
 	@Test

@@ -4,6 +4,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.width
@@ -20,7 +21,6 @@ import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.click
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
-import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performKeyInput
 import androidx.compose.ui.test.performMouseInput
 import androidx.compose.ui.test.performTouchInput
@@ -36,7 +36,10 @@ import prism.preferences.moved
 
 @OptIn(ExperimentalTestApi::class)
 class ReorderTest {
-	/** Five letters in a list [moving] as it says, each with a button that counts its clicks, kept in order as moved. */
+	/**
+	 * Five letters in a list [moving] as it says, kept in order as moved: each row its grip, its letter ("lit" after it
+	 * where it is), room, and at its end a button that counts its presses.
+	 */
 	private fun ComposeUiTest.letters(moving: Moving): Letters {
 		val letters = Letters()
 
@@ -56,18 +59,14 @@ class ReorderTest {
 								.height(40.dp)
 								.testTag("row:$letter"),
 						) {
-							Box(
-								grip.handle
-									.width(40.dp)
-									.height(40.dp)
-									.testTag("grip:$letter"),
-							)
+							Box(Modifier.width(40.dp).height(40.dp).testTag("grip:$letter"))
 							Text(
 								if (grip.lit)
 									"$letter lit"
 								else
 									letter,
 							)
+							Spacer(Modifier.weight(1f))
 							Box(
 								Modifier
 									.width(40.dp)
@@ -95,19 +94,29 @@ class ReorderTest {
 		}
 	}
 
-	private fun ComposeUiTest.shiftClick(tag: String) {
+	/** Where a row is nothing but room: its middle, between its letter and its button. */
+	private val room = Offset(150f, 20f)
+
+	private fun ComposeUiTest.click(tag: String, at: Offset = room) {
+		onNodeWithTag(tag).performMouseInput { click(at) }
+		waitForIdle()
+	}
+
+	private fun ComposeUiTest.shiftClick(tag: String, at: Offset = room) {
 		onNodeWithTag("list").requestFocus()
 		onNodeWithTag("list").performKeyInput { keyDown(Key.ShiftLeft) }
-		onNodeWithTag(tag).performMouseInput { click() }
+		onNodeWithTag(tag).performMouseInput { click(at) }
 		onNodeWithTag("list").performKeyInput { keyUp(Key.ShiftLeft) }
 		waitForIdle()
 	}
 
-	/**
-	 * [letter]'s grip dragged [rows] rows down (up, where negative), a quarter of a row at a time, and half a row more,
-	 * for the way the pointer goes before a drag is one.
-	 */
-	private fun ComposeUiTest.drag(letter: String, rows: Int) {
+	/** [letter]'s row taken in its room and dragged [rows] rows down (up, where negative), a quarter of a row at a time. */
+	private fun ComposeUiTest.drag(
+		letter: String,
+		rows: Int,
+		tag: String = "row:$letter",
+		at: Offset = room,
+	) {
 		val row =
 			onNodeWithTag("row:$letter")
 				.fetchSemanticsNode()
@@ -115,75 +124,88 @@ class ReorderTest {
 				.toFloat()
 		val step = Offset(0f, row * 0.25f * sign(rows.toFloat()))
 
-		onNodeWithTag("grip:$letter").performTouchInput {
-			down(center)
-			repeat(abs(rows) * 4 + 2) { moveBy(step) }
+		onNodeWithTag(tag).performTouchInput {
+			down(at)
+			repeat(abs(rows) * 4) { moveBy(step) }
 			up()
 		}
 		waitForIdle()
 	}
 
 	@Test
-	fun severalChosenByShiftAndAClickAreDraggedTogether_GatheredInTheirOrder() =
+	fun aClickChoosesARowAlone_ShiftAndAClickAddOrTakeOne() =
+		runComposeUiTest {
+			letters(Moving.Several)
+
+			click("row:b")
+			onNodeWithText("b lit").assertExists()
+			click("row:c")
+			onNodeWithText("c lit").assertExists()
+			onNodeWithText("b lit").assertDoesNotExist()
+			shiftClick("row:d")
+			onNodeWithText("c lit").assertExists()
+			onNodeWithText("d lit").assertExists()
+			shiftClick("row:c")
+			onNodeWithText("c lit").assertDoesNotExist()
+			onNodeWithText("d lit").assertExists()
+		}
+
+	@Test
+	fun whatIsARowsOwnToPressIsPressed_TheRowNeitherChosenNorDragged() =
+		runComposeUiTest {
+			val letters = letters(Moving.Several)
+			val button = Offset(280f, 20f)
+
+			click("row:b", button)
+			shiftClick("row:c", button)
+			assertEquals(listOf("b", "c"), letters.pressed)
+			onNodeWithText("b lit").assertDoesNotExist()
+			onNodeWithText("c lit").assertDoesNotExist()
+			// Dragged from its button, a row stays where it is.
+			drag("b", 2, at = button)
+			assertEquals(emptyList<Moved>(), letters.moves)
+		}
+
+	@Test
+	fun severalChosenAreDraggedTogether_GatheredInTheirOrder_FromAnywhereOnOne() =
 		runComposeUiTest {
 			val letters = letters(Moving.Several)
 
-			shiftClick("row:b")
+			click("row:b")
 			shiftClick("row:d")
-			onNodeWithText("b lit").assertExists()
-			onNodeWithText("d lit").assertExists()
-			onNodeWithText("c lit").assertDoesNotExist()
 
-			// d dragged up three rows: b, chosen too, is gathered above it, and the two are let go first, in their order.
+			// d dragged up three rows by its room: b, chosen too, is gathered above it, and the two go first, in order.
 			drag("d", -3)
 			assertEquals(listOf(Moved(listOf(1, 3), 0)), letters.moves)
 			assertEquals(listOf("b", "d", "a", "c", "e"), letters.order)
-			// They stay chosen, to be moved again.
+			// They stay chosen, to be moved again; dragged by its grip, the same.
 			onNodeWithText("b lit").assertExists()
+			drag("b", 2, tag = "grip:b", at = Offset(20f, 20f))
+			assertEquals(listOf("a", "c", "b", "d", "e"), letters.order)
 		}
 
 	@Test
-	fun shiftClickChoosesOrNot_KeptFromWhatIsUnderIt_AClickWithoutLetsGo() =
+	fun aRowNotChosen_DraggedGoesAlone_AndIsChosenAlone() =
 		runComposeUiTest {
 			val letters = letters(Moving.Several)
 
-			// A Shift-click on a button chooses its entry, and does not press it.
-			shiftClick("button:b")
-			onNodeWithText("b lit").assertExists()
-			assertEquals(emptyList<String>(), letters.pressed)
-			// Again, no longer chosen.
-			shiftClick("row:b")
-			onNodeWithText("b lit").assertDoesNotExist()
-
-			shiftClick("row:b")
-			shiftClick("row:c")
-			// A click without Shift presses what it is on, and lets the choice go.
-			onNodeWithTag("button:a").performClick()
-			waitForIdle()
-			assertEquals(listOf("a"), letters.pressed)
-			onNodeWithText("b lit").assertDoesNotExist()
-			onNodeWithText("c lit").assertDoesNotExist()
-		}
-
-	@Test
-	fun anEntryNotChosenIsDraggedAlone_AndTheChoiceLetGo() =
-		runComposeUiTest {
-			val letters = letters(Moving.Several)
-
-			shiftClick("row:b")
+			click("row:b")
 			shiftClick("row:c")
 			drag("e", -4)
 			assertEquals(listOf(Moved.of(4, 0)), letters.moves)
+			onNodeWithText("e lit").assertExists()
 			onNodeWithText("b lit").assertDoesNotExist()
 		}
 
 	@Test
-	fun whereEntriesAreMovedOneAtATime_ShiftChoosesNothing() =
+	fun whereRowsAreMovedOneAtATime_NoneIsChosen() =
 		runComposeUiTest {
 			val letters = letters(Moving.One)
 
-			shiftClick("row:b")
+			click("row:b")
+			shiftClick("row:c")
 			onNodeWithText("b lit").assertDoesNotExist()
+			onNodeWithText("c lit").assertDoesNotExist()
 			drag("b", 2)
 			assertEquals(listOf(Moved.of(1, 3)), letters.moves)
 			assertEquals(listOf("a", "c", "d", "b", "e"), letters.order)

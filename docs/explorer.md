@@ -97,11 +97,13 @@ from sidebar": a folder pinned is unpinned, and one of prism's own hidden from i
 whose entries it cannot give an application.
 
 The button beside the "Quick access" heading opens a window over the browser that arranges it (`quickaccess.kt`):
-every entry, shown or hidden, dragged by its grip to where it goes (the rest making room as it goes, as
-`ReorderableColumn` draws any list the pointer reorders), several chosen by Shift and a click dragged together, or one
-moved up or down a place; prism's own shown or hidden by their boxes, the folders pinned removed;
-a folder pinned by its path; and "Reset", prism's own in their own order, every one shown, before the folders pinned.
-Each change is made as it is made, so the sidebar behind shows it. The sidebar, and this window, are drawn as large as
+every entry, shown or hidden, taken anywhere on it but its box and buttons and dragged to where it goes (the rest
+making room as it goes, as `ReorderableColumn` draws any list the pointer reorders), several chosen together (a click
+chooses one, Shift and a click another) dragged together, or one moved up or down a place; prism's own shown or hidden
+by their boxes, the folders pinned removed; a folder pinned by its path; and "Reset", prism's own in their own order,
+every one shown, before the folders pinned. Each change is made as it is made, so the sidebar behind shows it, and is
+undone and done again by the keys for that (Ctrl+Z, Ctrl+Shift+Z) while the window is open: its own changes, not what
+the browser undoes of the disk; closed, they are forgotten. The sidebar, and this window, are drawn as large as
 the preferences' sidebar size says (Display, "Sidebar"); Ctrl and the wheel do not zoom them.
 
 Arranging changes the window's sidebar at once, and asks for `Effect.Arrange(quick)`, which the session writes to the
@@ -359,7 +361,10 @@ Ctrl+0, do too. `dates` is how the listing writes a date: day, month, year (`12 
 day, year; ISO's year-month-day; day/month/year; month/day/year; day.month.year; or as the system's language writes
 it. A file's properties write dates in full, to the second, whatever it says.
 
-**The preferences window** sets all of these, and Apply makes them so without closing it. Display: each part's font
+**The preferences window** sets all of these, and Apply makes them so without closing it. Its changes not yet applied
+are undone and done again by the keys for that (Ctrl+Z, Ctrl+Shift+Z), each as it was made, the window going back to
+where it was made; a move about the window (another page, another menu shown) is no change to undo, and a field
+undoes its own typing first. Applied, or closed, they are forgotten; no other window's are touched. Display: each part's font
 and size, the rows, the sizes, the dates. Renderer: whether prism's windows are drawn on the GPU or the CPU, and why,
 first, in a sentence and what to do about it (a window that OpenGL could not draw, though it runs, says so, with the
 reason it was given); then each graphics device the computer has, with its driver, its nodes and
@@ -367,24 +372,27 @@ the library OpenGL reaches its driver through, and why it is used or not (docs/w
 is"). Copy report copies all of it as text, to paste where someone can help. Layout: every kind of listing down the
 page's side (prism's own, then each type of place), narrowed by a field over them so that any of however many places
 is found, each marked where it has anything of its own; and beside them the one chosen, in an explorer or a file
-picker: its order, its columns, dragged by their grips into order (several chosen by Shift and a click, together),
+picker: its order, its columns, dragged into order (several chosen together: a click, and Shift and a click),
 ticked shown or not, and aligned; and its filters,
 for a list and for a gallery. A picker's are the explorer's until its switch gives it its own (changing anything does
 too). Context menus: the same list down the side, and the sidebar after it; beside it, the menu chosen, opened on a
 file, a folder, several, or the empty space around them, drawn as a menu is, with every entry it can hold, prism's and
 the actions'; a submenu's items are drawn in under it, and its arrow folds them away and back. Each entry is dragged by
-its grip into order, or several chosen by Shift and a click together, a submenu's items among themselves; its keys
+anywhere on it but its controls into order, or several chosen together (a click chooses one, Shift and a click
+another), a submenu's items among themselves; its keys
 (Shift, Ctrl, Alt) lit keep it for a menu opened with them held; switched off, it never shows. A right-click on an entry
 puts a line before or after it, where that sets something apart; on a line, takes it away, as its × does. What differs
 from prism's own arrangement is tinted, with a mark at its start, and said: moved, added, shown differently. The menu
 is seen for all files, where what is only for some (an action for a .zip, or for images) is left out, and the page says
-how many entries that is; or for a file of each extension, name or type the actions are written for ("Seen for .zip"),
-where what is not offered for it is left out. What is left out stays where it is, whatever is moved around it; a line
+how many entries that is; or for a file of each group of extensions, names or types the same actions are written for
+(".zip, .jar, .war and 12 more", which the zip actions open; ".epub", which an action of the user's is for too), where
+what is not offered for it is left out. What is left out stays where it is, whatever is moved around it; a line
 with only that between it and the one before sets nothing apart, and is left out too. And it is seen with keys held:
 what the menu would not show then is faint. A listing's menus other than a folder's are arranged as a folder's until
-one is given its own (its switch, or any change to it). Beside the menu's name, "Reset menu" forgets its own
-arrangement, and "Reset all menus" every menu's and every entry hidden; each says so as the pointer rests on it, and
-neither is kept until applied. Key bindings: a filter (Ctrl+F goes to it) that finds an action by its name, as shown or as the file
+one is given its own (its switch, or any change to it). Beside the menu's name, "Cancel" takes back every change to the
+context menus not yet applied, "Reset menu" forgets the menu's own arrangement, and "Reset all menus" every menu's and
+every entry hidden; each says so as the pointer rests on it, none is kept until applied, and each is undone as any
+change is. Of two entries that changed places, the one dragged is the one said to have moved. Key bindings: a filter (Ctrl+F goes to it) that finds an action by its name, as shown or as the file
 writes it, or by its chords; and, as JetBrains' keymap has it, a button that opens "Find Shortcut", which takes the
 next shortcut pressed (a key with its modifiers, or the mouse's middle, back or forward button over its lower part) for
 as long as it is open, and shows what it does, binding nothing. Closed, the keys are the page's again, and what it

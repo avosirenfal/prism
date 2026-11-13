@@ -7,6 +7,7 @@ import prism.browser.Actions
 import prism.browser.Bindable
 import prism.browser.Bindings
 import prism.browser.Chord
+import prism.browser.Edits
 import prism.desktop.TerminalChoice
 import prism.preferences.DateFormat
 import prism.preferences.Held
@@ -193,6 +194,11 @@ data class Settings(
 	val seenFor: Sample? = null,
 	/** The keys it shows that menu with, as held as it opens. */
 	val holding: Set<Held> = emptySet(),
+	/**
+	 * The entries dragged on the Context menus page, by id: of two that changed places, the one dragged is the one said
+	 * to have moved.
+	 */
+	val dragged: Set<String> = emptySet(),
 ) {
 	/** The actions and places there are, prism's own and those the preferences write, with what of them did not read. */
 	val actions: Actions by lazy { Actions.of(base) }
@@ -200,8 +206,11 @@ data class Settings(
 	/** What each action is written to be offered for, by its id: prism's own, then the preferences'. */
 	val specs: Map<String, WhenSpec> by lazy { specsOf(Actions.SHIPPED, base.written) }
 
+	/** What the window would write over its preferences, as these are. */
+	val written: Preferences get() = over(base)
+
 	/** Whether anything is changed from what the window opened on, or last applied. */
-	val changed: Boolean get() = over(base) != base
+	val changed: Boolean get() = written != base
 
 	/**
 	 * These, applied: the preferences as they now are ([now]) what the window edits from, the page, and where on it,
@@ -216,6 +225,7 @@ data class Settings(
 			menuing = menuing,
 			seenFor = seenFor,
 			holding = holding,
+			dragged = dragged,
 		).let { it.copy(rebinding = it.rebinding.copy(finding = rebinding.finding)) }
 
 	/** [current], with what was changed here. */
@@ -246,6 +256,16 @@ data class Settings(
 		)
 	}
 }
+
+/**
+ * [edits] with the window's settings changed [from] one [to] another: a step to undo where what the window would write
+ * changed; none where only where the window is did (its page, the menu it shows).
+ */
+fun Edits<Settings>.changed(from: Settings, to: Settings): Edits<Settings> =
+	if (to.written != from.written)
+		edited(from)
+	else
+		this
 
 /** What the Terminal page has chosen: the desktop's own terminal, one by its name, or command lines of the user's own. */
 sealed interface TerminalPick {

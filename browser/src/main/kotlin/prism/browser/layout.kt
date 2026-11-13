@@ -28,6 +28,7 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -39,6 +40,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
@@ -436,7 +438,8 @@ enum class ModalWidth(
 /**
  * A modal over the window: a scrim over what is behind it, which nothing can be reached through, and a card with its
  * [title] (after [leading], a glyph or a spinner), what it holds ([content]), and its [buttons]. The keyboard starts at
- * [focus], or in the card. Escape, and a click outside it where [outside] allows, are [onDismiss].
+ * [focus], or in the card. Escape, and a click outside it where [outside] allows, are [onDismiss]. A key nothing in it
+ * takes is [onKey]'s, before Escape is looked for: the modal's own undo, say, apart from the window's.
  */
 @Composable
 fun Modal(
@@ -448,12 +451,15 @@ fun Modal(
 	tag: String = "",
 	focus: FocusRequester? = null,
 	leading: (@Composable () -> Unit)? = null,
+	onKey: (KeyEvent) -> Boolean = { false },
 	buttons: @Composable () -> Unit,
 	content: @Composable ColumnScope.() -> Unit,
 ) {
 	val palette = LocalPalette.current
 	val type = LocalType.current
 	val shape = RoundedCornerShape(Radius.large)
+	// The latest given: the popup's content keeps the first it saw, and what the key does changes as the modal's does.
+	val keyed by rememberUpdatedState(onKey)
 
 	// The modal covers the whole window, so there is no outside of it to click: a press on the scrim is heard below, and
 	// so is Escape, wherever in the modal the keyboard is.
@@ -475,10 +481,11 @@ fun Modal(
 					.fillMaxSize()
 					.background(palette.scrim)
 					.onKeyEvent {
-						(it.type == KeyEventType.KeyDown && it.key == Key.Escape).also { escaped ->
-							if (escaped)
-								onDismiss()
-						}
+						keyed(it) ||
+							(it.type == KeyEventType.KeyDown && it.key == Key.Escape).also { escaped ->
+								if (escaped)
+									onDismiss()
+							}
 					}.then(
 						if (outside)
 							Modifier.pointerInput(Unit) {

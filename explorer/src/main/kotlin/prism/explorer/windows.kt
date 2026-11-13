@@ -40,6 +40,7 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.withContext
 import prism.browser.BrowserEvent
 import prism.browser.Chord
+import prism.browser.Edits
 import prism.browser.HostedBrowser
 import prism.browser.HostedWindow
 import prism.browser.LocalPalette
@@ -49,6 +50,7 @@ import prism.browser.Palette
 import prism.browser.Scaled
 import prism.browser.Space
 import prism.browser.TransientFor
+import prism.browser.Undone
 import prism.browser.mouseChords
 import prism.browser.toClipboard
 import prism.browser.zoomedByWheel
@@ -183,6 +185,16 @@ private fun SettingsWindow(explorer: Explorer, onClose: () -> Unit) {
 	var settings by remember {
 		mutableStateOf(Settings(explorer.preferences.preferences.value))
 	}
+	// The window's edits not yet applied, to be undone: its own, apart from any other window's, and forgotten once
+	// applied or closed.
+	var edits by remember { mutableStateOf(Edits<Settings>()) }
+
+	fun stepped(undone: Undone<Settings>?) {
+		undone?.let {
+			edits = it.edits
+			settings = it.to
+		}
+	}
 
 	// The terminals there are to choose from, found on the disk as the window opens.
 	val terminals by produceState(TerminalOptions.NONE) {
@@ -200,11 +212,15 @@ private fun SettingsWindow(explorer: Explorer, onClose: () -> Unit) {
 	Box(Modifier.fillMaxSize().mouseChords { chords.tryEmit(it) }) {
 		SettingsView(
 			settings,
-			onChange = { settings = it },
+			onChange = {
+				edits = edits.changed(settings, it)
+				settings = it
+			},
 			// Applied, the window stays open, editing from what is applied.
 			onApply = {
 				explorer.preferences.update(settings::over)
 				settings = settings.applied(explorer.preferences.preferences.value)
+				edits = Edits()
 			},
 			onClose = onClose,
 			mouseChords = chords,
@@ -215,6 +231,8 @@ private fun SettingsWindow(explorer: Explorer, onClose: () -> Unit) {
 			graphics = graphics,
 			onCopy = ::toClipboard,
 			world = explorer.world,
+			onUndo = { stepped(edits.undo(settings)) },
+			onRedo = { stepped(edits.redo(settings)) },
 		)
 	}
 }

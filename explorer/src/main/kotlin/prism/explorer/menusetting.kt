@@ -350,26 +350,39 @@ enum class Change(
 /**
  * How each line and entry of [menu] (by its key), a submenu's items among them, differs from [prisms], the same menu as
  * prism arranges it; those that do not differ are not in it. What keeps prism's order is the most of them that can: of
- * one entry dragged elsewhere, that one is moved, not each it passed.
+ * one entry dragged elsewhere, that one is moved, not each it passed; and of two that changed places, the one the user
+ * [dragged] (by id) is.
  */
-fun changesOf(menu: SeenMenu, prisms: SeenMenu): Map<Any, Set<Change>> {
+fun changesOf(
+	menu: SeenMenu,
+	prisms: SeenMenu,
+	dragged: Set<String> = emptySet(),
+): Map<Any, Set<Change>> {
 	fun entries(lines: List<MenuLine>) =
 		lines.filterIsInstance<MenuLine.Entry>().flatMap {
 			listOf(it) +
 				it.within
 		}
 
+	fun tokensOf(lines: List<MenuLine>): List<Any> =
+		lines.map {
+			if (it is MenuLine.Line) LINE else it.key
+		}
+
 	val shows = entries(prisms.all).associate { it.id to it.show }
 	val prismsWithin =
 		prisms.all.filterIsInstance<MenuLine.Entry>().associate {
 			it.id to
-				it.within.map { item -> item.id }
+				tokensOf(it.within)
 		}
 
 	/** The changes of the [lines] of one list (the menu's, or a submenu's), as [theirs] has them in prism's. */
 	fun orderOf(lines: List<MenuLine>, theirs: List<Any>): List<Pair<Any, Change>> {
-		val tokens = lines.map { if (it is MenuLine.Line) LINE else it.key }
-		val kept = kept(tokens, theirs)
+		val kept =
+			kept(tokensOf(lines), theirs) { at ->
+				(lines[at] as? MenuLine.Entry)?.id !in
+					dragged
+			}
 
 		return lines.withIndex().filter { it.index !in kept }.map { (_, line) ->
 			line.key to
@@ -381,9 +394,9 @@ fun changesOf(menu: SeenMenu, prisms: SeenMenu): Map<Any, Set<Change>> {
 	}
 
 	val order =
-		orderOf(menu.all, prisms.all.map { if (it is MenuLine.Line) LINE else it.key }) +
-			menu.all.filterIsInstance<MenuLine.Entry>().flatMap { entry ->
-				orderOf(entry.within, prismsWithin[entry.id].orEmpty())
+		orderOf(menu.all, tokensOf(prisms.all)) +
+			menu.all.filterIsInstance<MenuLine.Entry>().flatMap {
+				orderOf(it.within, prismsWithin[it.id].orEmpty())
 			}
 
 	val shown =
@@ -402,26 +415,39 @@ fun changesOf(menu: SeenMenu, prisms: SeenMenu): Map<Any, Set<Change>> {
 /** What a line is to [changesOf]: any line is any other, where it is. */
 private const val LINE = "-"
 
-/** The places in [these] of a longest run of them, in their order, that [those] has in the same order. */
-private fun <T> kept(these: List<T>, those: List<T>): Set<Int> {
-	// How long a run the rest of each has in common from each pair of places: worked out from the ends back.
-	val common = Array(these.size + 1) { IntArray(those.size + 1) }
+/**
+ * The places in [these] of a longest run of them, in their order, that [those] has in the same order; of runs as long,
+ * one that keeps the most of those [keep] would rather keep (what the user did not drag).
+ */
+private fun <T> kept(these: List<T>, those: List<T>, keep: (Int) -> Boolean): Set<Int> {
+	// Each kept is worth more than all that could be preferred together, so a longer run is always the better one.
+	fun worth(at: Int): Int = these.size + 1 + if (keep(at)) 1 else 0
+
+	// The worth of the best run the rest of each has in common from each pair of places, from the ends back.
+	val best = Array(these.size + 1) { IntArray(those.size + 1) }
 
 	for (i in these.indices.reversed())
 		for (j in those.indices.reversed())
-			common[i][j] =
-				if (these[i] ==
-					those[j]
+			best[i][j] =
+				maxOf(
+					best[i + 1][j],
+					best[i][j + 1],
+					if (these[i] == those[j])
+						worth(i) + best[i + 1][j + 1]
+					else
+						0,
 				)
-					common[i + 1][j + 1] + 1
-				else
-					maxOf(common[i + 1][j], common[i][j + 1])
 
 	tailrec fun walk(i: Int, j: Int, run: Set<Int>): Set<Int> =
 		when {
 			i == these.size || j == those.size -> run
-			these[i] == those[j] -> walk(i + 1, j + 1, run + i)
-			common[i + 1][j] >= common[i][j + 1] -> walk(i + 1, j, run)
+			these[i] == those[j] && best[i][j] == worth(i) + best[i + 1][j + 1] ->
+				walk(
+					i + 1,
+					j + 1,
+					run + i,
+				)
+			best[i + 1][j] >= best[i][j + 1] -> walk(i + 1, j, run)
 			else -> walk(i, j + 1, run)
 		}
 
@@ -441,8 +467,10 @@ fun toggled(show: Show, key: Held): Show {
 }
 
 /**
- * The files a menu of [key] can be seen for: a file of each extension, name and type [specs] say actions are for, as
- * the actions [actions] of it can be offered; for a listing's files only, since a folder's and the space's are no file.
+ * The files a menu of [key] can be seen for: one for each group of the extensions, names and types [specs] say its
+ * actions are for, each group those the same actions are for (a .zip, a .jar and the rest the zip actions open are one,
+ * an .epub that an action of the user's is also for another); for a listing's files only, since a folder's and the
+ * space's are no file.
  */
 fun samplesOf(
 	key: MenuKey,
@@ -452,19 +480,47 @@ fun samplesOf(
 	if (key !is MenuKey.Listing || (key.of != MenuOf.File && key.of != MenuOf.Several))
 		return emptyList()
 
-	val written = actions.actions.filter { possibleIn(it, key) }.mapNotNull { specs[it.id] }
-	val extensions = written.flatMap { it.ext.orEmpty() }.map { Sample(".$it", "file.$it") }
-	val names =
-		written.flatMap { it.names.orEmpty() }.map { glob ->
-			Sample(glob, glob.replace("*", "file").replace("?", "x"))
+	val written =
+		actions.actions.filter { possibleIn(it, key) }.mapNotNull { action ->
+			specs[action.id]?.let {
+				action.id to
+					it
+			}
 		}
-	val types = written.flatMap { it.types.orEmpty() }.map { Sample(it, "file", listOf(it)) }
 
-	return (extensions + names + types)
-		.distinctBy {
-			it.label
-		}.sortedBy { it.label.lowercase() }
+	/** What the actions are written for, of one kind ([of]), in groups of those the same actions are for, each a [sample]. */
+	fun grouped(
+		of: (WhenSpec) -> List<String>?,
+		sample: (List<String>) -> Sample,
+	): List<Sample> =
+		written
+			.flatMap { (id, spec) -> of(spec).orEmpty().map { it to id } }
+			.groupBy({ it.first }, { it.second })
+			.entries
+			.groupBy({ it.value.toSet() }, { it.key })
+			.values
+			.map(sample)
+
+	val extensions =
+		grouped(WhenSpec::ext) {
+			Sample(labelOf(it.map { ext -> ".$ext" }), "file.${it.first()}")
+		}
+
+	val names =
+		grouped(WhenSpec::names) {
+			Sample(labelOf(it), it.first().replace("*", "file").replace("?", "x"))
+		}
+	val types = grouped(WhenSpec::types) { Sample(labelOf(it), "file", listOf(it.first())) }
+
+	return (extensions + names + types).sortedBy { it.label.lowercase() }
 }
+
+/** A group's words, for it to be chosen by: the first few, and how many more. */
+private fun labelOf(words: List<String>): String =
+	if (words.size <= 3)
+		words.joinToString(", ")
+	else
+		words.take(3).joinToString(", ") + " and ${words.size - 3} more"
 
 /** What each action of prism's and the [base] preferences' is written to be offered for, by its id; a later one's over an earlier. */
 fun specsOf(vararg files: ActionsFile): Map<String, WhenSpec> =

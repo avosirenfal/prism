@@ -138,18 +138,23 @@ internal fun MenusPage(settings: Settings, world: World, onChange: (Settings) ->
 			ScrollArea(Modifier.weight(1f).fillMaxHeight(), remember(key) { ScrollState(0) }) {
 				Column(verticalArrangement = Arrangement.spacedBy(Space.xl)) {
 					Column(verticalArrangement = Arrangement.spacedBy(Space.m)) {
-						Row(
-							verticalAlignment = Alignment.CenterVertically,
-							horizontalArrangement = Arrangement.spacedBy(Space.s),
+						// The menu's name, and what puts it back; under it, where the page is too narrow for both.
+						FlowRow(
+							horizontalArrangement = Arrangement.SpaceBetween,
+							verticalArrangement = Arrangement.spacedBy(Space.s),
+							itemVerticalAlignment = Alignment.CenterVertically,
 						) {
+							// Kept apart from the buttons where they are all on one line and fill it.
 							Text(
 								labelOf(place),
 								style = type.title,
 								maxLines = 1,
 								overflow = TextOverflow.Ellipsis,
-								modifier = Modifier.weight(1f),
+								modifier = Modifier.padding(end = Space.l),
 							)
-							Resets(settings, onChange)
+							Row(
+								horizontalArrangement = Arrangement.spacedBy(Space.s),
+							) { Resets(settings, onChange) }
 						}
 						// Where the page is too narrow for both, what the menu is opened on goes under its label.
 						if (place is MenuPlace.Of)
@@ -172,8 +177,9 @@ internal fun MenusPage(settings: Settings, world: World, onChange: (Settings) ->
 }
 
 /**
- * What puts prism's arrangement back: of the menu chosen, where it has its own; and of every menu, with every entry
- * hidden. Each says, as the pointer rests on it, what it forgets; neither is kept until applied.
+ * What takes changes back: every change to the context menus not yet applied ("Cancel"); and what puts prism's
+ * arrangement back, of the menu chosen where it has its own, and of every menu, with every entry hidden. Each says, as
+ * the pointer rests on it, what it undoes; none is kept until applied, and each is undone as any change is.
  */
 @Composable
 private fun Resets(settings: Settings, onChange: (Settings) -> Unit) {
@@ -181,6 +187,19 @@ private fun Resets(settings: Settings, onChange: (Settings) -> Unit) {
 	val menus = settings.menus
 	val itself = menus.arrangesItself(key)
 	val follows = key is MenuKey.Listing && key.kind != ListingKind.Folder
+
+	Tip(
+		"Undo every change to the context menus not yet applied: each menu as it was when last applied.",
+	) {
+		PushButton(
+			"Cancel",
+			Emphasis.Secondary,
+			enabled = menus != settings.base.menu,
+			Modifier.testTag("cancel-menus"),
+		) {
+			onChange(settings.copy(menus = settings.base.menu))
+		}
+	}
 
 	Tip(
 		when {
@@ -229,7 +248,7 @@ private fun MenuSection(settings: Settings, world: World, onChange: (Settings) -
 
 	// The same menu as prism arranges it, for what differs from it to be shown.
 	val changes =
-		remember(menu, settings.actions, settings.seenFor, world) {
+		remember(menu, settings.actions, settings.seenFor, world, settings.dragged) {
 			changesOf(
 				menu,
 				seenMenuOf(
@@ -240,6 +259,7 @@ private fun MenuSection(settings: Settings, world: World, onChange: (Settings) -
 					settings.seenFor,
 					world,
 				),
+				settings.dragged,
 			)
 		}
 
@@ -257,8 +277,18 @@ private fun MenuSection(settings: Settings, world: World, onChange: (Settings) -
 			""
 	val editing = rememberContextMenus<Edit>()
 
-	fun arranged(placed: List<Placed>) =
-		onChange(settings.copy(menus = menus.arranging(key, placed)))
+	fun arranged(placed: List<Placed>, dragged: Set<String> = emptySet()) =
+		onChange(
+			settings.copy(
+				menus = menus.arranging(key, placed),
+				dragged =
+					settings.dragged + dragged,
+			),
+		)
+
+	/** The ids of the entries of [lines] that [move] moves: what the user dragged. */
+	fun draggedBy(lines: List<MenuLine>, move: Moved): Set<String> =
+		move.from.mapNotNull { (lines.getOrNull(it) as? MenuLine.Entry)?.id }.toSet()
 
 	fun edited(edit: Edit) =
 		arranged(
@@ -271,8 +301,9 @@ private fun MenuSection(settings: Settings, world: World, onChange: (Settings) -
 	Section(
 		"Entries",
 		description =
-			"Drag an entry by its grip to move it, or several chosen by Shift and a " +
-				"click together; right-click one to put a line before or after it. A lit " +
+			"Drag an entry to move it, anywhere on it but its keys and switch; a click " +
+				"chooses one, and Shift and a click more, to move together. Right-click one " +
+				"to put a line before or after it. A lit " +
 				"key keeps an entry for when that key is held as the menu opens; switched " +
 				"off, it never shows. Faint entries wait for keys not held here; tinted " +
 				"ones differ from prism's own arrangement." + following,
@@ -300,8 +331,19 @@ private fun MenuSection(settings: Settings, world: World, onChange: (Settings) -
 				changes,
 				settings,
 				editing,
-				onMove = { arranged(moved(menu, it)) },
-				onMoveWithin = { submenu, move -> arranged(movedWithin(menu, submenu, move)) },
+				onMove = { arranged(moved(menu, it), draggedBy(menu.shown, it)) },
+				onMoveWithin = { submenu, move ->
+					val items =
+						menu.shown
+							.filterIsInstance<MenuLine.Entry>()
+							.firstOrNull {
+								it.id ==
+									submenu
+							}?.within
+							.orEmpty()
+
+					arranged(movedWithin(menu, submenu, move), draggedBy(items, move))
+				},
 				onShow = { id, show -> arranged(showing(menu, id, show)) },
 				onEdit = ::edited,
 			)
@@ -558,7 +600,7 @@ private fun LineRow(
 			Glyph.Grip,
 			palette.textFaint,
 			type.icon,
-			grip.handle.testTag("grip:line:${line.at}"),
+			Modifier.testTag("grip:line:${line.at}"),
 		)
 		// Every line drawn alike: whether the menu draws it is the entries' to say, faint or not.
 		Box(Modifier.weight(1f).height(1.dp).background(palette.borderStrong))
@@ -612,7 +654,7 @@ private fun EntryRow(
 			Glyph.Grip,
 			palette.textFaint,
 			type.icon,
-			grip.handle.testTag("grip:${entry.id}"),
+			Modifier.testTag("grip:${entry.id}"),
 		)
 		Column(Modifier.weight(1f).padding(vertical = Space.xs)) {
 			Row(

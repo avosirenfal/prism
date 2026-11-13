@@ -75,14 +75,17 @@ listing's text and a menu's rows with the menus'.
 - `Segmented`: a few choices in a track, the chosen one raised. A toolbar's takes no keyboard focus. Its choices are
   each as wide as the widest where that fits, each as wide as it needs where only that does, so a narrow window reads
   every choice whole.
-- `ReorderableColumn`: a list the pointer puts in order, an entry dragged by its handle and the rest making room for
-  it. Each use says whether its entries move one at a time or several together (`Moving`), with no default: where
-  several do, Shift and a click choose an entry or no longer (kept from what is under it, a switch, a button), and a
-  chosen one dragged gathers every one chosen under it, in their order. A click without Shift, or another entry
-  dragged, lets the choice go. Each entry is drawn with a `Grip`: the modifier of its handle, of the part of it a
-  Shift-click chooses it by (all of it, but a list nested in it, as a submenu's items are, which chooses its own), and
-  whether it is lit. What it reports is a `Moved` (which entries, and where the first of them lands), made on a list by
+- `ReorderableColumn`: a list the pointer puts in order, an entry taken anywhere on it but what is its own to press (a
+  switch, a button, a box, which take their press first) and dragged, the rest making room for it, lifted with a shadow
+  in its own shape. Each use says whether its entries move one at a time or several together (`Moving`), with no
+  default: where several do, a click chooses an entry and no other, Shift and a click another (or no longer), and a
+  chosen one dragged gathers every one chosen under it, in their order; one not chosen, dragged, is chosen alone. Each
+  entry is drawn with a `Grip`: the modifier of the part of it that is taken (all of it, but a list nested in it, as a
+  submenu's items are, which takes its own), and whether it is lit. A grip glyph drawn on a row only says it moves. What it reports is a `Moved` (which entries, and where the first of them lands), made on a list by
   `moved`, or among those of it shown by `movedAmong`, so every list is reordered by the same rule.
+- `Edits`: the steps of a value's undo and redo, without the value, which stays wherever it is kept, so the two cannot
+  disagree. The preferences window keeps one, forgotten once applied or closed; the quick access window another,
+  apart from the browser's undo of the disk.
 - `Toggles`: a few options in one outlined track, any number of them on, each turned on or off by itself; one on is
   filled in the accent, one off is only its name, so that down a long list of rows only what is on stands out (the
   keys an entry of a context menu waits for).
