@@ -365,20 +365,15 @@ private fun Slots.pinning(state: BrowserState, path: Path) {
 	}
 }
 
-/** Taking [shown] off the sidebar: a folder pinned, unpinned; one of prism's own, hidden, since it is never removed. */
+/**
+ * Taking [shown] off the sidebar, as one entry whatever it is: a folder pinned is unpinned; one of prism's own is hidden,
+ * since it is never removed, but to the user it is unpinned all the same.
+ */
 private fun Slots.unpinning(shown: SidebarItem) {
 	when (shown) {
-		is SidebarItem.Pinned ->
+		is SidebarItem.Pinned, is SidebarItem.Own, SidebarItem.Trash ->
 			slot("builtin.unpin") {
 				item("Unpin from sidebar", BrowserEvent.Unpinned(shown), id = "builtin.unpin")
-			}
-		is SidebarItem.Own, SidebarItem.Trash ->
-			slot("builtin.hide-from-sidebar") {
-				item(
-					"Hide from sidebar",
-					BrowserEvent.Unpinned(shown),
-					id = "builtin.hide-from-sidebar",
-				)
 			}
 		is SidebarItem.Drive -> Unit
 	}

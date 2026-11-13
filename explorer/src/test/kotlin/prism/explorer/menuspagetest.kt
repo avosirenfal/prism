@@ -28,6 +28,7 @@ import prism.preferences.Held
 import prism.preferences.ListingKind
 import prism.preferences.MenuKey
 import prism.preferences.MenuOf
+import prism.preferences.Moved
 import prism.preferences.Placed
 import prism.preferences.Preferences
 import prism.preferences.Show
@@ -51,28 +52,40 @@ class MenusPageTest {
 					).actions,
 		)
 
-	private fun linesOf(
-		settings: Settings,
-		key: MenuKey,
-		sample: Sample? = null,
-	): List<MenuLine> =
-		menuLinesOf(key, settings.menus, settings.actions, settings.specs, sample, world)
+	private fun menuOf(settings: Settings, key: MenuKey, sample: Sample? = null): SeenMenu =
+		seenMenuOf(key, settings.menus, settings.actions, settings.specs, sample, world)
+
+	/** The menu [key] of [settings], arranged as [placed]. */
+	private fun arranged(settings: Settings, key: MenuKey, placed: List<Placed>): SeenMenu =
+		menuOf(settings.copy(menus = settings.menus.arranging(key, placed)), key)
 
 	private fun entryOf(lines: List<MenuLine>, id: String): MenuLine.Entry =
-		lines
-			.filterIsInstance<MenuLine.Entry>()
-			.flatMap { listOf(it) + it.within }
-			.single { it.id == id }
+		lines.filterIsInstance<MenuLine.Entry>().flatMap { listOf(it) + it.within }.single {
+			it.id ==
+				id
+		}
+
+	private fun SeenMenu.shows(id: String): Boolean =
+		shown.filterIsInstance<MenuLine.Entry>().flatMap { listOf(it) + it.within }.any {
+			it.id ==
+				id
+		}
+
+	private fun SeenMenu.holds(id: String): Boolean =
+		all.filterIsInstance<MenuLine.Entry>().flatMap { listOf(it) + it.within }.any {
+			it.id ==
+				id
+		}
 
 	@Test
 	fun prismsOwnMenusLeaveWhatIsSeldomWantedForWhenShiftIsHeld() {
 		val settings = Settings(Preferences.DEFAULT)
-		val space = linesOf(settings, spaceMenu)
+		val space = menuOf(settings, spaceMenu).shown
 		val shift = Show.With(setOf(Held.Shift))
 
 		for (id in listOf(
 			"builtin.pin",
-			"builtin.hide-from-sidebar",
+			"builtin.unpin",
 			"builtin.hidden-files",
 			"builtin.hidden-folders",
 			"builtin.refresh",
@@ -85,11 +98,7 @@ class MenusPageTest {
 		// Prism's own arrangement has no line first, last, or two together: each is drawn.
 		assertTrue(space.first() is MenuLine.Entry && space.last() is MenuLine.Entry)
 		assertEquals(
-			space
-				.filterIsInstance<MenuLine.Line>()
-				.map {
-					it.at
-				}.toSet(),
+			space.filterIsInstance<MenuLine.Line>().map { it.at }.toSet(),
 			drawnLines(space, setOf(Held.Shift)),
 		)
 	}
@@ -97,137 +106,168 @@ class MenusPageTest {
 	@Test
 	fun aLineAddedStaysWhereItIsPut_FaintUntilItIsBetweenEntries_AndTwoTogetherAreOne() {
 		val settings = Settings(Preferences.DEFAULT)
-		val prisms = linesOf(settings, fileMenu)
-
-		fun arranged(placed: List<Placed>) =
-			linesOf(settings.copy(menus = settings.menus.arranging(fileMenu, placed)), fileMenu)
+		val prisms = menuOf(settings, fileMenu)
 
 		// Added, a line is last, where the menu does not draw it.
-		val added = arranged(lined(prisms))
-		val last = added.last() as MenuLine.Line
+		val added = arranged(settings, fileMenu, lined(prisms))
+		val last = added.shown.last() as MenuLine.Line
 
-		assertEquals(prisms.size + 1, added.size)
-		assertFalse(last.at in drawnLines(added, emptySet()))
+		assertEquals(prisms.all.size + 1, added.all.size)
+		assertFalse(last.at in drawnLines(added.shown, emptySet()))
 
 		// Moved under the first entry, it is drawn.
-		val moved = arranged(moved(added, last.at, 1))
+		val moved =
+			arranged(settings, fileMenu, moved(added, Moved.of(added.shown.lastIndex, 1)))
+		val line = moved.shown[1] as MenuLine.Line
 
-		assertTrue(moved[1] is MenuLine.Line)
-		assertTrue(1 in drawnLines(moved, emptySet()))
+		assertTrue(line.at in drawnLines(moved.shown, emptySet()))
 
 		// Moved next to another line, the two are one; taken away, the menu is as it was.
-		val other = moved.indexOfFirst { it is MenuLine.Line && it.at > 1 }
-		val together = arranged(moved(moved, 1, other - 1))
+		val other = moved.shown.indexOfFirst { it is MenuLine.Line && it != line }
+		val together = arranged(settings, fileMenu, moved(moved, Moved.of(1, other - 1)))
 
-		assertEquals(prisms.size, together.size)
-		assertEquals(placedOf(prisms), placedOf(arranged(unlined(moved, 1))))
+		assertEquals(prisms.all.size, together.all.size)
+		assertEquals(
+			placedOf(prisms),
+			placedOf(arranged(settings, fileMenu, unlined(moved, line.at))),
+		)
 	}
 
 	@Test
 	fun anEntryShownWithKeysOrNeverIsKeptSo_AndOneOfASubmenuToo() {
 		val settings = Settings(Preferences.DEFAULT)
-		val lines = linesOf(settings, fileMenu)
+		val menu = menuOf(settings, fileMenu)
 
-		val ctrl = showing(lines, "builtin.copy-path", toggled(Show.Always, Held.Ctrl))
-
-		val both =
-			showing(
-				linesOfPlaced(settings, ctrl),
-				"builtin.copy-path",
-				Show.With(setOf(Held.Ctrl, Held.Alt)),
+		val ctrl =
+			arranged(
+				settings,
+				fileMenu,
+				showing(menu, "builtin.copy-path", toggled(Show.Always, Held.Ctrl)),
 			)
 
-		val nested = showing(lines, "compress.zip", Show.Never)
+		val both =
+			arranged(
+				settings,
+				fileMenu,
+				showing(ctrl, "builtin.copy-path", Show.With(setOf(Held.Ctrl, Held.Alt))),
+			)
 
-		assertEquals(
-			Show.With(setOf(Held.Ctrl)),
-			entryOf(linesOfPlaced(settings, ctrl), "builtin.copy-path").show,
-		)
+		val nested = arranged(settings, fileMenu, showing(menu, "compress.zip", Show.Never))
+
+		assertEquals(Show.With(setOf(Held.Ctrl)), entryOf(ctrl.shown, "builtin.copy-path").show)
 		assertEquals(
 			Show.With(setOf(Held.Alt)),
-			toggled(entryOf(linesOfPlaced(settings, both), "builtin.copy-path").show, Held.Ctrl),
+			toggled(entryOf(both.shown, "builtin.copy-path").show, Held.Ctrl),
 		)
 		assertEquals(Show.Always, toggled(Show.With(setOf(Held.Alt)), Held.Alt))
 		// An item of a submenu is kept after it, by its own id.
-		assertEquals(Show.Never, entryOf(linesOfPlaced(settings, nested), "compress.zip").show)
+		assertEquals(Show.Never, entryOf(nested.shown, "compress.zip").show)
 		assertTrue(
-			entryOf(linesOfPlaced(settings, nested), "submenu:Compress").within.any {
+			entryOf(nested.shown, "submenu:Compress").within.any {
 				it.id ==
 					"compress.zip"
 			},
 		)
 	}
 
-	private fun linesOfPlaced(settings: Settings, placed: List<Placed>): List<MenuLine> =
-		linesOf(settings.copy(menus = settings.menus.arranging(fileMenu, placed)), fileMenu)
-
 	@Test
-	fun aMenuIsSeenForAFileOfATypeTheActionsAreFor_TheirsFaintThatAreNotForIt() {
+	fun seenForAllFiles_WhatIsOnlyForSomeIsLeftOut_AndForOneFile_WhatIsNotForIt() {
 		val settings = Settings(reader)
 		val samples = samplesOf(fileMenu, settings.actions, settings.specs)
 		val epub = samples.single { it.label == ".epub" }
+		val zip = samples.single { it.label == ".zip" }
 
 		// The files a menu can be seen for are those the actions are written for; none for the empty space.
 		assertEquals("file.epub", epub.name)
-		assertTrue(samples.any { it.label == ".zip" })
 		assertEquals(
 			emptyList<Sample>(),
 			samplesOf(spaceMenu, settings.actions, settings.specs),
 		)
 
-		// The user's action is said to be for .epub, and is in the menu for one; a zip's are not.
-		val forEpub = linesOf(settings, fileMenu, epub)
+		// For all files: prism's own, and what is for every file (the Compress submenu); not what is for a .zip or an
+		// .epub, which the menu holds all the same, and says how many.
+		val all = menuOf(settings, fileMenu)
 
-		assertEquals("For .epub", entryOf(forEpub, "mine.read").note)
-		assertTrue(entryOf(forEpub, "mine.read").fits)
-		assertFalse(entryOf(forEpub, "archive.7z.unpack").fits)
+		assertTrue(all.shows("builtin.copy-path"))
+		assertTrue(all.shows("compress.zip"))
+		assertFalse(all.shows("mine.read"))
+		assertFalse(all.shows("archive.zip.unpack"))
+		assertTrue(all.holds("mine.read"))
+		assertEquals(all.all.count { it is MenuLine.Entry && !it.fits }, all.unshown)
+		assertTrue(all.unshown > 0)
+
+		// For an .epub, the user's action, said to be for it, and a zip's (an .epub is a zip); not a 7z's.
+		val forEpub = menuOf(settings, fileMenu, epub)
+
+		assertEquals("For .epub", entryOf(forEpub.shown, "mine.read").note)
+		assertTrue(forEpub.shows("archive.zip.unpack"))
+		assertFalse(forEpub.shows("archive.7z.unpack"))
+		assertFalse(menuOf(settings, fileMenu, zip).shows("mine.read"))
+
+		// A search's results, several chosen, for all files: their actions are all for some, so the lines either side of
+		// them set apart nothing here. One is shown; the other is kept, for when they are.
+		val several = menuOf(settings, MenuKey.Listing(ListingKind.Results, MenuOf.Several))
+
 		assertFalse(
-			entryOf(
-				linesOf(
-					settings,
-					fileMenu,
-					samples.single {
-						it.label == ".zip"
-					},
-				),
-				"mine.read",
-			).fits,
+			several.shown.zipWithNext().any { (a, b) ->
+				a is MenuLine.Line &&
+					b is MenuLine.Line
+			},
 		)
-		// Seen for any file, every entry is as the keys and the switch say.
 		assertTrue(
-			linesOf(settings, fileMenu).filterIsInstance<MenuLine.Entry>().all { it.fits },
+			several.all.count {
+				it is MenuLine.Line
+			} > several.shown.count { it is MenuLine.Line },
 		)
+	}
+
+	@Test
+	fun anEntryMovedAmongThoseShown_TheRestStayWhereTheyAre() {
+		val settings = Settings(reader)
+		val before = menuOf(settings, fileMenu)
+		val copyPath = before.shown.indexOfFirst { it.key == "builtin.copy-path" }
+		val after = arranged(settings, fileMenu, moved(before, Moved.of(copyPath, 0)))
+
+		assertEquals("builtin.copy-path", after.shown.first().key)
+
+		// Without what was moved, the whole menu, what it does not show among it, is as it was; a line is a line.
+		fun rest(menu: SeenMenu) =
+			menu.all.map { if (it is MenuLine.Line) "-" else it.key }.filter {
+				it !=
+					"builtin.copy-path"
+			}
+
+		assertEquals(rest(before), rest(after))
 	}
 
 	@Test
 	fun theUsersActionIsOfferedOnlyInTheMenusItCanBeIn() {
 		val settings = Settings(reader)
 
-		assertTrue(
-			linesOf(settings, fileMenu).any {
-				it is MenuLine.Entry &&
-					it.id == "mine.read"
-			},
-		)
+		assertTrue(menuOf(settings, fileMenu).holds("mine.read"))
+		assertFalse(menuOf(settings, spaceMenu).holds("mine.read"))
 		assertFalse(
-			linesOf(settings, spaceMenu).any {
-				it is MenuLine.Entry &&
-					it.id == "mine.read"
-			},
+			menuOf(settings, MenuKey.Listing(ListingKind.Trash, MenuOf.File)).holds("mine.read"),
 		)
-		assertFalse(
-			linesOf(settings, MenuKey.Listing(ListingKind.Trash, MenuOf.File)).any {
-				it is MenuLine.Entry &&
-					it.id == "mine.read"
-			},
-		)
-		assertFalse(
-			linesOf(settings, MenuKey.Sidebar).any {
-				it is MenuLine.Entry &&
-					it.id == "mine.read"
-			},
-		)
+		assertFalse(menuOf(settings, MenuKey.Sidebar).holds("mine.read"))
 	}
+
+	@Test
+	fun forAllFilesThePageSaysHowManyMoreThereAre() =
+		runComposeUiTest {
+			val settings = Settings(reader, page = Page.Menus)
+
+			setContent {
+				BrowserTheme {
+					SettingsView(settings, {}, onApply = {}, onClose = {}, world = world)
+				}
+			}
+
+			onNodeWithText("All files").assertExists()
+			onNodeWithTag("entry:builtin.copy-path").assertExists()
+			onNodeWithTag("entry:mine.read").assertDoesNotExist()
+			onNodeWithTag("unshown").assertExists()
+		}
 
 	@Test
 	fun aMenuIsChosenByWhereItIsAndWhatItIsOf_ItsEntriesChanged_AndApplyKeepsThem() =
@@ -326,7 +366,7 @@ class MenusPageTest {
 	fun thePageIsDrawn() {
 		val base = Settings(reader, page = Page.Menus)
 		val epub = samplesOf(fileMenu, base.actions, base.specs).single { it.label == ".epub" }
-		val withLine = base.menus.arranging(fileMenu, lined(linesOf(base, fileMenu)))
+		val withLine = base.menus.arranging(fileMenu, lined(menuOf(base, fileMenu)))
 
 		for ((name, settings) in listOf(
 			"file" to base.copy(menus = withLine, seenFor = epub, holding = setOf(Held.Shift)),

@@ -93,12 +93,13 @@ well-known folders, and the trash) and the folders the user pinned, in the user'
 it, so a place a later version adds reaches every user's list, at its end. That is kept by construction: a
 `QuickAccess` is made only by `QuickAccess.of`, which drops what is named twice and adds what is left out, whatever a
 file says. A folder's menu pins it ("Pin to sidebar"); the menu of something quick access shows takes it off ("Unpin
-from sidebar" for a folder pinned, "Hide from sidebar" for one of prism's own). A picker's sidebar leaves out the trash,
+from sidebar": a folder pinned is unpinned, and one of prism's own hidden from it). A picker's sidebar leaves out the trash,
 whose entries it cannot give an application.
 
 The button beside the "Quick access" heading opens a window over the browser that arranges it (`quickaccess.kt`):
 every entry, shown or hidden, dragged by its grip to where it goes (the rest making room as it goes, as
-`ReorderableColumn` draws any list the pointer reorders), or moved up or down a place; prism's own shown or hidden by their boxes, the folders pinned removed;
+`ReorderableColumn` draws any list the pointer reorders), several chosen by Shift and a click dragged together, or one
+moved up or down a place; prism's own shown or hidden by their boxes, the folders pinned removed;
 a folder pinned by its path; and "Reset", prism's own in their own order, every one shown, before the folders pinned.
 Each change is made as it is made, so the sidebar behind shows it. The sidebar, and this window, are drawn as large as
 the preferences' sidebar size says (Display, "Sidebar"); Ctrl and the wheel do not zoom them.
@@ -366,15 +367,19 @@ the library OpenGL reaches its driver through, and why it is used or not (docs/w
 is"). Copy report copies all of it as text, to paste where someone can help. Layout: every kind of listing down the
 page's side (prism's own, then each type of place), narrowed by a field over them so that any of however many places
 is found, each marked where it has anything of its own; and beside them the one chosen, in an explorer or a file
-picker: its order, its columns, dragged by their grips into order, ticked shown or not, and aligned; and its filters,
+picker: its order, its columns, dragged by their grips into order (several chosen by Shift and a click, together),
+ticked shown or not, and aligned; and its filters,
 for a list and for a gallery. A picker's are the explorer's until its switch gives it its own (changing anything does
 too). Context menus: the same list down the side, and the sidebar after it; beside it, the menu chosen, opened on a
 file, a folder, several, or the empty space around them, drawn as a menu is, with every entry it can hold, prism's and
-the actions', a submenu's items under it. Each is dragged by its grip into order; its keys (Shift, Ctrl, Alt) lit keep
-it for a menu opened with them held; switched off, it never shows. Lines between groups are added (at the end, to be
-dragged where they are wanted) and taken away. The menu is seen as it would be for a file of each extension, name or
-type the actions are written for ("Seen for .zip"), and with keys held: what it would not show then is faint, a line
-it would not draw too. A listing's menus other than a folder's are arranged as a folder's until one is given its own
+the actions', a submenu's items under it. Each is dragged by its grip into order, or several chosen by Shift and a click
+together; its keys (Shift, Ctrl, Alt) lit keep it for a menu opened with them held; switched off, it never shows. Lines
+between groups are added (at the end, to be dragged where they are wanted) and taken away. The menu is seen for all
+files, where what is only for some (an action for a .zip, or for images) is left out, and the page says how many
+entries that is; or for a file of each extension, name or type the actions are written for ("Seen for .zip"), where
+what is not offered for it is left out. What is left out stays where it is, whatever is moved around it; a line with
+only that between it and the one before sets nothing apart, and is left out too. And it is seen with keys held: what
+the menu would not show then is faint, a line it would not draw too. A listing's menus other than a folder's are arranged as a folder's until one is given its own
 (its switch, or any change to it); "Put prism's back" forgets the menu's arrangement. Key bindings: a filter (Ctrl+F goes to it) that finds an action by its name, as shown or as the file
 writes it, or by its chords; and, as JetBrains' keymap has it, a button that opens "Find Shortcut", which takes the
 next shortcut pressed (a key with its modifiers, or the mouse's middle, back or forward button over its lower part) for

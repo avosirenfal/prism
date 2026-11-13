@@ -34,6 +34,7 @@ import prism.browser.GlyphIcon
 import prism.browser.LocalPalette
 import prism.browser.LocalType
 import prism.browser.LocalTypes
+import prism.browser.Moving
 import prism.browser.OptionGroup
 import prism.browser.Radius
 import prism.browser.ReorderableColumn
@@ -49,6 +50,7 @@ import prism.preferences.Held
 import prism.preferences.ListingKind
 import prism.preferences.MenuKey
 import prism.preferences.MenuOf
+import prism.preferences.Moved
 import prism.preferences.Placed
 import prism.preferences.Show
 import prism.browser.Page as PageLayout
@@ -145,9 +147,9 @@ private fun MenuSection(settings: Settings, world: World, onChange: (Settings) -
 	val type = LocalType.current
 	val key = settings.menuing
 	val menus = settings.menus
-	val lines =
+	val menu =
 		remember(key, menus, settings.actions, settings.seenFor, world) {
-			menuLinesOf(key, menus, settings.actions, settings.specs, settings.seenFor, world)
+			seenMenuOf(key, menus, settings.actions, settings.specs, settings.seenFor, world)
 		}
 
 	val samples =
@@ -167,10 +169,10 @@ private fun MenuSection(settings: Settings, world: World, onChange: (Settings) -
 	Section(
 		"Entries",
 		description =
-			"Drag an entry by its grip to move it. A lit key keeps it for when " +
-				"that key is held as the menu opens; switched off, it never shows. " +
-				"Faint entries are not in the menu as it is seen here." +
-				following,
+			"Drag an entry by its grip to move it, or several chosen by Shift and a " +
+				"click together. A lit key keeps an entry for when that key is held as the " +
+				"menu opens; switched off, it never shows. Faint entries wait for keys not " +
+				"held here." + following,
 		trailing =
 			follows?.let {
 				{
@@ -181,7 +183,7 @@ private fun MenuSection(settings: Settings, world: World, onChange: (Settings) -
 						Text("Own arrangement", style = type.muted, maxLines = 1, softWrap = false)
 						Switch(itself, Modifier.testTag("own-menu")) { own ->
 							onChange(
-								settings.copy(menus = menus.arranging(key, if (own) placedOf(lines) else null)),
+								settings.copy(menus = menus.arranging(key, if (own) placedOf(menu) else null)),
 							)
 						}
 					}
@@ -191,18 +193,28 @@ private fun MenuSection(settings: Settings, world: World, onChange: (Settings) -
 		Column(verticalArrangement = Arrangement.spacedBy(Space.m)) {
 			Seeing(settings, samples, onChange)
 			MenuEditor(
-				lines,
+				menu.shown,
 				settings,
-				onMove = { from, to -> arranged(moved(lines, from, to)) },
-				onShow = { id, show -> arranged(showing(lines, id, show)) },
-				onUnline = { arranged(unlined(lines, it)) },
+				onMove = { arranged(moved(menu, it)) },
+				onShow = { id, show -> arranged(showing(menu, id, show)) },
+				onUnline = { arranged(unlined(menu, it)) },
 			)
+			if (menu.unshown > 0)
+				Text(
+					if (settings.seenFor == null)
+						"${menu.unshown} more are only for particular kinds of file: choose one in " +
+							"Seen for to arrange them."
+					else
+						"${menu.unshown} more are for other kinds of file.",
+					style = type.muted,
+					modifier = Modifier.widthIn(max = MENU_WIDTH).testTag("unshown"),
+				)
 			ButtonRow(
 				null,
 				Modifier.widthIn(max = MENU_WIDTH),
 				aside =
 					listOf(
-						Act("Add a line", "add-line") { arranged(lined(lines)) },
+						Act("Add a line", "add-line") { arranged(lined(menu)) },
 						Act("Put prism's back", "reset-menu", enabled = itself) {
 							onChange(settings.copy(menus = menus.arranging(key, null)))
 						},
@@ -220,12 +232,6 @@ private fun Seeing(
 	onChange: (Settings) -> Unit,
 ) {
 	val type = LocalType.current
-	val key = settings.menuing
-	val any =
-		when ((key as? MenuKey.Listing)?.of) {
-			MenuOf.Several -> "Any files"
-			else -> "Any file"
-		}
 
 	Row(
 		Modifier.widthIn(max = MENU_WIDTH).fillMaxWidth(),
@@ -237,7 +243,7 @@ private fun Seeing(
 			ComboBox(
 				listOf(OptionGroup(listOf<Sample?>(null)), OptionGroup(samples)),
 				settings.seenFor,
-				{ it?.label ?: any },
+				{ it?.label ?: "All files" },
 				Modifier.width(200.dp),
 				tag = "seen-for",
 				hint = "An extension or a type",
@@ -266,13 +272,14 @@ private val MENU_WIDTH = 680.dp
 
 /**
  * [lines] drawn as a menu is, on a menu's surface, what each says in a menu's type: each entry in its place, faint where
- * the menu as [settings] see it would not show it, its keys and its switch at its end; a submenu with its items under it.
+ * the menu as [settings] see it would not show it for the keys held, its keys and its switch at its end; a submenu with
+ * its items under it. Several are chosen by Shift and a click, and dragged together.
  */
 @Composable
 private fun MenuEditor(
 	lines: List<MenuLine>,
 	settings: Settings,
-	onMove: (from: Int, to: Int) -> Unit,
+	onMove: (Moved) -> Unit,
 	onShow: (id: String, show: Show) -> Unit,
 	onUnline: (at: Int) -> Unit,
 ) {
@@ -293,22 +300,15 @@ private fun MenuEditor(
 	) {
 		ReorderableColumn(
 			lines,
-			key = { line ->
-				when (line) {
-					is MenuLine.Line -> "line:${line.at}"
-					is MenuLine.Entry -> line.id
-				}
-			},
+			key = MenuLine::key,
+			moving = Moving.Several,
 			onMove = onMove,
-		) { line, handle, dragged ->
+		) { line, handle, lit ->
 			Column(
 				Modifier
 					.fillMaxWidth()
 					.background(
-						if (dragged)
-							palette.chosen
-						else
-							Color.Transparent,
+						if (lit) palette.chosen else Color.Transparent,
 						RoundedCornerShape(Radius.medium),
 					),
 			) {
