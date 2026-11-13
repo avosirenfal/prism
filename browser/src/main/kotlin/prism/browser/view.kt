@@ -1119,10 +1119,22 @@ private fun ListingPane(
 	 * a move another application made of them is the folder changed, read again.
 	 */
 	@Composable
-	fun dragging(row: Row): Modifier =
-		Modifier
+	fun dragging(row: Row): Modifier {
+		val pictures = rememberDragPictures()
+
+		return Modifier
 			.filesDragged(
 				paths = { dragged(row) },
+				// The row taken shows, and how many go with it.
+				picture = {
+					pictures(
+						Carrying(
+							if (row.isFolder) Glyph.Folder else Glyph.File,
+							row.category,
+							draggedWith(row).size,
+						),
+					)
+				},
 				onStart = { deferred = null },
 				onEnd = {
 					if (it == Transfer.Move)
@@ -1136,6 +1148,7 @@ private fun ListingPane(
 					Modifier.folderDrop(it, { onEvent(BrowserEvent.Activated(row.id)) }, onEvent)
 				} ?: Modifier,
 			)
+	}
 
 	/** The rows a key acts on: those chosen, or the cursor's where none is. */
 	fun targets(): List<Row> =

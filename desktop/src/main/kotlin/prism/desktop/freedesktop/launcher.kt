@@ -6,6 +6,8 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.util.UUID
 import java.util.concurrent.TimeUnit
+import prism.desktop.Activation
+import prism.desktop.ActivationToken
 import prism.desktop.Application
 import prism.desktop.Launched
 import prism.desktop.Launcher
@@ -24,13 +26,22 @@ import prism.desktop.TerminalOptions
  *
  * Once started that way, a command that fails to start fails where prism cannot see it; so the program is looked for
  * on the `PATH` first, and one that is not there is said not to be, rather than started into nothing.
+ *
+ * Each command is given a token of the desktop's for bringing its window forward ([Activation]), in its environment,
+ * as `XDG_ACTIVATION_TOKEN` (which Wayland's programs read) and `DESKTOP_STARTUP_ID` (which older ones read, and which
+ * GLib's launchers set to the same token on Wayland). A token prism itself was started with was its own, and is used:
+ * neither is passed on where there is no new one.
  */
 
-/** Starts commands detached from prism, as [xdg]'s environment says the desktop is. */
+/** Starts commands detached from prism, as [xdg]'s environment says the desktop is, each brought forward by [activation]. */
 class DetachedLauncher(
 	private val xdg: Xdg,
-	/** What starts a command, its words in full, in a folder: a process, unless a test says otherwise. */
-	private val spawn: (List<String>, Path) -> Launched = ::spawned,
+	private val activation: Activation = Activation.None,
+	/**
+	 * What starts a command, its words in full, in a folder, with a token for bringing it forward where there is one: a
+	 * process, unless a test says otherwise.
+	 */
+	private val spawn: (List<String>, Path, ActivationToken?) -> Launched = ::spawned,
 ) : Launcher {
 	override fun launch(
 		application: Application,
@@ -60,7 +71,8 @@ class DetachedLauncher(
 		if (find(program) == null)
 			return Launched.Failed(program, "“$program” is not installed, or not on the PATH")
 
-		return spawn(detached(command, label), folder)
+		// Asked for only now, for what is surely started: a desktop entry's name is the application's, as a token names it.
+		return spawn(detached(command, label), folder, activation.token(label?.removeSuffix(".desktop")))
 	}
 
 	/** The user's terminal, wherever on the desktop it is said (freedesktop/terminals.kt). */
@@ -170,21 +182,35 @@ class DetachedLauncher(
 	}
 
 	private companion object {
+		const val ACTIVATION_TOKEN = "XDG_ACTIVATION_TOKEN"
+		const val STARTUP_ID = "DESKTOP_STARTUP_ID"
+
 		/**
-		 * [command] started in [folder], with nothing of prism's: no input, and what it writes thrown away. It is
-		 * waited for only as long as `setsid --fork` takes to hand it on, which is no time.
+		 * [command] started in [folder], with nothing of prism's: no input, and what it writes thrown away; given
+		 * [token] to bring its window forward, where there is one. It is waited for only as long as `setsid --fork`
+		 * takes to hand it on, which is no time.
 		 */
-		fun spawned(command: List<String>, folder: Path): Launched {
+		fun spawned(command: List<String>, folder: Path, token: ActivationToken?): Launched {
 			val what = command.last { !it.startsWith("-") }.let { File(it).name }
 
 			return try {
-				val process =
+				val builder =
 					ProcessBuilder(command)
 						.directory(folder.toFile())
 						.redirectInput(ProcessBuilder.Redirect.from(File("/dev/null")))
 						.redirectOutput(ProcessBuilder.Redirect.DISCARD)
 						.redirectError(ProcessBuilder.Redirect.DISCARD)
-						.start()
+
+				builder.environment().apply {
+					remove(ACTIVATION_TOKEN)
+					remove(STARTUP_ID)
+					token?.let {
+						put(ACTIVATION_TOKEN, it.text)
+						put(STARTUP_ID, it.text)
+					}
+				}
+
+				val process = builder.start()
 
 				// setsid --fork returns once it has forked; without it, the command is left to run as prism's child.
 				if (command.firstOrNull()?.endsWith("setsid") == true &&

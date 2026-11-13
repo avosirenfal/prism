@@ -136,11 +136,41 @@ prism's own, of this process or another, which SDL tells of it as of any drop. A
 for its own and is given what it carries as itself.
 
 It is spoken through libwayland-client, on SDL's connection, on an event queue of its own dispatched by a thread of its
-own, for two reasons. A drag must be started with the serial of the button press that began it, which SDL keeps to
-itself; so the seat is bound here too (asked for its pointer only once it has one), and its pointer's presses heard. And
-a window of this process that a drag is dropped on is SDL's, which reads what is dropped at once, on the windows'
-thread, waiting for the source to write it: the source's writing it is on the other thread, so neither waits for the
-other.
+own (`WaylandSeat`), for two reasons. A drag must be started with the serial of the button press that began it, which
+SDL keeps to itself; so the seat is bound here too (asked for its pointer and keyboard only once it has them), and
+their presses heard. And a window of this process that a drag is dropped on is SDL's, which reads what is dropped at
+once, on the windows' thread, waiting for the source to write it: the source's writing it is on the other thread, so
+neither waits for the other.
+
+A drag shows two things as it goes, as other file managers' do. The first is a picture under the pointer
+(`DragPicture`, which the browser draws: the icon of the row taken, and how many go with it on a badge). It is the
+drag's icon: a surface of its own given to `start_drag`, drawn into shared memory at the window's density, its top left
+corner at the pointer, as thunar puts a file's icon. The second is the pointer's cursor, which says what letting go
+would do: a copy, a move, a link, or nothing taking it there (`no-drop`). The compositor says which window under the
+pointer takes what is offered (`wl_data_source.target`) and what it chose to make of it (`action`); over one of
+prism's own windows the place under the pointer says (`DropTarget.effect`), since SDL takes every drag it is given as
+a copy, whatever prism will make of it. The cursor is set through cursor-shape (`wp_cursor_shape_device_v1`) on
+prism's own pointer, which compositors built on Smithay (niri) let the program a drag began in do while it goes;
+others (GNOME's, KDE's) draw their own cursor for a drag from what was chosen, and sway leaves the pointer as it was.
+
+## Bringing forward what prism starts
+
+A compositor does not let a program take the screen of its own accord: a window that asks to be brought forward is
+brought forward only where the user asked for it. On Wayland that is said by a token (xdg-activation). The program the
+user pressed something in asks the compositor for one, from the serial of that press and the window it was in, and
+gives it to the program it starts in `XDG_ACTIVATION_TOKEN`; that program asks with it for its window to come forward.
+A program running already, given a file by a new start of itself (Kate, with one window for many files), hands the
+token to its window, which comes forward. Without a token, the file opens in a window behind prism's, and nothing
+says it did.
+
+So every program prism starts (an application for a file, a terminal, an action) is given a token of its own
+(`activationToken`, asked for by the desktop's launcher for each start, on the windows' thread, and waited for for
+half a second at most). It is made from the user's last press of a key or a button in prism, and the window it was in,
+if that is open still: niri checks the press is newer than the keyboard's coming into prism, wlroots that the window
+has the keyboard, and sway brings nothing forward by a token that names no window (it only marks it as wanting
+attention). The token goes in `DESKTOP_STARTUP_ID` too, as GLib's launchers do on Wayland, for programs that read that
+name; and a token prism was started with is never passed on, since it was used. The protocol's tables, which
+libwayland-client does not have built in, are written out in `waylandprotocols.kt`, as wayland-scanner would make them.
 
 ## When no window opens
 
@@ -177,8 +207,12 @@ what prism's does not do itself.
 - **Dragging out to other programs on X11, Windows and macOS**: XDND, OLE's `DoDragDrop` and an `NSDraggingSession`,
   each a `NativeDrags` of its own, as Wayland's is. Until then, a drag there goes between prism's own windows, and copy
   and paste is the way to other programs.
-- **A drag's picture**: the pointer is all that is drawn as a drag goes; Wayland's `start_drag` takes a surface for an
-  icon, which is given none.
+- **A drag's picture on X11, Windows and macOS**: drawn only where prism speaks the platform's drag (Wayland's).
+- **Bringing forward what prism starts, on X11**: a startup notification (`DESKTOP_STARTUP_ID`, with the time of the
+  user's last press, which SDL does not give), which window managers there check as Wayland's compositors check a
+  token.
+- **The drag's cursor without cursor-shape**: a compositor without it is left to draw its own; prism does not load a
+  cursor theme of its own to set one by `wl_pointer.set_cursor`.
 - **Input methods' preedit**: text composed in an input method (CJK) arrives once it is committed; what is being
   composed is not drawn in the field meanwhile.
 - **Wayland parents**: a picker for a Wayland application is not made its dialog yet (`xdg-foreign`).
@@ -193,9 +227,12 @@ what prism's does not do itself.
   CPU, and with no EGL at all (`__EGL_VENDOR_LIBRARY_FILENAMES=/nonexistent.json`); the clipboard is left out under
   weston's, which has no seat to give the input serial Wayland's clipboard asks for.
 - `tools/wayland/check.sh`: prism's app image on a headless sway, as native Wayland windows, and a pointer of wlroots'
-  virtual-pointer protocol pressing, moving and letting go: a file dragged from one prism to another, moved there; a file
-  dragged between two windows of one prism, moved there; and an archive's entry dragged to its folder's window,
-  brought out there. It passes.
+  virtual-pointer protocol pressing, moving and letting go: a file dragged from one prism to another, moved there, its
+  picture under the pointer as it goes (a screenshot); a file dragged between two windows of one prism, moved there;
+  and an archive's entry dragged to its folder's window, brought out there. Then a file opened in an editor that is
+  running already (`editor.py`, a window of its own that asks with whatever token it is handed): a made-up token
+  brings it nothing, and the one prism gave the editor's new start brings it forward, as sway says. It passes. The
+  cursor a drag shows is read from prism's log, since sway does not let it be set.
 - prism's `DragTest` and `SelectionTest` (`-Pbrowser.display`, X11): an archive's entry dragged by X's own pointer
   from one prism window to another and extracted there; and a failure's text selected and copied with Ctrl+C.
 - By hand, in the development container: `prism explore` on X11, and as a native Wayland client under weston

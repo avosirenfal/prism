@@ -29,6 +29,7 @@ import kotlin.io.path.exists
 import kotlin.io.path.isDirectory
 import kotlin.io.path.name
 import kotlin.io.path.readLines
+import prism.desktop.Activation
 import prism.desktop.Desktop
 import prism.desktop.FileTypes
 import prism.desktop.Launched
@@ -621,7 +622,7 @@ fun pickerOf(
 	disk: Disk = JvmDisk(),
 	home: Path = Path(System.getProperty("user.home")),
 	title: String = titleOf(choosing),
-	places: Places = currentDesktop().places,
+	places: Places = currentDesktop(Activation.None).places,
 ): BrowserState =
 	opened(choosing, folder, home, sidebarOf(places, home), title).settled(disk)
 

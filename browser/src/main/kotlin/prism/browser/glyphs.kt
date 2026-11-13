@@ -96,152 +96,163 @@ fun GlyphIcon(
 ) {
 	val palette = LocalPalette.current
 
-	Canvas(modifier.size(size)) {
-		val unit = this.size.minDimension / 24f
+	Canvas(modifier.size(size)) { drawGlyph(glyph, tint, palette, category) }
+}
 
-		when (glyph) {
-			Glyph.Folder -> folder(unit, palette)
-			Glyph.File -> file(unit, palette, category)
-			Glyph.Back -> arrow(unit, tint, Offset(-1f, 0f))
-			Glyph.Forward -> arrow(unit, tint, Offset(1f, 0f))
-			Glyph.Up -> arrow(unit, tint, Offset(0f, -1f))
-			Glyph.Down -> arrow(unit, tint, Offset(0f, 1f))
-			Glyph.Chevron -> stroked(unit, tint, listOf(9f to 6f, 15f to 12f, 9f to 18f))
-			Glyph.ChevronDown -> stroked(unit, tint, listOf(6f to 9f, 12f to 15f, 18f to 9f))
-			Glyph.Search -> search(unit, tint)
-			Glyph.Home -> home(unit, tint)
-			Glyph.Desktop -> desktop(unit, tint)
-			Glyph.Documents -> documents(unit, tint)
-			Glyph.Downloads -> downloads(unit, tint)
-			Glyph.Pictures -> pictures(unit, tint)
-			Glyph.Music -> music(unit, tint)
-			Glyph.Videos -> videos(unit, tint)
-			Glyph.Drive -> drive(unit, tint)
-			Glyph.SortUp -> stroked(unit, tint, listOf(7f to 14f, 12f to 9f, 17f to 14f))
-			Glyph.SortDown -> stroked(unit, tint, listOf(7f to 10f, 12f to 15f, 17f to 10f))
-			Glyph.Check -> stroked(unit, tint, listOf(5f to 12.5f, 10f to 17.5f, 19f to 7f))
-			Glyph.ViewList -> viewList(unit, tint)
-			Glyph.ViewGrid -> viewGrid(unit, tint)
-			Glyph.Filter ->
-				stroked(
-					unit,
-					tint,
-					listOf(
-						4f to 5.5f,
-						20f to 5.5f,
-						14f to 12.5f,
-						14f to 19f,
-						10f to 17f,
-						10f to 12.5f,
-						4f to 5.5f,
-					),
-				)
-			// Three lines across: a window's own menu, as desktops draw it.
-			Glyph.Menu ->
-				for (y in listOf(6.5f, 12f, 17.5f))
-					stroked(unit, tint, listOf(4.5f to y, 19.5f to y))
-			Glyph.Trash -> trash(unit, tint)
-			Glyph.Settings -> gear(unit, tint)
-			Glyph.Grip ->
-				for (x in listOf(9f, 15f))
-					for (y in listOf(6f, 12f, 18f))
-						drawCircle(tint, 1.6f * unit, at(unit, x, y))
-			Glyph.Plus -> {
-				stroked(unit, tint, listOf(12f to 5.5f, 12f to 18.5f))
-				stroked(unit, tint, listOf(5.5f to 12f, 18.5f to 12f))
-			}
-			Glyph.Minus -> stroked(unit, tint, listOf(5.5f to 12f, 18.5f to 12f))
-			Glyph.Close -> {
-				stroked(unit, tint, listOf(6.5f to 6.5f, 17.5f to 17.5f))
-				stroked(unit, tint, listOf(17.5f to 6.5f, 6.5f to 17.5f))
-			}
-			Glyph.Terminal -> {
-				drawRoundRect(
-					tint,
-					at(unit, 3f, 4.5f),
-					Size(18f * unit, 15f * unit),
-					CornerRadius(2f * unit),
-					style = line(unit),
-				)
-				stroked(unit, tint, listOf(7f to 9.5f, 10f to 12f, 7f to 14.5f))
-				stroked(unit, tint, listOf(12f to 15f, 16.5f to 15f))
-			}
-			Glyph.Keyboard -> {
-				drawRoundRect(
-					tint,
-					at(unit, 2.5f, 6f),
-					Size(19f * unit, 12f * unit),
-					CornerRadius(2f * unit),
-					style = line(unit),
-				)
-				for (x in listOf(6.5f, 10f, 13.5f, 17f))
-					drawCircle(tint, 0.9f * unit, at(unit, x, 10f))
-				stroked(unit, tint, listOf(8f to 14.5f, 16f to 14.5f))
-			}
-			Glyph.Bolt ->
-				stroked(
-					unit,
-					tint,
-					listOf(
-						13.5f to 3f,
-						6f to 13.5f,
-						12f to 13.5f,
-						10.5f to 21f,
-						18f to 10.5f,
-						12f to 10.5f,
-						13.5f to 3f,
-					),
-				)
-			Glyph.AlignStart, Glyph.AlignCenter, Glyph.AlignEnd ->
-				listOf(6f to 18f, 9f to 12f, 12f to 16f, 15f to 10f).forEach { (y, length) ->
-					val start =
-						when (glyph) {
-							Glyph.AlignStart -> 4f
-							Glyph.AlignCenter -> 12f - length / 2
-							else -> 20f - length
-						}
+/**
+ * [glyph] drawn to fill the smaller side of what is drawn on, in [tint], from [palette]; a file's marked with
+ * [category]'s colour. What [GlyphIcon] draws, and what is drawn of a file elsewhere (the picture a drag of it shows).
+ */
+fun DrawScope.drawGlyph(
+	glyph: Glyph,
+	tint: Color,
+	palette: Palette,
+	category: Category = Category.Other,
+) {
+	val unit = this.size.minDimension / 24f
 
-					stroked(unit, tint, listOf(start to y, start + length to y))
-				}
-			Glyph.Warning -> {
-				stroked(unit, tint, listOf(12f to 4f, 21f to 19.5f, 3f to 19.5f, 12f to 4f))
-				stroked(unit, tint, listOf(12f to 10f, 12f to 14f))
-				drawCircle(tint, 1.1f * unit, at(unit, 12f, 16.8f))
+	when (glyph) {
+		Glyph.Folder -> folder(unit, palette)
+		Glyph.File -> file(unit, palette, category)
+		Glyph.Back -> arrow(unit, tint, Offset(-1f, 0f))
+		Glyph.Forward -> arrow(unit, tint, Offset(1f, 0f))
+		Glyph.Up -> arrow(unit, tint, Offset(0f, -1f))
+		Glyph.Down -> arrow(unit, tint, Offset(0f, 1f))
+		Glyph.Chevron -> stroked(unit, tint, listOf(9f to 6f, 15f to 12f, 9f to 18f))
+		Glyph.ChevronDown -> stroked(unit, tint, listOf(6f to 9f, 12f to 15f, 18f to 9f))
+		Glyph.Search -> search(unit, tint)
+		Glyph.Home -> home(unit, tint)
+		Glyph.Desktop -> desktop(unit, tint)
+		Glyph.Documents -> documents(unit, tint)
+		Glyph.Downloads -> downloads(unit, tint)
+		Glyph.Pictures -> pictures(unit, tint)
+		Glyph.Music -> music(unit, tint)
+		Glyph.Videos -> videos(unit, tint)
+		Glyph.Drive -> drive(unit, tint)
+		Glyph.SortUp -> stroked(unit, tint, listOf(7f to 14f, 12f to 9f, 17f to 14f))
+		Glyph.SortDown -> stroked(unit, tint, listOf(7f to 10f, 12f to 15f, 17f to 10f))
+		Glyph.Check -> stroked(unit, tint, listOf(5f to 12.5f, 10f to 17.5f, 19f to 7f))
+		Glyph.ViewList -> viewList(unit, tint)
+		Glyph.ViewGrid -> viewGrid(unit, tint)
+		Glyph.Filter ->
+			stroked(
+				unit,
+				tint,
+				listOf(
+					4f to 5.5f,
+					20f to 5.5f,
+					14f to 12.5f,
+					14f to 19f,
+					10f to 17f,
+					10f to 12.5f,
+					4f to 5.5f,
+				),
+			)
+		// Three lines across: a window's own menu, as desktops draw it.
+		Glyph.Menu ->
+			for (y in listOf(6.5f, 12f, 17.5f))
+				stroked(unit, tint, listOf(4.5f to y, 19.5f to y))
+		Glyph.Trash -> trash(unit, tint)
+		Glyph.Settings -> gear(unit, tint)
+		Glyph.Grip ->
+			for (x in listOf(9f, 15f))
+				for (y in listOf(6f, 12f, 18f))
+					drawCircle(tint, 1.6f * unit, at(unit, x, y))
+		Glyph.Plus -> {
+			stroked(unit, tint, listOf(12f to 5.5f, 12f to 18.5f))
+			stroked(unit, tint, listOf(5.5f to 12f, 18.5f to 12f))
+		}
+		Glyph.Minus -> stroked(unit, tint, listOf(5.5f to 12f, 18.5f to 12f))
+		Glyph.Close -> {
+			stroked(unit, tint, listOf(6.5f to 6.5f, 17.5f to 17.5f))
+			stroked(unit, tint, listOf(17.5f to 6.5f, 6.5f to 17.5f))
+		}
+		Glyph.Terminal -> {
+			drawRoundRect(
+				tint,
+				at(unit, 3f, 4.5f),
+				Size(18f * unit, 15f * unit),
+				CornerRadius(2f * unit),
+				style = line(unit),
+			)
+			stroked(unit, tint, listOf(7f to 9.5f, 10f to 12f, 7f to 14.5f))
+			stroked(unit, tint, listOf(12f to 15f, 16.5f to 15f))
+		}
+		Glyph.Keyboard -> {
+			drawRoundRect(
+				tint,
+				at(unit, 2.5f, 6f),
+				Size(19f * unit, 12f * unit),
+				CornerRadius(2f * unit),
+				style = line(unit),
+			)
+			for (x in listOf(6.5f, 10f, 13.5f, 17f))
+				drawCircle(tint, 0.9f * unit, at(unit, x, 10f))
+			stroked(unit, tint, listOf(8f to 14.5f, 16f to 14.5f))
+		}
+		Glyph.Bolt ->
+			stroked(
+				unit,
+				tint,
+				listOf(
+					13.5f to 3f,
+					6f to 13.5f,
+					12f to 13.5f,
+					10.5f to 21f,
+					18f to 10.5f,
+					12f to 10.5f,
+					13.5f to 3f,
+				),
+			)
+		Glyph.AlignStart, Glyph.AlignCenter, Glyph.AlignEnd ->
+			listOf(6f to 18f, 9f to 12f, 12f to 16f, 15f to 10f).forEach { (y, length) ->
+				val start =
+					when (glyph) {
+						Glyph.AlignStart -> 4f
+						Glyph.AlignCenter -> 12f - length / 2
+						else -> 20f - length
+					}
+
+				stroked(unit, tint, listOf(start to y, start + length to y))
 			}
-			Glyph.Info -> {
-				drawCircle(tint, 8.5f * unit, at(unit, 12f, 12f), style = line(unit))
-				drawCircle(tint, 1.1f * unit, at(unit, 12f, 8f))
-				stroked(unit, tint, listOf(12f to 11f, 12f to 16.5f))
+		Glyph.Warning -> {
+			stroked(unit, tint, listOf(12f to 4f, 21f to 19.5f, 3f to 19.5f, 12f to 4f))
+			stroked(unit, tint, listOf(12f to 10f, 12f to 14f))
+			drawCircle(tint, 1.1f * unit, at(unit, 12f, 16.8f))
+		}
+		Glyph.Info -> {
+			drawCircle(tint, 8.5f * unit, at(unit, 12f, 12f), style = line(unit))
+			drawCircle(tint, 1.1f * unit, at(unit, 12f, 8f))
+			stroked(unit, tint, listOf(12f to 11f, 12f to 16.5f))
+		}
+		Glyph.Chip -> {
+			drawRoundRect(
+				tint,
+				at(unit, 6f, 6f),
+				Size(12f * unit, 12f * unit),
+				CornerRadius(1.5f * unit),
+				style = line(unit),
+			)
+			drawRect(tint, at(unit, 9.5f, 9.5f), Size(5f * unit, 5f * unit), style = line(unit))
+			for (pin in listOf(9.5f, 14.5f)) {
+				stroked(unit, tint, listOf(pin to 3f, pin to 6f))
+				stroked(unit, tint, listOf(pin to 18f, pin to 21f))
+				stroked(unit, tint, listOf(3f to pin, 6f to pin))
+				stroked(unit, tint, listOf(18f to pin, 21f to pin))
 			}
-			Glyph.Chip -> {
-				drawRoundRect(
-					tint,
-					at(unit, 6f, 6f),
-					Size(12f * unit, 12f * unit),
-					CornerRadius(1.5f * unit),
-					style = line(unit),
-				)
-				drawRect(tint, at(unit, 9.5f, 9.5f), Size(5f * unit, 5f * unit), style = line(unit))
-				for (pin in listOf(9.5f, 14.5f)) {
-					stroked(unit, tint, listOf(pin to 3f, pin to 6f))
-					stroked(unit, tint, listOf(pin to 18f, pin to 21f))
-					stroked(unit, tint, listOf(3f to pin, 6f to pin))
-					stroked(unit, tint, listOf(18f to pin, 21f to pin))
-				}
-			}
-			Glyph.FindKey -> {
-				drawRoundRect(
-					tint,
-					at(unit, 3f, 12f),
-					Size(12f * unit, 8f * unit),
-					CornerRadius(1.5f * unit),
-					style = line(unit),
-				)
-				for (x in listOf(6f, 9f, 12f))
-					drawCircle(tint, 0.9f * unit, at(unit, x, 16f))
-				drawCircle(tint, 4f * unit, at(unit, 16f, 7f), style = line(unit))
-				stroked(unit, tint, listOf(19f to 10f, 21.5f to 12.5f))
-			}
+		}
+		Glyph.FindKey -> {
+			drawRoundRect(
+				tint,
+				at(unit, 3f, 12f),
+				Size(12f * unit, 8f * unit),
+				CornerRadius(1.5f * unit),
+				style = line(unit),
+			)
+			for (x in listOf(6f, 9f, 12f))
+				drawCircle(tint, 0.9f * unit, at(unit, x, 16f))
+			drawCircle(tint, 4f * unit, at(unit, 16f, 7f), style = line(unit))
+			stroked(unit, tint, listOf(19f to 10f, 21.5f to 12.5f))
 		}
 	}
 }

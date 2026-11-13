@@ -494,14 +494,17 @@ class NativeWindow internal constructor(
 			SDL_EVENT_DROP_BEGIN -> foreign = ForeignDrop(emptyList(), null)
 			SDL_EVENT_DROP_POSITION -> {
 				val drop = event.drop()
+				val own = app.drags.ownDropped()
+				val effect =
+					drops.hover(
+						pixelOf(drop.x(), drop.y()),
+						own?.let { DragOver.Own(it.local, dragKeysOf(SDL_GetModState().toInt())) }
+							?: DragOver.Foreign,
+					)
 
-				drops.hover(
-					pixelOf(drop.x(), drop.y()),
-					app.drags.ownDropped()?.let {
-						DragOver.Own(it.local, dragKeysOf(SDL_GetModState().toInt()))
-					}
-						?: DragOver.Foreign,
-				)
+				// The pointer shows what the place under it would make of this process's own drag.
+				if (own != null)
+					app.drags.overOwn(effect)
 				foreign = foreign ?: ForeignDrop(emptyList(), null)
 			}
 			SDL_EVENT_DROP_FILE ->
@@ -540,8 +543,11 @@ class NativeWindow internal constructor(
 				foreign = null
 
 				// A drop of this process's own drag, by the platform's protocol: what it carries, as itself, rather than
-				// what other programs are given of it.
+				// what other programs are given of it. Gone from the window, or let go on it, it is shown as the
+				// compositor says again.
 				val own = app.drags.ownDropped()
+
+				app.drags.offOwn()
 
 				when {
 					dropped == null -> drops.leave()
@@ -587,6 +593,12 @@ class NativeWindow internal constructor(
 
 	/** The pointer's position in the window, in its pixels. */
 	internal val pointerPosition: Offset get() = pointer
+
+	/** How many of the window's pixels a point of the platform's is: more than one on a screen scaled up. */
+	internal val pixelsPerPoint: Float get() = SDL_GetWindowPixelDensity(sdl).takeIf { it > 0f } ?: 1f
+
+	/** How many of the window's pixels a dp is: the scale its display is shown at. */
+	internal val displayScale: Float get() = SDL_GetWindowDisplayScale(sdl).takeIf { it > 0f } ?: 1f
 
 	internal val sdlWindow: Long get() = sdl
 

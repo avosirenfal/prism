@@ -15,18 +15,31 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.drawscope.inset
 import androidx.compose.ui.input.pointer.SuspendingPointerInputModifierNode
 import androidx.compose.ui.input.pointer.isPrimaryPressed
 import androidx.compose.ui.node.DelegatingNode
 import androidx.compose.ui.node.ModifierNodeElement
 import androidx.compose.ui.platform.InspectorInfo
+import androidx.compose.ui.text.TextMeasurer
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.drawText
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import java.net.URI
 import java.net.URISyntaxException
 import java.nio.file.Path
 import kotlinx.coroutines.delay
 import prism.window.DragKeys
 import prism.window.DragOver
+import prism.window.DragPicture
+import prism.window.DropEffect
 import prism.window.DropTarget
 import prism.window.Dropped
 import prism.window.LocalNativeWindow
@@ -107,6 +120,64 @@ val LocalVolumes = staticCompositionLocalOf<(Path, Path) -> Boolean> { { _, _ ->
 /** How far the pointer moves, a button held, before that is a drag and not a click with an unsteady hand. */
 private val DRAG_SLOP = 8.dp
 
+/** What a drag shows of what it carries: the icon of the first of them ([glyph], marked as [category] is), and how many. */
+@Immutable
+data class Carrying(
+	val glyph: Glyph,
+	val category: Category,
+	val count: Int,
+)
+
+/** How large the icon a drag shows is, and the badge on its corner that says how many it carries. */
+private val PICTURE_ICON = 40.dp
+private val BADGE = 18.dp
+
+/** The most a drag's badge counts: more are said as this, and a plus. */
+private const val MOST_COUNTED = 999
+
+/**
+ * What a drag shows under the pointer, as other file managers' do: the icon of the first thing dragged, as large as a
+ * tile's, and, where there are several, how many, on a badge at its top right corner. The window draws it at its own
+ * density, so the count is laid out as it is drawn, at that density.
+ */
+@Composable
+fun rememberDragPictures(): (Carrying) -> DragPicture {
+	val palette = LocalPalette.current
+	val measurer = rememberTextMeasurer()
+
+	return remember(palette, measurer) { { carrying -> dragPictureOf(carrying, palette, measurer) } }
+}
+
+/** [carrying] as [rememberDragPictures] draws it, in [palette]'s colours, its count laid out by [measurer]. */
+fun dragPictureOf(carrying: Carrying, palette: Palette, measurer: TextMeasurer): DragPicture =
+	DragPicture(DpSize(PICTURE_ICON + BADGE / 2, PICTURE_ICON + BADGE / 2)) {
+		val badge = BADGE.toPx()
+
+		// The icon down and to the left of the badge's middle, which sits on its corner.
+		inset(0f, badge / 2, badge / 2, 0f) {
+			drawGlyph(carrying.glyph, palette.text, palette, carrying.category)
+		}
+
+		if (carrying.count > 1) {
+			val count =
+				measurer.measure(
+					if (carrying.count > MOST_COUNTED) "$MOST_COUNTED+" else carrying.count.toString(),
+					TextStyle(color = palette.onAccent, fontSize = 11.sp, fontWeight = FontWeight.SemiBold),
+					density = this,
+					layoutDirection = layoutDirection,
+				)
+			// A circle for a figure, a pill for more, as wide as they are.
+			val width = maxOf(badge, count.size.width + badge / 2)
+			val left = size.width - width
+
+			drawRoundRect(palette.accent, Offset(left, 0f), Size(width, badge), CornerRadius(badge / 2))
+			drawText(
+				count,
+				topLeft = Offset(left + (width - count.size.width) / 2, (badge - count.size.height) / 2),
+			)
+		}
+	}
+
 /** What a drag of the browser's carries: files, or entries of a place. */
 sealed interface Dragged {
 	data class Files(
@@ -119,8 +190,9 @@ sealed interface Dragged {
 }
 
 /**
- * This dragged as files: those [paths] gives when the drag starts (none: no drag), as the browser's own drag. [onStart]
- * is told as it starts, and [onEnd] what the target made of it, once it is over, where it says.
+ * This dragged as files: those [paths] gives when the drag starts (none: no drag), as the browser's own drag, showing
+ * [picture] under the pointer. [onStart] is told as it starts, and [onEnd] what the target made of it, once it is
+ * over, where it says.
  *
  * Where there are no files to drag, [carried] may give entries of a place instead: dragged as themselves, to be
  * brought out into the folder they are dropped on, in any window of prism.
@@ -131,12 +203,14 @@ sealed interface Dragged {
 @Composable
 fun Modifier.filesDragged(
 	paths: () -> List<Path>,
+	picture: () -> DragPicture,
 	onStart: () -> Unit,
 	onEnd: (Transfer?) -> Unit,
 	carried: () -> Carried? = { null },
 ): Modifier {
 	val window = LocalNativeWindow.current
 	val files by rememberUpdatedState(paths)
+	val shown by rememberUpdatedState(picture)
 	val entries by rememberUpdatedState(carried)
 	val start by rememberUpdatedState(onStart)
 	val end by rememberUpdatedState(onEnd)
@@ -159,10 +233,11 @@ fun Modifier.filesDragged(
 									out.entries.joinToString("\n") {
 										it.name
 									},
+								picture = shown(),
 							)
 						}
 					else
-						Outgoing(Dragged.Files(dragged), dragged)
+						Outgoing(Dragged.Files(dragged), dragged, picture = shown())
 
 				if (window != null && outgoing != null) {
 					start()
@@ -211,8 +286,8 @@ private class DragSourceNode(
 							break
 
 						if ((change.position - down.position).getDistance() >= slop) {
-							// Nothing is drawn under the pointer as it is dragged: the row stays where it is, as on
-							// most desktops.
+							// The row stays where it is, as on most desktops: what is dragged is shown by the
+							// picture the drag carries.
 							begin()
 							break
 						}
@@ -284,6 +359,14 @@ fun Modifier.filesDropped(
 					}
 
 				override fun hover(over: DragOver?) = hover(over?.let(::dropping))
+
+				override fun effect(over: DragOver): DropEffect? =
+					when (dropping(over)?.transfer) {
+						Transfer.Copy -> DropEffect.Copy
+						Transfer.Move -> DropEffect.Move
+						Transfer.Link -> DropEffect.Link
+						null -> null
+					}
 
 				override fun drop(dropped: Dropped): Boolean =
 					when (dropped) {

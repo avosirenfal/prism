@@ -40,7 +40,6 @@ import prism.cli.Outcome
 import prism.cli.ParamType
 import prism.cli.Parsed
 import prism.cli.Size
-import prism.desktop.currentDesktop
 import prism.index.IndexFile
 import prism.index.IndexRead
 import prism.index.UsageFile
@@ -125,7 +124,7 @@ object PickCommand : Command(
 	override fun run(args: Args): Outcome {
 		val home = Path(System.getProperty("user.home"))
 		val (search, finder) = indexing.searchOf(args, home)
-		val desktop = currentDesktop()
+		val desktop = windowsDesktop()
 		val preferences = PreferenceFile.open()
 
 		preferences.problem?.let {

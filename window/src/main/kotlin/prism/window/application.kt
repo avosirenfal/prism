@@ -17,6 +17,8 @@ import androidx.compose.ui.InternalComposeUiApi
 import androidx.compose.ui.platform.FrameRecomposer
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.IntOffset
+import java.lang.foreign.MemorySegment
+import java.util.concurrent.CompletableFuture
 import org.lwjgl.sdl.SDLEvents.SDL_EVENT_QUIT
 import org.lwjgl.sdl.SDLMouse.SDL_DestroyCursor
 import org.lwjgl.sdl.SDL_Event
@@ -64,9 +66,20 @@ internal class Application(
 	val windows: Collection<NativeWindow> get() = open.values
 	val drags = Drags(this)
 
+	/**
+	 * What is spoken to the platform beside SDL: prism's own connection, where it has one (Wayland's), and the drags
+	 * spoken through it.
+	 */
+	private class Beside(
+		val seat: WaylandSeat?,
+		val drags: NativeDrags?,
+	)
+
+	/** Made with the first window, whose connection it is on: null until then. */
+	private var beside: Beside? = null
+
 	/** The platform's drags, where its protocol is spoken: begun with the first window, which they need to be. */
-	var nativeDrags: NativeDrags? = null
-		private set
+	val nativeDrags: NativeDrags? get() = beside?.drags
 	private val cursors = HashMap<Int, Long>()
 
 	private var running by mutableStateOf(true)
@@ -83,12 +96,35 @@ internal class Application(
 	fun opened(window: NativeWindow) {
 		open[window.id] = window
 		// Heard from before any drag: a drag is begun from a press of the pointer's, which must be heard as it happens.
-		if (nativeDrags == null) {
-			nativeDrags = NativeDrags.of(window.handle)
+		if (beside == null) {
+			val seat =
+				(window.handle as? NativeHandle.Wayland)?.let {
+					WaylandSeat.of(MemorySegment.ofAddress(it.display))
+				}
+
+			beside = Beside(seat, NativeDrags.of(seat))
 			Log.say {
 				"drags: ${nativeDrags?.javaClass?.simpleName ?: "this process's own alone"}"
 			}
 		}
+	}
+
+	/**
+	 * A token for bringing forward a window of the application [appId] (where known), as the platform makes it from
+	 * the user's last press of a key or a button, and the window it was in, if that is open still; on its way, as the
+	 * platform answers. None where the platform makes none.
+	 */
+	fun activation(appId: String?): CompletableFuture<String>? {
+		val seat = beside?.seat ?: return null
+		val press = seat.lastPress
+		val surface =
+			windows
+				.mapNotNull { (it.handle as? NativeHandle.Wayland)?.surface }
+				.firstOrNull { it == press?.surface }
+
+		Log.say { "activation: from the press of serial ${press?.serial}, in ${surface?.let { "a window" } ?: "none open"}" }
+
+		return seat.token(press?.serial, surface?.let(MemorySegment::ofAddress), appId)
 	}
 
 	fun closed(window: NativeWindow) {
@@ -110,6 +146,7 @@ internal class Application(
 				CompositionLocalApplication(this) { scope.content() }
 		}
 
+		current = this
 		Queue().use { queue ->
 			while (running || open.isNotEmpty()) {
 				Ui.drain()
@@ -133,9 +170,11 @@ internal class Application(
 			}
 		}
 
+		current = null
 		composition.dispose()
 		recomposer.close()
-		nativeDrags?.close()
+		beside?.drags?.close()
+		beside?.seat?.close()
 		cursors.values.forEach(::SDL_DestroyCursor)
 	}
 
@@ -151,6 +190,11 @@ internal class Application(
 	companion object {
 		/** How long the loop waits for an event before looking again at what it was asked to do meanwhile. */
 		private const val IDLE_MILLIS = 250
+
+		/** The application running, of which there is one at a time ([Ui] has one thread); null where none is. */
+		@Volatile
+		var current: Application? = null
+			private set
 	}
 }
 

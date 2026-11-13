@@ -1,6 +1,7 @@
 package prism.desktop.freedesktop
 
 import java.nio.file.Path
+import prism.desktop.Activation
 import prism.desktop.Desktop
 import prism.desktop.FileFacts
 import prism.desktop.JvmFacts
@@ -8,13 +9,14 @@ import prism.linux.Fd
 import prism.linux.Sys
 import prism.linux.statx
 
-/** A freedesktop.org desktop, as Linux's are, from [xdg]'s environment. */
+/** A freedesktop.org desktop, as Linux's are, from [xdg]'s environment; what it starts brought forward by [activation]. */
 class Freedesktop(
 	val xdg: Xdg = Xdg(),
+	activation: Activation = Activation.None,
 ) : Desktop {
 	override val types = SharedMimeInfo(xdg)
 	override val applications = DesktopEntries(xdg, types)
-	override val launcher = DetachedLauncher(xdg)
+	override val launcher = DetachedLauncher(xdg, activation)
 	override val places = XdgPlaces()
 	override val facts: FileFacts = JvmFacts(types, ::bornAt)
 

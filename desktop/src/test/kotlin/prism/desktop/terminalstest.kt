@@ -187,7 +187,7 @@ class TerminalsTest {
 
 		val started = ArrayList<Pair<List<String>, Path>>()
 		val launcher =
-			DetachedLauncher(xdg()) { command, at ->
+			DetachedLauncher(xdg()) { command, at, _ ->
 				started += command to at
 				Launched.Started("")
 			}
@@ -234,7 +234,7 @@ class TerminalsTest {
 			"Name=My Term\nExec=my-term\nCategories=TerminalEmulator;\nX-TerminalArgDir=--in=\nX-TerminalArgExec=--run",
 		)
 
-		val launcher = DetachedLauncher(xdg()) { _, _ -> Launched.Started("") }
+		val launcher = DetachedLauncher(xdg()) { _, _, _ -> Launched.Started("") }
 
 		fun opened(choice: TerminalChoice, command: List<String>? = null): Any =
 			when (val opening = launcher.terminalCommand(folder, choice, command)) {

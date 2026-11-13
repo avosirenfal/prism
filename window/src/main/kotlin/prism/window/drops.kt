@@ -62,10 +62,23 @@ sealed interface Dropped {
 	) : Dropped
 }
 
+/** What a drop makes of what is dropped: a copy of it, it moved, or a link to it. */
+enum class DropEffect {
+	Copy,
+	Move,
+	Link,
+}
+
 /** A place things can be dropped on. */
 interface DropTarget {
 	/** What is dragged over it now; null as it leaves, or the drag ends anywhere. */
 	fun hover(over: DragOver?)
+
+	/**
+	 * What a drop of [over] here would make of it; null where it would not be taken. What the pointer shows as a drag of
+	 * this process's own goes over the place, where the platform lets it say.
+	 */
+	fun effect(over: DragOver): DropEffect?
 
 	/** [dropped] let go on it; whether it took it. */
 	fun drop(dropped: Dropped): Boolean
@@ -141,14 +154,19 @@ internal class Drops {
 			}.minByOrNull { it.second }
 			?.first
 
-	/** A drag over the window at [position], carrying [drag]: the place under it told, and the one it left. */
-	fun hover(position: Offset, drag: DragOver) {
+	/**
+	 * A drag over the window at [position], carrying [drag]: the place under it told, and the one it left. What a drop
+	 * there would make of it; null where there is no place there, or it would not take it.
+	 */
+	fun hover(position: Offset, drag: DragOver): DropEffect? {
 		val now = at(position)
 
 		if (now !== over)
 			over?.target?.hover(null)
 		over = now
 		now?.target?.hover(drag)
+
+		return now?.target?.effect(drag)
 	}
 
 	/** The drag gone from the window, or ended, without a drop. */

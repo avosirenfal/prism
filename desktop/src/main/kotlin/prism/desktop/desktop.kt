@@ -41,15 +41,15 @@ interface Desktop {
 }
 
 /**
- * The desktop prism is running on: freedesktop.org's on Linux. Another platform's is its own implementation, and
- * until there is one, there is none to give.
+ * The desktop prism is running on: freedesktop.org's on Linux, which brings forward what it starts by [activation].
+ * Another platform's is its own implementation, and until there is one, there is none to give.
  */
-fun currentDesktop(): Desktop =
+fun currentDesktop(activation: Activation): Desktop =
 	when {
 		System
 			.getProperty(
 				"os.name",
-			).startsWith("Linux") -> prism.desktop.freedesktop.Freedesktop()
+			).startsWith("Linux") -> prism.desktop.freedesktop.Freedesktop(activation = activation)
 		else -> throw UnsupportedOperationException(
 			"prism has no desktop for ${System.getProperty("os.name")} yet",
 		)
@@ -130,6 +130,28 @@ interface Applications {
 	/** [application] made the default for [type], for this user. */
 	fun setDefault(type: MimeType, application: Application)
 }
+
+/**
+ * What brings forward the window of a program prism starts: a token the desktop makes from the user's last press of a
+ * key or a button in prism, which the program hands to the window it shows, or, where it is running already, to the
+ * window it has. A desktop does not bring forward a window that asks without one, since the user did not ask for it.
+ * A token is used once, so one is asked for each start.
+ */
+fun interface Activation {
+	/** A token for a start of the application [appId] (its desktop entry's name, where it is one); null where there is none. */
+	fun token(appId: String?): ActivationToken?
+
+	companion object {
+		/** No token: where nothing that prism starts is brought forward, as where it has no windows. */
+		val None = Activation { null }
+	}
+}
+
+/** A token for bringing forward the window of a program started: the desktop's own, passed on as it is. */
+@JvmInline
+value class ActivationToken(
+	val text: String,
+)
 
 /** What starting a process came to. */
 sealed interface Launched {
