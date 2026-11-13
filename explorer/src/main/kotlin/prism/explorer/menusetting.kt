@@ -14,6 +14,7 @@ import prism.browser.World
 import prism.browser.arranged
 import prism.browser.builtinsOf
 import prism.browser.defaultOf
+import prism.browser.inOrderOf
 import prism.browser.submenuId
 import prism.preferences.ActionSpec
 import prism.preferences.ActionsFile
@@ -40,9 +41,10 @@ import prism.browser.Placed as PlacedIn
  * for some (a .zip, an image); for a file of a name and a type ([Sample]), the actions offered for it. What it does not
  * show stays where it is, among the rest, whatever is moved around it.
  *
- * A line is kept where the user puts it, even where the menu would not draw it (first, last, or with no entry shown
- * between it and the one before), so that one added can be moved to where it is wanted; [drawnLines] says which the
- * menu draws. Two lines together are one.
+ * A line is kept where the user puts it, before or after an entry ([lined]). Two lines together are one.
+ *
+ * What differs from prism's own arrangement of a menu is said of each line and entry ([changesOf]), for the page to show
+ * what has been changed.
  */
 
 /** Where a menu the page arranges is: a kind of listing's, or the sidebar's. */
@@ -203,7 +205,8 @@ fun seenMenuOf(
 		} +
 			top.associate { it.id to actionEntry(it) } +
 			submenus.map { (label, under) ->
-				val within = under.map(::actionEntry)
+				// In the order the menu puts them in.
+				val within = under.map(::actionEntry).inOrderOf(order) { it.id }
 
 				submenuId(label) to
 					MenuLine.Entry(
@@ -239,14 +242,14 @@ fun seenMenuOf(
 fun placedOf(menu: SeenMenu): List<Placed> = placedOf(menu.all)
 
 private fun placedOf(lines: List<MenuLine>): List<Placed> =
-	merged(
-		lines.flatMap { line ->
-			when (line) {
-				is MenuLine.Line -> listOf(Placed.Separator)
-				is MenuLine.Entry -> listOf(line.slot) + line.within.map { it.slot }
-			}
-		},
-	)
+	merged(lines.flatMap(::placesOf))
+
+/** The places [line] takes in an arrangement: a line's, or an entry's and its items' after it. */
+private fun placesOf(line: MenuLine): List<Placed> =
+	when (line) {
+		is MenuLine.Line -> listOf(Placed.Separator)
+		is MenuLine.Entry -> listOf(line.slot) + line.within.map { it.slot }
+	}
 
 /** [menu], with [move] made among the lines it shows, those it does not show staying where they are. */
 fun moved(menu: SeenMenu, move: Moved): List<Placed> =
@@ -267,8 +270,59 @@ fun showing(menu: SeenMenu, id: String, show: Show): List<Placed> {
 	return placedOf(menu.all.map { if (it is MenuLine.Entry) shown(it) else it })
 }
 
-/** [menu] with a line added at the end, to be moved where it is wanted. */
-fun lined(menu: SeenMenu): List<Placed> = placedOf(menu) + Placed.Separator
+/** [menu], with [move] made among the items of the submenu [submenu] it shows, those it does not show staying put. */
+fun movedWithin(menu: SeenMenu, submenu: String, move: Moved): List<Placed> {
+	val shown =
+		menu.shown
+			.filterIsInstance<MenuLine.Entry>()
+			.firstOrNull {
+				it.id == submenu
+			}?.within
+			.orEmpty()
+
+	return placedOf(
+		menu.all.map { line ->
+			if (line is MenuLine.Entry && line.id == submenu)
+				line.copy(within = line.within.movedAmong(shown, MenuLine.Entry::id, move))
+			else
+				line
+		},
+	)
+}
+
+/** Which side of an entry, or of a line, another line is put on. */
+enum class Side {
+	Before,
+	After,
+}
+
+/**
+ * Whether a line put on [side] of the line or entry [at] (by its key) sets anything apart in [menu] as it is shown: an
+ * entry is there, on that side, for it to set apart; not a line already, nor the menu's end.
+ */
+fun linable(menu: SeenMenu, at: Any, side: Side): Boolean {
+	val place = menu.shown.indexOfFirst { it.key == at }
+
+	val beside =
+		menu.shown.getOrNull(
+			if (side == Side.Before)
+				place - 1
+			else
+				place + 1,
+		)
+
+	return place >= 0 && beside is MenuLine.Entry
+}
+
+/** [menu] with a line put on [side] of the line or entry [at] (by its key): an entry's items stay with it. */
+fun lined(menu: SeenMenu, at: Any, side: Side): List<Placed> {
+	val parts = menu.all.map(::placesOf)
+	val place = menu.all.indexOfFirst { it.key == at } + if (side == Side.After) 1 else 0
+
+	return merged(
+		(parts.take(place) + listOf(listOf(Placed.Separator)) + parts.drop(place)).flatten(),
+	)
+}
 
 /** [menu] without the line at [at]. */
 fun unlined(menu: SeenMenu, at: Int): List<Placed> =
@@ -279,37 +333,100 @@ fun unlined(menu: SeenMenu, at: Int): List<Placed> =
 		},
 	)
 
-/**
- * Which of [lines] (by [MenuLine.Line.at]) the menu draws, opened with [held] held, as a menu is built: a line after an
- * entry shown, where an entry is shown after it; of lines with none shown between them, the first.
- */
-fun drawnLines(lines: List<MenuLine>, held: Set<Held>): Set<Int> =
-	lines
-		.fold(Drawing()) { drawing, line ->
-			when (line) {
-				is MenuLine.Line ->
-					if (drawing.anyShown && drawing.waiting == null)
-						drawing.copy(waiting = line.at)
-					else
-						drawing
-				is MenuLine.Entry ->
-					if (line.shownWith(held))
-						Drawing(
-							drawing.drawn + listOfNotNull(drawing.waiting),
-							anyShown = true,
-							waiting = null,
-						)
-					else
-						drawing
-			}
-		}.drawn
+/** How a line or an entry of a menu differs from prism's own arrangement of it. */
+enum class Change(
+	val label: String,
+) {
+	/** A line prism's has not, there. */
+	Added("Added"),
 
-/** How far [drawnLines] has come: the lines drawn, whether an entry has been shown, and a line waiting for one to be. */
-private data class Drawing(
-	val drawn: Set<Int> = emptySet(),
-	val anyShown: Boolean = false,
-	val waiting: Int? = null,
-)
+	/** Out of the order prism's has it in. */
+	Moved("Moved"),
+
+	/** Shown with other keys, or never, or now always. */
+	Shown("Shown differently"),
+}
+
+/**
+ * How each line and entry of [menu] (by its key), a submenu's items among them, differs from [prisms], the same menu as
+ * prism arranges it; those that do not differ are not in it. What keeps prism's order is the most of them that can: of
+ * one entry dragged elsewhere, that one is moved, not each it passed.
+ */
+fun changesOf(menu: SeenMenu, prisms: SeenMenu): Map<Any, Set<Change>> {
+	fun entries(lines: List<MenuLine>) =
+		lines.filterIsInstance<MenuLine.Entry>().flatMap {
+			listOf(it) +
+				it.within
+		}
+
+	val shows = entries(prisms.all).associate { it.id to it.show }
+	val prismsWithin =
+		prisms.all.filterIsInstance<MenuLine.Entry>().associate {
+			it.id to
+				it.within.map { item -> item.id }
+		}
+
+	/** The changes of the [lines] of one list (the menu's, or a submenu's), as [theirs] has them in prism's. */
+	fun orderOf(lines: List<MenuLine>, theirs: List<Any>): List<Pair<Any, Change>> {
+		val tokens = lines.map { if (it is MenuLine.Line) LINE else it.key }
+		val kept = kept(tokens, theirs)
+
+		return lines.withIndex().filter { it.index !in kept }.map { (_, line) ->
+			line.key to
+				if (line is MenuLine.Entry && line.id in shows)
+					Change.Moved
+				else
+					Change.Added
+		}
+	}
+
+	val order =
+		orderOf(menu.all, prisms.all.map { if (it is MenuLine.Line) LINE else it.key }) +
+			menu.all.filterIsInstance<MenuLine.Entry>().flatMap { entry ->
+				orderOf(entry.within, prismsWithin[entry.id].orEmpty())
+			}
+
+	val shown =
+		entries(menu.all).filter { it.id in shows && shows[it.id] != it.show }.map {
+			it.key to
+				Change.Shown
+		}
+
+	return (order + shown)
+		.groupBy(
+			{ it.first },
+			{ it.second },
+		).mapValues { it.value.toSet() }
+}
+
+/** What a line is to [changesOf]: any line is any other, where it is. */
+private const val LINE = "-"
+
+/** The places in [these] of a longest run of them, in their order, that [those] has in the same order. */
+private fun <T> kept(these: List<T>, those: List<T>): Set<Int> {
+	// How long a run the rest of each has in common from each pair of places: worked out from the ends back.
+	val common = Array(these.size + 1) { IntArray(those.size + 1) }
+
+	for (i in these.indices.reversed())
+		for (j in those.indices.reversed())
+			common[i][j] =
+				if (these[i] ==
+					those[j]
+				)
+					common[i + 1][j + 1] + 1
+				else
+					maxOf(common[i + 1][j], common[i][j + 1])
+
+	tailrec fun walk(i: Int, j: Int, run: Set<Int>): Set<Int> =
+		when {
+			i == these.size || j == those.size -> run
+			these[i] == those[j] -> walk(i + 1, j + 1, run + i)
+			common[i + 1][j] >= common[i][j + 1] -> walk(i + 1, j, run)
+			else -> walk(i, j + 1, run)
+		}
+
+	return walk(0, 0, emptySet())
+}
 
 /** [show], with [key] held for it or not: shown with the keys held left, always where none is. */
 fun toggled(show: Show, key: Held): Show {

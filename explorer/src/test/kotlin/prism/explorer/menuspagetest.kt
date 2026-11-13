@@ -10,6 +10,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performMouseInput
+import androidx.compose.ui.test.rightClick
 import androidx.compose.ui.test.runComposeUiTest
 import java.nio.file.Path
 import kotlin.io.path.createDirectories
@@ -28,6 +29,7 @@ import prism.preferences.Held
 import prism.preferences.ListingKind
 import prism.preferences.MenuKey
 import prism.preferences.MenuOf
+import prism.preferences.MenuSpec
 import prism.preferences.Moved
 import prism.preferences.Placed
 import prism.preferences.Preferences
@@ -95,42 +97,98 @@ class MenusPageTest {
 		// Shift-only entries are not in the menu opened without it, and are with it.
 		assertFalse(entryOf(space, "builtin.refresh").shownWith(emptySet()))
 		assertTrue(entryOf(space, "builtin.refresh").shownWith(setOf(Held.Shift, Held.Ctrl)))
-		// Prism's own arrangement has no line first, last, or two together: each is drawn.
+		// Prism's own arrangement has no line first, last, or two together.
 		assertTrue(space.first() is MenuLine.Entry && space.last() is MenuLine.Entry)
-		assertEquals(
-			space.filterIsInstance<MenuLine.Line>().map { it.at }.toSet(),
-			drawnLines(space, setOf(Held.Shift)),
+		assertFalse(
+			space.zipWithNext().any { (a, b) ->
+				a is MenuLine.Line && b is MenuLine.Line
+			},
 		)
 	}
 
 	@Test
-	fun aLineAddedStaysWhereItIsPut_FaintUntilItIsBetweenEntries_AndTwoTogetherAreOne() {
+	fun aLineIsPutBeforeOrAfterAnEntry_WhereItSetsSomethingApart_AndTakenAwayAgain() {
+		val settings = Settings(Preferences.DEFAULT)
+		val prisms = menuOf(settings, fileMenu)
+		val copyPath = "builtin.copy-path"
+
+		// Rename and Copy path are together in prism's: a line can go between them, from either.
+		assertTrue(linable(prisms, copyPath, Side.Before))
+		assertTrue(linable(prisms, "builtin.rename", Side.After))
+
+		val before = arranged(settings, fileMenu, lined(prisms, copyPath, Side.Before))
+		val at = before.shown.indexOfFirst { it.key == copyPath }
+
+		assertTrue(before.shown[at - 1] is MenuLine.Line)
+		assertEquals("builtin.rename", before.shown[at - 2].key)
+		assertEquals(prisms.all.size + 1, before.all.size)
+		// Where a line is already, or nothing is, another sets nothing apart.
+		assertFalse(linable(before, copyPath, Side.Before))
+		assertFalse(linable(prisms, prisms.shown.last().key, Side.After))
+		assertFalse(linable(prisms, prisms.shown.first().key, Side.Before))
+
+		// Taken away, the menu is as it was.
+		val line = before.shown[at - 1] as MenuLine.Line
+
+		assertEquals(
+			placedOf(prisms),
+			placedOf(arranged(settings, fileMenu, unlined(before, line.at))),
+		)
+	}
+
+	@Test
+	fun aSubmenusItemsAreMovedAmongThemselves() {
+		val settings = Settings(Preferences.DEFAULT)
+		val prisms = menuOf(settings, fileMenu)
+		val compress = "submenu:Compress"
+		val items = entryOf(prisms.shown, compress).within.map { it.id }
+		val moved =
+			arranged(settings, fileMenu, movedWithin(prisms, compress, Moved(listOf(1, 2), 0)))
+
+		assertEquals(
+			listOf(items[1], items[2], items[0]) + items.drop(3),
+			entryOf(moved.shown, compress).within.map { it.id },
+		)
+		// The rest of the menu is as it was.
+		assertEquals(prisms.all.map { it.key }, moved.all.map { it.key })
+	}
+
+	@Test
+	fun whatDiffersFromPrismsArrangementIsSaid_OfEachLineAndEntry() {
 		val settings = Settings(Preferences.DEFAULT)
 		val prisms = menuOf(settings, fileMenu)
 
-		// Added, a line is last, where the menu does not draw it.
-		val added = arranged(settings, fileMenu, lined(prisms))
-		val last = added.shown.last() as MenuLine.Line
+		fun changes(placed: List<Placed>) =
+			changesOf(arranged(settings, fileMenu, placed), prisms)
 
-		assertEquals(prisms.all.size + 1, added.all.size)
-		assertFalse(last.at in drawnLines(added.shown, emptySet()))
+		assertEquals(emptyMap<Any, Set<Change>>(), changesOf(prisms, prisms))
 
-		// Moved under the first entry, it is drawn.
-		val moved =
-			arranged(settings, fileMenu, moved(added, Moved.of(added.shown.lastIndex, 1)))
-		val line = moved.shown[1] as MenuLine.Line
+		// One entry dragged to the top: it is moved, not each it passed.
+		val copyPath = prisms.shown.indexOfFirst { it.key == "builtin.copy-path" }
 
-		assertTrue(line.at in drawnLines(moved.shown, emptySet()))
-
-		// Moved next to another line, the two are one; taken away, the menu is as it was.
-		val other = moved.shown.indexOfFirst { it is MenuLine.Line && it != line }
-		val together = arranged(settings, fileMenu, moved(moved, Moved.of(1, other - 1)))
-
-		assertEquals(prisms.all.size, together.all.size)
 		assertEquals(
-			placedOf(prisms),
-			placedOf(arranged(settings, fileMenu, unlined(moved, line.at))),
+			mapOf("builtin.copy-path" to setOf(Change.Moved)),
+			changes(moved(prisms, Moved.of(copyPath, 0))),
 		)
+		// Shown otherwise; a submenu's item moved among its others.
+		assertEquals(
+			mapOf("builtin.cut" to setOf(Change.Shown)),
+			changes(showing(prisms, "builtin.cut", Show.With(setOf(Held.Alt)))),
+		)
+		assertEquals(
+			setOf("compress.7z"),
+			changes(movedWithin(prisms, "submenu:Compress", Moved.of(1, 0)))
+				.filterValues {
+					Change.Moved in
+						it
+				}.keys,
+		)
+
+		// A line put in is added.
+		val lined = changes(lined(prisms, "builtin.copy-path", Side.Before))
+
+		assertEquals(listOf(setOf(Change.Added)), lined.values.toList())
+		assertTrue(lined.keys.single() is MenuLine.Line)
 	}
 
 	@Test
@@ -309,7 +367,12 @@ class MenusPageTest {
 			)
 			onNodeWithText("Apply").assertIsEnabled()
 
-			// Put back as prism has it.
+			// Put back as prism has it, from the top of the page.
+			onNodeWithTag("menu-editor").performMouseInput {
+				moveTo(center)
+				scroll(-40f)
+			}
+			waitForIdle()
 			onNodeWithTag("reset-menu").performClick()
 			waitForIdle()
 			assertFalse(settings.menus.arrangesItself(spaceMenu))
@@ -333,6 +396,50 @@ class MenusPageTest {
 			assertEquals(MenuKey.Sidebar, settings.menuing)
 			onNodeWithTag("menu-of:Empty space").assertDoesNotExist()
 			onNodeWithTag("entry:builtin.unpin").assertExists()
+		}
+
+	@Test
+	fun anArrowFoldsASubmenu_ARightClickPutsALineBeside_AndEveryMenuIsResetTogether() =
+		runComposeUiTest {
+			var settings by mutableStateOf(Settings(Preferences.DEFAULT, page = Page.Menus))
+
+			setContent {
+				BrowserTheme {
+					SettingsView(settings, { settings = it }, onApply = {}, onClose = {}, world = world)
+				}
+			}
+
+			// Compress's arrow folds its items away, and shows them again.
+			onNodeWithTag("entry:compress.zip").assertExists()
+			onNodeWithTag("fold:submenu:Compress").performClick()
+			waitForIdle()
+			onNodeWithTag("entry:compress.zip").assertDoesNotExist()
+			onNodeWithTag("fold:submenu:Compress").performClick()
+			waitForIdle()
+			onNodeWithTag("entry:compress.zip").assertExists()
+			onNodeWithTag("fold:submenu:Compress").performClick()
+			waitForIdle()
+
+			// Right-clicked, Cut offers a line after it, between it and Copy; chosen, the line is there.
+			onNodeWithTag("entry:builtin.cut").performMouseInput { rightClick() }
+			waitForIdle()
+			onNodeWithTag("menu:Insert line after").performClick()
+			waitForIdle()
+
+			val placed = settings.menus.arrangementOf(fileMenu).orEmpty()
+			val cut = placed.indexOf(Placed.Slot("builtin.cut"))
+
+			assertEquals(
+				listOf(Placed.Separator, Placed.Slot("builtin.copy")),
+				placed.subList(cut + 1, cut + 3),
+			)
+			assertTrue(settings.menus.arrangesItself(fileMenu))
+
+			// Every menu put back as prism has it, with one press.
+			onNodeWithTag("reset-menus").performClick()
+			waitForIdle()
+			assertEquals(MenuSpec(), settings.menus)
+			onNodeWithTag("reset-menus").assertIsNotEnabled()
 		}
 
 	@Test
@@ -366,16 +473,31 @@ class MenusPageTest {
 	fun thePageIsDrawn() {
 		val base = Settings(reader, page = Page.Menus)
 		val epub = samplesOf(fileMenu, base.actions, base.specs).single { it.label == ".epub" }
-		val withLine = base.menus.arranging(fileMenu, lined(menuOf(base, fileMenu)))
 
-		for ((name, settings) in listOf(
-			"file" to base.copy(menus = withLine, seenFor = epub, holding = setOf(Held.Shift)),
-			"space" to base.copy(menuing = spaceMenu),
-			"results" to base.copy(menuing = MenuKey.Listing(ListingKind.Results, MenuOf.Several)),
+		val withLine =
+			base.menus.arranging(
+				fileMenu,
+				lined(menuOf(base, fileMenu), "builtin.copy-path", Side.Before),
+			)
+
+		// Each at a size to see it whole, and the file's too at the preferences window's own size, where it is narrow.
+		for ((name, settings, size) in listOf(
+			Triple(
+				"file",
+				base.copy(menus = withLine, seenFor = epub, holding = setOf(Held.Shift)),
+				1100 to 1300,
+			),
+			Triple("space", base.copy(menuing = spaceMenu), 1100 to 1300),
+			Triple(
+				"results",
+				base.copy(menuing = MenuKey.Listing(ListingKind.Results, MenuOf.Several)),
+				1100 to 1300,
+			),
+			Triple("narrow", base.copy(seenFor = epub), 980 to 680),
 		))
 			for ((tone, palette) in listOf("light" to Palette.Light, "dark" to Palette.Dark)) {
 				val png =
-					renderedPng(1100, 1300, palette, scale = 2f) {
+					renderedPng(size.first, size.second, palette, scale = 2f) {
 						SettingsView(settings, {}, onApply = {}, onClose = {}, world = world)
 					}
 

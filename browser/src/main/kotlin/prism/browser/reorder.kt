@@ -49,6 +49,18 @@ enum class Moving {
 	Several,
 }
 
+/**
+ * What an entry of a [ReorderableColumn] is drawn with: [handle] for the part of it held to drag it; [entry] for the part
+ * a Shift and a click choose it by, which is the whole of it but for anything nested in it that is chosen apart (a
+ * submenu's items, in a list of their own); and whether it is [lit], chosen or being dragged.
+ */
+@Immutable
+class Grip internal constructor(
+	val handle: Modifier,
+	val entry: Modifier,
+	val lit: Boolean,
+)
+
 /** The entries being dragged (their places, in order), and the one of them held. */
 @Immutable
 private data class Lifted(
@@ -57,12 +69,12 @@ private data class Lifted(
 )
 
 /**
- * [items] one under another, each drawn by [content], that the pointer reorders: an entry held by its handle (the
- * modifier [content] is given, for whatever part of it is held) is dragged, and [onMove] told what was moved where once
- * it is let go; as [moving] says, with any others chosen by Shift and a click. An entry [movable] says is not has no
- * handle, and is not chosen. What is shown is [items] as they are: the order changes only as the caller's does. In a
- * card, [divided] sets a line between each two entries, as a card's rows have, which moves with the entry under it.
- * [content] is told whether its entry is lit: chosen, or being dragged.
+ * [items] one under another, each drawn by [content], that the pointer reorders: an entry held by its handle (its
+ * [Grip]'s, for whatever part of it is held) is dragged, and [onMove] told what was moved where once it is let go; as
+ * [moving] says, with any others chosen by Shift and a click on the part of it its grip's [Grip.entry] is on. An entry
+ * [movable] says is not has no handle, and is not chosen. What is shown is [items] as they are: the order changes only
+ * as the caller's does. In a card, [divided] sets a line between each two entries, as a card's rows have, which moves
+ * with the entry under it.
  */
 @Composable
 fun <T> ReorderableColumn(
@@ -73,7 +85,7 @@ fun <T> ReorderableColumn(
 	modifier: Modifier = Modifier,
 	movable: (T) -> Boolean = { true },
 	divided: Boolean = false,
-	content: @Composable (item: T, handle: Modifier, lit: Boolean) -> Unit,
+	content: @Composable (item: T, grip: Grip) -> Unit,
 ) {
 	var lifted by remember { mutableStateOf<Lifted?>(null) }
 	// How far the pointer has dragged what is lifted: read only where it is drawn, so a drag only redraws.
@@ -196,25 +208,26 @@ fun <T> ReorderableColumn(
 							drawContent()
 							if (divided && index > 0 && !up)
 								drawLine(divider, Offset.Zero, Offset(size.width, 0f), 1.dp.toPx())
-						}.then(
-							if (moving == Moving.Several)
-								Modifier
-									.semantics { selected = isChosen }
-									.pointerInput(itsKey, movable(item)) {
-										choosing(movable(item)) { shift ->
-											chosen =
-												when {
-													!shift -> emptySet()
-													itsKey in chosen -> chosen - itsKey
-													else -> chosen + itsKey
-												}
-										}
-									}
-							else
-								Modifier,
-						),
+						},
 				) {
-					content(item, handle, up || isChosen)
+					val entry =
+						if (moving == Moving.Several)
+							Modifier
+								.semantics { selected = isChosen }
+								.pointerInput(itsKey, movable(item)) {
+									choosing(movable(item)) { shift ->
+										chosen =
+											when {
+												!shift -> emptySet()
+												itsKey in chosen -> chosen - itsKey
+												else -> chosen + itsKey
+											}
+									}
+								}
+						else
+							Modifier
+
+					content(item, Grip(handle, entry, up || isChosen))
 				}
 			}
 		}

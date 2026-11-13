@@ -298,7 +298,7 @@ line; the menu draws none first, last, or two together, nor one between groups i
 What a list does not name goes where prism would put it: after the nearest entry before it in prism's own arrangement
 that the list does name. So an action added later turns up next to its neighbours, and an arrangement written before a
 new entry of prism's still has it. An item of a submenu is placed after the submenu, by its own id, for when it shows;
-its order in the submenu is the actions'. A listing's menu that is not arranged is arranged as the same menu of a folder
+and its order among the submenu's others is the arrangement's (as the actions are written, where it names them not). A listing's menu that is not arranged is arranged as the same menu of a folder
 is (`results/file` as `folder/file`), so a folder's arrangement is everyone's until one is given its own.
 
 Unless arranged otherwise, prism shows a few entries only with Shift held: Pin to sidebar, Unpin from sidebar, Show

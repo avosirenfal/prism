@@ -3,9 +3,11 @@ package prism.explorer
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -13,29 +15,43 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
-import prism.browser.Act
-import prism.browser.ButtonRow
 import prism.browser.ComboBox
+import prism.browser.ContextMenuHost
+import prism.browser.ContextMenus
+import prism.browser.Emphasis
 import prism.browser.Glyph
 import prism.browser.GlyphIcon
+import prism.browser.Grip
 import prism.browser.LocalPalette
 import prism.browser.LocalType
 import prism.browser.LocalTypes
+import prism.browser.Menu
 import prism.browser.Moving
 import prism.browser.OptionGroup
+import prism.browser.PushButton
 import prism.browser.Radius
 import prism.browser.ReorderableColumn
 import prism.browser.ScrollArea
@@ -43,13 +59,18 @@ import prism.browser.Section
 import prism.browser.Segmented
 import prism.browser.Space
 import prism.browser.Switch
+import prism.browser.Tip
 import prism.browser.Toggles
 import prism.browser.ToolButton
 import prism.browser.World
+import prism.browser.contextMenu
+import prism.browser.menu
+import prism.browser.rememberContextMenus
 import prism.preferences.Held
 import prism.preferences.ListingKind
 import prism.preferences.MenuKey
 import prism.preferences.MenuOf
+import prism.preferences.MenuSpec
 import prism.preferences.Moved
 import prism.preferences.Placed
 import prism.preferences.Show
@@ -117,16 +138,25 @@ internal fun MenusPage(settings: Settings, world: World, onChange: (Settings) ->
 			ScrollArea(Modifier.weight(1f).fillMaxHeight(), remember(key) { ScrollState(0) }) {
 				Column(verticalArrangement = Arrangement.spacedBy(Space.xl)) {
 					Column(verticalArrangement = Arrangement.spacedBy(Space.m)) {
-						Text(
-							labelOf(place),
-							style = type.title,
-							maxLines = 1,
-							overflow = TextOverflow.Ellipsis,
-						)
+						Row(
+							verticalAlignment = Alignment.CenterVertically,
+							horizontalArrangement = Arrangement.spacedBy(Space.s),
+						) {
+							Text(
+								labelOf(place),
+								style = type.title,
+								maxLines = 1,
+								overflow = TextOverflow.Ellipsis,
+								modifier = Modifier.weight(1f),
+							)
+							Resets(settings, onChange)
+						}
+						// Where the page is too narrow for both, what the menu is opened on goes under its label.
 						if (place is MenuPlace.Of)
-							Row(
-								verticalAlignment = Alignment.CenterVertically,
+							FlowRow(
 								horizontalArrangement = Arrangement.spacedBy(Space.m),
+								verticalArrangement = Arrangement.spacedBy(Space.s),
+								itemVerticalAlignment = Alignment.CenterVertically,
 							) {
 								Text("Opened on", style = type.muted)
 								Segmented(MenuOf.entries, of, { it.label }, tag = "menu-of") {
@@ -137,6 +167,51 @@ internal fun MenusPage(settings: Settings, world: World, onChange: (Settings) ->
 					MenuSection(settings, world, onChange)
 				}
 			}
+		}
+	}
+}
+
+/**
+ * What puts prism's arrangement back: of the menu chosen, where it has its own; and of every menu, with every entry
+ * hidden. Each says, as the pointer rests on it, what it forgets; neither is kept until applied.
+ */
+@Composable
+private fun Resets(settings: Settings, onChange: (Settings) -> Unit) {
+	val key = settings.menuing
+	val menus = settings.menus
+	val itself = menus.arrangesItself(key)
+	val follows = key is MenuKey.Listing && key.kind != ListingKind.Folder
+
+	Tip(
+		when {
+			itself ->
+				"Forget this menu's own arrangement, and arrange it as prism does: its " +
+					"order, its lines, and when each entry shows."
+			follows ->
+				"This menu is arranged as a folder's: it has nothing of its own to forget."
+			else -> "This menu is arranged as prism arranges it already."
+		},
+	) {
+		PushButton(
+			"Reset menu",
+			Emphasis.Secondary,
+			enabled = itself,
+			Modifier.testTag("reset-menu"),
+		) {
+			onChange(settings.copy(menus = menus.arranging(key, null)))
+		}
+	}
+	Tip(
+		"Forget how every context menu is arranged, and every entry hidden: each as " +
+			"prism arranges it.",
+	) {
+		PushButton(
+			"Reset all menus",
+			Emphasis.Secondary,
+			enabled = menus != MenuSpec(),
+			Modifier.testTag("reset-menus"),
+		) {
+			onChange(settings.copy(menus = MenuSpec()))
 		}
 	}
 }
@@ -152,27 +227,55 @@ private fun MenuSection(settings: Settings, world: World, onChange: (Settings) -
 			seenMenuOf(key, menus, settings.actions, settings.specs, settings.seenFor, world)
 		}
 
+	// The same menu as prism arranges it, for what differs from it to be shown.
+	val changes =
+		remember(menu, settings.actions, settings.seenFor, world) {
+			changesOf(
+				menu,
+				seenMenuOf(
+					key,
+					MenuSpec(menus.hidden),
+					settings.actions,
+					settings.specs,
+					settings.seenFor,
+					world,
+				),
+			)
+		}
+
 	val samples =
 		remember(key, settings.actions) { samplesOf(key, settings.actions, settings.specs) }
 	// A listing's menu other than a folder's is arranged as a folder's is, until it is arranged itself.
 	val follows = (key as? MenuKey.Listing)?.kind?.takeIf { it != ListingKind.Folder }
 	val itself = menus.arrangesItself(key)
 	val following =
-		if (follows != null && !itself)
-			" Until it has its own arrangement, this menu is arranged as a folder's."
+		if (follows != null &&
+			!itself
+		)
+			" Until it has its own arrangement, it is arranged as a folder's."
 		else
 			""
+	val editing = rememberContextMenus<Edit>()
 
 	fun arranged(placed: List<Placed>) =
 		onChange(settings.copy(menus = menus.arranging(key, placed)))
+
+	fun edited(edit: Edit) =
+		arranged(
+			when (edit) {
+				is Edit.Line -> lined(menu, edit.at, edit.side)
+				is Edit.Unline -> unlined(menu, edit.at)
+			},
+		)
 
 	Section(
 		"Entries",
 		description =
 			"Drag an entry by its grip to move it, or several chosen by Shift and a " +
-				"click together. A lit key keeps an entry for when that key is held as the " +
-				"menu opens; switched off, it never shows. Faint entries wait for keys not " +
-				"held here." + following,
+				"click together; right-click one to put a line before or after it. A lit " +
+				"key keeps an entry for when that key is held as the menu opens; switched " +
+				"off, it never shows. Faint entries wait for keys not held here; tinted " +
+				"ones differ from prism's own arrangement." + following,
 		trailing =
 			follows?.let {
 				{
@@ -193,35 +296,40 @@ private fun MenuSection(settings: Settings, world: World, onChange: (Settings) -
 		Column(verticalArrangement = Arrangement.spacedBy(Space.m)) {
 			Seeing(settings, samples, onChange)
 			MenuEditor(
-				menu.shown,
+				seen = menu,
+				changes,
 				settings,
+				editing,
 				onMove = { arranged(moved(menu, it)) },
+				onMoveWithin = { submenu, move -> arranged(movedWithin(menu, submenu, move)) },
 				onShow = { id, show -> arranged(showing(menu, id, show)) },
-				onUnline = { arranged(unlined(menu, it)) },
+				onEdit = ::edited,
 			)
 			if (menu.unshown > 0)
 				Text(
 					if (settings.seenFor == null)
-						"${menu.unshown} more are only for particular kinds of file: choose one in " +
-							"Seen for to arrange them."
+						"${menu.unshown} more are only for particular kinds of file: " +
+							"choose one in Seen for to arrange them."
 					else
 						"${menu.unshown} more are for other kinds of file.",
 					style = type.muted,
 					modifier = Modifier.widthIn(max = MENU_WIDTH).testTag("unshown"),
 				)
-			ButtonRow(
-				null,
-				Modifier.widthIn(max = MENU_WIDTH),
-				aside =
-					listOf(
-						Act("Add a line", "add-line") { arranged(lined(menu)) },
-						Act("Put prism's back", "reset-menu", enabled = itself) {
-							onChange(settings.copy(menus = menus.arranging(key, null)))
-						},
-					),
-			)
 		}
 	}
+	ContextMenuHost(editing, ::edited)
+}
+
+/** What a right-click on the menu being arranged offers: a line put beside what was clicked, or one taken away. */
+private sealed interface Edit {
+	data class Line(
+		val at: Any,
+		val side: Side,
+	) : Edit
+
+	data class Unline(
+		val at: Int,
+	) : Edit
 }
 
 /** How the menu is seen: for a file of a type the user's actions are for, and with keys held as it opens. */
@@ -233,36 +341,46 @@ private fun Seeing(
 ) {
 	val type = LocalType.current
 
-	Row(
+	// The keys go under the file seen for where the page is too narrow for both.
+	FlowRow(
 		Modifier.widthIn(max = MENU_WIDTH).fillMaxWidth(),
-		verticalAlignment = Alignment.CenterVertically,
-		horizontalArrangement = Arrangement.spacedBy(Space.s),
+		horizontalArrangement = Arrangement.SpaceBetween,
+		verticalArrangement = Arrangement.spacedBy(Space.s),
+		itemVerticalAlignment = Alignment.CenterVertically,
 	) {
-		if (samples.isNotEmpty()) {
-			Text("Seen for", style = type.muted)
-			ComboBox(
-				listOf(OptionGroup(listOf<Sample?>(null)), OptionGroup(samples)),
-				settings.seenFor,
-				{ it?.label ?: "All files" },
-				Modifier.width(200.dp),
-				tag = "seen-for",
-				hint = "An extension or a type",
-			) { onChange(settings.copy(seenFor = it)) }
-		}
-		Spacer(Modifier.weight(1f))
-		Text("Keys held", style = type.muted)
-		Toggles(Held.entries, settings.holding, { it.label }, tag = "holding") { held ->
-			onChange(
-				settings.copy(
-					holding =
-						if (held in
-							settings.holding
-						)
-							settings.holding - held
-						else
-							settings.holding + held,
-				),
-			)
+		if (samples.isNotEmpty())
+			Row(
+				verticalAlignment = Alignment.CenterVertically,
+				horizontalArrangement = Arrangement.spacedBy(Space.s),
+			) {
+				Text("Seen for", style = type.muted)
+				ComboBox(
+					listOf(OptionGroup(listOf<Sample?>(null)), OptionGroup(samples)),
+					settings.seenFor,
+					{ it?.label ?: "All files" },
+					Modifier.width(200.dp),
+					tag = "seen-for",
+					hint = "An extension or a type",
+				) { onChange(settings.copy(seenFor = it)) }
+			}
+		Row(
+			verticalAlignment = Alignment.CenterVertically,
+			horizontalArrangement = Arrangement.spacedBy(Space.s),
+		) {
+			Text("Keys held", style = type.muted)
+			Toggles(Held.entries, settings.holding, { it.label }, tag = "holding") { held ->
+				onChange(
+					settings.copy(
+						holding =
+							if (held in
+								settings.holding
+							)
+								settings.holding - held
+							else
+								settings.holding + held,
+					),
+				)
+			}
 		}
 	}
 }
@@ -270,23 +388,50 @@ private fun Seeing(
 /** The widest the menu is drawn: a menu's width and the room its controls take, not the page's whole width. */
 private val MENU_WIDTH = 680.dp
 
+/** How far a submenu's items are drawn in from its own row. */
+private val NESTED = 28.dp
+
 /**
- * [lines] drawn as a menu is, on a menu's surface, what each says in a menu's type: each entry in its place, faint where
- * the menu as [settings] see it would not show it for the keys held, its keys and its switch at its end; a submenu with
- * its items under it. Several are chosen by Shift and a click, and dragged together.
+ * [seen] drawn as a menu is, on a menu's surface, what each says in a menu's type: each entry in its place, faint where
+ * the menu as [settings] see it would not show it for the keys held, tinted where it differs from prism's arrangement
+ * ([changes]), its keys and its switch at its end; a submenu with its items under it, folded away by its arrow. Several
+ * are chosen by Shift and a click, and dragged together; a submenu's items among themselves.
  */
 @Composable
 private fun MenuEditor(
-	lines: List<MenuLine>,
+	seen: SeenMenu,
+	changes: Map<Any, Set<Change>>,
 	settings: Settings,
+	editing: ContextMenus<Edit>,
 	onMove: (Moved) -> Unit,
+	onMoveWithin: (submenu: String, Moved) -> Unit,
 	onShow: (id: String, show: Show) -> Unit,
-	onUnline: (at: Int) -> Unit,
+	onEdit: (Edit) -> Unit,
 ) {
 	val palette = LocalPalette.current
 	val shape = RoundedCornerShape(Radius.large)
 	val held = settings.holding
-	val drawn = drawnLines(lines, held)
+	var folded by remember(settings.menuing) { mutableStateOf(emptySet<String>()) }
+
+	/** What a right-click on [line] offers: a line on either side, where it would set something apart; or, on a line, its going. */
+	fun offered(line: MenuLine): Menu<Edit> =
+		menu {
+			when (line) {
+				is MenuLine.Line -> item("Remove line", Edit.Unline(line.at))
+				is MenuLine.Entry -> {
+					item(
+						"Insert line before",
+						Edit.Line(line.key, Side.Before),
+						enabled = linable(seen, line.key, Side.Before),
+					)
+					item(
+						"Insert line after",
+						Edit.Line(line.key, Side.After),
+						enabled = linable(seen, line.key, Side.After),
+					)
+				}
+			}
+		}
 
 	Box(
 		Modifier
@@ -299,28 +444,55 @@ private fun MenuEditor(
 			.testTag("menu-editor"),
 	) {
 		ReorderableColumn(
-			lines,
+			seen.shown,
 			key = MenuLine::key,
 			moving = Moving.Several,
 			onMove = onMove,
-		) { line, handle, lit ->
-			Column(
-				Modifier
-					.fillMaxWidth()
-					.background(
-						if (lit) palette.chosen else Color.Transparent,
-						RoundedCornerShape(Radius.medium),
-					),
-			) {
-				when (line) {
-					is MenuLine.Line -> LineRow(line, line.at in drawn, handle) { onUnline(line.at) }
-					is MenuLine.Entry -> {
-						val shown = line.shownWith(held)
+		) { line, grip ->
+			val right = Modifier.contextMenu(editing) { offered(line) }
 
-						EntryRow(line, handle, shown, nested = false) { onShow(line.id, it) }
-						for (item in line.within)
-							EntryRow(item, Modifier, shown && item.shownWith(held), nested = true) {
-								onShow(item.id, it)
+			when (line) {
+				is MenuLine.Line ->
+					LineRow(line, grip, right, changes[line.key].orEmpty()) {
+						onEdit(Edit.Unline(line.at))
+					}
+				is MenuLine.Entry -> {
+					val shown = line.shownWith(held)
+					val open = line.id !in folded
+
+					Column(Modifier.fillMaxWidth()) {
+						EntryRow(
+							line,
+							grip,
+							right,
+							shown,
+							changes[line.key].orEmpty(),
+							nested = false,
+							fold =
+								Fold.of(line, open) {
+									folded =
+										if (open)
+											folded + line.id
+										else
+											folded - line.id
+								},
+						) { onShow(line.id, it) }
+						if (open && line.within.isNotEmpty())
+							ReorderableColumn(
+								line.within,
+								key = MenuLine.Entry::id,
+								moving = Moving.Several,
+								onMove = { onMoveWithin(line.id, it) },
+							) { item, itemGrip ->
+								EntryRow(
+									item,
+									itemGrip,
+									Modifier,
+									shown && item.shownWith(held),
+									changes[item.key].orEmpty(),
+									nested = true,
+									fold = null,
+								) { onShow(item.id, it) }
 							}
 					}
 				}
@@ -329,12 +501,43 @@ private fun MenuEditor(
 	}
 }
 
-/** A line between groups: its grip, the line, faint where the menu would not draw it, and what takes it away. */
+/** A submenu's arrow: whether its items are [open], and what folds or unfolds them. */
+private class Fold(
+	val open: Boolean,
+	val toggle: () -> Unit,
+) {
+	companion object {
+		/** [entry]'s arrow, where it is a submenu: none for anything else. */
+		fun of(entry: MenuLine.Entry, open: Boolean, toggle: () -> Unit): Fold? =
+			Fold(open, toggle).takeIf { entry.kind == EntryKind.Submenu }
+	}
+}
+
+/**
+ * The background of a row: lit where it is chosen or dragged, tinted where it differs from prism's arrangement, with a
+ * mark at its start; nothing otherwise.
+ */
+@Composable
+private fun Modifier.rowed(lit: Boolean, changed: Boolean): Modifier {
+	val palette = LocalPalette.current
+	val shape = RoundedCornerShape(Radius.medium)
+
+	return when {
+		lit -> background(palette.chosen, shape)
+		changed ->
+			background(palette.accent.copy(alpha = 0.10f), shape)
+				.drawBehind { drawRect(palette.accent, size = Size(3.dp.toPx(), size.height)) }
+		else -> this
+	}
+}
+
+/** A line between groups: its grip, the line, and what takes it away; tinted where prism's has none there. */
 @Composable
 private fun LineRow(
 	line: MenuLine.Line,
-	drawn: Boolean,
-	handle: Modifier,
+	grip: Grip,
+	right: Modifier,
+	changes: Set<Change>,
 	onRemove: () -> Unit,
 ) {
 	val palette = LocalPalette.current
@@ -343,6 +546,9 @@ private fun LineRow(
 	Row(
 		Modifier
 			.fillMaxWidth()
+			.then(grip.entry)
+			.then(right)
+			.rowed(grip.lit, changes.isNotEmpty())
 			.testTag("line:${line.at}")
 			.padding(horizontal = Space.s),
 		verticalAlignment = Alignment.CenterVertically,
@@ -352,19 +558,10 @@ private fun LineRow(
 			Glyph.Grip,
 			palette.textFaint,
 			type.icon,
-			handle.testTag("grip:line:${line.at}"),
+			grip.handle.testTag("grip:line:${line.at}"),
 		)
-		Box(
-			Modifier
-				.weight(1f)
-				.height(1.dp)
-				.background(
-					if (drawn)
-						palette.borderStrong
-					else
-						palette.divider,
-				),
-		)
+		// Every line drawn alike: whether the menu draws it is the entries' to say, faint or not.
+		Box(Modifier.weight(1f).height(1.dp).background(palette.borderStrong))
 		ToolButton(
 			Glyph.Close,
 			"Take this line away",
@@ -378,15 +575,19 @@ private fun LineRow(
 }
 
 /**
- * An entry: its grip (none for a submenu's item, which moves with its submenu), what it says, faint where the menu as
- * seen would not show it ([shown]), and what it is for where it is not for everything; then its keys and its switch.
+ * An entry: its grip, what it says in a menu's type (faint where the menu as seen would not show it, [shown]), a
+ * submenu's arrow that folds its items away ([fold]), what it is for where that is not everything, and how it differs
+ * from prism's arrangement; then its keys and its switch. A submenu's item ([nested]) is drawn in from the submenu.
  */
 @Composable
 private fun EntryRow(
 	entry: MenuLine.Entry,
-	handle: Modifier,
+	grip: Grip,
+	right: Modifier,
 	shown: Boolean,
+	changes: Set<Change>,
 	nested: Boolean,
+	fold: Fold?,
 	onShow: (Show) -> Unit,
 ) {
 	val palette = LocalPalette.current
@@ -397,21 +598,22 @@ private fun EntryRow(
 	Row(
 		Modifier
 			.fillMaxWidth()
+			.padding(start = if (nested) NESTED else 0.dp)
+			.then(grip.entry)
+			.then(right)
+			.rowed(grip.lit, changes.isNotEmpty())
 			.heightIn(min = menu.row)
 			.testTag("entry:${entry.id}")
-			.padding(
-				start =
-					if (nested)
-						type.icon + Space.l
-					else
-						Space.s,
-				end = Space.xs,
-			),
+			.padding(start = Space.s, end = Space.xs),
 		verticalAlignment = Alignment.CenterVertically,
 		horizontalArrangement = Arrangement.spacedBy(Space.s),
 	) {
-		if (!nested)
-			GlyphIcon(Glyph.Grip, palette.textFaint, type.icon, handle.testTag("grip:${entry.id}"))
+		GlyphIcon(
+			Glyph.Grip,
+			palette.textFaint,
+			type.icon,
+			grip.handle.testTag("grip:${entry.id}"),
+		)
 		Column(Modifier.weight(1f).padding(vertical = Space.xs)) {
 			Row(
 				verticalAlignment = Alignment.CenterVertically,
@@ -423,24 +625,22 @@ private fun EntryRow(
 					maxLines = 1,
 					overflow = TextOverflow.Ellipsis,
 				)
-				if (entry.kind == EntryKind.Submenu)
-					GlyphIcon(
-						Glyph.Chevron,
-						if (shown)
-							palette.textMuted
-						else
-							palette.textFaint,
-						menu.icon * 0.8f,
-					)
+				fold?.let { Arrow(entry, it, shown) }
 			}
-			entry.note?.let {
+			if (entry.note != null || changes.isNotEmpty())
 				Text(
-					it,
+					buildAnnotatedString {
+						entry.note?.let { append(it) }
+						changes.sortedBy { it.ordinal }.forEachIndexed { at, change ->
+							if (at > 0 || entry.note != null)
+								append(" · ")
+							withStyle(SpanStyle(color = palette.accentText)) { append(change.label) }
+						}
+					},
 					style = type.muted.copy(color = palette.textFaint),
 					maxLines = 1,
 					overflow = TextOverflow.Ellipsis,
 				)
-			}
 		}
 		Toggles(
 			Held.entries,
@@ -451,6 +651,41 @@ private fun EntryRow(
 		) { onShow(toggled(entry.show, it)) }
 		Switch(entry.show != Show.Never, Modifier.testTag("shown:${entry.id}")) { on ->
 			onShow(if (on) Show.Always else Show.Never)
+		}
+	}
+}
+
+/** A submenu's arrow, beside its name: pointing down while its items are shown, aside while they are folded away. */
+@Composable
+private fun Arrow(entry: MenuLine.Entry, fold: Fold, shown: Boolean) {
+	val palette = LocalPalette.current
+	val menu = LocalTypes.current.menus
+	val label =
+		if (fold.open)
+			"Fold its items away"
+		else
+			"Show its items"
+
+	Tip(label) {
+		Box(
+			Modifier
+				.size(menu.icon)
+				.clip(RoundedCornerShape(Radius.small))
+				.clickable(onClickLabel = label, onClick = fold.toggle)
+				.testTag("fold:${entry.id}"),
+			contentAlignment = Alignment.Center,
+		) {
+			GlyphIcon(
+				if (fold.open)
+					Glyph.ChevronDown
+				else
+					Glyph.Chevron,
+				if (shown)
+					palette.textMuted
+				else
+					palette.textFaint,
+				menu.icon * 0.8f,
+			)
 		}
 	}
 }

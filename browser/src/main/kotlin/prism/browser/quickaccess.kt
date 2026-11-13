@@ -105,7 +105,7 @@ internal fun QuickAccessLayer(sidebar: Sidebar, onEvent: (BrowserEvent) -> Unit)
 						moving = Moving.Several,
 						onMove = { arranged(quick.moved(it)) },
 						divided = true,
-					) { entry, handle, lit ->
+					) { entry, grip ->
 						val index = entries.indexOf(entry)
 
 						EntryLine(
@@ -114,8 +114,7 @@ internal fun QuickAccessLayer(sidebar: Sidebar, onEvent: (BrowserEvent) -> Unit)
 							sidebar.known[Builtin.Home]?.path,
 							index,
 							last = entries.lastIndex,
-							handle = handle,
-							lit = lit,
+							grip,
 							onShown = { shown -> entry.builtin?.let { arranged(quick.showing(it, shown)) } },
 							onMoved = { by -> arranged(quick.moved(index, by)) },
 							onRemoved = { (entry.item?.path)?.let { arranged(quick.unpinning(it)) } },
@@ -167,8 +166,7 @@ private fun EntryLine(
 	home: Path?,
 	index: Int,
 	last: Int,
-	handle: Modifier,
-	lit: Boolean,
+	grip: Grip,
 	onShown: (Boolean) -> Unit,
 	onMoved: (Int) -> Unit,
 	onRemoved: () -> Unit,
@@ -180,13 +178,14 @@ private fun EntryLine(
 	Row(
 		Modifier
 			.fillMaxWidth()
-			.background(if (lit) palette.chosen else palette.raised)
+			.then(grip.entry)
+			.background(if (grip.lit) palette.chosen else palette.raised)
 			.testTag("quick:$label")
 			.padding(horizontal = Space.m, vertical = Space.s),
 		verticalAlignment = Alignment.CenterVertically,
 		horizontalArrangement = Arrangement.spacedBy(Space.s),
 	) {
-		GlyphIcon(Glyph.Grip, palette.textFaint, type.icon, handle.testTag("grip:$label"))
+		GlyphIcon(Glyph.Grip, palette.textFaint, type.icon, grip.handle.testTag("grip:$label"))
 		Box(Modifier.width(type.icon), contentAlignment = Alignment.Center) {
 			if (builtin != null)
 				CheckBox("", entry.shown, Modifier.testTag("shown:$label"), onChange = onShown)

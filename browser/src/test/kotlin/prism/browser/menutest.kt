@@ -374,6 +374,34 @@ class MenuTest {
 	}
 
 	@Test
+	fun aSubmenusItemsAreInTheArrangementsOrder() {
+		val key = MenuKey.Listing(ListingKind.Folder, MenuOf.Space)
+
+		val state =
+			arrangedExplorer(
+				MenuSpec().arranging(
+					key,
+					listOf(
+						Placed.Slot(submenuId("Share")),
+						Placed.Slot("share.phone"),
+						Placed.Slot("share.web"),
+					),
+				),
+			)
+
+		// The actions are written web first; arranged, the phone is.
+		assertEquals(
+			listOf("To the phone", "To the web"),
+			contextMenuOf(state, Target.Folder).submenu("Share").labels(),
+		)
+		// Not arranged, they are as written.
+		assertEquals(
+			listOf("To the web", "To the phone"),
+			contextMenuOf(arrangedExplorer(MenuSpec()), Target.Folder).submenu("Share").labels(),
+		)
+	}
+
+	@Test
 	fun eachMenuIsArrangedItself_AFilesNotAFolders() {
 		val files = MenuKey.Listing(ListingKind.Folder, MenuOf.File)
 

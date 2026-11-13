@@ -43,22 +43,37 @@ class ReorderTest {
 		setContent {
 			BrowserTheme {
 				Box(Modifier.width(300.dp).focusable().testTag("list")) {
-					ReorderableColumn(letters.order, {
-						it
-					}, moving, onMove = letters::move) { letter, handle, lit ->
-						Row(Modifier.fillMaxWidth().height(40.dp).testTag("row:$letter")) {
-							Box(handle.width(40.dp).height(40.dp).testTag("grip:$letter"))
+					ReorderableColumn(
+						letters.order,
+						{ it },
+						moving,
+						onMove = letters::move,
+					) { letter, grip ->
+						Row(
+							Modifier
+								.fillMaxWidth()
+								.then(grip.entry)
+								.height(40.dp)
+								.testTag("row:$letter"),
+						) {
+							Box(
+								grip.handle
+									.width(40.dp)
+									.height(40.dp)
+									.testTag("grip:$letter"),
+							)
 							Text(
-								if (lit)
+								if (grip.lit)
 									"$letter lit"
 								else
 									letter,
 							)
 							Box(
-								Modifier.width(40.dp).height(40.dp).testTag("button:$letter").clickable {
-									letters.pressed +=
-										letter
-								},
+								Modifier
+									.width(40.dp)
+									.height(40.dp)
+									.testTag("button:$letter")
+									.clickable { letters.pressed += letter },
 							)
 						}
 					}

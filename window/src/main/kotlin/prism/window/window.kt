@@ -28,8 +28,10 @@ import androidx.compose.ui.platform.FrameRecomposer
 import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.PlatformContext
 import androidx.compose.ui.platform.WindowInfo
+import androidx.compose.ui.platform.registerSkikoComposeImplementation
 import androidx.compose.ui.scene.CanvasLayersComposeScene
 import androidx.compose.ui.scene.ComposeScene
+import androidx.compose.ui.semantics.SemanticsOwner
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.IntOffset
@@ -168,9 +170,29 @@ class NativeWindow internal constructor(
 			override val containerSize: IntSize get() = pixelSize
 		}
 
+	/** The window's layout trees, as Compose makes and disposes of them: read only to say what a failed frame was laying out. */
+	private val owners = LinkedHashSet<SemanticsOwner>()
+
+	// Compose's own for what a window of prism's does not do itself: the clipboard, links, fonts, background work.
 	private val context =
-		object : PlatformContext {
+		object : PlatformContext.Empty() {
 			override val windowInfo: WindowInfo = info
+
+			override val semanticsOwnerListener =
+				object : PlatformContext.SemanticsOwnerListener {
+					override fun onSemanticsOwnerAppended(semanticsOwner: SemanticsOwner) {
+						owners += semanticsOwner
+					}
+
+					override fun onSemanticsOwnerRemoved(semanticsOwner: SemanticsOwner) {
+						owners -= semanticsOwner
+					}
+
+					override fun onSemanticsChange(semanticsOwner: SemanticsOwner) = Unit
+
+					override fun onLayoutChange(semanticsOwner: SemanticsOwner, semanticsNodeId: Int) =
+						Unit
+				}
 
 			override val inputModeManager: InputModeManager =
 				object : InputModeManager {
@@ -253,6 +275,9 @@ class NativeWindow internal constructor(
 		density = Density(scale)
 		pixelSize = pixelSizeOf()
 
+		// Compose draws and sets text through whatever implementation is registered for the process, Skia's here; its
+		// own windows register it as they open, and so does this one (again is nothing).
+		registerSkikoComposeImplementation()
 		scene =
 			CanvasLayersComposeScene(
 				frameRecomposer = recomposer,
@@ -314,11 +339,17 @@ class NativeWindow internal constructor(
 		wantsFrame = false
 
 		val drew =
-			pixels.frame(pixelSize.width, pixelSize.height) { canvas ->
-				canvas.clear(0)
-				recomposer.performFrame(nanos)
-				scene.measureAndLayout()
-				scene.draw(canvas.asComposeCanvas())
+			try {
+				pixels.frame(pixelSize.width, pixelSize.height) { canvas ->
+					canvas.clear(0)
+					recomposer.performFrame(nanos)
+					scene.measureAndLayout()
+					scene.draw(canvas.asComposeCanvas())
+				}
+			} catch (error: RuntimeException) {
+				// Said with what it was laying out, for a fault of Compose's own to be found; then failed as before.
+				System.err.println(frameReport(error, title, rootsOf(owners)))
+				throw error
 			}
 
 		if (drew)
