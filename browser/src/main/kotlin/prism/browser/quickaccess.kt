@@ -22,12 +22,14 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
@@ -48,7 +50,8 @@ import prism.window.WindowLocals
  * The window that arranges quick access, over the browser, as large as the sidebar is drawn. Every entry is in it, in
  * order, each moved up or down: prism's own places shown or hidden by their boxes (they are never removed, so one hidden
  * is always there to show again), and the folders pinned removed. Each change is made as it is made, so the sidebar
- * behind shows it; Done, or Escape, closes it.
+ * behind shows it; Done, or Escape, closes it. Its changes are undone and done again by the window's keys for that
+ * (Ctrl+Z, Ctrl+Shift+Z), while it is open, apart from what the window undoes; closed, they are forgotten.
  */
 
 /** The window that arranges [sidebar]'s quick access. */
@@ -62,8 +65,34 @@ internal fun QuickAccessLayer(sidebar: Sidebar, onEvent: (BrowserEvent) -> Unit)
 	var typed by remember { mutableStateOf("") }
 	val folder = typed.trim().takeIf { it.isNotEmpty() }?.let { Path.of(it) }
 	val pinnable = folder?.let { it.isAbsolute && Files.isDirectory(it) } == true
+	val bindings = LocalBindings.current
+	// What this window has changed, to be undone: its own, not the browser's, and gone with it.
+	var edits by remember { mutableStateOf(Edits<QuickAccess>()) }
+	// Quick access as it is now, for the keys to undo from: the modal hears them through what it was first given.
+	val now by rememberUpdatedState(quick)
 
-	fun arranged(quick: QuickAccess) = onEvent(BrowserEvent.Arranged(quick))
+	fun arranged(to: QuickAccess) {
+		if (to != quick) {
+			edits = edits.edited(quick)
+			onEvent(BrowserEvent.Arranged(to))
+		}
+	}
+
+	/** Undone or done again, where there was something to: what it goes back to made so. */
+	fun stepped(undone: Undone<QuickAccess>?): Boolean =
+		undone
+			?.also {
+				edits = it.edits
+				onEvent(BrowserEvent.Arranged(it.to))
+			} != null
+
+	fun undoing(key: KeyEvent): Boolean =
+		key.type == KeyEventType.KeyDown &&
+			when (Chord.of(key)?.let(bindings::leftover)) {
+				Action.Undo -> stepped(edits.undo(now))
+				Action.Redo -> stepped(edits.redo(now))
+				else -> false
+			}
 
 	fun close() = onEvent(BrowserEvent.ArrangingQuickAccess(false))
 
@@ -79,6 +108,7 @@ internal fun QuickAccessLayer(sidebar: Sidebar, onEvent: (BrowserEvent) -> Unit)
 			width = ModalWidth.Large,
 			tag = "quick-access",
 			focus = done,
+			onKey = ::undoing,
 			buttons = {
 				ButtonRow(
 					Act("Done", "done", focus = done, onClick = ::close),
@@ -90,8 +120,8 @@ internal fun QuickAccessLayer(sidebar: Sidebar, onEvent: (BrowserEvent) -> Unit)
 			},
 		) {
 			Text(
-				"What the sidebar shows first, in this order: drag an entry by its grip to move " +
-					"it, or several chosen by Shift and a click together. Prism's own places are " +
+				"What the sidebar shows first, in this order: drag an entry to move it, or several " +
+					"chosen together (a click, and Shift and a click). Prism's own places are " +
 					"hidden by their boxes, and can always be shown again; folders you pinned can be " +
 					"removed. A folder's menu pins it.",
 				style = type.muted,
@@ -185,7 +215,7 @@ private fun EntryLine(
 		verticalAlignment = Alignment.CenterVertically,
 		horizontalArrangement = Arrangement.spacedBy(Space.s),
 	) {
-		GlyphIcon(Glyph.Grip, palette.textFaint, type.icon, grip.handle.testTag("grip:$label"))
+		GlyphIcon(Glyph.Grip, palette.textFaint, type.icon, Modifier.testTag("grip:$label"))
 		Box(Modifier.width(type.icon), contentAlignment = Alignment.Center) {
 			if (builtin != null)
 				CheckBox("", entry.shown, Modifier.testTag("shown:$label"), onChange = onShown)

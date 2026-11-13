@@ -16,6 +16,7 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.test.ComposeUiTest
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.KeyInjectionScope
 import androidx.compose.ui.test.MouseButton
 import androidx.compose.ui.test.MouseInjectionScope
 import androidx.compose.ui.test.SemanticsNodeInteraction
@@ -782,6 +783,32 @@ class InteractionTest {
 				session.state.value.sidebar.quick.items
 					.indexOf(QuickItem.Own(Builtin.Trash)) == Builtin.entries.size - 2
 			}
+
+			// Undone in the window, it is back where it was; done again, moved again. The browser's own undo, of what
+			// it did to the disk, is not this.
+			val undoneBefore = session.state.value.changes
+
+			fun quickKeys(chord: KeyInjectionScope.() -> Unit) {
+				onNode(
+					isFocused() and hasAnyAncestor(hasTestTag("quick-access")),
+				).performKeyInput(chord)
+			}
+
+			quickKeys { withKeyDown(Key.CtrlLeft) { pressKey(Key.Z) } }
+			waitUntil(timeoutMillis = TIMEOUT) {
+				session.state.value.sidebar.quick.items
+					.indexOf(QuickItem.Own(Builtin.Trash)) == Builtin.entries.size - 1
+			}
+			quickKeys {
+				withKeyDown(
+					Key.CtrlLeft,
+				) { withKeyDown(Key.ShiftLeft) { pressKey(Key.Z) } }
+			}
+			waitUntil(timeoutMillis = TIMEOUT) {
+				session.state.value.sidebar.quick.items
+					.indexOf(QuickItem.Own(Builtin.Trash)) == Builtin.entries.size - 2
+			}
+			assertEquals(undoneBefore, session.state.value.changes)
 
 			// Dragged by its grip, an entry goes where it is let go: the trash, up past the two above it.
 			val before = session.state.value.sidebar.quick.items

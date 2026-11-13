@@ -44,6 +44,7 @@ import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.isCtrlPressed
 import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.testTag
@@ -58,8 +59,10 @@ import kotlin.math.roundToInt
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
 import prism.browser.Act
+import prism.browser.Action
 import prism.browser.Actions
 import prism.browser.Bindable
+import prism.browser.Bindings
 import prism.browser.ButtonRow
 import prism.browser.Card
 import prism.browser.CardItem
@@ -134,7 +137,8 @@ import prism.browser.Page as PageLayout
  * The preferences window over [settings], each change reported to [onChange]: applied by [onApply], and left by
  * [onClose]. [mouseChords] are the mouse's buttons pressed over the window, which a binding waiting for a chord takes.
  * The Renderer page shows [graphics] (while it is looked at, null), and copies its report by [onCopy]. The Context
- * menus page decides the user's actions in [world], as the menus it shows would.
+ * menus page decides the user's actions in [world], as the menus it shows would. The keys for undo and redo, wherever
+ * nothing that has the keyboard takes them (a field's own typing), are [onUndo] and [onRedo].
  */
 @Composable
 fun SettingsView(
@@ -150,10 +154,14 @@ fun SettingsView(
 	graphics: GraphicsReport? = null,
 	onCopy: (String) -> Unit = {},
 	world: World = World.Bare(Path.of(System.getProperty("user.home"))),
+	onUndo: () -> Unit = {},
+	onRedo: () -> Unit = {},
 ) {
 	val palette = LocalPalette.current
 	val type = LocalType.current
 	val root = remember { FocusRequester() }
+	// The keys as they are applied, not as the bindings page is changing them.
+	val bindings = remember(settings.base) { Bindings.of(settings.base) }
 	val latest by rememberUpdatedState(settings)
 	val change by rememberUpdatedState(onChange)
 	val rebinding = settings.rebinding
@@ -208,6 +216,14 @@ fun SettingsView(
 							}
 						}
 				}
+			}.onKeyEvent { key ->
+				// Left by whatever has the keyboard: a field undoes its own typing first.
+				key.type == KeyEventType.KeyDown &&
+					when (Chord.of(key)?.let(bindings::leftover)) {
+						Action.Undo -> true.also { onUndo() }
+						Action.Redo -> true.also { onRedo() }
+						else -> false
+					}
 			},
 	) {
 		Column(
@@ -644,7 +660,8 @@ private fun LookSection(settings: Settings, onChange: (Settings) -> Unit) {
 	Section(
 		"Order and columns",
 		description =
-			"Drag a column by its grip to move it. The name is always first, and always shown." +
+			"Drag a column to move it, or several chosen together: a click, and Shift and a " +
+				"click. The name is always first, and always shown." +
 				(
 					" Changing anything gives the file picker its own.".takeIf {
 						role == Role.Picker &&
@@ -717,7 +734,7 @@ private fun LookSection(settings: Settings, onChange: (Settings) -> Unit) {
 						else
 							palette.textFaint,
 						type.icon,
-						grip.handle.testTag("grip:${column.id.name}"),
+						Modifier.testTag("grip:${column.id.name}"),
 					)
 					CheckBox(
 						kind.labelOf(column.id),

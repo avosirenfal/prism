@@ -2,9 +2,10 @@ package prism.browser
 
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.drag
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.derivedStateOf
@@ -17,12 +18,15 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.AwaitPointerEventScope
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.input.pointer.PointerInputScope
+import androidx.compose.ui.input.pointer.PointerType
+import androidx.compose.ui.input.pointer.isPrimaryPressed
 import androidx.compose.ui.input.pointer.isShiftPressed
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.LayoutCoordinates
@@ -37,10 +41,11 @@ import prism.preferences.Moved
 import prism.preferences.moved
 
 /*
- * A list put in order by dragging. An entry is held by its handle and dragged up or down, the others making room for it,
- * and let go where it is to be. Where several can be moved together, Shift and a click choose an entry (or no longer);
- * a chosen one dragged brings every one chosen with it, gathered under it in their order, and they are let go together.
- * A click without Shift, or another entry dragged, lets the choice go.
+ * A list put in order by dragging. An entry is taken anywhere on it but on what is its own to press (a switch, a button,
+ * a box: those take their press before the entry sees it), dragged up or down, the others making room for it, and let
+ * go where it is to be. Where several can be moved together, a click chooses an entry and no other, Shift and a click
+ * choose it too (or no longer), and a chosen one dragged brings every one chosen with it, gathered under it in their
+ * order; one not chosen, dragged, is chosen alone and goes alone.
  */
 
 /** How a [ReorderableColumn]'s entries are moved: one at a time, or as several chosen together by Shift and a click. */
@@ -50,13 +55,12 @@ enum class Moving {
 }
 
 /**
- * What an entry of a [ReorderableColumn] is drawn with: [handle] for the part of it held to drag it; [entry] for the part
- * a Shift and a click choose it by, which is the whole of it but for anything nested in it that is chosen apart (a
- * submenu's items, in a list of their own); and whether it is [lit], chosen or being dragged.
+ * What an entry of a [ReorderableColumn] is drawn with: [entry], for the part of it that is pressed to choose it and drag
+ * it, the whole of it but anything nested in it that is chosen apart (a submenu's items, in a list of their own), and
+ * that lifts it, with a shadow under it, while it is dragged; and whether it is [lit], chosen or being dragged.
  */
 @Immutable
 class Grip internal constructor(
-	val handle: Modifier,
 	val entry: Modifier,
 	val lit: Boolean,
 )
@@ -69,12 +73,11 @@ private data class Lifted(
 )
 
 /**
- * [items] one under another, each drawn by [content], that the pointer reorders: an entry held by its handle (its
- * [Grip]'s, for whatever part of it is held) is dragged, and [onMove] told what was moved where once it is let go; as
- * [moving] says, with any others chosen by Shift and a click on the part of it its grip's [Grip.entry] is on. An entry
- * [movable] says is not has no handle, and is not chosen. What is shown is [items] as they are: the order changes only
- * as the caller's does. In a card, [divided] sets a line between each two entries, as a card's rows have, which moves
- * with the entry under it.
+ * [items] one under another, each drawn by [content], that the pointer reorders: an entry taken on the part of it its
+ * [Grip.entry] is on is dragged, and [onMove] told what was moved where once it is let go; as [moving] says, alone or
+ * with others chosen. An entry [movable] says is not is neither dragged nor chosen. What is shown is [items] as they
+ * are: the order changes only as the caller's does. In a card, [divided] sets a line between each two entries, as a
+ * card's rows have, which moves with the entry under it.
  */
 @Composable
 fun <T> ReorderableColumn(
@@ -149,52 +152,93 @@ fun <T> ReorderableColumn(
 		travel = 0f
 	}
 
+	/** The entry at [index] taken to be dragged: with every one chosen, where it is chosen; else alone, and chosen so. */
+	fun lift(index: Int) {
+		val group = chosenPlaces()
+
+		lifted =
+			if (index in group) {
+				Lifted(group, index)
+			} else {
+				if (choosable(index))
+					chosen = setOf(keyOf(latest[index]))
+				Lifted(listOf(index), index)
+			}
+		travel = 0f
+	}
+
+	/** A click on the entry at [index]: it chosen and no other; with Shift, chosen as well, or no longer. */
+	fun clicked(index: Int, shift: Boolean) {
+		if (!choosable(index))
+			return
+
+		val itsKey = keyOf(latest[index])
+
+		chosen =
+			when {
+				!shift -> setOf(itsKey)
+				itsKey in chosen -> chosen - itsKey
+				else -> chosen + itsKey
+			}
+	}
+
+	val palette = LocalPalette.current
+	val divider = palette.divider
+
 	Column(modifier.onPlaced { column.at = it }) {
 		items.forEachIndexed { index, item ->
 			key(key(item)) {
 				val itsKey = key(item)
-				val lift = lifted
-				val up = lift?.moved?.contains(index) == true
+				val up = lifted?.moved?.contains(index) == true
 				val isChosen = itsKey in chosen && choosable(index)
-				val grip = remember { Placement() }
+				val placed = remember { Placement() }
+				val shape = RoundedCornerShape(Radius.medium)
 
-				/** How far down the column [position], where the grip is, is. */
+				/** How far down the column [position], a point of the entry's, is. */
 				fun downOf(position: Offset): Float? =
-					column.at?.let { at -> grip.at?.let { at.localPositionOf(it, position).y } }
+					column.at?.let { at -> placed.at?.let { at.localPositionOf(it, position).y } }
 
-				val handle =
+				val entry =
 					if (!movable(item))
 						Modifier
 					else
-						Modifier.onPlaced { grip.at = it }.pointerInput(index, moving) {
-							// Where the drag began, down the column: the grip moves with the entry, the column does not.
-							var from = 0f
+						Modifier
+							.onPlaced { placed.at = it }
+							.then(
+								if (up)
+									Modifier.shadow(
+										6.dp,
+										shape,
+										ambientColor = palette.shadow,
+										spotColor = palette.shadow,
+									)
+								else
+									Modifier,
+							).then(
+								if (moving ==
+									Moving.Several
+								)
+									Modifier.semantics { selected = isChosen }
+								else
+									Modifier,
+							).pointerInput(index, moving) {
+								// Where the drag began, down the column: the entry moves with the pointer, the column does not.
+								var from = 0f
 
-							detectDragGestures(
-								onDragStart = { start ->
-									val group = chosenPlaces()
-
-									from = downOf(start) ?: 0f
-
-									lifted =
-										if (index in group)
-											Lifted(group, index)
-										else
-											Lifted(listOf(index), index).also { chosen = emptySet() }
-									travel = 0f
-								},
-								onDragEnd = ::letGo,
-								onDragCancel = {
-									lifted = null
-									travel = 0f
-								},
-							) { change, _ ->
-								change.consume()
-								downOf(change.position)?.let { travel = it - from }
+								taking(
+									onClick = { shift -> clicked(index, shift) },
+									onStart = { at ->
+										lift(index)
+										from = downOf(at) ?: 0f
+									},
+									onDrag = { at -> downOf(at)?.let { travel = it - from } },
+									onEnd = ::letGo,
+									onCancel = {
+										lifted = null
+										travel = 0f
+									},
+								)
 							}
-						}
-
-				val divider = LocalPalette.current.divider
 
 				Box(
 					Modifier
@@ -203,31 +247,13 @@ fun <T> ReorderableColumn(
 						.graphicsLayer {
 							// Drawn where the drag puts it: read here, a drag only redraws.
 							translationY = dragged?.let { it.drawn.getValue(index) - it.tops[index] } ?: 0f
-							shadowElevation = if (up) 8.dp.toPx() else 0f
 						}.drawWithContent {
 							drawContent()
 							if (divided && index > 0 && !up)
 								drawLine(divider, Offset.Zero, Offset(size.width, 0f), 1.dp.toPx())
 						},
 				) {
-					val entry =
-						if (moving == Moving.Several)
-							Modifier
-								.semantics { selected = isChosen }
-								.pointerInput(itsKey, movable(item)) {
-									choosing(movable(item)) { shift ->
-										chosen =
-											when {
-												!shift -> emptySet()
-												itsKey in chosen -> chosen - itsKey
-												else -> chosen + itsKey
-											}
-									}
-								}
-						else
-							Modifier
-
-					content(item, Grip(handle, entry, up || isChosen))
+					content(item, Grip(entry, up || isChosen))
 				}
 			}
 		}
@@ -247,41 +273,58 @@ private class Layout(
 )
 
 /**
- * Each click on an entry, told whether Shift was held: one with Shift is the entry's alone, kept from what is under the
- * pointer (a switch, a button), so that it only chooses; one without passes on as it would have. A press that becomes
- * a drag is no click. An entry not [movable] is not chosen: a click with Shift on it is no click here.
+ * Each press of an entry that nothing in it took for its own: a switch, a button or a box takes its press as it is
+ * made, before the entry sees it. Let go where it was pressed, it is a click, told whether Shift was held; moved
+ * further than a touch's slop, it is a drag, told where it began and where the pointer is after each move, in the
+ * entry's space, until it is let go, or cancelled. The mouse's other buttons are not this.
  */
-private suspend fun PointerInputScope.choosing(
-	movable: Boolean,
+private suspend fun PointerInputScope.taking(
 	onClick: (shift: Boolean) -> Unit,
+	onStart: (Offset) -> Unit,
+	onDrag: (Offset) -> Unit,
+	onEnd: () -> Unit,
+	onCancel: () -> Unit,
 ) {
 	awaitEachGesture {
-		val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
-		val shift = currentEvent.keyboardModifiers.isShiftPressed && movable
+		val down = awaitFirstDown()
+		val shift = currentEvent.keyboardModifiers.isShiftPressed
+		val slop = viewConfiguration.touchSlop
 
-		if (shift)
-			down.consume()
-		awaitClick(down, shift)?.let { onClick(shift) }
-	}
-}
+		if (down.type == PointerType.Mouse && !currentEvent.buttons.isPrimaryPressed)
+			return@awaitEachGesture
 
-/** The release of [down] as a click, kept from what is under it where [keep]; null where it was dragged or cancelled. */
-private suspend fun AwaitPointerEventScope.awaitClick(
-	down: PointerInputChange,
-	keep: Boolean,
-): PointerInputChange? {
-	val slop = viewConfiguration.touchSlop
+		while (true) {
+			val change =
+				awaitPointerEvent().changes.firstOrNull { it.id == down.id }
+					?: return@awaitEachGesture
 
-	while (true) {
-		val event = awaitPointerEvent(PointerEventPass.Initial)
-		val change = event.changes.firstOrNull { it.id == down.id } ?: return null
+			when {
+				change.isConsumed -> return@awaitEachGesture
+				!change.pressed -> {
+					change.consume()
+					onClick(shift)
 
-		if ((change.position - down.position).getDistance() > slop)
-			return null
-		if (event.changes.fastAll { !it.pressed })
-			return change.also {
-				if (keep)
-					it.consume()
+					return@awaitEachGesture
+				}
+				(change.position - down.position).getDistance() > slop -> {
+					change.consume()
+					onStart(down.position)
+					onDrag(change.position)
+
+					val ended =
+						drag(change.id) { moved ->
+							moved.consume()
+							onDrag(moved.position)
+						}
+
+					if (ended)
+						onEnd()
+					else
+						onCancel()
+
+					return@awaitEachGesture
+				}
 			}
+		}
 	}
 }
