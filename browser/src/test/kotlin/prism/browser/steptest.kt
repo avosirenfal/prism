@@ -263,6 +263,55 @@ class StepTest {
 	}
 
 	@Test
+	fun theDefaultsChanged_AWindowTakesUpWhatChanged_AndKeepsTheRestAsItMadeIt() {
+		val first =
+			opened(Choosing.Exploring(), home, home, Fixtures.sidebar).state
+
+		// Made its own in the window: folders ordered by size, the trash by name, and a gallery's hidden files left out.
+		val made =
+			listOf(
+				BrowserEvent.Sorted(ColumnId.Size),
+				BrowserEvent.Viewed(Layout.Gallery),
+				BrowserEvent.ToggledHiddenFiles,
+			).fold(first) { state, event -> step(state, event).state }
+				.let {
+					it.copy(looks = it.looks.looking(ListingKind.Trash, Look(Order.By(Sort.BY_NAME))))
+				}
+
+		assertEquals(
+			ColumnId.Size,
+			made.look.order.sort
+				?.by,
+		)
+		assertFalse(made.entryFilters.hidden.files)
+
+		// The preferences now order folders newest first, and show a folder's gallery hidden folders as well as files.
+		val newest = Sort(ColumnId.Modified, ascending = false)
+
+		val changed =
+			Listings()
+				.looking(Role.Explorer, ListingKind.Folder, Look(Order.By(newest)))
+				.filtering(
+					Role.Explorer,
+					ListingKind.Folder,
+					Layout.Gallery,
+					Filters(Hidden(files = true, folders = true)),
+				)
+
+		val relisted = step(made, Answer.Relisted(changed)).state
+
+		// What they changed, the window takes up, its own given up; the trash's, which they did not change, it keeps.
+		assertEquals(newest, relisted.look.order.sort)
+		assertEquals(Hidden(files = true, folders = true), relisted.entryFilters.hidden)
+		assertEquals(
+			Look(Order.By(Sort.BY_NAME)),
+			relisted.looks.look(Role.Explorer, ListingKind.Trash),
+		)
+		// The same defaults again change nothing.
+		assertEquals(relisted.looks, step(relisted, Answer.Relisted(changed)).state.looks)
+	}
+
+	@Test
 	fun eachKindOfListingLooksAsItsOwnDefaultSays_AndEachLayoutFiltersAsItsOwnDoes() {
 		val listings =
 			Listings()

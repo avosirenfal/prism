@@ -56,9 +56,12 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.PointerKeyboardModifiers
 import androidx.compose.ui.input.pointer.changedToDown
+import androidx.compose.ui.input.pointer.isAltPressed
 import androidx.compose.ui.input.pointer.isCtrlPressed
 import androidx.compose.ui.input.pointer.isSecondaryPressed
+import androidx.compose.ui.input.pointer.isShiftPressed
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.LayoutCoordinates
@@ -80,6 +83,7 @@ import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.ui.window.PopupProperties
 import kotlin.math.roundToInt
+import prism.preferences.Held
 import prism.window.WindowLocals
 
 /*
@@ -626,11 +630,14 @@ internal class InWindow {
 }
 
 /**
- * The right button pressed here opening, at the pointer, the menu [menu] gives as it is pressed (none where it gives
- * null). A press something inside has taken for its own menu is left to it, so a row's menu opens over a row and the
- * listing's over the rest of the listing.
+ * The right button pressed here opening, at the pointer, the menu [menu] gives as it is pressed, with the keys held
+ * then (none where it gives null). A press something inside has taken for its own menu is left to it, so a row's menu
+ * opens over a row and the listing's over the rest of the listing.
  */
-fun <A> Modifier.contextMenu(menus: ContextMenus<A>, menu: () -> Menu<A>?): Modifier =
+fun <A> Modifier.contextMenu(
+	menus: ContextMenus<A>,
+	menu: (held: Set<Held>) -> Menu<A>?,
+): Modifier =
 	composed {
 		val placed = remember { InWindow() }
 		val latest by rememberUpdatedState(menu)
@@ -649,7 +656,7 @@ fun <A> Modifier.contextMenu(menus: ContextMenus<A>, menu: () -> Menu<A>?): Modi
 							down.consume()
 
 							placed.coordinates?.localToWindow(down.position)?.let { point ->
-								latest()?.let {
+								latest(heldOf(event.keyboardModifiers))?.let {
 									menus.open(
 										it,
 										IntOffset(point.x.roundToInt(), point.y.roundToInt()),
@@ -660,6 +667,17 @@ fun <A> Modifier.contextMenu(menus: ContextMenus<A>, menu: () -> Menu<A>?): Modi
 					}
 				}
 			}
+	}
+
+/** The keys of [modifiers] a menu can be told were held as it opened. */
+fun heldOf(modifiers: PointerKeyboardModifiers): Set<Held> =
+	buildSet {
+		if (modifiers.isShiftPressed)
+			add(Held.Shift)
+		if (modifiers.isCtrlPressed)
+			add(Held.Ctrl)
+		if (modifiers.isAltPressed)
+			add(Held.Alt)
 	}
 
 /**

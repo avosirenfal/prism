@@ -717,6 +717,73 @@ fun <T> Segmented(
 }
 
 /**
+ * Options any number of which are [on], side by side in one track, each turned on or off by itself ([onToggle]): one on
+ * is drawn in the accent and one off quietly, so that among many rows of them only what is on stands out. Each is named
+ * by [label] and tagged [tag]`:`its name; the track is [height] tall, a control's unless a row's is wanted.
+ */
+@Composable
+fun <T> Toggles(
+	options: List<T>,
+	on: Set<T>,
+	label: (T) -> String,
+	modifier: Modifier = Modifier,
+	tag: String = "",
+	height: Dp = LocalType.current.control,
+	onToggle: (T) -> Unit,
+) {
+	val palette = LocalPalette.current
+	val type = LocalType.current
+	val track = RoundedCornerShape(Radius.medium + Space.xxs)
+
+	Row(
+		modifier
+			.height(height)
+			.width(IntrinsicSize.Max)
+			.border(1.dp, palette.border, track)
+			.padding(Space.xxs),
+		horizontalArrangement = Arrangement.spacedBy(Space.xxs),
+	) {
+		options.forEach { option ->
+			val name = label(option)
+			val lit = option in on
+			val source = remember { MutableInteractionSource() }
+			val felt = source.felt()
+			val shape = RoundedCornerShape(Radius.medium)
+
+			Box(
+				Modifier
+					.fillMaxHeight()
+					.weight(1f)
+					.ring(felt.ringed, palette.focus, corner = Radius.medium)
+					.background(
+						when {
+							lit -> palette.accent
+							felt.hovered -> palette.hover
+							else -> Color.Transparent
+						},
+						shape,
+					).toggleable(
+						lit,
+						source,
+						indication = null,
+						role = Role.Checkbox,
+					) { onToggle(option) }
+					.testTag("$tag:$name")
+					.padding(horizontal = Space.s),
+				contentAlignment = Alignment.Center,
+			) {
+				Text(
+					name,
+					style = type.muted.copy(color = if (lit) palette.onAccent else palette.textMuted),
+					maxLines = 1,
+					softWrap = false,
+				)
+			}
+		}
+	}
+}
+
+/**
  * A value, said as [shown], made a step smaller or larger by the buttons either side of it, as far as [smaller] and
  * [larger] allow. Its buttons are tagged [tag]`:smaller` and [tag]`:larger`.
  */

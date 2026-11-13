@@ -27,6 +27,7 @@ import prism.desktop.Places
 import prism.desktop.Read
 import prism.desktop.TerminalChoice
 import prism.preferences.Builtin
+import prism.preferences.Held
 import prism.preferences.MemoryPreferences
 import prism.preferences.Preferences
 import prism.preferences.QuickAccess
@@ -393,7 +394,7 @@ class ExploreTest {
 				"—",
 				"Rename",
 				"Copy path",
-				"Pin to sidebar",
+				// Pinning is there with Shift held as the menu opens.
 				"Open terminal here",
 				"—",
 				"Move to trash",
@@ -402,6 +403,12 @@ class ExploreTest {
 				"Properties",
 			),
 			labels(contextMenuOf(explorer, Target.Rows(listOf(folder)))),
+		)
+		assertTrue(
+			"Pin to sidebar" in
+				labels(
+					contextMenuOf(explorer, Target.Rows(listOf(folder)), held = setOf(Held.Shift)),
+				),
 		)
 		assertTrue("New file" in labels(contextMenuOf(explorer, Target.Folder)))
 		assertTrue("Paste" in labels(contextMenuOf(explorer, Target.Folder)))

@@ -29,6 +29,7 @@ import prism.browser.Session
 import prism.browser.Start
 import prism.browser.Step
 import prism.browser.TypeFilter
+import prism.browser.World
 import prism.browser.opened
 import prism.browser.openedIn
 import prism.browser.sidebarOf
@@ -150,6 +151,10 @@ class Explorer(
 ) {
 	private val services =
 		Services(disk, finder, desktop, clipboard, preferences, watcher = watcher)
+
+	/** What the user's actions are decided by: the types of files, the programs installed. */
+	val world: World get() = services.world
+
 	private val ids = AtomicInteger()
 	private val open = MutableStateFlow<List<ExplorerWindow>>(emptyList())
 	private val defaultsSet = MutableStateFlow(0)

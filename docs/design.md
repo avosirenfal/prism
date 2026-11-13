@@ -73,6 +73,9 @@ listing's text and a menu's rows with the menus'.
 - `ToolButton`: a glyph that says what it does when the pointer rests on it.
 - `Field`, `CheckBox`, `Switch` and `Radio`.
 - `Segmented`: a few choices in a track, the chosen one raised. A toolbar's takes no keyboard focus.
+- `Toggles`: a few options in one outlined track, any number of them on, each turned on or off by itself; one on is
+  filled in the accent, one off is only its name, so that down a long list of rows only what is on stands out (the
+  keys an entry of a context menu waits for).
 - `Stepper`: a value, and − and + either side of it.
 - `Chip`, `Tabs`, `Spinner` and `EmptyState`.
 - `Select` (`select.kt`): a drop-down list, with a field that narrows a long one (every font the system has).

@@ -9,16 +9,21 @@ import prism.browser.Bindings
 import prism.browser.Chord
 import prism.desktop.TerminalChoice
 import prism.preferences.DateFormat
+import prism.preferences.Held
 import prism.preferences.Layout
 import prism.preferences.ListingKind
 import prism.preferences.Listings
 import prism.preferences.LookKey
+import prism.preferences.MenuKey
+import prism.preferences.MenuOf
+import prism.preferences.MenuSpec
 import prism.preferences.Preferences
 import prism.preferences.Role
 import prism.preferences.Rows
 import prism.preferences.Scales
 import prism.preferences.TerminalChoiceSerializer
 import prism.preferences.Typography
+import prism.preferences.WhenSpec
 
 /*
  * The preferences as their window edits them, as one immutable value: how windows look, the terminal, and every
@@ -33,7 +38,8 @@ enum class Page(
 ) {
 	Display("Display"),
 	Renderer("Renderer"),
-	Listings("Listings"),
+	Layout("Layout"),
+	Menus("Context menus"),
 	Terminal("Terminal"),
 	Bindings("Key bindings"),
 	Actions("Actions"),
@@ -179,9 +185,20 @@ data class Settings(
 	val page: Page = Page.Display,
 	val looking: LookKey = LookKey(Role.Explorer, ListingKind.Folder),
 	val filteringIn: Layout = Layout.List,
+	/** How the context menus are arranged, as the Context menus page has them. */
+	val menus: MenuSpec = base.menu,
+	/** The menu the Context menus page shows. */
+	val menuing: MenuKey = MenuKey.Listing(ListingKind.Folder, MenuOf.File),
+	/** The file it shows that menu for: any, where null. */
+	val seenFor: Sample? = null,
+	/** The keys it shows that menu with, as held as it opens. */
+	val holding: Set<Held> = emptySet(),
 ) {
 	/** The actions and places there are, prism's own and those the preferences write, with what of them did not read. */
 	val actions: Actions by lazy { Actions.of(base) }
+
+	/** What each action is written to be offered for, by its id: prism's own, then the preferences'. */
+	val specs: Map<String, WhenSpec> by lazy { specsOf(Actions.SHIPPED, base.written) }
 
 	/** Whether anything is changed from what the window opened on, or last applied. */
 	val changed: Boolean get() = over(base) != base
@@ -191,8 +208,15 @@ data class Settings(
 	 * kept; and what the bindings page shows.
 	 */
 	fun applied(now: Preferences): Settings =
-		Settings(now, page = page, looking = looking, filteringIn = filteringIn)
-			.let { it.copy(rebinding = it.rebinding.copy(finding = rebinding.finding)) }
+		Settings(
+			now,
+			page = page,
+			looking = looking,
+			filteringIn = filteringIn,
+			menuing = menuing,
+			seenFor = seenFor,
+			holding = holding,
+		).let { it.copy(rebinding = it.rebinding.copy(finding = rebinding.finding)) }
 
 	/** [current], with what was changed here. */
 	fun over(current: Preferences): Preferences {
@@ -207,6 +231,7 @@ data class Settings(
 		return current.copy(
 			terminal = kept(Preferences::terminal, terminal.choice()),
 			listings = kept(Preferences::listings, listings),
+			menu = kept(Preferences::menu, menus),
 			typography = kept(Preferences::typography, typography),
 			rows = kept(Preferences::rows, rows),
 			dates = kept(Preferences::dates, dates),

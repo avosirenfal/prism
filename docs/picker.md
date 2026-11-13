@@ -66,7 +66,8 @@ part of it.
 | `trash.kt` | `Trash`: the desktop's own trashes, one for each mount, as the freedesktop.org specification lays them out; `erased`, deleting for good |
 | `menu.kt` | `Menu`: menus as data, and `menu { }` to build one |
 | `menuview.kt` | `MenuPopup`, `ContextMenus`, `Modifier.contextMenu`, `MenuButton`: any menu drawn and opened |
-| `menus.kt` | the picker's own menus: each target's context menu, and the filter menu, from the state |
+| `arranged.kt` | the context menus' arrangement: prism's own for each menu, the user's merged over it, and the entries placed by it |
+| `menus.kt` | the picker's own menus: each target's context menu, built from its entries as arranged, and the filter menu, from the state |
 | `elements.kt` | the controls: a button, a tool button, a text field, a drop-down choice, the keyboard's ring |
 | `view.kt` | `FileBrowser(state, onEvent)`: the picker drawn from a state, made of those controls |
 

@@ -147,10 +147,10 @@ class SettingsTest {
 		assertEquals(elsewhere.quickAccess, saved.quickAccess)
 
 		// Applied, the window edits from what is applied: nothing changed, the page where it was.
-		val applied = looked.copy(page = Page.Listings).applied(saved)
+		val applied = looked.copy(page = Page.Layout).applied(saved)
 
 		assertFalse(applied.changed)
-		assertEquals(Page.Listings, applied.page)
+		assertEquals(Page.Layout, applied.page)
 		assertEquals(saved, applied.base)
 
 		// Automatic chosen, it is the desktop's own.

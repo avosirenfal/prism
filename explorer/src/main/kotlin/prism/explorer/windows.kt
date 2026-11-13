@@ -214,6 +214,7 @@ private fun SettingsWindow(explorer: Explorer, onClose: () -> Unit) {
 			terminals = terminals,
 			graphics = graphics,
 			onCopy = ::toClipboard,
+			world = explorer.world,
 		)
 	}
 }
