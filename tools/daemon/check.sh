@@ -93,10 +93,8 @@ first=$!
 eventually "the first prism opens its window" 30 have_windows "1 open"
 check "it is not the daemon" "prism explore" "$(who)"
 
-started=$(date +%s%N)
 "$PRISM" tree/docs
 check "a second prism is answered and exits 0" "0" "$?"
-echo "        (handed over in $((($(date +%s%N) - started) / 1000000)) ms)"
 check "its window opened in the first" "windows: 2 open" "$(windows)"
 check "a path is read from where it was said, and one that is not there is refused" \
 	"prism explore: nowhere does not exist" "$("$PRISM" nowhere 2>&1)"

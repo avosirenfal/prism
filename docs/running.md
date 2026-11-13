@@ -88,17 +88,21 @@ It is for looking at one prism without another being involved.
 
 ### How long it takes
 
-Measured in the development container, on a virtual display:
+Measured in the development container, on a virtual display, from the command being run to its returning, which is
+when the daemon has opened the window:
 
 | | time |
 |---|---|
-| `prism FOLDER` handed to a running prism, from the app image (`createDistributable`) | about 0.35 s |
-| the same, from the Nix package, whose Java has a cache of the classes a start loads | about 0.13 s |
+| `prism FOLDER` with no prism running: a prism of its own, until its window is on the screen | about 2.2 s |
+| `prism FOLDER` handed to an idle daemon, from the app image (`createDistributable`) | about 0.35 s |
+| the same, from the Nix package, whose Java has a cache of the classes a start loads | about 0.2 s |
+| `prism status` from the Nix package: the asking alone, with nothing for the daemon to do | about 0.14 s |
 | `java -version`, for scale: the least a Java program can take | about 0.04 s |
 
-All of the time is Java starting: the process that hands its words over loads about three hundred classes, none of
-them a window's. What is left is the virtual machine itself. Going below that means a program that is not Java
-for this one job, a few dozen lines of C that speak the socket, which is not written yet.
+So a window from the daemon comes about ten times sooner than one from a prism of its own. Of the 0.2 s, about 0.14 s
+is Java starting in the process that asks, which loads a few hundred classes, none of them a window's; the rest is
+the daemon making the window. What is left of the first part is the virtual machine itself, and going below it means
+a program that is not Java for this one job, a few dozen lines of C that speak the socket, which is not written yet.
 
 ## The daemon
 
@@ -257,7 +261,7 @@ own mark, reads no configuration and fails.
 ## Not yet
 
 - **The watcher under systemd**: the privileged loader the daemon would be handed the ring by (docs/plan.md).
-- **A client that is not Java**, for the 0.13 s that is left.
+- **A client that is not Java**, for the 0.14 s of Java starting that is left in every window asked for.
 - **Restarting the daemon after an upgrade.** A daemon started before prism was upgraded goes on running the old
   prism until it is restarted or you log in again; a new `prism` asks it all the same, and the two understand each
   other for as long as the words mean the same to both. Where they do not, the old one answers that it cannot, and the

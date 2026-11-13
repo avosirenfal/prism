@@ -47,9 +47,10 @@ in 1.2 s and read in 0.28 s (docs/search.md has every query's time). Reading a q
 **0.23x** the JVM's time on one thread (48.5 ms against 214.8 ms) and **0.44x** on four (32.4 ms against 73.4 ms);
 `/root`, 38,272 entries, four threads: 0.40x. Both read identical trees. The FFM backend is the one the index uses.
 
-**A window asked of a running prism** (docs/running.md): `prism FOLDER` handed to the prism already running takes
-about 0.35 s from the app image and about 0.13 s from the Nix package (whose Java has a cache of the classes a
-start loads), all of it Java starting; `java -version` alone is 0.04 s.
+**A window asked of a running prism** (docs/running.md): `prism FOLDER` handed to an idle daemon takes about 0.35 s
+from the app image and about 0.2 s from the Nix package (whose Java has a cache of the classes a start loads), of
+which 0.14 s is Java starting in the process that asks; a prism of its own takes about 2.2 s to have its window on
+the screen.
 
 Not measured yet: a cold scan on real hardware, and a home directory of millions of entries. `prism scan ~ --runs 5`
 does both; the first run is the cold one.
@@ -96,9 +97,9 @@ In the order they unblock each other:
    application it starts, a thread's capabilities being its own and a JVM having many threads.
 3. **The picker reading its folders from the index** (an index-backed `Disk`), with the picker's kinds and `type:`
    from one table of extensions; and a window telling the index what it saw change.
-4. **A client that is not Java**, a few dozen lines of C or a Graal native image, that speaks the socket: the 0.13 s
-   a window still takes to ask for is all Java starting. The same program is the command line that asks the daemon
-   for searches in a terminal.
+4. **A client that is not Java**, a few dozen lines of C or a Graal native image, that speaks the socket: of the
+   0.2 s a window takes from the daemon, 0.14 s is Java starting in the process that asks. The same program is the
+   command line that asks the daemon for searches in a terminal.
 5. **Asking the daemon for more through the socket**: to read places again, and to search.
 6. **Filtering in the kernel**: a bounded loop in the DSL, so the watcher drops a change under an ignored directory
    before it is sent.
