@@ -170,7 +170,7 @@ import prism.window.WindowLocals
 
 /** Where the keyboard can be sent: the controls that a key, or the picker's own changes, move it to. */
 @Stable
-private class Stops {
+internal class Stops {
 	val listing = FocusRequester()
 	val places = FocusRequester()
 	val name = FocusRequester()
@@ -237,9 +237,13 @@ fun FileBrowser(
 						SidebarPane(state, stops, onEvent)
 						Box(Modifier.width(1.dp).fillMaxHeight().background(palette.border))
 					}
-					// The listing in its own type: its own size and font, where the user chose them.
+					// The listing in its own type: its own size and font, where the user chose them. The System page
+					// lists no files: its drives are drawn in their place.
 					CompositionLocalProvider(LocalType provides LocalTypes.current.listing) {
-						ListingPane(state, stops, Modifier.weight(1f), ::act, onEvent)
+						when (val system = state.system) {
+							null -> ListingPane(state, stops, Modifier.weight(1f), ::act, onEvent)
+							else -> SystemPane(state, system, stops, Modifier.weight(1f), onEvent)
+						}
 					}
 				}
 				Line(palette.border)
@@ -454,12 +458,15 @@ private fun Toolbar(state: BrowserState, stops: Stops, onEvent: (BrowserEvent) -
 			onEvent,
 			Modifier.testTag("filters"),
 			selected = state.entryFilters.kinds.isNotEmpty(),
+			// The System page lists no files to filter, or to show as a list or a gallery.
+			enabled = state.system == null,
 		)
 		Segmented(
 			Layout.entries,
 			state.layout,
 			{ it.name },
 			tag = "layout",
+			enabled = state.system == null,
 			focusable = false,
 			glyph = {
 				when (it) {
@@ -514,6 +521,7 @@ private fun AddressBar(
 				is Location.Results -> ResultsBar(at.finding, modifier, onEvent)
 				is Location.Place -> PlaceBar(at, modifier, onEvent)
 				Location.Trash -> TrashBar(modifier)
+				is Location.System -> SystemBar(modifier)
 			}
 		is Address.Editing -> {
 			Field(
@@ -690,6 +698,14 @@ private fun TrashBar(modifier: Modifier) {
 	}
 }
 
+/** In place of the path, that the window shows the System page: the machine's drives, on no one path. */
+@Composable
+private fun SystemBar(modifier: Modifier) {
+	Bar(Glyph.System, modifier.testTag("system-bar")) {
+		Text("System", style = LocalType.current.strong, maxLines = 1)
+	}
+}
+
 /**
  * In place of the path, where in a place the window is: what the place is called, then each folder of it gone into, as
  * steps to click, as a path's are.
@@ -775,12 +791,9 @@ private fun SidebarPane(
 	fun isShown(item: SidebarItem): Boolean =
 		when (item) {
 			SidebarItem.Trash -> state.inTrash
+			SidebarItem.System -> state.system != null
 			else -> item.path == state.folder
 		}
-
-	/** What going to [item] is. */
-	fun openingOf(item: SidebarItem): BrowserEvent =
-		item.path?.let(BrowserEvent::Opened) ?: BrowserEvent.OpenedTrash
 
 	var at by remember(sidebar) {
 		mutableIntStateOf(items.indexOfFirst(::isShown).coerceAtLeast(0))
@@ -916,10 +929,21 @@ private fun PlaceRow(
 	}
 }
 
+/** What going to [item], something the sidebar shows, is: the trash, the System page, or a folder. */
+internal fun openingOf(item: SidebarItem): BrowserEvent =
+	when (item) {
+		SidebarItem.Trash -> BrowserEvent.OpenedTrash
+		SidebarItem.System -> BrowserEvent.OpenedSystem
+		is SidebarItem.Own -> BrowserEvent.Opened(item.path)
+		is SidebarItem.Pinned -> BrowserEvent.Opened(item.path)
+		is SidebarItem.Drive -> BrowserEvent.Opened(item.path)
+	}
+
 /** The icon of what the sidebar shows. */
 internal fun glyphOf(item: SidebarItem): Glyph =
 	when (item) {
 		SidebarItem.Trash -> Glyph.Trash
+		SidebarItem.System -> Glyph.System
 		is SidebarItem.Own -> glyphOf(item.place.kind)
 		is SidebarItem.Pinned -> glyphOf(item.place.kind)
 		is SidebarItem.Drive -> glyphOf(item.place.kind)
@@ -936,6 +960,7 @@ internal fun glyphOf(builtin: Builtin): Glyph =
 		Builtin.Music -> Glyph.Music
 		Builtin.Videos -> Glyph.Videos
 		Builtin.Trash -> Glyph.Trash
+		Builtin.System -> Glyph.System
 	}
 
 private fun glyphOf(kind: Place.Kind): Glyph =
@@ -2756,6 +2781,8 @@ private fun StatusBar(state: BrowserState) {
  * a search's results, what they are ordered by, where it is being worked out still or cannot be had of so many.
  */
 private fun statusOf(state: BrowserState): String {
+	state.system?.let { return statusOf(it) }
+
 	val shown = state.rows.size
 	val chosen = state.choosing.rows.size
 	val entries = state.entryCount

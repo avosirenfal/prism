@@ -269,6 +269,15 @@ private fun did(state: BrowserState, event: BrowserEvent): Step =
 				state.reread()
 			else
 				state.shown(Location.Trash, History(state.history.back + state.at, emptyList()), null)
+		BrowserEvent.OpenedSystem ->
+			if (state.system != null)
+				state.reread()
+			else
+				state.shown(
+					Location.System(),
+					History(state.history.back + state.at, emptyList()),
+					null,
+				)
 		BrowserEvent.MadeFolder ->
 			state.folder?.let {
 				state.making(Change.MakeFolder(it.resolve(state.freeName("New folder"))))
@@ -351,6 +360,7 @@ private fun did(state: BrowserState, event: BrowserEvent): Step =
 				when (val item = event.item) {
 					is SidebarItem.Own -> state.sidebar.quick.showing(item.builtin, false)
 					SidebarItem.Trash -> state.sidebar.quick.showing(Builtin.Trash, false)
+					SidebarItem.System -> state.sidebar.quick.showing(Builtin.System, false)
 					is SidebarItem.Pinned -> state.sidebar.quick.unpinning(item.path)
 					is SidebarItem.Drive -> state.sidebar.quick
 				},
@@ -484,6 +494,8 @@ internal fun BrowserState.reread(landing: Landing? = null): Step =
 				copy(landing = landing ?: this.landing),
 				listOf(Effect.ReadTrash),
 			)
+		// What it shows stays until the new read arrives.
+		is Location.System -> Step(this, listOf(Effect.ReadStorage))
 	}
 
 private fun BrowserState.back(): Step =
@@ -541,6 +553,12 @@ internal fun BrowserState.shown(to: Location, history: History, landing: Landing
 			to.tree?.let { Step(left.arrived(Listing.Shown(it.rows(to.within)))) }
 				?: left.listing(to.placed)
 		Location.Trash -> Step(left, listOf(Effect.ReadTrash))
+		// Read afresh: what it showed when it was left is not what is so now.
+		is Location.System ->
+			Step(
+				left.copy(at = Location.System()),
+				listOf(Effect.ReadStorage),
+			)
 	}
 }
 
@@ -1066,6 +1084,17 @@ private fun answered(state: BrowserState, answer: Answer): Step =
 		is Answer.TrashRead ->
 			if (state.inTrash)
 				Step(state.arrived(answer.read))
+			else
+				Step(state)
+		// The System page lists no files: once read, there is nothing more to wait for.
+		is Answer.StorageRead ->
+			if (state.system != null)
+				Step(
+					state.copy(
+						at = Location.System(answer.storage),
+						listing = Listing.Shown(emptyList()),
+					),
+				)
 			else
 				Step(state)
 		is Answer.Searched -> state.searched(answer.finding, answer.purpose)

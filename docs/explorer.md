@@ -94,7 +94,7 @@ title at the top and close with their own buttons or Escape.
 ## Quick access, and preferences every window shares
 
 The sidebar's quick access is the user's preference, not a window's. It holds prism's own places (the home folder, its
-well-known folders, and the trash) and the folders the user pinned, in the user's order (`QuickAccess`, in
+well-known folders, the trash, and the System page) and the folders the user pinned, in the user's order (`QuickAccess`, in
 `preferences/quick.kt`). Prism's own are always in it, each once: the user hides one, and moves it, but cannot remove
 it, so a place a later version adds reaches every user's list, at its end. That is kept by construction: a
 `QuickAccess` is made only by `QuickAccess.of`, which drops what is named twice and adds what is left out, whatever a
@@ -145,6 +145,51 @@ defaults; an action named with an empty list has no chord at all. `terminal` is 
 otherwise the terminal chosen, in one of the forms "Choosing the terminal" (below) shows. A file that does not read as
 preferences leaves every default in place, and is copied beside itself with `.unreadable` after its name before
 anything is written over it, so nothing written by hand is lost.
+
+## The System page
+
+System, in quick access, shows the machine's drives and how full each is, where a folder's rows would be, as Windows'
+This PC does. How full is a fact of the room files share, which is not a fact of where they are mounted: a ZFS pool's
+datasets each mount at a folder of their own and all take from the pool; a btrfs's subvolumes all take from one file
+system; a drive's partitions each take a part of the drive. So the page groups by what shares room (`Storage`, in
+`desktop/storage.kt`):
+
+- **A store** is a drive and everything on it, or drives taken together where something spans them: a ZFS pool
+  mirrored over two disks, an LVM volume group, a RAID, a btrfs over several devices. Each is a card: what it is ("2 ×
+  WDC WD40EFRX-68N", "Hard disks · sda, sdb · 3.6 TB each"), what can still be written to it of all its room, and a bar.
+- **Its bar** is the store's room, one block for each part of it, as wide as the part is large: a file system's used
+  part in its colour and its free part in a tint of it; swap the same in grey; a partition with nothing mounted grey
+  (what is on it is not known); room no partition takes left empty. So one bar says how full the drive is and which of
+  what is on it is large. A block too small to see beside the rest (an EFI partition) is drawn a few pixels wide.
+- **Under the bar**, a row for each part, in the bar's colours: a file system by the folder it is mounted at, its
+  label, type and device, where else it is reached (a btrfs's other subvolumes), and what it has free of how much; a
+  pool by its name, then each dataset with what it holds of the pool, the largest first; swap, with how much is in use;
+  a partition not mounted, by what udev says is on it ("Windows · NTFS · sdd1 · not mounted"); room unallocated. A row
+  of something mounted opens it, and right-clicked offers what a drive in the sidebar does.
+- **Network shares** are a store of their own, last. A share that does not say how full it is within a moment (one
+  that is down) is said not to be answering, rather than holding the page up.
+- What is nearly full (90%) says so in the danger colour. A file system that can only be read (an image, a squashfs,
+  one mounted read-only) is said to be read-only, and is never said to be full.
+
+Where the system is (the store with the file system mounted at `/`) comes first, then the rest in the machine, then
+removable drives, then the network. The page is read as it opens and every few seconds while it is shown, by the
+session rather than the view, so a drive plugged in appears without asking; the search field narrows it to the stores
+and parts whose words have what is typed. Left for a folder and come back to with Back, it is read afresh.
+
+How Linux's is read (`desktop/freedesktop/storage.kt`), as any user can, with no root and no D-Bus service:
+
+- drives and partitions from /sys/block (size, removable, whether it spins, its model; the bus from where it sits in
+  /sys/devices); what sits under /sys/devices/virtual (a loop device, device-mapper, a RAID) is made of drives, not one;
+- what is mounted from /proc/self/mountinfo, grouped by superblock, so a btrfs's subvolumes are one file system; a
+  folder of one mounted again (a bind mount) is left out, as is what holds no drive's files (proc, tmpfs, an overlay,
+  a squashfs on a loop device);
+- which drives a file system is on by following its device in /sys down through what it is made of (`slaves`: LUKS,
+  LVM, RAID); a btrfs's devices by /sys/fs/btrfs; a ZFS pool's members by udev's record of each partition
+  (`ID_FS_TYPE=zfs_member`, labelled with the pool's name), or by `zpool list -vHPL` where udev has none;
+- how full by statvfs, each on a thread of its own and given a moment, as a dead network share would hang whoever
+  asked; a pool by `zfs list`, which says what each dataset holds of its own (used, less its children's), or, without
+  it, by statvfs of each dataset mounted;
+- what is not mounted by udev's records, and swap by /proc/swaps.
 
 ## Properties
 
@@ -477,6 +522,11 @@ either said twice) is kept as it was written, and "Open
 terminal here" says why it cannot open it, rather than losing the rest of the preferences, or guessing.
 
 ## Not done yet
+
+- **The System page on macOS and Windows**: a `StorageReader` of each's own (`getfsstat` and IOKit's disks; the volume
+  management API), and an APFS container's volumes, which share its room as a pool's datasets do.
+- **The System page's LVM free room**: a volume group's room no logical volume takes is not read (it needs LVM's own
+  tools), so a drive given to LVM shows its file systems and nothing for the rest.
 
 - **Hosting in the daemon.** `prism portal serve` hosts the explorer and answers `org.freedesktop.FileManager1`
   (docs/portal.md), in a process of its own; the daemon, which keeps the index, does not host it yet.

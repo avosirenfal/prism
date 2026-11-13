@@ -371,7 +371,7 @@ private fun Slots.pinning(state: BrowserState, path: Path) {
  */
 private fun Slots.unpinning(shown: SidebarItem) {
 	when (shown) {
-		is SidebarItem.Pinned, is SidebarItem.Own, SidebarItem.Trash ->
+		is SidebarItem.Pinned, is SidebarItem.Own, SidebarItem.Trash, SidebarItem.System ->
 			slot("builtin.unpin") {
 				item("Unpin from sidebar", BrowserEvent.Unpinned(shown), id = "builtin.unpin")
 			}
@@ -581,16 +581,14 @@ private fun sidebarSlots(
 	val exploring = state.choosing is Choosing.Exploring
 
 	return slots {
+		slot("builtin.open") { item("Open", openingOf(item), id = "builtin.open") }
 		when (val path = item.path) {
-			null -> {
-				slot("builtin.open") { item("Open", BrowserEvent.OpenedTrash, id = "builtin.open") }
-				if (exploring)
+			null ->
+				if (exploring && item == SidebarItem.Trash)
 					slot("builtin.empty-trash") {
 						item("Empty trash", BrowserEvent.AskedToEmpty, id = "builtin.empty-trash")
 					}
-			}
 			else -> {
-				slot("builtin.open") { item("Open", BrowserEvent.Opened(path), id = "builtin.open") }
 				if (exploring) {
 					slot("builtin.open-in-new-window") {
 						item(

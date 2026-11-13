@@ -31,6 +31,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import prism.desktop.Launched
 import prism.desktop.Opening
+import prism.desktop.Storage
 import prism.window.ClipOffer
 import prism.window.SystemClipboard
 
@@ -160,6 +161,17 @@ class Session(
 			}
 		}
 
+		// The System page, while it is shown, is read again every few seconds: a drive plugged in, a share mounted, a
+		// file system filling up, are seen without asking.
+		scope.launch(io) {
+			state.map { it.system != null }.distinctUntilChanged().collectLatest { shown ->
+				while (shown) {
+					delay(STORAGE_MILLIS)
+					inputs.send(answerOf(Effect.ReadStorage))
+				}
+			}
+		}
+
 		// A browser done with (its window closed) leaves nothing behind it, and nothing running.
 		// Done as the browser is cancelled, and not once its work has ended: its work is waiting on those commands.
 		scope.launch {
@@ -195,6 +207,9 @@ class Session(
 
 		/** How long after reading a changed folder before it is read again for changing still. */
 		const val RESTS_MILLIS = 400L
+
+		/** How often the System page, while it is shown, is read again. */
+		const val STORAGE_MILLIS = 3000L
 	}
 
 	/** What the user did, to be folded in after whatever came before it. */
@@ -272,6 +287,7 @@ class Session(
 					)
 				is Effect.Erase -> Answer.Erased(asking.erasing, why)
 				Effect.ReadTrash -> Answer.TrashRead(Listing.Unreadable(why))
+				Effect.ReadStorage -> Answer.StorageRead(Storage(emptyList()))
 				is Effect.Search -> Answer.Searched(Finding.Refused(asking.text, why), asking.purpose)
 				is Effect.Stat ->
 					Answer.Stated(

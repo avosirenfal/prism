@@ -777,11 +777,16 @@ class InteractionTest {
 				session.state.value.sidebar.quick
 					.shows(Builtin.Music),
 			)
+
 			// Moved, it is moved in what the sidebar shows from.
+			val trashWas =
+				session.state.value.sidebar.quick.items
+					.indexOf(QuickItem.Own(Builtin.Trash))
+
 			onNodeWithTag("up:Trash").performClick()
 			waitUntil(timeoutMillis = TIMEOUT) {
 				session.state.value.sidebar.quick.items
-					.indexOf(QuickItem.Own(Builtin.Trash)) == Builtin.entries.size - 2
+					.indexOf(QuickItem.Own(Builtin.Trash)) == trashWas - 1
 			}
 
 			// Undone in the window, it is back where it was; done again, moved again. The browser's own undo, of what
@@ -797,7 +802,7 @@ class InteractionTest {
 			quickKeys { withKeyDown(Key.CtrlLeft) { pressKey(Key.Z) } }
 			waitUntil(timeoutMillis = TIMEOUT) {
 				session.state.value.sidebar.quick.items
-					.indexOf(QuickItem.Own(Builtin.Trash)) == Builtin.entries.size - 1
+					.indexOf(QuickItem.Own(Builtin.Trash)) == trashWas
 			}
 			quickKeys {
 				withKeyDown(
@@ -806,7 +811,7 @@ class InteractionTest {
 			}
 			waitUntil(timeoutMillis = TIMEOUT) {
 				session.state.value.sidebar.quick.items
-					.indexOf(QuickItem.Own(Builtin.Trash)) == Builtin.entries.size - 2
+					.indexOf(QuickItem.Own(Builtin.Trash)) == trashWas - 1
 			}
 			assertEquals(undoneBefore, session.state.value.changes)
 

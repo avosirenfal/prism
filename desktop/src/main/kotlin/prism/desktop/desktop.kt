@@ -18,6 +18,9 @@ interface Desktop {
 	val places: Places
 	val facts: FileFacts
 
+	/** The machine's drives and what is on them, as the System page shows them; none, where the desktop knows none. */
+	val storage: StorageReader get() = StorageReader { Storage(emptyList()) }
+
 	/**
 	 * [paths] opened, each with the default application for its type: one start of an application for every file it
 	 * is given where it takes one at a time, or one for all of them where it takes several. What no application opens

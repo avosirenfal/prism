@@ -37,6 +37,7 @@ import prism.desktop.MimeType
 import prism.desktop.Opening
 import prism.desktop.Place
 import prism.desktop.Places
+import prism.desktop.Storage
 import prism.desktop.currentDesktop
 import prism.index.SearchContext
 import prism.index.Searched
@@ -252,6 +253,8 @@ fun Services.answer(
 		is Effect.Make -> Answer.Changed(asking.change, disk.make(asking.change), asking.doing)
 		is Effect.Erase -> Answer.Erased(asking.erasing, disk.erase(asking.erasing))
 		Effect.ReadTrash -> Answer.TrashRead(disk.trash())
+		Effect.ReadStorage ->
+			Answer.StorageRead(desktop?.storage?.read() ?: Storage(emptyList()))
 		is Effect.Search ->
 			Answer.Searched(
 				asking.within?.let { findingIn(it, asking) } ?: finder.findingOf(asking),

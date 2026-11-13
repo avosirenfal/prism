@@ -671,6 +671,11 @@ sealed interface Where {
 		override val word: String get() = "trash"
 	}
 
+	/** The System page, which lists no files for actions to be done to. */
+	data object System : Where {
+		override val word: String get() = "system"
+	}
+
 	/** In [placed], in the folder of it at [within]. */
 	data class Place(
 		val placed: Placed,
