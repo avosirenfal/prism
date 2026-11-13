@@ -93,10 +93,12 @@ title at the top and close with their own buttons or Escape.
 
 ## Quick access, and preferences every window shares
 
-The sidebar's quick access is the user's preference, not a window's. It holds prism's own places (the home folder, its
-well-known folders, the trash, and the System page) and the folders the user pinned, in the user's order (`QuickAccess`, in
-`preferences/quick.kt`). Prism's own are always in it, each once: the user hides one, and moves it, but cannot remove
-it, so a place a later version adds reaches every user's list, at its end. That is kept by construction: a
+The sidebar's quick access is the user's preference, not a window's. It holds prism's own places (the System page, the
+home folder, its well-known folders, and the trash) and the folders the user pinned, in the user's order
+(`QuickAccess`, in `preferences/quick.kt`). Prism's own are always in it, each once: the user hides one, and moves it,
+but cannot remove it, so a place a later version adds reaches every user's list, where prism's own order puts it among
+those there (before the first of prism's own that comes after it: the System page before the home folder, wherever the
+user put that). That is kept by construction: a
 `QuickAccess` is made only by `QuickAccess.of`, which drops what is named twice and adds what is left out, whatever a
 file says. A folder's menu pins it ("Pin to sidebar"); the menu of something quick access shows takes it off ("Unpin
 from sidebar": a folder pinned is unpinned, and one of prism's own hidden from it). A picker's sidebar leaves out the trash,
@@ -156,14 +158,22 @@ system; a drive's partitions each take a part of the drive. So the page groups b
 
 - **A store** is a drive and everything on it, or drives taken together where something spans them: a ZFS pool
   mirrored over two disks, an LVM volume group, a RAID, a btrfs over several devices. Each is a card: what it is ("2 ×
-  WDC WD40EFRX-68N", "Hard disks · sda, sdb · 3.6 TB each"), what can still be written to it of all its room, and a bar.
+  WDC WD40EFRX-68N", "Hard disks · sda, sdb · 3.6 TB each"), what can still be written to it of all its room (or that
+  it can only be read, or that nothing of it is mounted), and a bar. The arrow at its end folds it to its bar.
+  Right-clicked, it offers each drive's devlink to copy: its path in /dev/disk/by-id by its model and serial
+  (`/dev/disk/by-id/nvme-Samsung_SSD_980_PRO_2TB_…`), what a pool or a mount table is best given.
+- **The store the computer was started from** has its icon in gold, which says so when the pointer rests on it: the one
+  with the partition the firmware started it from, as its EFI variables record it; where nothing records that (a BIOS),
+  the one the system's root is on, which says that instead.
 - **Its bar** is the store's room, one block for each part of it, as wide as the part is large: a file system's used
   part in its colour and its free part in a tint of it; swap the same in grey; a partition with nothing mounted grey
   (what is on it is not known); room no partition takes left empty. So one bar says how full the drive is and which of
-  what is on it is large. A block too small to see beside the rest (an EFI partition) is drawn a few pixels wide.
+  what is on it is large. A block too small to see beside the rest (an EFI partition) is drawn a few pixels wide, in one
+  colour: its used and free parts would be too thin to tell apart.
 - **Under the bar**, a row for each part, in the bar's colours: a file system by the folder it is mounted at, its
-  label, type and device, where else it is reached (a btrfs's other subvolumes), and what it has free of how much; a
-  pool by its name, then each dataset with what it holds of the pool, the largest first; swap, with how much is in use;
+  label, type and device, where else it is reached (a btrfs's other subvolumes, a folder it is mounted at again), and
+  what it has free of how much; a pool by its name, then each dataset with what it holds of the pool, the largest first,
+  at each folder it is mounted at; swap, with how much is in use;
   a partition not mounted, by what udev says is on it ("Windows · NTFS · sdd1 · not mounted"); room unallocated. A row
   of something mounted opens it, and right-clicked offers what a drive in the sidebar does.
 - **Network shares** are a store of their own, last. A share that does not say how full it is within a moment (one
@@ -171,10 +181,12 @@ system; a drive's partitions each take a part of the drive. So the page groups b
 - What is nearly full (90%) says so in the danger colour. A file system that can only be read (an image, a squashfs,
   one mounted read-only) is said to be read-only, and is never said to be full.
 
-Where the system is (the store with the file system mounted at `/`) comes first, then the rest in the machine, then
-removable drives, then the network. The page is read as it opens and every few seconds while it is shown, by the
-session rather than the view, so a drive plugged in appears without asking; the search field narrows it to the stores
-and parts whose words have what is typed. Left for a folder and come back to with Back, it is read afresh.
+The page shows one kind of store at a time, chosen by the buttons beside its title: the drives in the machine (where the
+system is, the store with the file system mounted at `/`, first), removable ones, and the network's shares. The page is
+read as it opens and every few seconds while it is shown, by the session rather than the view, so a drive plugged in
+appears without asking; the search field narrows it to the stores and parts whose words have what is typed. Which kind
+it shows, and which stores are folded, are the page's own (`Location.System`), kept as it is read again; left for a
+folder and come back to with Back, it shows them as they were, read afresh.
 
 How Linux's is read (`desktop/freedesktop/storage.kt`), as any user can, with no root and no D-Bus service:
 
@@ -188,8 +200,19 @@ How Linux's is read (`desktop/freedesktop/storage.kt`), as any user can, with no
   (`ID_FS_TYPE=zfs_member`, labelled with the pool's name), or by `zpool list -vHPL` where udev has none;
 - how full by statvfs, each on a thread of its own and given a moment, as a dead network share would hang whoever
   asked; a pool by `zfs list`, which says what each dataset holds of its own (used, less its children's), or, without
-  it, by statvfs of each dataset mounted;
-- what is not mounted by udev's records, and swap by /proc/swaps.
+  it, by statvfs of each dataset mounted. `zfs list` is asked for JSON (`-j`, OpenZFS 2.3 and later), read as a tree
+  by the names it needs, so what it does not know (its version, each dataset's type and source, and whatever a later
+  version adds) is passed over; where `-j` is not known, for its scripted lines (`-H -p`). Where each dataset is
+  mounted is not asked of ZFS (its `mountpoint` says `legacy` for one the system's mount table or systemd mounts):
+  mountinfo says, whatever mounted it, at every folder;
+- what is not mounted by udev's records, and swap by /proc/swaps, followed down to the partition under it where it is
+  on another device (swap encrypted with a key of the moment, as NixOS's disko makes it);
+- the drive the computer was started from by the EFI variables (as any user can read them): the boot loader's record
+  of the partition (`LoaderDevicePartUUID`, which systemd-boot keeps), or else the firmware's boot entry it started
+  (`BootCurrent`, then that `Boot####`'s device path, whose hard drive node names the partition by its GUID), matched
+  to udev's record of each partition's GUID;
+- each drive's devlink by udev's record of its links (`S:disk/by-id/…`), or the links in /dev/disk/by-id that lead to
+  it.
 
 ## Properties
 

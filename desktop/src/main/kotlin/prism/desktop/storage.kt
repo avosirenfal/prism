@@ -42,7 +42,9 @@ enum class Bus {
 
 /**
  * A physical drive: the kernel's [name] for it (`nvme0n1`, `sda`), its [model] where it says, its [size] in bytes, the
- * [bus] it is on, whether it [spins] (a hard disk, rather than flash), and whether it is [removable].
+ * [bus] it is on, whether it [spins] (a hard disk, rather than flash), whether it is [removable], and its [link]: the
+ * path that names it whatever order the kernel finds the drives in (`/dev/disk/by-id/nvme-Samsung_SSD_980_PRO_2TB_…`,
+ * what a pool or a mount table is best given), where the system makes one.
  */
 data class Drive(
 	val name: String,
@@ -51,18 +53,23 @@ data class Drive(
 	val bus: Bus,
 	val spins: Boolean,
 	val removable: Boolean,
+	val link: String? = null,
 )
 
 /**
- * Where a volume's files are reached: [at], the folder it is mounted at (null for a dataset that is not mounted);
- * [name], what it is (a dataset's name, a subvolume's); and how much it [holds] of the volume's space, where that is
- * known of it alone (a ZFS dataset's own use; null for a btrfs subvolume, which shares its file system's).
+ * Where a volume's files are reached: [mounts], each folder it is mounted at, the shortest first (none for a dataset
+ * that is not mounted); [name], what it is (a dataset's name, a subvolume's); and how much it [holds] of the volume's
+ * space, where that is known of it alone (a ZFS dataset's own use; null for a btrfs subvolume, which shares its file
+ * system's). Whatever mounted it (its own tools, the system's mount table, systemd): where the kernel says it is.
  */
 data class Reached(
 	val name: String,
-	val at: Path?,
+	val mounts: List<Path>,
 	val holds: Long?,
-)
+) {
+	/** The folder it is first reached at; null where it is not mounted. */
+	val at: Path? get() = mounts.firstOrNull()
+}
 
 /** Something that takes room in a [Store]: [size] bytes of it. */
 sealed interface Part {
@@ -120,12 +127,38 @@ enum class StoreKind {
 	Network,
 }
 
-/** Physical [drives] and the [parts] that take their room, as one: see the top of this file. */
+/** How a store is known to be the one the computer was started from. */
+enum class Boot {
+	/** The firmware says so: it started the computer from a partition of the store's (its EFI variables name it). */
+	Firmware,
+
+	/**
+	 * Nothing says where the computer was started from (an older machine's BIOS, a firmware that keeps no record): the
+	 * system's root is on the store, which is as near as can be said.
+	 */
+	Root,
+}
+
+/**
+ * Physical [drives] and the [parts] that take their room, as one: see the top of this file. [boot] says whether, and
+ * how it is known that, the computer was started from it.
+ */
 data class Store(
 	val kind: StoreKind,
 	val drives: List<Drive>,
 	val parts: List<Part>,
+	val boot: Boot? = null,
 ) {
+	/** What it is known by from one read to the next: its drives' names, or what is on it where it has no drives. */
+	val key: String
+		get() =
+			drives
+				.joinToString("+") { it.name }
+				.ifEmpty {
+					"$kind:" +
+						parts.filterIsInstance<Part.Volume>().joinToString("+") { it.source }
+				}
+
 	/** How large it is: what its parts take, together. */
 	val size: Long get() = parts.sumOf { it.size }
 

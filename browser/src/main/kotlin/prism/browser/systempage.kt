@@ -39,6 +39,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import prism.desktop.Boot
 import prism.desktop.Bus
 import prism.desktop.Drive
 import prism.desktop.Part
@@ -60,7 +61,10 @@ import java.nio.file.Path as FilePath
  * drive is and which of what is on it is large. Under the bar, a row for each block says what it is and what it holds,
  * a pool's datasets under the pool, each with what it holds of the pool; a file system mounted is gone to by a click.
  *
- * A store fuller than [NEARLY_FULL] says so in the danger colour, as its free room does.
+ * A store fuller than [NEARLY_FULL] says so in the danger colour, as its free room does. The page shows one kind of
+ * store at a time (those in the machine, removable ones, the network's), chosen by the buttons beside its title; the
+ * store the computer was started from has its icon in gold, which says so when the pointer rests on it; a store folds to
+ * its bar by the arrow at its end; and right-clicked, a store offers its drives' devlinks to copy.
  */
 
 /** How full a file system or a store is before what it has free is said in the danger colour. */
@@ -75,6 +79,12 @@ private val BAR_GAP = 2.dp
 
 /** A row's own bar, beside what it holds. */
 private val ROW_BAR = 96.dp
+
+/** A block narrower than this is drawn in one colour: its used and its free parts would be too thin to tell apart. */
+private val SPLIT_BLOCK = 16.dp
+
+/** The kinds of store, in the order their buttons are: each a tab of the page. */
+private val KINDS = listOf(StoreKind.Internal, StoreKind.Removable, StoreKind.Network)
 
 /** The hues a store's file systems are told apart by, in order: one for each, around again past the last. */
 private fun Palette.hues(): List<Color> =
@@ -124,7 +134,16 @@ internal fun SystemPane(
 	val bindings = LocalBindings.current
 	val storage = system.storage
 	val query = state.arrangement.query
-	val shown = storage?.narrowed(query)
+
+	// The kind of store shown, of those that match what is typed in the search field.
+	val shown =
+		storage?.let {
+			Storage(
+				it.stores.filter { store ->
+					store.kind == system.shows
+				},
+			).narrowed(query)
+		}
 
 	// What a folder mounted offers, right-clicked: what a drive in the sidebar does, opened here or in a window of its own.
 	val rowing =
@@ -147,20 +166,6 @@ internal fun SystemPane(
 	) {
 		when {
 			storage == null || shown == null -> Box(Modifier.fillMaxSize())
-			storage.stores.isEmpty() ->
-				EmptyState(
-					Glyph.System,
-					"No drives to show",
-					"Nothing mounted here is on a drive this computer has, or shared over the network.",
-					Modifier.fillMaxSize(),
-				)
-			shown.stores.isEmpty() ->
-				EmptyState(
-					Glyph.Search,
-					"Nothing here matches “$query”",
-					null,
-					Modifier.fillMaxSize(),
-				)
 			else ->
 				ScrollArea(
 					Modifier.fillMaxSize(),
@@ -168,9 +173,31 @@ internal fun SystemPane(
 					tag = "system-page",
 				) {
 					Column(verticalArrangement = Arrangement.spacedBy(Space.l)) {
-						Overview(storage)
-						for (store in shown.stores)
-							StoreCard(store, rowing)
+						Overview(storage, system.shows, onEvent)
+						when {
+							shown.stores.isNotEmpty() ->
+								for (store in shown.stores)
+									StoreCard(
+										store,
+										folded = store.key in system.folded,
+										rowing = rowing,
+										onFold = { onEvent(BrowserEvent.FoldedStore(store.key)) },
+									)
+							query.isNotBlank() ->
+								EmptyState(
+									Glyph.Search,
+									"Nothing here matches “$query”",
+									null,
+									Modifier.fillMaxWidth(),
+								)
+							else ->
+								EmptyState(
+									glyphOf(system.shows),
+									"No ${nounOf(system.shows)}",
+									whenNoneOf(system.shows),
+									Modifier.fillMaxWidth(),
+								)
+						}
 					}
 				}
 		}
@@ -218,19 +245,68 @@ internal fun Storage.narrowed(query: String): Storage {
 	)
 }
 
-/** What the stores make together: how many drives and shares, and what they have free of all their room. */
+/**
+ * The page's title, and beside it a button for each kind of store, the one [shows] lit (each says what it shows, and
+ * how many, as the pointer rests on it); under it what the stores make together, of every kind.
+ */
 @Composable
-private fun Overview(storage: Storage) {
+private fun Overview(
+	storage: Storage,
+	shows: StoreKind,
+	onEvent: (BrowserEvent) -> Unit,
+) {
 	val type = LocalType.current
 
 	Column(
 		Modifier.padding(bottom = Space.xs),
 		verticalArrangement = Arrangement.spacedBy(Space.xxs),
 	) {
-		Text("Drives and file systems", style = type.headline)
+		Row(verticalAlignment = Alignment.CenterVertically) {
+			Text("Drives and file systems", style = type.headline)
+			Row(
+				Modifier.padding(start = Space.l),
+				horizontalArrangement = Arrangement.spacedBy(Space.xs),
+			) {
+				for (kind in KINDS) {
+					val count = storage.stores.count { it.kind == kind }
+
+					ToolButton(
+						glyphOf(kind),
+						"${titleOf(kind)} ($count)",
+						enabled = true,
+						Modifier.testTag("stores:$kind"),
+						selected = kind == shows,
+					) { onEvent(BrowserEvent.ShowedStores(kind)) }
+				}
+			}
+		}
 		Text(overviewOf(storage), style = type.muted)
 	}
 }
+
+/** What the tab of [kind] shows, as its button says it. */
+private fun titleOf(kind: StoreKind): String =
+	when (kind) {
+		StoreKind.Internal -> "Drives in this computer"
+		StoreKind.Removable -> "Removable drives"
+		StoreKind.Network -> "Network shares"
+	}
+
+/** What a store of [kind] is, of none of them: "No removable drives". */
+private fun nounOf(kind: StoreKind): String =
+	when (kind) {
+		StoreKind.Internal -> "drives in this computer"
+		StoreKind.Removable -> "removable drives"
+		StoreKind.Network -> "network shares"
+	}
+
+/** What a tab of [kind] with nothing in it says of when it would have something. */
+private fun whenNoneOf(kind: StoreKind): String =
+	when (kind) {
+		StoreKind.Internal -> "Nothing mounted here is on a drive this computer has."
+		StoreKind.Removable -> "A USB drive or a card plugged in shows here."
+		StoreKind.Network -> "A share mounted from another computer shows here."
+	}
 
 /** "4 drives and 2 network shares · 2.4 TB free of 9.6 TB": what the System page shows, together. */
 internal fun overviewOf(storage: Storage): String {
@@ -269,10 +345,16 @@ private fun counted(count: Int, noun: String): String =
 
 /**
  * A store: what it is (its drives, or the network), how much it has free, its bar, and a row for each part of it, in
- * the bar's colours. A row of a file system mounted does as [rowing] says.
+ * the bar's colours, unless it is [folded] to its bar ([onFold] folds and unfolds it). A row of a file system mounted
+ * does as [rowing] says; the store itself, right-clicked, offers its drives' devlinks to copy.
  */
 @Composable
-private fun StoreCard(store: Store, rowing: Rowing) {
+private fun StoreCard(
+	store: Store,
+	folded: Boolean,
+	rowing: Rowing,
+	onFold: () -> Unit,
+) {
 	val palette = LocalPalette.current
 	val type = LocalType.current
 	val colors = remember(store, palette) { palette.colorsOf(store) }
@@ -280,20 +362,12 @@ private fun StoreCard(store: Store, rowing: Rowing) {
 	val title = titleOf(store)
 
 	Card(Modifier.testTag("store:$title")) {
-		CardItem {
+		CardItem(Modifier.contextMenu(rowing.menus) { devlinksOf(store) }) {
 			Row(
 				verticalAlignment = Alignment.CenterVertically,
 				horizontalArrangement = Arrangement.spacedBy(Space.m),
 			) {
-				Box(
-					Modifier
-						.size(
-							type.control + Space.xs,
-						).background(palette.sunken, RoundedCornerShape(Radius.medium)),
-					contentAlignment = Alignment.Center,
-				) {
-					GlyphIcon(glyphOf(store.kind), palette.textMuted, type.icon * 1.25f)
-				}
+				StoreIcon(store)
 				Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(Space.xxs)) {
 					Text(title, style = type.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
 					Text(
@@ -308,27 +382,108 @@ private fun StoreCard(store: Store, rowing: Rowing) {
 					horizontalAlignment = Alignment.End,
 					verticalArrangement = Arrangement.spacedBy(Space.xxs),
 				) {
-					if (store.writable || store.parts.none { it is Part.Volume }) {
-						Text(
-							"${sizeOf(store.free)} free",
-							style = type.strong.tabular(),
-							color =
-								if (full >= NEARLY_FULL)
-									palette.dangerText
-								else
-									palette.text,
-						)
-						Text("of ${sizeOf(store.size)}", style = type.muted.tabular())
-					} else {
-						Text("Read-only", style = type.strong)
-						Text(sizeOf(store.size), style = type.muted.tabular())
+					when {
+						store.writable -> {
+							Text(
+								"${sizeOf(store.free)} free",
+								style = type.strong.tabular(),
+								color =
+									if (full >= NEARLY_FULL)
+										palette.dangerText
+									else
+										palette.text,
+							)
+							Text("of ${sizeOf(store.size)}", style = type.muted.tabular())
+						}
+						store.parts.any { it is Part.Volume } -> {
+							Text("Read-only", style = type.strong)
+							Text(sizeOf(store.size), style = type.muted.tabular())
+						}
+						// Nothing of it mounted (an image written to a stick, a drive not in use): what it holds unknown.
+						else -> {
+							Text("Not mounted", style = type.strong)
+							Text(sizeOf(store.size), style = type.muted.tabular())
+						}
 					}
 				}
+				ToolButton(
+					if (folded) Glyph.Chevron else Glyph.ChevronDown,
+					if (folded)
+						"Show what is on it"
+					else
+						"Show its bar alone",
+					enabled = true,
+					Modifier.testTag("fold:${store.key}"),
+					onClick = onFold,
+				)
 			}
 			StoreBar(store, colors, Modifier.padding(top = Space.xs))
 		}
-		store.parts.forEachIndexed { index, part ->
-			PartRows(part, colors[index], rowing)
+		if (!folded)
+			store.parts.forEachIndexed { index, part ->
+				PartRows(part, colors[index], rowing)
+			}
+	}
+}
+
+/**
+ * A store's icon: the kind of store it is, in gold where it is the one the computer was started from, which says so,
+ * and how that is known, when the pointer rests on it.
+ */
+@Composable
+private fun StoreIcon(store: Store) {
+	val palette = LocalPalette.current
+	val type = LocalType.current
+
+	@Composable
+	fun Icon(color: Color, modifier: Modifier = Modifier) =
+		Box(
+			modifier
+				.size(type.control + Space.xs)
+				.background(
+					if (store.boot != null)
+						palette.folder.copy(alpha = 0.16f)
+					else
+						palette.sunken,
+					RoundedCornerShape(Radius.medium),
+				),
+			contentAlignment = Alignment.Center,
+		) {
+			GlyphIcon(glyphOf(store.kind), color, type.icon * 1.25f)
+		}
+
+	when (store.boot) {
+		null -> Icon(palette.textMuted)
+		Boot.Firmware ->
+			Tip("The computer was started from this drive") {
+				Icon(palette.folder, Modifier.testTag("booted"))
+			}
+		Boot.Root ->
+			Tip(
+				"The system runs from this drive; where the computer was started from isn't recorded",
+			) {
+				Icon(palette.folder, Modifier.testTag("booted"))
+			}
+	}
+}
+
+/**
+ * What a store offers right-clicked: each of its drives' devlinks to copy (its path in /dev/disk/by-id, what a pool or
+ * a mount table is best given); nothing for a store of no drive that has one.
+ */
+private fun devlinksOf(store: Store): Menu<BrowserEvent>? {
+	val linked = store.drives.filter { it.link != null }
+
+	return linked.takeIf { it.isNotEmpty() }?.let {
+		menu {
+			for (drive in linked)
+				item(
+					if (linked.size == 1)
+						"Copy devlink"
+					else
+						"Copy devlink of ${drive.name}",
+					BrowserEvent.CopiedPaths(listOf(FilePath.of(drive.link!!))),
+				)
 		}
 	}
 }
@@ -484,21 +639,30 @@ private fun DrawScope.block(
 		drawRect(full, at, Size(used, size.height))
 	}
 
+	// Too narrow to show both its parts: one colour, its own.
+	val split = size.width >= SPLIT_BLOCK.toPx()
+
 	when (part) {
 		is Part.Volume ->
 			part.space?.let { space ->
-				filled(
-					space.used.toDouble() / space.total.coerceAtLeast(1),
-					color,
-					color.copy(alpha = 0.22f),
-				)
+				if (split)
+					filled(
+						space.used.toDouble() / space.total.coerceAtLeast(1),
+						color,
+						color.copy(alpha = 0.22f),
+					)
+				else
+					drawRect(color, at, size)
 			} ?: drawRect(palette.writing.copy(alpha = 0.25f), at, size)
 		is Part.Swap ->
-			filled(
-				part.used.toDouble() / part.size.coerceAtLeast(1),
-				color.copy(alpha = 0.7f),
-				color.copy(alpha = 0.25f),
-			)
+			if (split)
+				filled(
+					part.used.toDouble() / part.size.coerceAtLeast(1),
+					color.copy(alpha = 0.7f),
+					color.copy(alpha = 0.25f),
+				)
+			else
+				drawRect(color.copy(alpha = 0.7f), at, size)
 		is Part.Unmounted -> drawRect(color.copy(alpha = 0.45f), at, size)
 		is Part.Unallocated -> Unit
 	}
@@ -538,7 +702,8 @@ private fun PartRows(part: Part, color: Color, rowing: Rowing) {
 		is Part.Volume -> {
 			val at = part.at
 
-			Column(Modifier.fillMaxWidth()) {
+			// A pool's datasets keep room under the last of them, as a row keeps its own.
+			Column(Modifier.fillMaxWidth().padding(bottom = if (part.pooled) Space.s else 0.dp)) {
 				PartRow(
 					Swatch.Filled(color),
 					titleOf(part),
@@ -680,8 +845,8 @@ private fun PartRow(
 					else
 						Space.l,
 				end = Space.l,
-				top = Space.xs,
-				bottom = Space.xs,
+				top = if (indent) Space.xs else Space.s,
+				bottom = if (indent) Space.xs else Space.s,
 			),
 		verticalAlignment = Alignment.CenterVertically,
 		horizontalArrangement = Arrangement.spacedBy(Space.m),
@@ -779,7 +944,7 @@ private fun subtitleOf(volume: Part.Volume): String {
 			counted(volume.reached.size, "dataset"),
 		).joinToString("  ·  ")
 
-	val elsewhere = volume.reached.mapNotNull { it.at }.filter { it != volume.at }
+	val elsewhere = volume.reached.flatMap { it.mounts }.filter { it != volume.at }
 
 	return listOfNotNull(
 		volume.label?.let { "“$it”" },
@@ -791,16 +956,20 @@ private fun subtitleOf(volume: Part.Volume): String {
 
 /**
  * Under a dataset's title: its own name, where it is mounted elsewhere than its name says (`tank/media` at
- * `/tank/media` says nothing more); that it is not mounted, where it is not.
+ * `/tank/media` says nothing more), and the other folders it is mounted at; that it is not mounted, where it is not.
  */
 private fun datasetSubtitleOf(dataset: Reached): String =
-	when (dataset.at) {
-		null -> "not mounted"
-		java.nio.file.Path
-			.of("/" + dataset.name),
-		-> ""
-		else -> dataset.name
-	}
+	if (dataset.at == null)
+		"not mounted"
+	else
+		listOfNotNull(
+			dataset.name.takeIf { dataset.at != FilePath.of("/" + dataset.name) },
+			dataset.mounts
+				.drop(1)
+				.takeIf {
+					it.isNotEmpty()
+				}?.joinToString(", ", prefix = "also at "),
+		).joinToString("  ·  ")
 
 /** What a file system's row says it holds: what it has free, of how much; that it can only be read; that it did not answer. */
 private fun amountOf(volume: Part.Volume): String =

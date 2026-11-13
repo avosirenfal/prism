@@ -9,4 +9,6 @@ plugins {
 dependencies {
 	// statx(2), for when a file was made, which the JVM does not say on Linux.
 	implementation(project(":linux"))
+	// `zfs list -j`, read for what each dataset holds.
+	implementation(libs.kotlinx.serialization.json)
 }

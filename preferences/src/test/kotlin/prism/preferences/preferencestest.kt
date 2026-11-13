@@ -215,11 +215,36 @@ class PreferencesTest {
 				),
 			)
 
-		// The first of what is named twice; prism's own that were left out added, shown, in their own order.
+		// The first of what is named twice; prism's own that were left out added, shown, where their own order puts
+		// them: before the trash, which comes after every one of them.
 		assertEquals(
-			listOf(QuickItem.Pinned(projects), QuickItem.Own(Builtin.Trash, shown = false)) +
-				Builtin.entries.filter { it != Builtin.Trash }.map { QuickItem.Own(it) },
+			listOf(QuickItem.Pinned(projects)) +
+				Builtin.entries.filter { it != Builtin.Trash }.map { QuickItem.Own(it) } +
+				QuickItem.Own(Builtin.Trash, shown = false),
 			read.items,
+		)
+
+		// One a later version adds goes where its order puts it among those there: the System page, first of them,
+		// before the home folder, wherever that is.
+		val older =
+			listOf(
+				QuickItem.Pinned(projects),
+				QuickItem.Own(Builtin.Home),
+				QuickItem.Own(Builtin.Trash),
+			) +
+				Builtin.entries
+					.filter {
+						it != Builtin.System && it != Builtin.Home &&
+							it != Builtin.Trash
+					}.map { QuickItem.Own(it) }
+
+		assertEquals(
+			listOf(
+				QuickItem.Pinned(projects),
+				QuickItem.Own(Builtin.System),
+				QuickItem.Own(Builtin.Home),
+			),
+			QuickAccess.of(older).items.take(3),
 		)
 		// Pinned again, a folder is still there once; unpinned, it is gone; prism's own are only ever hidden.
 		assertEquals(read, read.pinning(projects))
