@@ -15,6 +15,9 @@ dependencies {
 	api(libs.lwjgl.sdl)
 	implementation(libs.lwjgl.opengl)
 	api(libs.kotlinx.coroutines.core)
+	// Compose's own test harness, for what is read of a window's layout without a window.
+	@OptIn(org.jetbrains.compose.ExperimentalComposeLibrary::class)
+	testImplementation(compose.uiTest)
 
 	for (platform in natives) {
 		runtimeOnly(variantOf(libs.lwjgl.core) { classifier("natives-$platform") })

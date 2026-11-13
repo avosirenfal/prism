@@ -372,15 +372,19 @@ ticked shown or not, and aligned; and its filters,
 for a list and for a gallery. A picker's are the explorer's until its switch gives it its own (changing anything does
 too). Context menus: the same list down the side, and the sidebar after it; beside it, the menu chosen, opened on a
 file, a folder, several, or the empty space around them, drawn as a menu is, with every entry it can hold, prism's and
-the actions', a submenu's items under it. Each is dragged by its grip into order, or several chosen by Shift and a click
-together; its keys (Shift, Ctrl, Alt) lit keep it for a menu opened with them held; switched off, it never shows. Lines
-between groups are added (at the end, to be dragged where they are wanted) and taken away. The menu is seen for all
-files, where what is only for some (an action for a .zip, or for images) is left out, and the page says how many
-entries that is; or for a file of each extension, name or type the actions are written for ("Seen for .zip"), where
-what is not offered for it is left out. What is left out stays where it is, whatever is moved around it; a line with
-only that between it and the one before sets nothing apart, and is left out too. And it is seen with keys held: what
-the menu would not show then is faint, a line it would not draw too. A listing's menus other than a folder's are arranged as a folder's until one is given its own
-(its switch, or any change to it); "Put prism's back" forgets the menu's arrangement. Key bindings: a filter (Ctrl+F goes to it) that finds an action by its name, as shown or as the file
+the actions'; a submenu's items are drawn in under it, and its arrow folds them away and back. Each entry is dragged by
+its grip into order, or several chosen by Shift and a click together, a submenu's items among themselves; its keys
+(Shift, Ctrl, Alt) lit keep it for a menu opened with them held; switched off, it never shows. A right-click on an entry
+puts a line before or after it, where that sets something apart; on a line, takes it away, as its × does. What differs
+from prism's own arrangement is tinted, with a mark at its start, and said: moved, added, shown differently. The menu
+is seen for all files, where what is only for some (an action for a .zip, or for images) is left out, and the page says
+how many entries that is; or for a file of each extension, name or type the actions are written for ("Seen for .zip"),
+where what is not offered for it is left out. What is left out stays where it is, whatever is moved around it; a line
+with only that between it and the one before sets nothing apart, and is left out too. And it is seen with keys held:
+what the menu would not show then is faint. A listing's menus other than a folder's are arranged as a folder's until
+one is given its own (its switch, or any change to it). Beside the menu's name, "Reset menu" forgets its own
+arrangement, and "Reset all menus" every menu's and every entry hidden; each says so as the pointer rests on it, and
+neither is kept until applied. Key bindings: a filter (Ctrl+F goes to it) that finds an action by its name, as shown or as the file
 writes it, or by its chords; and, as JetBrains' keymap has it, a button that opens "Find Shortcut", which takes the
 next shortcut pressed (a key with its modifiers, or the mouse's middle, back or forward button over its lower part) for
 as long as it is open, and shows what it does, binding nothing. Closed, the keys are the page's again, and what it

@@ -153,6 +153,25 @@ NixOS's own (a JVM loading SDL from LWJGL) finds them only with that folder on `
 shell puts there. Without it only Mesa's EGL is found, which cannot drive an NVIDIA card (`libEGL warning: egl: failed
 to create dri2 screen`), and prism draws on the CPU.
 
+## When a frame fails
+
+Compose's own errors in layout say little of where they are: "LayoutNode 1309 not found in RectList" names a node by its
+id, and its stack says only which kinds of layout it passed through. A frame that throws is said, on standard error,
+with what it was laying out (`framereport.kt`): the node the error names, found in the window's layout trees, and each
+node above it, with its id, whether it is placed, its size and its modifiers (`Padding`, `GraphicsLayer`, a test tag by
+its tag), and the node's own children. That is enough to tell which composable it is. The window then fails as it
+would have; the report only reads.
+
+Compose gives no public way down its layout tree. The window keeps the trees as Compose makes and disposes of them
+(`PlatformContext.semanticsOwnerListener`), and reads a node's children by the name it answers to as Compose's
+semantics tree (`getChildrenInfo`), through reflection; where Compose stops answering to that, the report says it
+cannot find the node, and gives the error.
+
+This came of a crash opening the preferences window's Layout page, in Compose 1.12's bookkeeping of where each node is
+(a node placed only to measure its baseline was taken for placed). 1.12.2 fixed half of it and 1.13.0-beta02 the rest;
+prism is on 1.13.0-beta02 for that, and its window's platform context is Compose's own (`PlatformContext.Empty`) for
+what prism's does not do itself.
+
 ## Not yet
 
 - **Dragging out to other programs on X11, Windows and macOS**: XDND, OLE's `DoDragDrop` and an `NSDraggingSession`,

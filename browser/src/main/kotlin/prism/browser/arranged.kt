@@ -85,7 +85,8 @@ fun arranged(
 
 /**
  * A menu of the entries of [slots] (each slot's, by its id) in [arrangement]'s order, with lines where it puts them:
- * each shown as the arrangement says, with [held] held as the menu opens; an item of a submenu likewise, by its own id.
+ * each shown as the arrangement says, with [held] held as the menu opens; an item of a submenu likewise, by its own id,
+ * and in the arrangement's order among the submenu's others (what it does not name after them, as they come).
  */
 fun <A> assembled(
 	slots: Map<String, List<MenuEntry<A>>>,
@@ -102,8 +103,12 @@ fun <A> assembled(
 						false
 				}
 			is MenuEntry.Submenu ->
-				Menu(entry.menu.entries.mapNotNull(::admitted))
-					.let { menu { it.entries.forEach(::add) } }
+				Menu(
+					entry.menu.entries
+						.inOrderOf(arrangement) {
+							(it as? MenuEntry.Item)?.id
+						}.mapNotNull(::admitted),
+				).let { menu { it.entries.forEach(::add) } }
 					.takeUnless { it.isEmpty() }
 					?.let { MenuEntry.Submenu(entry.label, it) }
 			MenuEntry.Separator -> entry
@@ -118,6 +123,20 @@ fun <A> assembled(
 						slots[placed.id].orEmpty().mapNotNull(::admitted).forEach(::add)
 			}
 	}
+}
+
+/**
+ * These, in [arrangement]'s order by their ids ([idOf]); those it does not name after them, as they come. How a
+ * submenu's items are put in order, in a menu and as the preferences window shows one.
+ */
+fun <T> List<T>.inOrderOf(arrangement: List<Placed>, idOf: (T) -> String?): List<T> {
+	val places =
+		arrangement.filterIsInstance<Placed.Slot>().withIndex().associate { (at, slot) ->
+			slot.id to
+				at
+		}
+
+	return sortedBy { idOf(it)?.let(places::get) ?: Int.MAX_VALUE }
 }
 
 /** One of prism's own entries, as the preferences name it: what it says ([label]), and when it is there ([note]). */

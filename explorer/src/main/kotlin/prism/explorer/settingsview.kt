@@ -697,13 +697,14 @@ private fun LookSection(settings: Settings, onChange: (Settings) -> Unit) {
 				onMove = { looked(look.with(columns.moved(it))) },
 				movable = { it.id != ColumnId.Name },
 				divided = true,
-			) { column, handle, lit ->
+			) { column, grip ->
 				val name = column.id == ColumnId.Name
 
 				Row(
 					Modifier
 						.fillMaxWidth()
-						.background(if (lit) palette.chosen else palette.raised)
+						.then(grip.entry)
+						.background(if (grip.lit) palette.chosen else palette.raised)
 						.testTag("columns:${column.id.name}")
 						.padding(horizontal = Space.m, vertical = Space.s),
 					verticalAlignment = Alignment.CenterVertically,
@@ -716,7 +717,7 @@ private fun LookSection(settings: Settings, onChange: (Settings) -> Unit) {
 						else
 							palette.textFaint,
 						type.icon,
-						handle.testTag("grip:${column.id.name}"),
+						grip.handle.testTag("grip:${column.id.name}"),
 					)
 					CheckBox(
 						kind.labelOf(column.id),

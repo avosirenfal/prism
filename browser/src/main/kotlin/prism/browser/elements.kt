@@ -68,6 +68,8 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.layout.MeasurePolicy
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
@@ -78,6 +80,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
@@ -637,84 +640,130 @@ fun <T> Segmented(
 		return true
 	}
 
-	Row(
-		modifier
-			.ring(felt.ringed, palette.focus, corner = Radius.medium + Space.xxs)
-			.alpha(if (enabled) 1f else 0.45f)
-			.height(type.control)
-			.width(IntrinsicSize.Max)
-			.background(palette.sunken, track)
-			.border(1.dp, palette.border, track)
-			.onKeyEvent {
-				when {
-					!enabled || it.type != KeyEventType.KeyDown -> false
-					it.key == Key.DirectionLeft -> step(-1)
-					it.key == Key.DirectionRight -> step(1)
-					else -> false
-				}
-			}.focusable(enabled && focusable, source)
-			.padding(Space.xxs),
-	) {
-		options.forEach { option ->
-			val name = label(option)
-			val icon = glyph(option)
-			val selected = option == chosen
-			val hover = remember { MutableInteractionSource() }
-			val hovered by hover.collectIsHoveredAsState()
-			val shape = RoundedCornerShape(Radius.medium)
+	Layout(
+		content = {
+			options.forEach { option ->
+				val name = label(option)
+				val icon = glyph(option)
 
-			val segment: @Composable () -> Unit = {
-				Box(
-					Modifier
-						.fillMaxHeight()
-						.then(
-							if (icon == null)
-								Modifier.weight(1f)
-							else
-								Modifier,
-						).then(
-							if (selected)
-								Modifier
-									.shadow(1.dp, shape, ambientColor = palette.shadow, spotColor = palette.shadow)
-									.background(palette.thumb, shape)
-							else if (hovered && enabled)
-								Modifier.background(palette.hover, shape)
-							else
-								Modifier,
-						).focusProperties { canFocus = false }
-						.selectable(
-							selected,
-							hover,
-							indication = null,
-							enabled = enabled,
-							role = Role.Tab,
-						) { onChoose(option) }
-						.testTag("$tag:$name")
-						.padding(horizontal = if (icon == null) Space.m else Space.s),
-					contentAlignment = Alignment.Center,
-				) {
-					if (icon != null)
-						GlyphIcon(icon, if (selected) palette.text else palette.textMuted, type.icon * 0.9f)
-					else
-						Text(
-							name,
-							style =
-								(if (selected) type.button else type.body).copy(
-									color = if (selected) palette.text else palette.textMuted,
-								),
-							maxLines = 1,
-							softWrap = false,
-						)
-				}
+				if (icon != null)
+					Tip(name, Modifier.fillMaxHeight()) {
+						Segment(name, icon, option == chosen, enabled, "$tag:$name") { onChoose(option) }
+					}
+				else
+					Segment(name, null, option == chosen, enabled, "$tag:$name") { onChoose(option) }
 			}
+		},
+		modifier =
+			modifier
+				.ring(felt.ringed, palette.focus, corner = Radius.medium + Space.xxs)
+				.alpha(if (enabled) 1f else 0.45f)
+				.height(type.control)
+				.background(palette.sunken, track)
+				.border(1.dp, palette.border, track)
+				.onKeyEvent {
+					when {
+						!enabled || it.type != KeyEventType.KeyDown -> false
+						it.key == Key.DirectionLeft -> step(-1)
+						it.key == Key.DirectionRight -> step(1)
+						else -> false
+					}
+				}.focusable(enabled && focusable, source)
+				.padding(Space.xxs),
+		measurePolicy = SegmentsSideBySide,
+	)
+}
 
-			if (icon != null)
-				Tip(name, Modifier.fillMaxHeight()) { segment() }
-			else
-				segment()
-		}
+/** One choice of a [Segmented]: its [name], or its [icon] where it has one; raised where [selected]. */
+@Composable
+private fun Segment(
+	name: String,
+	icon: Glyph?,
+	selected: Boolean,
+	enabled: Boolean,
+	tag: String,
+	onChoose: () -> Unit,
+) {
+	val palette = LocalPalette.current
+	val type = LocalType.current
+	val hover = remember { MutableInteractionSource() }
+	val hovered by hover.collectIsHoveredAsState()
+	val shape = RoundedCornerShape(Radius.medium)
+
+	Box(
+		Modifier
+			.fillMaxHeight()
+			.then(
+				when {
+					selected ->
+						Modifier
+							.shadow(1.dp, shape, ambientColor = palette.shadow, spotColor = palette.shadow)
+							.background(palette.thumb, shape)
+					hovered && enabled -> Modifier.background(palette.hover, shape)
+					else -> Modifier
+				},
+			).focusProperties { canFocus = false }
+			.selectable(
+				selected,
+				hover,
+				indication = null,
+				enabled = enabled,
+				role = Role.Tab,
+				onClick = onChoose,
+			).testTag(tag)
+			.padding(horizontal = if (icon == null) Space.m else Space.s),
+		contentAlignment = Alignment.Center,
+	) {
+		val tint = if (selected) palette.text else palette.textMuted
+
+		if (icon != null)
+			GlyphIcon(icon, tint, type.icon * 0.9f)
+		else
+			Text(
+				name,
+				style = (if (selected) type.button else type.body).copy(color = tint),
+				maxLines = 1,
+				softWrap = false,
+				overflow = TextOverflow.Ellipsis,
+			)
 	}
 }
+
+/**
+ * A [Segmented]'s choices side by side: each as wide as the widest, where that fits, so they look alike; each as wide as
+ * it needs, where only that fits, so each is read whole; narrowed in proportion, where not even that does. Room more
+ * than they take (the track made to fill a width) is shared out among them.
+ */
+private val SegmentsSideBySide =
+	MeasurePolicy { measurables, constraints ->
+		val natural = measurables.map { it.maxIntrinsicWidth(constraints.maxHeight) }
+		val widest = natural.maxOrNull() ?: 0
+		val room = constraints.maxWidth
+		val sized =
+			when {
+				widest * natural.size <= room -> natural.map { widest }
+				natural.sum() <= room -> natural
+				else -> natural.map { it * room / natural.sum() }
+			}
+		val extra = (constraints.minWidth - sized.sum()).coerceAtLeast(0)
+		val widths =
+			sized.mapIndexed { at, width ->
+				width + extra / sized.size +
+					if (at < extra % sized.size) 1 else 0
+			}
+		val height = constraints.maxHeight
+
+		val placeables =
+			measurables.zip(
+				widths,
+			) { segment, width -> segment.measure(Constraints.fixed(width, height)) }
+
+		layout(widths.sum(), height) {
+			placeables.fold(
+				0,
+			) { x, placeable -> x + placeable.width.also { placeable.place(x, 0) } }
+		}
+	}
 
 /**
  * Options any number of which are [on], side by side in one track, each turned on or off by itself ([onToggle]): one on
