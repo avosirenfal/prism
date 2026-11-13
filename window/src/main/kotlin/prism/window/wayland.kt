@@ -172,10 +172,26 @@ internal object Wl {
 	fun show(surface: MemorySegment, buffer: ShmBuffer, scale: Int = 1) {
 		val at = versionOf(surface)
 
-		marshalAttach.invokeExact(surface, SURFACE_ATTACH, MemorySegment.NULL, at, 0, buffer.proxy, 0, 0)
+		marshalAttach.invokeExact(
+			surface,
+			SURFACE_ATTACH,
+			MemorySegment.NULL,
+			at,
+			0,
+			buffer.proxy,
+			0,
+			0,
+		)
 			as MemorySegment
 		if (scale != 1 && at >= 3)
-			marshalInt.invokeExact(surface, SURFACE_SET_BUFFER_SCALE, MemorySegment.NULL, at, 0, scale)
+			marshalInt.invokeExact(
+				surface,
+				SURFACE_SET_BUFFER_SCALE,
+				MemorySegment.NULL,
+				at,
+				0,
+				scale,
+			)
 				as MemorySegment
 		if (at >= 4)
 			marshalDamage.invokeExact(
@@ -201,7 +217,14 @@ internal object Wl {
 				Int.MAX_VALUE,
 				Int.MAX_VALUE,
 			) as MemorySegment
-		marshalNone.invokeExact(surface, SURFACE_COMMIT, MemorySegment.NULL, at, 0, MemorySegment.NULL)
+		marshalNone.invokeExact(
+			surface,
+			SURFACE_COMMIT,
+			MemorySegment.NULL,
+			at,
+			0,
+			MemorySegment.NULL,
+		)
 			as MemorySegment
 	}
 }
@@ -298,7 +321,10 @@ internal class ShmBuffer private constructor(
 						width,
 						height,
 						stride,
-						if (opaque) Wl.FORMAT_XRGB8888 else Wl.FORMAT_ARGB8888,
+						if (opaque)
+							Wl.FORMAT_XRGB8888
+						else
+							Wl.FORMAT_ARGB8888,
 					) as MemorySegment
 
 				// The pool is needed no longer once its one buffer is made: the buffer keeps the memory shared.
@@ -320,7 +346,10 @@ internal class ShmBuffer private constructor(
 							width,
 							height,
 							ColorType.BGRA_8888,
-							if (opaque) ColorAlphaType.OPAQUE else ColorAlphaType.PREMUL,
+							if (opaque)
+								ColorAlphaType.OPAQUE
+							else
+								ColorAlphaType.PREMUL,
 						),
 						memory.address(),
 						stride,

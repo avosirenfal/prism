@@ -420,6 +420,7 @@ class DesktopTest {
 		val xdg = xdg("PATH" to fakePath("viewer", "editor", "setsid"))
 		val asked = ArrayList<String?>()
 		val given = ArrayList<ActivationToken?>()
+
 		val launcher =
 			DetachedLauncher(
 				xdg,
@@ -432,8 +433,18 @@ class DesktopTest {
 				Launched.Started("")
 			}
 
-		val editor = DesktopEntries(xdg, SharedMimeInfo(xdg)).all().single { it.name == "Editor" }
-		val files = listOf("a.txt", "b.txt").map { root.resolve(it).also { f -> f.writeText("x") } }
+		val editor =
+			DesktopEntries(
+				xdg,
+				SharedMimeInfo(xdg),
+			).all().single { it.name == "Editor" }
+
+		val files =
+			listOf("a.txt", "b.txt").map {
+				root.resolve(it).also { f ->
+					f.writeText("x")
+				}
+			}
 
 		// The editor takes one file at a time: two starts, each with a token of its own, made for it by its name.
 		launcher.launch(editor, files)
@@ -452,13 +463,14 @@ class DesktopTest {
 
 		fun environmentOf(activation: Activation): String {
 			val out = root.resolve("environment-${System.nanoTime()}")
+
 			val launched =
 				DetachedLauncher(Xdg(System.getenv() - "XDG_RUNTIME_DIR"), activation).run(
 					listOf(
 						"sh",
 						"-c",
-						"printf '%s|%s' \"\$XDG_ACTIVATION_TOKEN\" \"\$DESKTOP_STARTUP_ID\" > '$out.part' && " +
-							"mv '$out.part' '$out'",
+						"printf '%s|%s' \"\$XDG_ACTIVATION_TOKEN\" \"\$DESKTOP_STARTUP_ID\" " +
+							"> '$out.part' && mv '$out.part' '$out'",
 					),
 					root,
 				)
@@ -473,7 +485,10 @@ class DesktopTest {
 			return out.readText()
 		}
 
-		assertEquals("made-for-it|made-for-it", environmentOf { ActivationToken("made-for-it") })
+		assertEquals(
+			"made-for-it|made-for-it",
+			environmentOf { ActivationToken("made-for-it") },
+		)
 		// None given: none passed on, not even one prism itself was started with.
 		assertEquals("|", environmentOf(Activation.None))
 	}

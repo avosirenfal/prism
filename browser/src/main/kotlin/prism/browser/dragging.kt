@@ -145,11 +145,17 @@ fun rememberDragPictures(): (Carrying) -> DragPicture {
 	val palette = LocalPalette.current
 	val measurer = rememberTextMeasurer()
 
-	return remember(palette, measurer) { { carrying -> dragPictureOf(carrying, palette, measurer) } }
+	return remember(palette, measurer) {
+		{ carrying -> dragPictureOf(carrying, palette, measurer) }
+	}
 }
 
 /** [carrying] as [rememberDragPictures] draws it, in [palette]'s colours, its count laid out by [measurer]. */
-fun dragPictureOf(carrying: Carrying, palette: Palette, measurer: TextMeasurer): DragPicture =
+fun dragPictureOf(
+	carrying: Carrying,
+	palette: Palette,
+	measurer: TextMeasurer,
+): DragPicture =
 	DragPicture(DpSize(PICTURE_ICON + BADGE / 2, PICTURE_ICON + BADGE / 2)) {
 		val badge = BADGE.toPx()
 
@@ -161,19 +167,36 @@ fun dragPictureOf(carrying: Carrying, palette: Palette, measurer: TextMeasurer):
 		if (carrying.count > 1) {
 			val count =
 				measurer.measure(
-					if (carrying.count > MOST_COUNTED) "$MOST_COUNTED+" else carrying.count.toString(),
-					TextStyle(color = palette.onAccent, fontSize = 11.sp, fontWeight = FontWeight.SemiBold),
+					if (carrying.count > MOST_COUNTED)
+						"$MOST_COUNTED+"
+					else
+						carrying.count.toString(),
+					TextStyle(
+						color = palette.onAccent,
+						fontSize = 11.sp,
+						fontWeight = FontWeight.SemiBold,
+					),
 					density = this,
 					layoutDirection = layoutDirection,
 				)
+
 			// A circle for a figure, a pill for more, as wide as they are.
 			val width = maxOf(badge, count.size.width + badge / 2)
 			val left = size.width - width
 
-			drawRoundRect(palette.accent, Offset(left, 0f), Size(width, badge), CornerRadius(badge / 2))
+			drawRoundRect(
+				palette.accent,
+				Offset(left, 0f),
+				Size(width, badge),
+				CornerRadius(badge / 2),
+			)
 			drawText(
 				count,
-				topLeft = Offset(left + (width - count.size.width) / 2, (badge - count.size.height) / 2),
+				topLeft =
+					Offset(
+						left + (width - count.size.width) / 2,
+						(badge - count.size.height) / 2,
+					),
 			)
 		}
 	}
