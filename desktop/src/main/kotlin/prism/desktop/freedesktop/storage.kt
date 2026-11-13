@@ -12,7 +12,13 @@ import kotlin.io.path.exists
 import kotlin.io.path.isDirectory
 import kotlin.io.path.listDirectoryEntries
 import kotlin.io.path.name
+import kotlin.io.path.readBytes
 import kotlin.io.path.readText
+import kotlinx.serialization.SerializationException
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import prism.desktop.Boot
 import prism.desktop.Bus
 import prism.desktop.Drive
 import prism.desktop.Part
@@ -45,7 +51,10 @@ import prism.linux.Mounts
  * - How full each is: statvfs, given a moment, as a network share that does not answer would hang whoever asked. A
  *   ZFS pool by `zfs list`, which says what each dataset holds of its own (used, less its children's), so the pool's
  *   use is shared out among them; without it, by statvfs of each dataset mounted.
- * - What is not mounted: udev's record of each partition (a file system's type and label), and /proc/swaps for swap.
+ * - What is not mounted: udev's record of each partition (a file system's type and label), and /proc/swaps for swap,
+ *   followed down to the partition under it where it is on another device (swap encrypted with a key of the moment).
+ * - Which drive the computer was started from: the EFI variables' record of the partition the firmware started it
+ *   from, matched to udev's record of each partition's GUID. Where there is none, the drive the system's root is on.
  */
 
 /**
@@ -65,7 +74,11 @@ class LinuxStorage(
 	override fun read(): Storage {
 		val drives = drives()
 		val mounts = Mounts.parse(lines("proc/self/mountinfo"))
-		val swaps = swaps()
+		// Swap on a device made of others (encrypted swap) is on the partitions under it.
+		val swaps =
+			swaps()
+				.flatMap { (name, swap) -> leavesOf(name).map { it to swap.copy(device = it) } }
+				.toMap()
 		val local = localVolumes(mounts)
 		val pools = pools(mounts)
 		val network = networkVolumes(mounts)
@@ -88,7 +101,81 @@ class LinuxStorage(
 					)
 				}.orEmpty()
 
-		return Storage(ordered(stores) + shares)
+		return Storage(booted(ordered(stores), drives) + shares)
+	}
+
+	/**
+	 * [stores], the one the computer was started from marked so: the one with the partition the firmware started it
+	 * from, where it says which; otherwise, the one the system's root is on.
+	 */
+	private fun booted(stores: List<Store>, drives: List<Found>): List<Store> {
+		val partition =
+			bootPartition()?.let { guid ->
+				drives
+					.flatMap { found ->
+						found.partitions.map { found to it }
+					}.firstOrNull { (_, partition) ->
+						partition.dev
+							?.let(::udev)
+							?.get("ID_PART_ENTRY_UUID")
+							?.lowercase() == guid
+					}
+			}
+
+		val firmware =
+			partition
+				?.let { (found) ->
+					stores.indexOfFirst {
+						found.drive in
+							it.drives
+					}
+				}?.takeIf { it >= 0 }
+		val root = stores.indexOfFirst { it.holdsSystem }.takeIf { it >= 0 }
+
+		return stores.mapIndexed { index, store ->
+			when {
+				index == firmware -> store.copy(boot = Boot.Firmware)
+				firmware == null && index == root -> store.copy(boot = Boot.Root)
+				else -> store
+			}
+		}
+	}
+
+	/**
+	 * The GUID of the partition the firmware started the computer from (in lower case), as the EFI variables say: the
+	 * boot loader's own record of it (`LoaderDevicePartUUID`, which systemd-boot and other loaders of the Boot Loader
+	 * Interface keep), or else the boot entry the firmware started (`BootCurrent`), whose device path's hard drive node
+	 * names the partition. Null where neither says (a BIOS, a firmware that keeps no record, variables not readable).
+	 */
+	private fun bootPartition(): String? {
+		fun variable(name: String, vendor: String): ByteArray? =
+			try {
+				file("sys/firmware/efi/efivars/$name-$vendor")
+					.takeIf { it.exists() }
+					?.readBytes()
+					// Its first four bytes are its attributes; what it holds follows.
+					?.takeIf { it.size > 4 }
+					?.let { it.copyOfRange(4, it.size) }
+			} catch (unreadable: IOException) {
+				null
+			}
+
+		val loader =
+			variable("LoaderDevicePartUUID", LOADER_VENDOR)
+				?.let { String(it, Charsets.UTF_16LE).substringBefore('\u0000').trim().lowercase() }
+				?.takeIf { GUID.matches(it) }
+
+		if (loader != null)
+			return loader
+
+		val current =
+			variable("BootCurrent", GLOBAL_VENDOR)
+				?.takeIf {
+					it.size >= 2
+				}?.let { little(it, 0, 2).toInt() }
+				?: return null
+
+		return variable("Boot%04X".format(current), GLOBAL_VENDOR)?.let(::partitionOfLoadOption)
 	}
 
 	// ---- files of the kernel's and udev's ----------------------------------------------------------------------------
@@ -177,6 +264,8 @@ class LinuxStorage(
 						)
 					}
 
+			val dev = devOf(text("sys/block/$name/dev"))
+
 			Found(
 				Drive(
 					name,
@@ -185,11 +274,43 @@ class LinuxStorage(
 					bus,
 					spins = text("sys/block/$name/queue/rotational") == "1",
 					removable = text("sys/block/$name/removable") == "1" || bus == Bus.Usb,
+					link = linkOf(name, dev),
 				),
-				devOf(text("sys/block/$name/dev")),
+				dev,
 				partitions,
 			)
 		}
+
+	/**
+	 * The drive [name]'s link in /dev/disk/by-id, as udev makes them: by its model and serial (`nvme-Samsung_SSD_…`,
+	 * `ata-…`, `usb-…`) before its worldwide name (`wwn-…`, `nvme-eui.…`), which says nothing a person reads. From
+	 * udev's record of [dev] (its `S:` lines), or else from the links in /dev/disk/by-id that lead to it; null where
+	 * there are none.
+	 */
+	private fun linkOf(name: String, dev: Dev?): String? {
+		val recorded =
+			dev
+				?.let { lines("run/udev/data/b$it") }
+				.orEmpty()
+				.filter { it.startsWith("S:disk/by-id/") }
+				.map { "/dev/" + it.removePrefix("S:") }
+
+		val links =
+			recorded.ifEmpty {
+				names("dev/disk/by-id")
+					.filter { resolved("dev/disk/by-id/$it")?.name == name }
+					.map { "/dev/disk/by-id/$it" }
+			}
+
+		fun numbered(link: String): Boolean =
+			link.substringAfterLast('/').let {
+				it.startsWith("wwn-") || ".eui." in it ||
+					"-eui." in it ||
+					it.startsWith("nvme-nvme.")
+			}
+
+		return links.firstOrNull { !numbered(it) } ?: links.firstOrNull()
+	}
 
 	/** What [file] says in 512-byte sectors, in bytes; 0 where it says nothing. */
 	private fun sectors(file: String): Long = (text(file)?.toLongOrNull() ?: 0) * 512
@@ -228,25 +349,27 @@ class LinuxStorage(
 		val leaves: Set<String>,
 		val label: String?,
 	) {
-		/** Where it is reached: its root, and each btrfs subvolume, each once, at the shortest folder it is mounted at. */
+		/** Where it is reached: its root, and each btrfs subvolume, each at every folder it is mounted at. */
 		val reached: List<Reached> =
 			mounts
 				.filter { it.root == "/" || it.root == it.option("subvol") }
 				.groupBy { it.root }
 				.map { (root, at) ->
+					val folders = foldersOf(at)
+
 					Reached(
-						if (root == "/")
-							at.minBy { it.at.nameCount }.at.toString()
+						if (root ==
+							"/"
+						)
+							folders.first().toString()
 						else
 							root.removePrefix("/"),
-						at.minBy { it.at.nameCount }.at,
-						holds = null,
+						folders,
+						null,
 					)
 				}.ifEmpty {
 					// Only a folder of it is mounted: that, then, is where it is reached.
-					listOf(
-						mounts.minBy { it.at.nameCount }.let { Reached(it.at.toString(), it.at, null) },
-					)
+					foldersOf(mounts).let { listOf(Reached(it.first().toString(), it, null)) }
 				}.sortedBy { it.at?.nameCount ?: 0 }
 
 		val at: Path get() = reached.first().at!!
@@ -263,6 +386,14 @@ class LinuxStorage(
 				)
 			}
 	}
+
+	/** The folders [mounts] are at, each once, the shortest first. */
+	private fun foldersOf(mounts: List<Mount>): List<Path> =
+		mounts
+			.map {
+				it.at
+			}.distinct()
+			.sortedWith(compareBy<Path>({ it.nameCount }, { it.toString() }))
 
 	/** The file systems on the machine's drives, one for each superblock, and what they are on. */
 	private fun localVolumes(mounts: List<Mount>): List<Local> =
@@ -320,7 +451,7 @@ class LinuxStorage(
 				mount.type,
 				mount.source,
 				space,
-				listOf(Reached(mount.at.toString(), mount.at, null)),
+				listOf(Reached(mount.at.toString(), listOf(mount.at), null)),
 				readOnly = readOnly(mount),
 			)
 	}
@@ -339,38 +470,57 @@ class LinuxStorage(
 		val leaves: Set<String>,
 	)
 
-	/** A dataset as `zfs list` says it: its name, what it and its children hold, what is free, where it is mounted. */
+	/**
+	 * A dataset as `zfs list` says it: its [name], what it and its children hold ([used]), what is [free] in its pool,
+	 * and what its [children] hold. Where it is mounted is not asked of ZFS: its `mountpoint` says `legacy` for one
+	 * the system's mount table or systemd mounts, and nothing of a dataset mounted at a second folder. The kernel's
+	 * mountinfo says where each is, whatever mounted it.
+	 */
 	private data class Dataset(
 		val name: String,
 		val used: Long,
 		val free: Long,
 		val children: Long,
-		val at: Path?,
 	)
 
-	/** Each ZFS pool something is mounted from: its datasets and what each holds, and its members. */
+	/**
+	 * Each ZFS pool imported (as `zfs list` says, and any something is mounted from): its datasets and what each holds,
+	 * and its members.
+	 */
 	private fun pools(mounts: List<Mount>): List<Pool> {
 		val mounted = mounts.filter { it.type == "zfs" }
-		val names = mounted.map { it.source.substringBefore('/') }.distinct()
+		val listed = datasets()
+		val names =
+			(
+				listed.map {
+					poolOf(it.name)
+				} + mounted.map { poolOf(it.source) }
+			).distinct()
 
 		if (names.isEmpty())
 			return emptyList()
 
-		val listed = datasets()
 		val members = poolMembers(names)
+		// Where each dataset is mounted: at its own root, each folder (a folder of one mounted again is left out).
+		val folders =
+			mounted
+				.filter {
+					it.root == "/"
+				}.groupBy { it.source }
+				.mapValues { foldersOf(it.value) }
 
 		return names.map { pool ->
-			val datasets = listed.filter { it.name == pool || it.name.startsWith("$pool/") }
+			val datasets = listed.filter { poolOf(it.name) == pool }
 			val top = datasets.firstOrNull { it.name == pool }
 
 			val (space, reached) =
 				if (top != null)
 					Space(top.used + top.free, top.used, top.free) to
 						datasets
-							.map { Reached(it.name, it.at, it.used - it.children) }
-							.filter { it.at != null || (it.holds ?: 0) > 0 }
+							.map { Reached(it.name, folders[it.name].orEmpty(), it.used - it.children) }
+							.filter { it.mounts.isNotEmpty() || (it.holds ?: 0) > 0 }
 				else
-					measured(mounted.filter { it.source.substringBefore('/') == pool })
+					measured(mounted.filter { poolOf(it.source) == pool && it.root == "/" })
 
 			Pool(
 				Part.Volume(pool, "zfs", pool, space, reached.sortedByDescending { it.holds ?: 0 }),
@@ -379,48 +529,85 @@ class LinuxStorage(
 		}
 	}
 
+	private fun poolOf(dataset: String): String = dataset.substringBefore('/')
+
 	/**
 	 * A pool's datasets measured by statvfs, where `zfs list` is not there to say: what each holds is what it refers
 	 * to itself, and the pool's free room is any of theirs (they share it). Snapshots are not counted.
 	 */
 	private fun measured(datasets: List<Mount>): Pair<Space?, List<Reached>> {
-		val spaces = spacesOf(datasets.map { it.at })
-		val reached =
-			datasets.map { Reached(it.source, it.at, spaces[it.at]?.used) }
+		val bySource = datasets.groupBy { it.source }.mapValues { foldersOf(it.value) }
+		val spaces = spacesOf(bySource.values.map { it.first() })
+		val reached = bySource.map { (name, at) -> Reached(name, at, spaces[at.first()]?.used) }
 		val free = spaces.values.maxOfOrNull { it.free } ?: return null to reached
 		val used = reached.sumOf { it.holds ?: 0 }
 
 		return Space(used + free, used, free) to reached
 	}
 
-	/** Every dataset `zfs list` gives; none where it is not there. */
-	private fun datasets(): List<Dataset> =
-		run(
-			listOf(
-				"zfs",
-				"list",
-				"-Hp",
-				"-t",
-				"filesystem,volume",
-				"-o",
-				"name,used,avail,usedbychildren,mountpoint,mounted",
-			),
-		)?.lines()
-			.orEmpty()
-			.mapNotNull { line ->
-				val fields = line.split('\t')
+	/**
+	 * Every dataset `zfs list` gives: as JSON, where it can (OpenZFS 2.3 and later), or as its scripted lines; none
+	 * where it is not there.
+	 */
+	private fun datasets(): List<Dataset> {
+		val asked =
+			listOf("-t", "filesystem,volume", "-o", "name,used,available,usedbychildren")
 
-				if (fields.size < 6)
-					null
-				else
-					Dataset(
-						fields[0],
-						fields[1].toLongOrNull() ?: return@mapNotNull null,
-						fields[2].toLongOrNull() ?: 0,
-						fields[3].toLongOrNull() ?: 0,
-						fields[4].takeIf { fields[5] == "yes" && it.startsWith("/") }?.let(Path::of),
-					)
-			}
+		return run(listOf("zfs", "list", "-j", "-p") + asked)?.let(::datasetsOfJson)
+			?: run(listOf("zfs", "list", "-H", "-p") + asked)?.let(::datasetsOfLines)
+			?: emptyList()
+	}
+
+	/**
+	 * `zfs list -j`'s datasets: `{"datasets": {NAME: {"name": NAME, "properties": {PROPERTY: {"value": V}}}}}`. Only
+	 * what is needed is read, by name, so what else it says (its version, each dataset's type, pool and source, and
+	 * whatever a later version adds) is passed over; a value is read as a number written as one or as text. A dataset
+	 * missing what is needed is left out. Null where it is not JSON of that shape, for the lines to be asked instead.
+	 */
+	private fun datasetsOfJson(text: String): List<Dataset>? {
+		val top =
+			try {
+				Json.parseToJsonElement(text) as? JsonObject
+			} catch (malformed: SerializationException) {
+				null
+			} ?: return null
+		val datasets = top["datasets"] as? JsonObject ?: return null
+
+		return datasets.entries.mapNotNull { (key, value) ->
+			val dataset = value as? JsonObject ?: return@mapNotNull null
+			val properties = dataset["properties"] as? JsonObject ?: return@mapNotNull null
+
+			fun number(name: String): Long? =
+				(
+					(properties[name] as? JsonObject)?.get(
+						"value",
+					) as? JsonPrimitive
+				)?.content?.toLongOrNull()
+
+			Dataset(
+				(dataset["name"] as? JsonPrimitive)?.content ?: key,
+				number("used") ?: return@mapNotNull null,
+				number("available") ?: 0,
+				number("usedbychildren") ?: 0,
+			)
+		}
+	}
+
+	/** `zfs list -H -p`'s lines: each dataset's values, in the order asked, apart by tabs. */
+	private fun datasetsOfLines(text: String): List<Dataset> =
+		text.lines().mapNotNull { line ->
+			val fields = line.split('\t')
+
+			if (fields.size < 4)
+				null
+			else
+				Dataset(
+					fields[0],
+					fields[1].toLongOrNull() ?: return@mapNotNull null,
+					fields[2].toLongOrNull() ?: 0,
+					fields[3].toLongOrNull() ?: 0,
+				)
+		}
 
 	/**
 	 * The partitions and drives each of [pools] is on: those udev records as its members (by the pool's name, as a
@@ -659,6 +846,72 @@ class LinuxStorage(
 	}
 
 	private companion object {
+		/** The vendors the EFI variables read here are kept under: the firmware's own, and the boot loaders'. */
+		const val GLOBAL_VENDOR = "8be4df61-93ca-11d2-aa0d-00e098032b8c"
+		const val LOADER_VENDOR = "4a67b082-0a4c-41cf-b6c7-440b29bb8c4f"
+
+		val GUID = Regex("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
+
+		/** The number of [count] bytes of [bytes] at [at], least significant first. */
+		fun little(bytes: ByteArray, at: Int, count: Int): Long =
+			(0 until count).fold(0L) { value, index ->
+				value or
+					((bytes[at + index].toLong() and 0xff) shl (8 * index))
+			}
+
+		/**
+		 * The partition a boot entry (an `EFI_LOAD_OPTION`) starts from, by its GUID: after the entry's attributes (4
+		 * bytes), the length of its device path (2) and its description (UCS-2, ended by a 0), its device path, node
+		 * after node (a type, a subtype and a length each), until the node for a hard drive's partition (type 4,
+		 * subtype 1) with a GPT signature (type 2): its 16 bytes are the partition's GUID, its first three fields
+		 * least significant first. Null where the entry names none (it starts from the network, a file elsewhere).
+		 */
+		fun partitionOfLoadOption(entry: ByteArray): String? {
+			if (entry.size < 8)
+				return null
+
+			val paths = little(entry, 4, 2).toInt()
+			var at = 6
+
+			while (at + 1 < entry.size && (entry[at].toInt() != 0 || entry[at + 1].toInt() != 0))
+				at += 2
+			at += 2
+
+			val end = (at + paths).coerceAtMost(entry.size)
+
+			while (at + 4 <= end) {
+				val type = entry[at].toInt() and 0xff
+				val subtype = entry[at + 1].toInt() and 0xff
+				val length = little(entry, at + 2, 2).toInt()
+
+				if (type == 0x7f || length < 4)
+					return null
+				if (type == 4 && subtype == 1 && length >= 42 && at + 42 <= end &&
+					entry[at + 41].toInt() == 2
+				)
+					return guidOf(entry, at + 24)
+				at += length
+			}
+
+			return null
+		}
+
+		/** The GUID of the 16 bytes of [bytes] at [at], as text: its first three fields least significant first. */
+		fun guidOf(bytes: ByteArray, at: Int): String {
+			fun hex(vararg offsets: Int) =
+				offsets.joinToString("") {
+					"%02x".format(bytes[at + it].toInt() and 0xff)
+				}
+
+			return listOf(
+				hex(3, 2, 1, 0),
+				hex(5, 4),
+				hex(7, 6),
+				hex(8, 9),
+				hex(10, 11, 12, 13, 14, 15),
+			).joinToString("-")
+		}
+
 		/** File systems that are another machine's, reached over the network. */
 		val NETWORK =
 			setOf(

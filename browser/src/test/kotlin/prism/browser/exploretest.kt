@@ -296,13 +296,15 @@ class ExploreTest {
 
 		val shown = placed.sidebar.shown
 
-		assertEquals(listOf("Home", "Trash", "System", "projects"), shown.map { it.label })
+		assertEquals(listOf("System", "Home", "Trash", "projects"), shown.map { it.label })
 		assertInstanceOf(SidebarItem.Pinned::class.java, shown.last())
 
 		// One of prism's own is hidden, never removed; a folder pinned is unpinned.
+		val home = shown.single { it is SidebarItem.Own }
+
 		assertEquals(
 			listOf(Effect.Arrange(pinned.showing(Builtin.Home, false))),
-			step(placed, BrowserEvent.Unpinned(shown.first())).effects,
+			step(placed, BrowserEvent.Unpinned(home)).effects,
 		)
 		assertEquals(
 			listOf(Effect.Arrange(pinned.unpinning(root.resolve("projects")))),
@@ -311,7 +313,7 @@ class ExploreTest {
 		// Pinning what quick access shows changes nothing; pinning one of prism's own that is hidden shows it again.
 		assertEquals(emptyList<Effect>(), step(placed, BrowserEvent.Pinned(root)).effects)
 
-		val hidden = step(placed, BrowserEvent.Unpinned(shown.first())).state
+		val hidden = step(placed, BrowserEvent.Unpinned(home)).state
 
 		assertEquals(
 			listOf(Effect.Arrange(pinned)),
@@ -336,9 +338,11 @@ class ExploreTest {
 		val quick = quickAccessOf(older, known)
 
 		// The pins in their order, prism's own among them; those of prism's own they left out, hidden, since the user
-		// had unpinned them; and the trash and the System page, which are newer than they are, shown.
+		// had unpinned them; and the System page and the trash, which are newer than they are, shown, where prism's own
+		// order puts them: the System page before the first of prism's own, the trash after the last.
 		assertEquals(
 			listOf(
+				QuickItem.Own(Builtin.System),
 				QuickItem.Own(Builtin.Documents),
 				QuickItem.Pinned(Path.of("/srv/media")),
 				QuickItem.Own(Builtin.Home),
@@ -348,7 +352,6 @@ class ExploreTest {
 				QuickItem.Own(Builtin.Music, shown = false),
 				QuickItem.Own(Builtin.Videos, shown = false),
 				QuickItem.Own(Builtin.Trash),
-				QuickItem.Own(Builtin.System),
 			),
 			quick.items,
 		)

@@ -278,6 +278,23 @@ private fun did(state: BrowserState, event: BrowserEvent): Step =
 					History(state.history.back + state.at, emptyList()),
 					null,
 				)
+		is BrowserEvent.ShowedStores ->
+			Step(state.system?.let { state.copy(at = it.copy(shows = event.kind)) } ?: state)
+		is BrowserEvent.FoldedStore ->
+			Step(
+				state.system?.let {
+					state.copy(
+						at =
+							it.copy(
+								folded =
+									if (event.key in it.folded)
+										it.folded - event.key
+									else
+										it.folded + event.key,
+							),
+					)
+				} ?: state,
+			)
 		BrowserEvent.MadeFolder ->
 			state.folder?.let {
 				state.making(Change.MakeFolder(it.resolve(state.freeName("New folder"))))
@@ -554,9 +571,10 @@ internal fun BrowserState.shown(to: Location, history: History, landing: Landing
 				?: left.listing(to.placed)
 		Location.Trash -> Step(left, listOf(Effect.ReadTrash))
 		// Read afresh: what it showed when it was left is not what is so now.
+		// Which kind it showed, and what was folded, are as they were.
 		is Location.System ->
 			Step(
-				left.copy(at = Location.System()),
+				left.copy(at = to.copy(storage = null)),
 				listOf(Effect.ReadStorage),
 			)
 	}
@@ -1088,15 +1106,14 @@ private fun answered(state: BrowserState, answer: Answer): Step =
 				Step(state)
 		// The System page lists no files: once read, there is nothing more to wait for.
 		is Answer.StorageRead ->
-			if (state.system != null)
+			state.system?.let {
 				Step(
 					state.copy(
-						at = Location.System(answer.storage),
+						at = it.copy(storage = answer.storage),
 						listing = Listing.Shown(emptyList()),
 					),
 				)
-			else
-				Step(state)
+			} ?: Step(state)
 		is Answer.Searched -> state.searched(answer.finding, answer.purpose)
 		// What was read of results, or an order of them, for results no longer shown, is too late too.
 		is Answer.Stated ->

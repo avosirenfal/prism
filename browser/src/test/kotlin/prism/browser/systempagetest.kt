@@ -1,9 +1,12 @@
 package prism.browser
 
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performMouseInput
+import androidx.compose.ui.test.rightClick
 import androidx.compose.ui.test.runComposeUiTest
 import kotlin.io.path.Path
 import kotlin.io.path.createDirectories
@@ -11,6 +14,7 @@ import kotlin.io.path.writeBytes
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import prism.desktop.Boot
 import prism.desktop.Bus
 import prism.desktop.Drive
 import prism.desktop.Part
@@ -35,7 +39,8 @@ class SystemPageTest {
 		size: Long,
 		bus: Bus,
 		spins: Boolean = false,
-	) = Drive(name, model, size, bus, spins, removable = bus == Bus.Usb)
+		link: String? = null,
+	) = Drive(name, model, size, bus, spins, removable = bus == Bus.Usb, link = link)
 
 	/** A workstation's storage, as the desktop's own tests read one: see prism.desktop's StorageTest. */
 	private val storage =
@@ -43,25 +48,37 @@ class SystemPageTest {
 			listOf(
 				Store(
 					StoreKind.Internal,
-					listOf(drive("nvme0n1", "Samsung SSD 980 PRO 1TB", 1000 * gib, Bus.Nvme)),
+					listOf(
+						drive(
+							"nvme0n1",
+							"Samsung SSD 980 PRO 1TB",
+							1000 * gib,
+							Bus.Nvme,
+							link = "/dev/disk/by-id/nvme-Samsung_SSD_980_PRO_1TB_S5GXNF0R123456",
+						),
+					),
 					listOf(
 						Part.Volume(
 							"fedora",
 							"btrfs",
 							"/dev/mapper/root",
 							Space(800 * gib, 500 * gib, 290 * gib),
-							listOf(Reached("@", Path("/"), null), Reached("@home", Path("/home"), null)),
+							listOf(
+								Reached("@", listOf(Path("/")), null),
+								Reached("@home", listOf(Path("/home")), null),
+							),
 						),
 						Part.Volume(
 							null,
 							"vfat",
 							"/dev/nvme0n1p1",
 							Space(gib / 2, gib / 8, gib * 3 / 8),
-							listOf(Reached("/boot/efi", Path("/boot/efi"), null)),
+							listOf(Reached("/boot/efi", listOf(Path("/boot/efi")), null)),
 						),
 						Part.Swap("nvme0n1p3", 16 * gib, gib),
 						Part.Unallocated("nvme0n1", 183 * gib),
 					),
+					Boot.Firmware,
 				),
 				Store(
 					StoreKind.Internal,
@@ -75,9 +92,13 @@ class SystemPageTest {
 							"tank",
 							Space(3800 * gib, 2200 * gib, 1600 * gib),
 							listOf(
-								Reached("tank/media", Path("/tank/media"), 1540 * gib),
-								Reached("tank/backups", null, 650 * gib),
-								Reached("tank", Path("/tank"), 10 * gib),
+								Reached(
+									"tank/media",
+									listOf(Path("/tank/media"), Path("/srv/share/media")),
+									1540 * gib,
+								),
+								Reached("tank/backups", emptyList(), 650 * gib),
+								Reached("tank", listOf(Path("/tank")), 10 * gib),
 							),
 						),
 					),
@@ -91,7 +112,7 @@ class SystemPageTest {
 							"ext4",
 							"/dev/sdd2",
 							Space(98 * gib, 93 * gib, 3 * gib),
-							listOf(Reached("/data", Path("/data"), null)),
+							listOf(Reached("/data", listOf(Path("/data")), null)),
 						),
 						Part.Unmounted("sdd1", 900 * gib, "ntfs", "Windows"),
 					),
@@ -105,7 +126,9 @@ class SystemPageTest {
 							"vfat",
 							"/dev/sdc1",
 							Space(64 * gib, 10 * gib, 54 * gib),
-							listOf(Reached("/run/media/avery/STICK", Path("/run/media/avery/STICK"), null)),
+							listOf(
+								Reached("/run/media/avery/STICK", listOf(Path("/run/media/avery/STICK")), null),
+							),
 						),
 					),
 				),
@@ -118,21 +141,21 @@ class SystemPageTest {
 							"nfs4",
 							"nas:/export/media",
 							Space(8000 * gib, 5000 * gib, 3000 * gib),
-							listOf(Reached("/mnt/nas", Path("/mnt/nas"), null)),
+							listOf(Reached("/mnt/nas", listOf(Path("/mnt/nas")), null)),
 						),
 						Part.Volume(
 							null,
 							"nfs4",
 							"old:/gone",
 							null,
-							listOf(Reached("/mnt/old", Path("/mnt/old"), null)),
+							listOf(Reached("/mnt/old", listOf(Path("/mnt/old")), null)),
 						),
 						Part.Volume(
 							null,
 							"nfs4",
 							"nas:/export/archive",
 							Space(2000 * gib, 2000 * gib, 0),
-							listOf(Reached("/mnt/archive", Path("/mnt/archive"), null)),
+							listOf(Reached("/mnt/archive", listOf(Path("/mnt/archive")), null)),
 							readOnly = true,
 						),
 					),
@@ -148,12 +171,19 @@ class SystemPageTest {
 			Fixtures.sidebar,
 		).settled(Fixtures.Memory)
 
-	/** An explorer on the System page, [storage] read. */
-	private fun onSystem(): BrowserState =
-		step(
-			step(explorer(), BrowserEvent.OpenedSystem).state,
-			Answer.StorageRead(storage),
-		).state
+	/** An explorer on the System page, [storage] read, after [inputs]. */
+	private fun onSystem(vararg inputs: Input): BrowserState =
+		inputs.fold(
+			step(
+				step(explorer(), BrowserEvent.OpenedSystem).state,
+				Answer.StorageRead(storage),
+			).state,
+		) {
+			state,
+			input,
+			->
+			step(state, input).state
+		}
 
 	private fun screenshot(name: String, png: ByteArray) {
 		System.getProperty("browser.screenshots")?.takeIf { it.isNotBlank() }?.let { dir ->
@@ -256,19 +286,48 @@ class SystemPageTest {
 	}
 
 	@Test
-	fun theSystemPageDrawsInBothPalettes() {
-		// Each palette; all of it, the removable drive and the network's shares too; and in a narrow window.
-		for (
-		(name, look) in
-		listOf(
-			"light" to Triple(Palette.Light, 1100, 900),
-			"dark" to Triple(Palette.Dark, 1100, 900),
-			"tall" to Triple(Palette.Light, 1100, 1700),
-			"narrow" to Triple(Palette.Dark, 720, 900),
+	fun eachKindOfStoreIsATabOfItsOwn_AndAStoreFoldsToItsBar_EachKeptAsThePageIsReadAgain() {
+		val shown = onSystem(BrowserEvent.ShowedStores(StoreKind.Network))
+
+		assertEquals(StoreKind.Network, shown.system?.shows)
+
+		val key = storage.stores.first().key
+
+		val folded =
+			step(
+				onSystem(BrowserEvent.FoldedStore(key)),
+				Answer.StorageRead(storage),
+			).state
+
+		assertEquals(setOf(key), folded.system?.folded)
+		assertEquals(
+			emptySet<String>(),
+			step(folded, BrowserEvent.FoldedStore(key)).state.system?.folded,
 		)
-		) {
-			val (palette, width, height) = look
-			val png = renderedPng(onSystem(), width, height, palette, scale = 2f)
+
+		// Left and come back to, the tab and what was folded are as they were; what it shows is read afresh.
+		val removable = onSystem(BrowserEvent.ShowedStores(StoreKind.Removable))
+		val back = step(after(removable, BrowserEvent.Opened(Fixtures.home)), BrowserEvent.Back)
+
+		assertEquals(Location.System(null, StoreKind.Removable), back.state.at)
+	}
+
+	@Test
+	fun theSystemPageDrawsInBothPalettes() {
+		// Each palette, its stores in the machine (one folded); a narrow window; and the other two tabs.
+		val folded = BrowserEvent.FoldedStore(storage.stores[2].key)
+		val removable = BrowserEvent.ShowedStores(StoreKind.Removable)
+		val network = BrowserEvent.ShowedStores(StoreKind.Network)
+
+		listOf(
+			"light" to Triple(onSystem(folded), Palette.Light, 1100 to 1300),
+			"dark" to Triple(onSystem(), Palette.Dark, 1100 to 900),
+			"narrow" to Triple(onSystem(), Palette.Dark, 720 to 900),
+			"removable" to Triple(onSystem(removable), Palette.Light, 1100 to 600),
+			"network" to Triple(onSystem(network), Palette.Dark, 1100 to 700),
+		).forEach { (name, look) ->
+			val (state, palette, size) = look
+			val png = renderedPng(state, size.first, size.second, palette, scale = 2f)
 
 			assertTrue(png.size > 20_000, "$name: ${png.size} bytes")
 			screenshot("system-$name", png)
@@ -306,6 +365,46 @@ class SystemPageTest {
 				listOf(BrowserEvent.Opened(Path("/"))),
 				events.filterIsInstance<BrowserEvent.Opened>(),
 			)
+			// The store it was started from is marked so; the tabs say what each shows.
+			onNodeWithTag("booted").assertExists()
+			onNodeWithTag("stores:Network").performClick()
+			assertEquals(BrowserEvent.ShowedStores(StoreKind.Network), events.last())
+			onNodeWithTag("fold:${storage.stores.first().key}").performClick()
+			assertEquals(BrowserEvent.FoldedStore(storage.stores.first().key), events.last())
+		}
+
+	@Test
+	fun aStoreRightClickedOffersItsDrivesDevlinkToCopy() =
+		runComposeUiTest {
+			val events = ArrayList<BrowserEvent>()
+
+			setContent {
+				BrowserTheme {
+					FileBrowser(onSystem()) { events += it }
+				}
+			}
+
+			onNodeWithTag("store:Samsung SSD 980 PRO 1TB").performMouseInput {
+				rightClick(Offset(centerX, 30f))
+			}
+			onNodeWithText("Copy devlink").performClick()
+			assertEquals(
+				BrowserEvent.CopiedPaths(
+					listOf(Path("/dev/disk/by-id/nvme-Samsung_SSD_980_PRO_1TB_S5GXNF0R123456")),
+				),
+				events.last(),
+			)
+		}
+
+	@Test
+	fun theNetworksTabSaysWhatDoesNotAnswer_AndWhatCanOnlyBeRead() =
+		runComposeUiTest {
+			setContent {
+				BrowserTheme {
+					FileBrowser(onSystem(BrowserEvent.ShowedStores(StoreKind.Network)))
+				}
+			}
+
 			onNodeWithText("Not answering").assertExists()
 			// A share that can only be read is full as it was made: said to be read-only, not to have nothing free.
 			onNodeWithText("2.0 TB, read-only").assertExists()

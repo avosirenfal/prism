@@ -9,15 +9,17 @@ import kotlinx.serialization.encoding.Decoder
 import kotlinx.serialization.encoding.Encoder
 
 /*
- * The sidebar's quick access: prism's own places (the home folder, its well-known folders, the trash, the system's
- * drives) and the folders
- * the user pinned, in the user's order. Prism's own are always there, each once: the user shows or hides one, and
- * moves it, but cannot remove it, so a place this version adds is in every user's list, at its end, without asking.
+ * The sidebar's quick access: prism's own places (the system's drives, the home folder, its well-known folders, the
+ * trash) and the folders the user pinned, in the user's order. Prism's own are always there, each once: the user shows
+ * or hides one, and moves it, but cannot remove it, so a place this version adds is in every user's list without
+ * asking, where prism's own order puts it among those already there.
  */
 
-/** A place prism itself offers in quick access. */
+/** A place prism itself offers in quick access, in the order it offers them. */
 @Serializable
 enum class Builtin {
+	/** The machine's drives, and how full each is: the System page. */
+	System,
 	Home,
 	Desktop,
 	Documents,
@@ -26,9 +28,6 @@ enum class Builtin {
 	Music,
 	Videos,
 	Trash,
-
-	/** The machine's drives, and how full each is: the System page. */
-	System,
 }
 
 /** One entry of quick access. */
@@ -111,7 +110,9 @@ class QuickAccess private constructor(
 
 		/**
 		 * [items], each of prism's own places once (the first of any named twice) and each folder once, with any of
-		 * prism's own left out added at the end, shown.
+		 * prism's own left out added, shown, where prism's own order puts it: before the first of prism's own there
+		 * that comes after it in that order, or at the end where none does. The System page, first of them, goes
+		 * before the home folder, wherever the user put that.
 		 */
 		fun of(items: List<QuickItem>): QuickAccess {
 			val distinct =
@@ -124,11 +125,17 @@ class QuickAccess private constructor(
 			val named = distinct.filterIsInstance<QuickItem.Own>().map { it.place }.toSet()
 
 			return QuickAccess(
-				distinct +
-					Builtin.entries
-						.filterNot {
-							it in named
-						}.map { QuickItem.Own(it) },
+				Builtin.entries
+					.filterNot { it in named }
+					.fold(distinct) { placed, missing ->
+						val before =
+							placed.indexOfFirst { it is QuickItem.Own && it.place.ordinal > missing.ordinal }
+
+						if (before < 0)
+							placed + QuickItem.Own(missing)
+						else
+							placed.take(before) + QuickItem.Own(missing) + placed.drop(before)
+					},
 			)
 		}
 	}

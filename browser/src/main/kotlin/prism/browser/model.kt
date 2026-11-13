@@ -6,6 +6,7 @@ import java.time.Instant
 import java.util.concurrent.atomic.AtomicReference
 import prism.desktop.Place
 import prism.desktop.Storage
+import prism.desktop.StoreKind
 import prism.desktop.TerminalChoice
 import prism.preferences.Builtin
 import prism.preferences.ColumnId
@@ -650,10 +651,13 @@ sealed interface Location {
 
 	/**
 	 * The System page: the machine's drives, what is on each and how full it is, as [storage] says, as it was last
-	 * read; null until the first read arrives. It lists no files.
+	 * read; null until the first read arrives. It lists no files. It [shows] one kind of store at a time (those in the
+	 * machine, removable ones, the network's), and its [folded] stores (by their keys) show their bars alone.
 	 */
 	data class System(
 		val storage: Storage? = null,
+		val shows: StoreKind = StoreKind.Internal,
+		val folded: Set<String> = emptySet(),
 	) : Location
 }
 

@@ -6,6 +6,7 @@ import java.time.Instant
 import prism.desktop.Launched
 import prism.desktop.Opening
 import prism.desktop.Storage
+import prism.desktop.StoreKind
 import prism.desktop.TerminalChoice
 import prism.index.query.Query
 import prism.preferences.Align
@@ -235,6 +236,16 @@ sealed interface BrowserEvent : Input {
 
 	/** The System page shown: the machine's drives, and how full each is. */
 	data object OpenedSystem : BrowserEvent
+
+	/** The System page's stores of [kind] shown: those in the machine, removable ones, or the network's. */
+	data class ShowedStores(
+		val kind: StoreKind,
+	) : BrowserEvent
+
+	/** The System page's store of [key] folded to its bar, or, folded, unfolded. */
+	data class FoldedStore(
+		val key: String,
+	) : BrowserEvent
 
 	/** A folder made in the folder shown, its name then typed over (Ctrl+Shift+N). */
 	data object MadeFolder : BrowserEvent
