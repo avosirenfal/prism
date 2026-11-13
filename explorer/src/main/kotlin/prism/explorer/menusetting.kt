@@ -22,10 +22,12 @@ import prism.preferences.ListingKind
 import prism.preferences.MenuKey
 import prism.preferences.MenuOf
 import prism.preferences.MenuSpec
+import prism.preferences.Moved
 import prism.preferences.Placed
 import prism.preferences.Show
 import prism.preferences.Spec
 import prism.preferences.WhenSpec
+import prism.preferences.movedAmong
 import prism.browser.Placed as PlacedIn
 
 /*
@@ -33,9 +35,10 @@ import prism.browser.Placed as PlacedIn
  * the lines between them ([menuLinesOf]), every entry it can hold whether or not it would now; and what each change
  * the page makes to one comes to, as the arrangement the preferences keep ([placedOf]).
  *
- * An entry of the user's actions is there where it could be offered in that menu at all; for a file of a name and a
- * type ([Sample]), whether it is ([MenuLine.Entry.fits]), so that a menu is seen as it would be for a .zip, an image, or
- * whatever the user's actions are written for.
+ * An entry of the user's actions is there where it could be offered in that menu at all. The page shows those of them
+ * offered for the file it sees the menu for ([SeenMenu]): for all files, the actions for every file, and not those only
+ * for some (a .zip, an image); for a file of a name and a type ([Sample]), the actions offered for it. What it does not
+ * show stays where it is, among the rest, whatever is moved around it.
  *
  * A line is kept where the user puts it, even where the menu would not draw it (first, last, or with no entry shown
  * between it and the one before), so that one added can be moved to where it is wanted; [drawnLines] says which the
@@ -85,10 +88,15 @@ enum class EntryKind {
 /** A row of a menu as the page shows it: an entry, or a line between groups. */
 @Immutable
 sealed interface MenuLine {
+	/** What tells it apart from the menu's others, as its entry is dragged. */
+	val key: Any
+
 	/** A line, the [at]th of the menu's: a line has no name of its own to be told apart by. */
 	data class Line(
 		val at: Int,
-	) : MenuLine
+	) : MenuLine {
+		override val key: Any get() = this
+	}
 
 	data class Entry(
 		val slot: Placed.Slot,
@@ -96,13 +104,14 @@ sealed interface MenuLine {
 		val kind: EntryKind,
 		/** When it is in the menu, where it is not always ("In an explorer"), or what it is for ("For .zip"). */
 		val note: String? = null,
-		/** Whether it is offered for the file the menu is seen for, as far as that decides it. */
+		/** Whether it is offered for the file the menu is seen for, as far as that decides it; or, for all files, to each. */
 		val fits: Boolean = true,
 		/** A submenu's items. */
 		val within: List<Entry> = emptyList(),
 	) : MenuLine {
 		val id: String get() = slot.id
 		val show: Show get() = slot.show
+		override val key: Any get() = id
 
 		/** Whether the menu as seen shows it, opened with [held] held: a submenu, where it shows any of its items. */
 		fun shownWith(held: Set<Held>): Boolean =
@@ -111,18 +120,52 @@ sealed interface MenuLine {
 }
 
 /**
- * The menu [key] as [menus] arrange it, every entry it can hold among prism's and [actions], seen for [sample] (any,
- * where null) in [world]: in order, with the lines between groups, never two together; and, where it is arranged as
- * prism arranges it, none first or last.
+ * A menu as the page shows it: of [all] its lines (every entry it can hold, and the lines between), those [shown], the
+ * entries offered for the file it is seen for (a submenu's items likewise) and the lines between them; not a line with
+ * only entries not shown between it and the one before, which sets apart nothing here, and stays where it is.
  */
-fun menuLinesOf(
+@Immutable
+data class SeenMenu(
+	val all: List<MenuLine>,
+) {
+	val shown: List<MenuLine> =
+		all
+			.mapNotNull { line ->
+				when (line) {
+					is MenuLine.Line -> line
+					is MenuLine.Entry ->
+						line
+							.takeIf {
+								it.fits
+							}?.copy(within = line.within.filter { it.fits })
+				}
+			}.fold(emptyList()) { kept, line ->
+				if (line is MenuLine.Line && kept.lastOrNull() is MenuLine.Line)
+					kept
+				else
+					kept + line
+			}
+
+	/** How many entries it holds, a submenu's items among them, that are not shown: those for other files. */
+	val unshown: Int =
+		all.filterIsInstance<MenuLine.Entry>().sumOf { entry ->
+			(if (entry.fits) 0 else 1) + entry.within.count { !it.fits }
+		}
+}
+
+/**
+ * The menu [key] as [menus] arrange it, every entry it can hold among prism's and [actions], seen for [sample] (all
+ * files, where null) in [world]: in order, with the lines between groups, never two together; and, where it is arranged
+ * as prism arranges it, none first or last.
+ */
+fun seenMenuOf(
 	key: MenuKey,
 	menus: MenuSpec,
 	actions: Actions,
 	specs: Map<String, WhenSpec>,
 	sample: Sample?,
 	world: World,
-): List<MenuLine> {
+): SeenMenu {
 	val possible = actions.actions.filter { it.id !in actions.hidden && possibleIn(it, key) }
 	val (top, nested) = possible.partition { it.submenu.isEmpty() }
 	val submenus = nested.groupBy { it.submenu.first() }
@@ -133,7 +176,10 @@ fun menuLinesOf(
 	val subject = sample?.let { subjectOf(key, it, actions) }
 	val seen = sample?.let { SampleWorld(world, it) } ?: world
 
-	fun fits(action: UserAction): Boolean = subject == null || action.offered(subject, seen)
+	// For all files, an action is offered to each where it is not only for some: of a name, or of a type.
+	fun fits(action: UserAction): Boolean =
+		subject?.let { action.offered(it, seen) }
+			?: (action.conditions.names == null && action.conditions.types == null)
 
 	fun actionEntry(action: UserAction): MenuLine.Entry =
 		MenuLine.Entry(
@@ -171,23 +217,28 @@ fun menuLinesOf(
 
 	val known = order.filter { it !is Placed.Slot || it.id in entries }
 
-	return (
+	val lines =
 		if (menus.arrangementOf(key) ==
 			null
 		)
 			trimmed(merged(known))
 		else
 			merged(known)
-	).mapIndexed { at, placed ->
-		when (placed) {
-			Placed.Separator -> MenuLine.Line(at)
-			is Placed.Slot -> entries.getValue(placed.id)
-		}
-	}
+
+	return SeenMenu(
+		lines.mapIndexed { at, placed ->
+			when (placed) {
+				Placed.Separator -> MenuLine.Line(at)
+				is Placed.Slot -> entries.getValue(placed.id)
+			}
+		},
+	)
 }
 
-/** The arrangement the preferences keep of [lines]: each entry, a submenu's items after it, and the lines between. */
-fun placedOf(lines: List<MenuLine>): List<Placed> =
+/** The arrangement the preferences keep of [menu]: each entry, a submenu's items after it, and the lines between. */
+fun placedOf(menu: SeenMenu): List<Placed> = placedOf(menu.all)
+
+private fun placedOf(lines: List<MenuLine>): List<Placed> =
 	merged(
 		lines.flatMap { line ->
 			when (line) {
@@ -197,12 +248,12 @@ fun placedOf(lines: List<MenuLine>): List<Placed> =
 		},
 	)
 
-/** [lines], the one at [from] moved to [to]. */
-fun moved(lines: List<MenuLine>, from: Int, to: Int): List<Placed> =
-	placedOf(lines.toMutableList().apply { add(to, removeAt(from)) })
+/** [menu], with [move] made among the lines it shows, those it does not show staying where they are. */
+fun moved(menu: SeenMenu, move: Moved): List<Placed> =
+	placedOf(menu.all.movedAmong(menu.shown, MenuLine::key, move))
 
-/** [lines], the entry [id] (or an item of a submenu) shown as [show]. */
-fun showing(lines: List<MenuLine>, id: String, show: Show): List<Placed> {
+/** [menu], the entry [id] (or an item of a submenu) shown as [show]. */
+fun showing(menu: SeenMenu, id: String, show: Show): List<Placed> {
 	fun shown(entry: MenuLine.Entry): MenuLine.Entry =
 		entry.copy(
 			slot =
@@ -213,18 +264,18 @@ fun showing(lines: List<MenuLine>, id: String, show: Show): List<Placed> {
 			within = entry.within.map(::shown),
 		)
 
-	return placedOf(lines.map { if (it is MenuLine.Entry) shown(it) else it })
+	return placedOf(menu.all.map { if (it is MenuLine.Entry) shown(it) else it })
 }
 
-/** [lines] with a line added at the end, to be moved where it is wanted. */
-fun lined(lines: List<MenuLine>): List<Placed> = placedOf(lines) + Placed.Separator
+/** [menu] with a line added at the end, to be moved where it is wanted. */
+fun lined(menu: SeenMenu): List<Placed> = placedOf(menu) + Placed.Separator
 
-/** [lines] without the line at [at]. */
-fun unlined(lines: List<MenuLine>, at: Int): List<Placed> =
+/** [menu] without the line at [at]. */
+fun unlined(menu: SeenMenu, at: Int): List<Placed> =
 	placedOf(
-		lines.filterIndexed { index, _ ->
-			index !=
-				at
+		menu.all.filterNot {
+			it ==
+				MenuLine.Line(at)
 		},
 	)
 
@@ -237,9 +288,7 @@ fun drawnLines(lines: List<MenuLine>, held: Set<Held>): Set<Int> =
 		.fold(Drawing()) { drawing, line ->
 			when (line) {
 				is MenuLine.Line ->
-					if (drawing.anyShown &&
-						drawing.waiting == null
-					)
+					if (drawing.anyShown && drawing.waiting == null)
 						drawing.copy(waiting = line.at)
 					else
 						drawing

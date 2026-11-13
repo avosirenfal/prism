@@ -65,13 +65,12 @@ class QuickAccess private constructor(
 				it.shown
 		}
 
-	/** These, with the entry at [index] moved [by] places (up, for a negative [by]), as far as it can go. */
-	fun moved(index: Int, by: Int): QuickAccess {
-		val to = (index + by).coerceIn(0, items.lastIndex)
-		val rest = items.filterIndexed { at, _ -> at != index }
+	/** These, with [move] made. */
+	fun moved(move: Moved): QuickAccess = QuickAccess(items.moved(move))
 
-		return QuickAccess(rest.take(to) + items[index] + rest.drop(to))
-	}
+	/** These, with the entry at [index] moved [by] places (up, for a negative [by]), as far as it can go. */
+	fun moved(index: Int, by: Int): QuickAccess =
+		moved(Moved.of(index, (index + by).coerceIn(0, items.lastIndex)))
 
 	/** These, with [place] shown or hidden. */
 	fun showing(place: Builtin, shown: Boolean): QuickAccess =

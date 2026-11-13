@@ -269,7 +269,7 @@ with its application, as any file does.
 `menu.hidden` hides entries by id, in every menu: an action's, or one of prism's own. Prism's ids are `builtin.open`,
 `builtin.put-back`, `builtin.open-in-new-window`, `builtin.select-folder`, `builtin.save-over`, `builtin.open-with`,
 `builtin.cut`, `builtin.copy`, `builtin.paste-into`, `builtin.rename`, `builtin.copy-path`, `builtin.pin`,
-`builtin.unpin`, `builtin.hide-from-sidebar`, `builtin.terminal`, `builtin.trash`, `builtin.erase`,
+`builtin.unpin`, `builtin.terminal`, `builtin.trash`, `builtin.erase`,
 `builtin.properties`, `builtin.undo`, `builtin.redo`, `builtin.empty-trash`, `builtin.paste`, `builtin.sort`,
 `builtin.view`, `builtin.hidden-files`, `builtin.hidden-folders`, `builtin.new-folder`, `builtin.new-file`,
 `builtin.refresh`, `builtin.arrange`.
@@ -301,7 +301,7 @@ new entry of prism's still has it. An item of a submenu is placed after the subm
 its order in the submenu is the actions'. A listing's menu that is not arranged is arranged as the same menu of a folder
 is (`results/file` as `folder/file`), so a folder's arrangement is everyone's until one is given its own.
 
-Unless arranged otherwise, prism shows a few entries only with Shift held: Pin to sidebar, Hide from sidebar, Show
+Unless arranged otherwise, prism shows a few entries only with Shift held: Pin to sidebar, Unpin from sidebar, Show
 hidden files, Show hidden folders and Refresh. A menu opened from the keyboard (the Menu key, Shift+F10) counts no key
 as held.
 

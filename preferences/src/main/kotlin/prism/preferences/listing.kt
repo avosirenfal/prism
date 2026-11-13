@@ -112,15 +112,18 @@ class Columns internal constructor(
 
 	fun isShown(id: ColumnId): Boolean = settings.any { it.id == id && it.shown }
 
-	/** These, with the column at [from] moved to [to]; the name's stays first. */
-	fun moved(from: Int, to: Int): Columns {
-		if (from !in settings.indices || settings[from].id == ColumnId.Name)
-			return this
+	/** These, with [move] made; the name's stays first, never moved nor passed. */
+	fun moved(move: Moved): Columns {
+		val movable =
+			move.from.filter {
+				it in settings.indices &&
+					settings[it].id != ColumnId.Name
+			}
 
-		val rest = settings.filterIndexed { at, _ -> at != from }
-		val place = to.coerceIn(1, settings.lastIndex)
-
-		return kind.columnsOf(rest.take(place) + settings[from] + rest.drop(place))
+		return if (movable.isEmpty())
+			this
+		else
+			kind.columnsOf(settings.moved(Moved(movable, move.to.coerceAtLeast(1))))
 	}
 
 	/** These, with [id] shown or not; the name's is always shown. */

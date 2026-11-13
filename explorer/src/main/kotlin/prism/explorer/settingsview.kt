@@ -78,6 +78,7 @@ import prism.browser.ListHeading
 import prism.browser.ListRow
 import prism.browser.LocalPalette
 import prism.browser.LocalType
+import prism.browser.Moving
 import prism.browser.Notice
 import prism.browser.OptionGroup
 import prism.browser.Radio
@@ -692,16 +693,17 @@ private fun LookSection(settings: Settings, onChange: (Settings) -> Unit) {
 			ReorderableColumn(
 				columns.settings,
 				key = { it.id },
-				onMove = { from, to -> looked(look.with(columns.moved(from, to))) },
+				moving = Moving.Several,
+				onMove = { looked(look.with(columns.moved(it))) },
 				movable = { it.id != ColumnId.Name },
 				divided = true,
-			) { column, handle, dragged ->
+			) { column, handle, lit ->
 				val name = column.id == ColumnId.Name
 
 				Row(
 					Modifier
 						.fillMaxWidth()
-						.background(if (dragged) palette.chosen else palette.raised)
+						.background(if (lit) palette.chosen else palette.raised)
 						.testTag("columns:${column.id.name}")
 						.padding(horizontal = Space.m, vertical = Space.s),
 					verticalAlignment = Alignment.CenterVertically,

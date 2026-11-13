@@ -250,13 +250,13 @@ class PreferencesTest {
 		assertEquals(
 			ColumnId.Name,
 			columns
-				.moved(3, 0)
+				.moved(Moved.of(3, 0))
 				.settings
 				.first()
 				.id,
 		)
-		assertEquals(ColumnId.Type, columns.moved(3, 0).settings[1].id)
-		assertEquals(columns, columns.moved(0, 3))
+		assertEquals(ColumnId.Type, columns.moved(Moved.of(3, 0)).settings[1].id)
+		assertEquals(columns, columns.moved(Moved.of(0, 3)))
 		assertTrue(columns.showing(ColumnId.Name, false).isShown(ColumnId.Name))
 		// Aligned as the column is by its own, the setting says nothing.
 		assertEquals(

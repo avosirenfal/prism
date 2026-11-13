@@ -91,8 +91,9 @@ internal fun QuickAccessLayer(sidebar: Sidebar, onEvent: (BrowserEvent) -> Unit)
 		) {
 			Text(
 				"What the sidebar shows first, in this order: drag an entry by its grip to move " +
-					"it. Prism's own places are hidden by their boxes, and can always be shown " +
-					"again; folders you pinned can be removed. A folder's menu pins it.",
+					"it, or several chosen by Shift and a click together. Prism's own places are " +
+					"hidden by their boxes, and can always be shown again; folders you pinned can be " +
+					"removed. A folder's menu pins it.",
 				style = type.muted,
 			)
 			// As tall as the window has room for, and scrolled where it has not.
@@ -101,9 +102,10 @@ internal fun QuickAccessLayer(sidebar: Sidebar, onEvent: (BrowserEvent) -> Unit)
 					ReorderableColumn(
 						entries,
 						key = { it.builtin ?: it.item?.path ?: it },
-						onMove = { from, to -> arranged(quick.moved(from, to - from)) },
+						moving = Moving.Several,
+						onMove = { arranged(quick.moved(it)) },
 						divided = true,
-					) { entry, handle, dragged ->
+					) { entry, handle, lit ->
 						val index = entries.indexOf(entry)
 
 						EntryLine(
@@ -113,7 +115,7 @@ internal fun QuickAccessLayer(sidebar: Sidebar, onEvent: (BrowserEvent) -> Unit)
 							index,
 							last = entries.lastIndex,
 							handle = handle,
-							dragged = dragged,
+							lit = lit,
 							onShown = { shown -> entry.builtin?.let { arranged(quick.showing(it, shown)) } },
 							onMoved = { by -> arranged(quick.moved(index, by)) },
 							onRemoved = { (entry.item?.path)?.let { arranged(quick.unpinning(it)) } },
@@ -166,7 +168,7 @@ private fun EntryLine(
 	index: Int,
 	last: Int,
 	handle: Modifier,
-	dragged: Boolean,
+	lit: Boolean,
 	onShown: (Boolean) -> Unit,
 	onMoved: (Int) -> Unit,
 	onRemoved: () -> Unit,
@@ -178,7 +180,7 @@ private fun EntryLine(
 	Row(
 		Modifier
 			.fillMaxWidth()
-			.background(if (dragged) palette.chosen else palette.raised)
+			.background(if (lit) palette.chosen else palette.raised)
 			.testTag("quick:$label")
 			.padding(horizontal = Space.m, vertical = Space.s),
 		verticalAlignment = Alignment.CenterVertically,

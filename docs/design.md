@@ -73,6 +73,12 @@ listing's text and a menu's rows with the menus'.
 - `ToolButton`: a glyph that says what it does when the pointer rests on it.
 - `Field`, `CheckBox`, `Switch` and `Radio`.
 - `Segmented`: a few choices in a track, the chosen one raised. A toolbar's takes no keyboard focus.
+- `ReorderableColumn`: a list the pointer puts in order, an entry dragged by its handle and the rest making room for
+  it. Each use says whether its entries move one at a time or several together (`Moving`), with no default: where
+  several do, Shift and a click choose an entry or no longer (kept from what is under it, a switch, a button), and a
+  chosen one dragged gathers every one chosen under it, in their order. A click without Shift, or another entry
+  dragged, lets the choice go. What it reports is a `Moved` (which entries, and where the first of them lands), made
+  on a list by `moved`, or among those of it shown by `movedAmong`, so every list is reordered by the same rule.
 - `Toggles`: a few options in one outlined track, any number of them on, each turned on or off by itself; one on is
   filled in the accent, one off is only its name, so that down a long list of rows only what is on stands out (the
   keys an entry of a context menu waits for).

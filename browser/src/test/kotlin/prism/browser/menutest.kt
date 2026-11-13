@@ -161,8 +161,8 @@ class MenuTest {
 				"—",
 				"New folder",
 				"Copy path",
-				// The home folder is one of prism's own in quick access: hidden from it, never removed.
-				"Hide from sidebar",
+				// The home folder is one of prism's own in quick access: unpinned, it is hidden, never removed.
+				"Unpin from sidebar",
 				"Refresh",
 			),
 			menu.labels(),
@@ -336,7 +336,7 @@ class MenuTest {
 		)
 		// With Shift held, what prism keeps for it too: in their places, as prism's defaults show them.
 		assertEquals(
-			listOf("Hide from sidebar", "Refresh"),
+			listOf("Unpin from sidebar", "Refresh"),
 			contextMenuOf(state, Target.Folder, held = setOf(Held.Shift)).labels() -
 				contextMenuOf(state, Target.Folder).labels().toSet() -
 				setOf("Show hidden files", "Show hidden folders"),
