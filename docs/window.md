@@ -61,7 +61,10 @@ using a buffer again once the compositor has let it go. On X11, SDL is told to g
 server as it is, rather than first trying a GPU renderer.
 
 Which one is found by a hidden OpenGL window, asked for its renderer's name. `PRISM_DRAWING=gpu` or `cpu` (or
-`-Dprism.window.drawing=`) says otherwise. Each window then makes OpenGL and Skia's context of its own; where it cannot,
+`-Dprism.window.drawing=`) says otherwise. OpenGL's library is loaded once, before that window, and kept for as long
+as windows are drawn with it: SDL would otherwise unload it with the last window made for it (the hidden one, at
+first) and load it again for the next, shutting EGL's display and starting it anew, after which NVIDIA's EGL under
+Wayland makes no context current (`EGL_BAD_DISPLAY`). Each window then makes OpenGL and Skia's context of its own; where it cannot,
 it is drawn on the CPU, and says why (`Drawn.FellBack`): on standard error, whatever the log says, and on the Renderer
 page, since a window that should be drawn on the GPU and is not costs the CPU dearly while it scrolls. Skia is given OpenGL's functions as SDL finds them, so it draws with
 whichever of EGL, GLX, WGL or CGL made the context; skiko's own lookup is GLX's alone, and finds nothing under Wayland's
