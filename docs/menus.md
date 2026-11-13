@@ -266,11 +266,44 @@ application this once, but the application chosen cannot be made the default for
 the action. Where the action cannot be run (none of its programs is installed) it is not there, and the file opens
 with its application, as any file does.
 
-`menu.hidden` hides entries by id: an action's, or one of prism's own. Prism's ids are `builtin.open`,
-`builtin.open-in-new-window`, `builtin.open-with`, `builtin.cut`, `builtin.copy`, `builtin.paste`,
-`builtin.paste-into`, `builtin.rename`, `builtin.copy-path`, `builtin.pin`, `builtin.terminal`, `builtin.trash`,
-`builtin.erase`, `builtin.put-back`, `builtin.empty-trash`, `builtin.arrange`,
-`builtin.properties`, `builtin.new-folder`, `builtin.new-file`, `builtin.refresh`, `builtin.undo`, `builtin.redo`.
+`menu.hidden` hides entries by id, in every menu: an action's, or one of prism's own. Prism's ids are `builtin.open`,
+`builtin.put-back`, `builtin.open-in-new-window`, `builtin.select-folder`, `builtin.save-over`, `builtin.open-with`,
+`builtin.cut`, `builtin.copy`, `builtin.paste-into`, `builtin.rename`, `builtin.copy-path`, `builtin.pin`,
+`builtin.unpin`, `builtin.hide-from-sidebar`, `builtin.terminal`, `builtin.trash`, `builtin.erase`,
+`builtin.properties`, `builtin.undo`, `builtin.redo`, `builtin.empty-trash`, `builtin.paste`, `builtin.sort`,
+`builtin.view`, `builtin.hidden-files`, `builtin.hidden-folders`, `builtin.new-folder`, `builtin.new-file`,
+`builtin.refresh`, `builtin.arrange`.
+
+### The menu's order, and the keys an entry waits for
+
+Each context menu can be arranged: its entries in order, lines between groups, and when each shows. The preferences
+window's "Context menus" page does it by dragging; the file keeps it under `menu.arranged`, one list for each menu:
+
+```json
+"menu": {
+  "arranged": {
+    "folder/space": ["builtin.paste", "-", "builtin.new-folder", "builtin.new-file", "-",
+                     "builtin.refresh with Shift", "builtin.properties hidden"],
+    "folder/file": ["builtin.open", "mine.read with Ctrl+Alt", "submenu:Compress", "compress.zip", "-", "builtin.copy"]
+  }
+}
+```
+
+A menu is named by where it opens and what on: `folder`, `results`, `trash` or a place's type (`archive.zip`), then
+`/` and `file`, `folder`, `several` or `space` (the empty space around the rows); or `sidebar`. An entry is its id:
+prism's, an action's, or `submenu:` and a submenu's name. After it, ` hidden` never shows it, and ` with ` and keys
+(`Shift`, `Ctrl`, `Alt`, joined by `+`) shows it only when they are held as the menu opens, whatever else is. `-` is a
+line; the menu draws none first, last, or two together, nor one between groups it shows nothing of.
+
+What a list does not name goes where prism would put it: after the nearest entry before it in prism's own arrangement
+that the list does name. So an action added later turns up next to its neighbours, and an arrangement written before a
+new entry of prism's still has it. An item of a submenu is placed after the submenu, by its own id, for when it shows;
+its order in the submenu is the actions'. A listing's menu that is not arranged is arranged as the same menu of a folder
+is (`results/file` as `folder/file`), so a folder's arrangement is everyone's until one is given its own.
+
+Unless arranged otherwise, prism shows a few entries only with Shift held: Pin to sidebar, Hide from sidebar, Show
+hidden files, Show hidden folders and Refresh. A menu opened from the keyboard (the Menu key, Shift+F10) counts no key
+as held.
 
 ### One command under two names
 
@@ -473,8 +506,6 @@ The preferences window's "Actions" page lists what was read, and, for what was n
 
 ## Not built yet
 
-- **The menu's order.** Entries can be hidden, and actions put in submenus, but prism's own entries cannot be
-  rearranged, nor an action placed among them by name.
 - **Items made as the menu opens** (a submenu whose items depend on the files, from a program asked as the menu is
   built).
 - **An editor.** Actions are written by hand in the preferences file. The "Actions" page only shows them.

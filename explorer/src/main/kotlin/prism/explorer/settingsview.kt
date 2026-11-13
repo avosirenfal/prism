@@ -53,6 +53,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
+import java.nio.file.Path
 import kotlin.math.roundToInt
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
@@ -93,6 +94,7 @@ import prism.browser.Stepper
 import prism.browser.Switch
 import prism.browser.Tone
 import prism.browser.ToolButton
+import prism.browser.World
 import prism.browser.mouseChords
 import prism.browser.systemFontFamilies
 import prism.browser.tabular
@@ -130,7 +132,8 @@ import prism.browser.Page as PageLayout
 /**
  * The preferences window over [settings], each change reported to [onChange]: applied by [onApply], and left by
  * [onClose]. [mouseChords] are the mouse's buttons pressed over the window, which a binding waiting for a chord takes.
- * The Renderer page shows [graphics] (while it is looked at, null), and copies its report by [onCopy].
+ * The Renderer page shows [graphics] (while it is looked at, null), and copies its report by [onCopy]. The Context
+ * menus page decides the user's actions in [world], as the menus it shows would.
  */
 @Composable
 fun SettingsView(
@@ -145,6 +148,7 @@ fun SettingsView(
 	terminals: TerminalOptions = TerminalOptions.NONE,
 	graphics: GraphicsReport? = null,
 	onCopy: (String) -> Unit = {},
+	world: World = World.Bare(Path.of(System.getProperty("user.home"))),
 ) {
 	val palette = LocalPalette.current
 	val type = LocalType.current
@@ -228,7 +232,8 @@ fun SettingsView(
 				when (settings.page) {
 					Page.Display -> DisplayPage(settings, onChange)
 					Page.Renderer -> RendererPage(graphics, onCopy)
-					Page.Listings -> ListingsPage(settings, onChange)
+					Page.Layout -> LayoutPage(settings, onChange)
+					Page.Menus -> MenusPage(settings, world, onChange)
 					Page.Terminal -> TerminalPage(settings, onChange, terminalPreview, terminals)
 					Page.Bindings ->
 						BindingsPage(rebinding, filter) {
@@ -269,7 +274,8 @@ private fun glyphOf(page: Page): Glyph =
 	when (page) {
 		Page.Display -> Glyph.Desktop
 		Page.Renderer -> Glyph.Chip
-		Page.Listings -> Glyph.ViewList
+		Page.Layout -> Glyph.ViewList
+		Page.Menus -> Glyph.Menu
 		Page.Terminal -> Glyph.Terminal
 		Page.Bindings -> Glyph.Keyboard
 		Page.Actions -> Glyph.Bolt
@@ -454,7 +460,7 @@ internal fun labelOf(kind: ListingKind): String =
 	}
 
 /** The glyph a listing of [kind] is listed by. */
-private fun glyphOf(kind: ListingKind): Glyph =
+internal fun glyphOf(kind: ListingKind): Glyph =
 	when (kind) {
 		ListingKind.Folder -> Glyph.Folder
 		ListingKind.Results -> Glyph.Search
@@ -470,9 +476,10 @@ private fun glyphOf(kind: ListingKind): Glyph =
  * aligned), and its filters, for a list and for a gallery. A picker's are the explorer's until it is given its own.
  */
 @Composable
-private fun ListingsPage(settings: Settings, onChange: (Settings) -> Unit) {
+private fun LayoutPage(settings: Settings, onChange: (Settings) -> Unit) {
 	val type = LocalType.current
 	val (role, kind) = settings.looking
+	val listings = settings.listings
 	val kinds =
 		listOf(ListingKind.Folder, ListingKind.Results, ListingKind.Trash) +
 			settings.actions.places.keys
@@ -480,17 +487,31 @@ private fun ListingsPage(settings: Settings, onChange: (Settings) -> Unit) {
 				.map(ListingKind::Place)
 
 	PageLayout(
-		"Listings",
+		"Layout",
 		"How each kind of listing is ordered, which columns it shows, and what it leaves " +
-			"out, as a window opens. A window changed from its own menus keeps that, wherever " +
-			"it goes.",
+			"out. Applied, a change reaches every window, new and open; a window changed from " +
+			"its own menus keeps that until the same kind is changed here.",
 		scrolls = false,
 	) {
 		Row(
 			Modifier.weight(1f).fillMaxWidth(),
 			horizontalArrangement = Arrangement.spacedBy(Space.xl),
 		) {
-			KindList(kinds, kind, settings, Modifier.width(240.dp).fillMaxHeight()) {
+			val (own, places) = kinds.partition { it !is ListingKind.Place }
+
+			ChoiceList(
+				listOf("Prism's own" to own, "Places" to places),
+				kind,
+				::labelOf,
+				::glyphOf,
+				marked = {
+					listings.ownLook(role, it) ||
+						Layout.entries.any { layout -> listings.ownFilters(role, it, layout) }
+				},
+				tag = "listing",
+				hint = "Find a listing",
+				Modifier.width(240.dp).fillMaxHeight(),
+			) {
 				onChange(settings.copy(looking = settings.looking.copy(kind = it)))
 			}
 			ScrollArea(Modifier.weight(1f).fillMaxHeight()) {
@@ -522,31 +543,35 @@ private fun ListingsPage(settings: Settings, onChange: (Settings) -> Unit) {
 }
 
 /**
- * The kinds of listing there are, down the side: prism's own, then each type of place, a field over them narrowing
- * them as it is typed into. A kind given anything of its own for the window chosen is marked.
+ * What a page arranges, down its side, in [groups] under their headings: a field over them narrows them as it is
+ * typed into, so that whatever there is is found. The one [chosen] is lit; one [marked] (given anything of its own)
+ * has a dot.
  */
 @Composable
-private fun KindList(
-	kinds: List<ListingKind>,
-	chosen: ListingKind,
-	settings: Settings,
+internal fun <T> ChoiceList(
+	groups: List<Pair<String, List<T>>>,
+	chosen: T,
+	label: (T) -> String,
+	glyph: (T) -> Glyph,
+	marked: (T) -> Boolean,
+	tag: String,
+	hint: String,
 	modifier: Modifier,
-	onChoose: (ListingKind) -> Unit,
+	onChoose: (T) -> Unit,
 ) {
 	val palette = LocalPalette.current
 	var typed by remember { mutableStateOf("") }
-	val shown =
-		kinds.filter {
-			typed.isBlank() ||
-				labelOf(it).contains(typed.trim(), ignoreCase = true)
-		}
-	val (own, places) = shown.partition { it !is ListingKind.Place }
-	val role = settings.looking.role
-	val listings = settings.listings
 
-	fun changed(kind: ListingKind): Boolean =
-		listings.ownLook(role, kind) ||
-			Layout.entries.any { listings.ownFilters(role, kind, it) }
+	val shown =
+		groups.map { (heading, group) ->
+			heading to
+				group.filter {
+					typed.isBlank() ||
+						label(
+							it,
+						).contains(typed.trim(), ignoreCase = true)
+				}
+		}
 
 	Column(modifier, verticalArrangement = Arrangement.spacedBy(Space.s)) {
 		Field(
@@ -554,34 +579,32 @@ private fun KindList(
 			{
 				typed = it
 			},
-			Modifier.fillMaxWidth().testTag(
-				"listings-filter",
-			),
-			hint = "Find a listing",
+			Modifier.fillMaxWidth().testTag("$tag-filter"),
+			hint = hint,
 			leading = Glyph.Search,
 		)
 		Card(Modifier.weight(1f)) {
 			LazyScrollArea(Modifier.fillMaxSize(), padding = PaddingValues(Space.xs)) {
-				for ((heading, group) in listOf("Prism's own" to own, "Places" to places)) {
+				for ((heading, group) in shown) {
 					if (group.isNotEmpty())
 						item(key = heading) { ListHeading(heading) }
-					items(group, key = { it.toString() }) { kind ->
+					items(group, key = { it.toString() }) { choice ->
 						ListRow(
-							labelOf(kind),
-							Modifier.testTag("listing:${labelOf(kind)}"),
-							chosen = kind == chosen,
-							glyph = glyphOf(kind),
+							label(choice),
+							Modifier.testTag("$tag:${label(choice)}"),
+							chosen = choice == chosen,
+							glyph = glyph(choice),
 							trailing =
-								if (changed(kind)) {
+								if (marked(choice)) {
 									{ Box(Modifier.size(6.dp).background(palette.accentText, CircleShape)) }
 								} else {
 									null
 								},
-						) { onChoose(kind) }
+						) { onChoose(choice) }
 					}
 				}
-				if (shown.isEmpty())
-					item(key = "none") { ListHeading("No listing is called that") }
+				if (shown.all { it.second.isEmpty() })
+					item(key = "none") { ListHeading("Nothing is called that") }
 			}
 		}
 	}

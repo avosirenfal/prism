@@ -107,6 +107,14 @@ class Session(
 				}
 			}
 
+		// How listings look, as the preferences now say: a window takes up what they changed.
+		scope.launch(io) {
+			services.preferences.preferences
+				.map { it.listings }
+				.distinctUntilChanged()
+				.collect { inputs.send(Answer.Relisted(it)) }
+		}
+
 		// The user's actions and places, with prism's own, and the terminal chosen: read again whenever what the
 		// preferences say of them changes.
 		scope.launch(io) {
@@ -123,6 +131,7 @@ class Session(
 								services.world::installed,
 							),
 							terminal,
+							menu,
 						),
 					)
 				}

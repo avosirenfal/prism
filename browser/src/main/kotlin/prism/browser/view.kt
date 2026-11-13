@@ -135,6 +135,7 @@ import prism.preferences.ColumnSetting
 import prism.preferences.Columns
 import prism.preferences.DateFormat
 import prism.preferences.DatePart
+import prism.preferences.Held
 import prism.preferences.Kind
 import prism.preferences.Layout
 import prism.preferences.Sort
@@ -849,7 +850,9 @@ private fun SidebarPane(
 										onEvent,
 									)
 								} ?: Modifier,
-							).contextMenu(menus) { contextMenuOf(state, Target.Sidebar(item), bindings) },
+							).contextMenu(
+								menus,
+							) { held -> contextMenuOf(state, Target.Sidebar(item), bindings, held = held) },
 					) {
 						// A place clicked takes the keyboard to the places, as a list clicked does on any desktop.
 						at = index
@@ -1140,8 +1143,11 @@ private fun ListingPane(
 			listOfNotNull(cursor?.let(rows::get))
 		}
 
-	/** The menu of [row], pressed with the right button: of the rows chosen if it is one, of it alone otherwise. */
-	fun menuOf(row: Row): Menu<BrowserEvent> {
+	/**
+	 * The menu of [row], pressed with the right button with [held] held: of the rows chosen if it is one, of it alone
+	 * otherwise.
+	 */
+	fun menuOf(row: Row, held: Set<Held>): Menu<BrowserEvent> {
 		stops.listing.requestFocus()
 
 		val among = row.id in chosen
@@ -1159,13 +1165,14 @@ private fun ListingPane(
 			),
 			bindings,
 			world,
+			held,
 		)
 	}
 
-	fun folderMenu(): Menu<BrowserEvent> {
+	fun folderMenu(held: Set<Held>): Menu<BrowserEvent> {
 		stops.listing.requestFocus()
 
-		return contextMenuOf(state, Target.Folder, bindings, world)
+		return contextMenuOf(state, Target.Folder, bindings, world, held)
 	}
 
 	/** The menu of what is chosen (or of the folder, where nothing is), opened from the keyboard at the cursor's row. */
@@ -1462,7 +1469,7 @@ private fun ListingPane(
 					.weight(1f)
 					.fillMaxWidth()
 					.onGloballyPositioned { area.coordinates = it }
-					.contextMenu(menus) { folderMenu() }
+					.contextMenu(menus) { held -> folderMenu(held) }
 					// Files dropped between the rows: given to the folder shown, or, in a picker, gone to.
 					.filesDropped(
 						DropSpot.Here,
@@ -1527,7 +1534,7 @@ private fun ListingPane(
 										onPress = { press(row.id, it) },
 										onRelease = { release(row.id) },
 										onEvent = onEvent,
-										modifier = dragging(row).contextMenu(menus) { menuOf(row) },
+										modifier = dragging(row).contextMenu(menus) { held -> menuOf(row, held) },
 									)
 								}
 							else ->
@@ -1568,7 +1575,7 @@ private fun ListingPane(
 													modifier = dragging(row),
 													// The row's menu over its name, and the space after it in the name's column; the other
 													// columns are the listing's, whose menu is the folder's.
-													nameMenu = Modifier.contextMenu(menus) { menuOf(row) },
+													nameMenu = Modifier.contextMenu(menus) { held -> menuOf(row, held) },
 												)
 											}
 										}

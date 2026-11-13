@@ -16,6 +16,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performKeyInput
+import androidx.compose.ui.test.performMouseInput
 import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.test.pressKey
 import androidx.compose.ui.test.runComposeUiTest
@@ -176,7 +177,7 @@ class SettingsViewTest {
 	fun aListingIsFoundByName_AGallerysFiltersApartFromAListsAndAPickersFromTheExplorers() =
 		runComposeUiTest {
 			val zip = ListingKind.Place("archive.zip")
-			var settings by mutableStateOf(Settings(Preferences.DEFAULT, page = Page.Listings))
+			var settings by mutableStateOf(Settings(Preferences.DEFAULT, page = Page.Layout))
 
 			setContent {
 				BrowserTheme {
@@ -187,7 +188,7 @@ class SettingsViewTest {
 			// Every kind of listing is listed down the side; what is typed over them narrows them to those it names.
 			onNodeWithTag("listing:Folders").assertExists()
 			onNode(
-				hasSetTextAction() and hasAnyAncestor(hasTestTag("listings-filter")),
+				hasSetTextAction() and hasAnyAncestor(hasTestTag("listing-filter")),
 			).performTextReplacement("zip")
 			waitForIdle()
 			onNodeWithTag("listing:Folders").assertDoesNotExist()
@@ -195,8 +196,14 @@ class SettingsViewTest {
 			waitForIdle()
 			assertEquals(zip, settings.looking.kind)
 
-			// A gallery's hidden files left out, and a list's still shown.
+			// A gallery's hidden files left out, and a list's still shown: the filters are wheeled to, under the columns.
+			onNodeWithTag("Window:Explorer").performMouseInput {
+				moveTo(center)
+				scroll(40f)
+			}
+			waitForIdle()
 			onNodeWithTag("View:Gallery").performClick()
+			waitForIdle()
 			onNodeWithTag("hidden-files").performClick()
 			waitForIdle()
 			assertFalse(
@@ -210,7 +217,12 @@ class SettingsViewTest {
 					.hidden.files,
 			)
 
-			// A column aligned, from its row.
+			// A column aligned, from its row, wheeled back to.
+			onNodeWithTag("hidden-files").performMouseInput {
+				moveTo(center)
+				scroll(-40f)
+			}
+			waitForIdle()
 			onNodeWithTag("align:Size:Centre").performClick()
 			waitForIdle()
 			assertEquals(

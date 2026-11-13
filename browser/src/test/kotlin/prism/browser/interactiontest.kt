@@ -648,6 +648,24 @@ class InteractionTest {
 		}
 
 	@Test
+	fun whatIsRarelyWantedIsInAContextMenuOpenedWithShiftHeld() =
+		picking { session ->
+			rightClickNowhere()
+			onNodeWithTag("menu:New folder").assertExists()
+			onNodeWithTag("menu:Refresh").assertDoesNotExist()
+			onNodeWithTag("menu:Show hidden files").assertDoesNotExist()
+			press(Key.Escape)
+			noMenu()
+
+			// Shift held as it opens: refreshing, and showing what is hidden, are there too.
+			onNodeWithTag("listing").performKeyInput { keyDown(Key.ShiftLeft) }
+			rightClickNowhere()
+			onNodeWithTag("listing").performKeyInput { keyUp(Key.ShiftLeft) }
+			onNodeWithTag("menu:Refresh").assertExists()
+			onNodeWithTag("menu:Show hidden files").assertExists()
+		}
+
+	@Test
 	fun aRowsMenuRenamesIt() =
 		picking { session ->
 			// The right button chooses the row it is pressed on, and opens its menu.
@@ -1099,7 +1117,7 @@ class InteractionTest {
 			onNodeWithTag("menu:Size").assertExists()
 
 			// Down the menu, off the submenu's entry: its submenu closes, and the entry under the pointer is lit.
-			onNodeWithTag("menu:Refresh").performMouseInput { moveTo(center) }
+			onNodeWithTag("menu:New folder").performMouseInput { moveTo(center) }
 			waitForIdle()
 			assertEquals(0, onAllNodes(hasTestTag("menu:Size")).fetchSemanticsNodes().size)
 

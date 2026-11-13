@@ -15,6 +15,7 @@ import prism.preferences.Layout
 import prism.preferences.ListingKind
 import prism.preferences.Listings
 import prism.preferences.Look
+import prism.preferences.MenuSpec
 import prism.preferences.Order
 import prism.preferences.QuickAccess
 import prism.preferences.QuickItem
@@ -248,9 +249,10 @@ data class Arrangement(
 }
 
 /**
- * How a window's listings look: as the preferences said as it opened ([defaults]), and as the user has made them in it
- * since, each kind of listing's look ([own]) and each kind's filters in each layout ([ownFilters]). What it shows looks
- * as these say for its kind, wherever it goes: a folder's order, given once, is every folder's in the window.
+ * How a window's listings look: as the preferences say ([defaults]), and as the user has made them in it since, each
+ * kind of listing's look ([own]) and each kind's filters in each layout ([ownFilters]). What it shows looks as these say
+ * for its kind, wherever it goes: a folder's order, given once, is every folder's in the window. The preferences
+ * changed, the window takes up what they now say of each kind they changed ([relisted]).
  */
 @Immutable
 data class Looks(
@@ -267,6 +269,20 @@ data class Looks(
 
 	fun filtering(kind: ListingKind, layout: Layout, filters: Filters): Looks =
 		copy(ownFilters = ownFilters + ((kind to layout) to filters))
+
+	/**
+	 * These, the preferences now saying [listings] for a window of [role]: each kind whose look they changed looks as
+	 * they now say, what the window had made of it its own given up, and each kind and layout whose filters they
+	 * changed likewise. What they did not change, the window keeps as it made it.
+	 */
+	fun relisted(role: Role, listings: Listings): Looks =
+		Looks(
+			listings,
+			own.filterKeys { kind -> defaults.look(role, kind) == listings.look(role, kind) },
+			ownFilters.filterKeys { (kind, layout) ->
+				defaults.filters(role, kind, layout) == listings.filters(role, kind, layout)
+			},
+		)
 }
 
 /**
@@ -964,6 +980,8 @@ data class BrowserState(
 	val bornReading: Set<RowId> = emptySet(),
 	/** The user's actions and places, with prism's own: what the menus offer beyond what the browser does itself. */
 	val actions: Actions = Actions.NONE,
+	/** How the context menus are arranged, as the preferences say: their entries in order, and when each is shown. */
+	val menus: MenuSpec = MenuSpec(),
 	/** The terminal chosen: what says whether a terminal opens in a folder, and whether commands run in one. */
 	val terminal: TerminalChoice = TerminalChoice.Found,
 	/** An action begun and waiting for an answer (a folder being chosen in another window, a line being typed). */

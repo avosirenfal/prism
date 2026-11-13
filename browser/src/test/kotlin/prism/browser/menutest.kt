@@ -2,13 +2,22 @@ package prism.browser
 
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import prism.browser.Fixtures.home
 import prism.browser.Fixtures.picker
+import prism.preferences.ActionsFile
 import prism.preferences.ColumnId
+import prism.preferences.Held
 import prism.preferences.Hidden
 import prism.preferences.Kind
 import prism.preferences.Layout
+import prism.preferences.ListingKind
+import prism.preferences.MenuKey
+import prism.preferences.MenuOf
+import prism.preferences.MenuSpec
+import prism.preferences.Placed
+import prism.preferences.Show
 import prism.preferences.Sort
 
 /** The menus, as values: what each target's menu offers, what each item does, and what it shows as on. */
@@ -133,7 +142,14 @@ class MenuTest {
 	@Test
 	fun theFoldersOwnMenuSortsViewsShowsHiddenAndMakesAFolder() {
 		val state = picker()
-		val menu = contextMenuOf(state, Target.Folder)
+
+		// What is rarely wanted is out of the way until Shift is held as the menu opens.
+		assertEquals(
+			listOf("Sort by ▸", "View ▸", "—", "New folder", "Copy path"),
+			contextMenuOf(state, Target.Folder).labels(),
+		)
+
+		val menu = contextMenuOf(state, Target.Folder, held = setOf(Held.Shift))
 
 		assertEquals(
 			listOf(
@@ -260,5 +276,136 @@ class MenuTest {
 			listOf("Show hidden folders"),
 			filterMenuOf(picker(Choosing.Folder())).labels(),
 		)
+	}
+
+	/**
+	 * An explorer whose user wrote an action of their own for the folder's menu and two in a submenu, its menus
+	 * arranged as [menus] says.
+	 */
+	private fun arrangedExplorer(menus: MenuSpec): BrowserState =
+		picker(Choosing.Exploring()).copy(
+			actions =
+				Actions.read(
+					listOf(
+						ActionsFile.parse(
+							"""{"actions": [
+								{"id": "mine.mail", "label": "Mail it", "when": {"target": "folder"}, "run": ["mail", "{folder}"]},
+								{"id": "share.web", "label": "To the web", "submenu": "Share", "when": {"target": "folder"}, "run": ["up", "{folder}"]},
+								{"id": "share.phone", "label": "To the phone", "submenu": "Share", "when": {"target": "folder"}, "run": ["kde", "{folder}"]}
+							]}""",
+						),
+					),
+				),
+			menus = menus,
+		)
+
+	@Test
+	fun aMenuIsAsItsArrangementSays_AndWhatItDoesNotNameGoesWherePrismWouldPutIt() {
+		val key = MenuKey.Listing(ListingKind.Folder, MenuOf.Space)
+
+		// Copy path first, then a line, then New folder; Sort by never.
+		val state =
+			arrangedExplorer(
+				MenuSpec().arranging(
+					key,
+					listOf(
+						Placed.Slot("builtin.copy-path"),
+						Placed.Separator,
+						Placed.Slot("builtin.new-folder"),
+						Placed.Slot("builtin.sort", Show.Never),
+					),
+				),
+			)
+
+		// What it does not name goes after the nearest before it in prism's: Paste and the actions before Copy path;
+		// pinning, the terminal and the properties after it; New file after New folder, and View after Sort by.
+		assertEquals(
+			listOf(
+				"Paste",
+				"Mail it",
+				"Share ▸",
+				"Copy path",
+				"Open terminal here",
+				"Properties",
+				"—",
+				"New folder",
+				"New file",
+				"View ▸",
+			),
+			contextMenuOf(state, Target.Folder).labels(),
+		)
+		// With Shift held, what prism keeps for it too: in their places, as prism's defaults show them.
+		assertEquals(
+			listOf("Hide from sidebar", "Refresh"),
+			contextMenuOf(state, Target.Folder, held = setOf(Held.Shift)).labels() -
+				contextMenuOf(state, Target.Folder).labels().toSet() -
+				setOf("Show hidden files", "Show hidden folders"),
+		)
+	}
+
+	@Test
+	fun anEntryShownWithKeysHeldNeedsEveryOne_AndASubmenusItemIsArrangedByItsOwnId() {
+		val key = MenuKey.Listing(ListingKind.Folder, MenuOf.Space)
+
+		val state =
+			arrangedExplorer(
+				MenuSpec().arranging(
+					key,
+					listOf(
+						Placed.Slot("mine.mail", Show.With(setOf(Held.Ctrl, Held.Alt))),
+						Placed.Slot(submenuId("Share")),
+						Placed.Slot("share.phone", Show.Never),
+					),
+				),
+			)
+
+		fun has(vararg held: Held) =
+			"Mail it" in contextMenuOf(state, Target.Folder, held = held.toSet()).labels()
+
+		assertFalse(has())
+		assertFalse(has(Held.Ctrl))
+		assertTrue(has(Held.Ctrl, Held.Alt))
+		assertTrue(has(Held.Ctrl, Held.Alt, Held.Shift))
+		// The submenu is where it was put; its item never shown is not in it.
+		assertEquals(
+			listOf("To the web"),
+			contextMenuOf(state, Target.Folder).submenu("Share").labels(),
+		)
+	}
+
+	@Test
+	fun eachMenuIsArrangedItself_AFilesNotAFolders() {
+		val files = MenuKey.Listing(ListingKind.Folder, MenuOf.File)
+
+		val state =
+			arrangedExplorer(
+				MenuSpec().arranging(
+					files,
+					listOf(
+						Placed.Slot("builtin.properties"),
+						Placed.Separator,
+						Placed.Slot("builtin.open"),
+					),
+				),
+			)
+
+		assertEquals(files, state.menuKeyOf(rowsOf(state, "notes.md")))
+		assertEquals(
+			MenuKey.Listing(ListingKind.Folder, MenuOf.Folder),
+			state.menuKeyOf(rowsOf(state, "Documents")),
+		)
+		assertEquals(
+			MenuKey.Listing(ListingKind.Folder, MenuOf.Several),
+			state.menuKeyOf(rowsOf(state, "notes.md", "todo.txt")),
+		)
+		assertEquals(
+			MenuKey.Listing(ListingKind.Folder, MenuOf.Space),
+			state.menuKeyOf(Target.Folder),
+		)
+		assertEquals(
+			listOf("Properties", "—", "Open"),
+			contextMenuOf(state, rowsOf(state, "notes.md")).labels().take(3),
+		)
+		assertEquals("Open", contextMenuOf(state, rowsOf(state, "Documents")).labels().first())
 	}
 }

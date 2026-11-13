@@ -294,7 +294,9 @@ changes the window's own, for what it shows and how.
 
 **As a window opens**, its looks and filters are the preferences' (`Listings`): for each kind of listing in an explorer
 and in a file picker, and the filters for each layout too. What they do not say for a picker is the explorer's; what
-they do not say for the explorer is prism's own.
+they do not say for the explorer is prism's own. When they change (the preferences window applied, or the file
+edited), every open window takes them too, for the kinds whose defaults changed; a window whose look or filters were
+changed from its own menus keeps them until then.
 
 ```json
 {
@@ -361,11 +363,19 @@ and size, the rows, the sizes, the dates. Renderer: whether prism's windows are 
 first, in a sentence and what to do about it (a window that OpenGL could not draw, though it runs, says so, with the
 reason it was given); then each graphics device the computer has, with its driver, its nodes and
 the library OpenGL reaches its driver through, and why it is used or not (docs/window.md, "Why a window is drawn as it
-is"). Copy report copies all of it as text, to paste where someone can help. Listings: every kind of listing down the page's side (prism's own, then each
-type of place), narrowed by a field over them so that any of however many places is found, each marked where it has
-anything of its own; and beside them the one chosen, in an explorer or a file picker: its order, its columns, dragged
-by their grips into order, ticked shown or not, and aligned; and its filters, for a list and for a gallery. A picker's
-are the explorer's until its switch gives it its own (changing anything does too). Key bindings: a filter (Ctrl+F goes to it) that finds an action by its name, as shown or as the file
+is"). Copy report copies all of it as text, to paste where someone can help. Layout: every kind of listing down the
+page's side (prism's own, then each type of place), narrowed by a field over them so that any of however many places
+is found, each marked where it has anything of its own; and beside them the one chosen, in an explorer or a file
+picker: its order, its columns, dragged by their grips into order, ticked shown or not, and aligned; and its filters,
+for a list and for a gallery. A picker's are the explorer's until its switch gives it its own (changing anything does
+too). Context menus: the same list down the side, and the sidebar after it; beside it, the menu chosen, opened on a
+file, a folder, several, or the empty space around them, drawn as a menu is, with every entry it can hold, prism's and
+the actions', a submenu's items under it. Each is dragged by its grip into order; its keys (Shift, Ctrl, Alt) lit keep
+it for a menu opened with them held; switched off, it never shows. Lines between groups are added (at the end, to be
+dragged where they are wanted) and taken away. The menu is seen as it would be for a file of each extension, name or
+type the actions are written for ("Seen for .zip"), and with keys held: what it would not show then is faint, a line
+it would not draw too. A listing's menus other than a folder's are arranged as a folder's until one is given its own
+(its switch, or any change to it); "Put prism's back" forgets the menu's arrangement. Key bindings: a filter (Ctrl+F goes to it) that finds an action by its name, as shown or as the file
 writes it, or by its chords; and, as JetBrains' keymap has it, a button that opens "Find Shortcut", which takes the
 next shortcut pressed (a key with its modifiers, or the mouse's middle, back or forward button over its lower part) for
 as long as it is open, and shows what it does, binding nothing. Closed, the keys are the page's again, and what it

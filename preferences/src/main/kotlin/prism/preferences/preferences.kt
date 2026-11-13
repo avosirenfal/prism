@@ -58,9 +58,9 @@ data class Preferences(
 	/** What of the menus is left out. */
 	val menu: MenuSpec = MenuSpec(),
 	/**
-	 * How listings look and what they leave out as a window opens: each kind's columns and order, and its filters, in an
-	 * explorer and in a picker. A window keeps what the user gives it as its own from then on, and these change no
-	 * window already open.
+	 * How listings look and what they leave out: each kind's columns and order, and its filters, in an explorer and in a
+	 * picker. A window keeps what the user gives it from its own menus, until these change what they say of the same
+	 * kind: then it looks as these now say, open or new.
 	 */
 	val listings: Listings = Listings(),
 	/**

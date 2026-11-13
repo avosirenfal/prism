@@ -11,6 +11,8 @@ import prism.preferences.Align
 import prism.preferences.ColumnId
 import prism.preferences.Kind
 import prism.preferences.Layout
+import prism.preferences.Listings
+import prism.preferences.MenuSpec
 import prism.preferences.QuickAccess
 import prism.preferences.Sort
 
@@ -542,12 +544,18 @@ sealed interface Answer : Input {
 	) : Answer
 
 	/**
-	 * The actions and places, and the terminal chosen, as the preferences (which another window may have changed) now
-	 * make them.
+	 * The actions and places, the terminal chosen, and how the menus are arranged, as the preferences (which another
+	 * window may have changed) now make them.
 	 */
 	data class Configured(
 		val actions: Actions,
 		val terminal: TerminalChoice = TerminalChoice.Found,
+		val menus: MenuSpec = MenuSpec(),
+	) : Answer
+
+	/** How listings look as the preferences (which the preferences window may have changed) now say. */
+	data class Relisted(
+		val listings: Listings,
 	) : Answer
 
 	/** The sidebar, as the places pinned (which another window may have changed) and the drives now make it. */

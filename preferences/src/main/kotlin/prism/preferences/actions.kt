@@ -182,12 +182,37 @@ data class PlaceSpec(
 	val into: String? = null,
 )
 
-/** What of the menus is left out. */
+/** How the context menus are arranged (menus.kt), and what of them is left out wherever it would be. */
 @Serializable
 data class MenuSpec(
-	/** The ids of entries not shown: an action's, or one of prism's own (`builtin.copy-path`). */
+	/** The ids of entries not shown in any menu: an action's, or one of prism's own (`builtin.copy-path`). */
 	val hidden: List<String> = emptyList(),
-)
+	/** Each menu the user has arranged: its entries in order, and when each is shown. */
+	val arranged: Map<MenuKey, List<Placed>> = emptyMap(),
+) {
+	/**
+	 * How the menu [key] is arranged: as it was arranged itself; or, a listing's other than a folder's, as the same
+	 * menu of a folder was; or not at all (null), as prism has it.
+	 */
+	fun arrangementOf(key: MenuKey): List<Placed>? =
+		arranged[key]
+			?: (key as? MenuKey.Listing)
+				?.takeIf { it.kind != ListingKind.Folder }
+				?.let { arranged[MenuKey.Listing(ListingKind.Folder, it.of)] }
+
+	/** Whether the menu [key] is arranged itself, rather than following another's or prism's. */
+	fun arrangesItself(key: MenuKey): Boolean = key in arranged
+
+	/** These, with the menu [key] arranged as [placed]; as it would be otherwise, where [placed] is null. */
+	fun arranging(key: MenuKey, placed: List<Placed>?): MenuSpec =
+		copy(
+			arranged =
+				if (placed == null)
+					arranged - key
+				else
+					arranged + (key to placed),
+		)
+}
 
 /** Something read from the preferences one at a time: what it is, or why it could not be read. */
 sealed interface Spec<out T> {

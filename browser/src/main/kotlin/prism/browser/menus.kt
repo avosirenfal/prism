@@ -4,8 +4,11 @@ import androidx.compose.runtime.Immutable
 import java.nio.file.Path
 import prism.desktop.TerminalChoice
 import prism.preferences.ColumnId
+import prism.preferences.Held
 import prism.preferences.Kind
 import prism.preferences.Layout
+import prism.preferences.MenuKey
+import prism.preferences.MenuOf
 import prism.preferences.Order
 import prism.preferences.Sort
 
@@ -42,18 +45,29 @@ sealed interface Target {
 
 /**
  * The context menu of [target] in [state], each item showing the keys [bindings] bind its action to; the user's
- * actions are those whose conditions hold in [world].
+ * actions are those whose conditions hold in [world]. Its entries are arranged as the preferences arrange that menu
+ * (arranged.kt), each shown as they say with [held] held as the menu opened.
  */
 fun contextMenuOf(
 	state: BrowserState,
 	target: Target,
 	bindings: Bindings = Bindings.DEFAULT,
 	world: World = World.Bare(state.home),
+	held: Set<Held> = emptySet(),
 ): Menu<BrowserEvent> {
 	val subject = state.subjectOf(target)
-	// A picker chooses for another application: what the user's actions do to files is an explorer's to offer.
+	// A picker chooses for another application: what the user's actions do to files is an explorer's to offer. The
+	// trash's rows only go back or go for good, and the trash in the sidebar is opened or emptied.
+	val acting =
+		state.choosing is Choosing.Exploring &&
+			when (target) {
+				is Target.Rows -> target.rows.any { it.item !is Item.InTrash }
+				Target.Folder -> true
+				is Target.Sidebar -> target.item.path != null
+			}
+
 	val offered =
-		if (state.choosing is Choosing.Exploring)
+		if (acting)
 			state.actions.offered(subject, world)
 		else
 			emptyList()
@@ -65,22 +79,55 @@ fun contextMenuOf(
 				1
 		}
 	val own = ownActions(offered - setOfNotNull(opener), subject, bindings, state.terminal)
+	val key = state.menuKeyOf(target)
+	val slots =
+		when (target) {
+			is Target.Rows ->
+				rowsSlots(state, target.rows, bindings, opener?.let { BrowserEvent.Did(it, subject) })
+			Target.Folder -> spaceSlots(state, bindings)
+			is Target.Sidebar -> sidebarSlots(state, target.item)
+		} + own.associate { slotIdOf(it) to listOf(it) }
 
-	return when (target) {
-		is Target.Rows ->
-			rowsMenuOf(
-				state,
-				target.rows,
-				bindings,
-				own,
-				opener?.let {
-					BrowserEvent.Did(it, subject)
-				},
-			)
-		Target.Folder -> folderMenuOf(state, bindings, own)
-		is Target.Sidebar -> sidebarMenuOf(state, target.item, own)
-	}.without(state.actions.hidden)
+	return assembled(
+		slots,
+		arranged(state.menus.arrangementOf(key), defaultOf(key), own.map(::slotIdOf)),
+		held,
+	).without(state.actions.hidden)
 }
+
+/** Which menu the menu of [target] is, as the preferences arrange it: a listing's of a file, a folder, several, or none. */
+fun BrowserState.menuKeyOf(target: Target): MenuKey =
+	when (target) {
+		is Target.Rows ->
+			MenuKey.Listing(
+				kind,
+				target.rows.singleOrNull()?.let { if (it.isFolder) MenuOf.Folder else MenuOf.File }
+					?: MenuOf.Several,
+			)
+		Target.Folder -> MenuKey.Listing(kind, MenuOf.Space)
+		is Target.Sidebar -> MenuKey.Sidebar
+	}
+
+/** The slot an entry of the user's actions takes: an action's own, by its id; a submenu of them, by its name. */
+private fun slotIdOf(entry: MenuEntry<*>): String =
+	when (entry) {
+		is MenuEntry.Item -> entry.id ?: entry.label
+		is MenuEntry.Submenu -> submenuId(entry.label)
+		MenuEntry.Separator -> "-"
+	}
+
+/** A menu's entries before they are arranged, each in its slot, by the slot's id. */
+private class Slots {
+	val by = LinkedHashMap<String, List<MenuEntry<BrowserEvent>>>()
+
+	/** The slot [id], holding what [build] builds; none, where it builds nothing. */
+	fun slot(id: String, build: MenuBuilder<BrowserEvent>.() -> Unit) {
+		menu(build).entries.takeIf { it.isNotEmpty() }?.let { by[id] = it }
+	}
+}
+
+private fun slots(build: Slots.() -> Unit): Map<String, List<MenuEntry<BrowserEvent>>> =
+	Slots().apply(build).by
 
 /** The first chord [action] is bound to, as a menu shows it; nothing where it is bound to none. */
 private fun Bindings.keys(action: Bindable): String? =
@@ -118,28 +165,31 @@ private fun ownActions(
 	return entries(offered, 0)
 }
 
-private fun rowsMenuOf(
+/** What prism offers for [rows], each in its slot. */
+private fun rowsSlots(
 	state: BrowserState,
 	rows: List<Row>,
 	bindings: Bindings,
-	own: List<MenuEntry<BrowserEvent>>,
 	/** What opening the one row does, where an action of the user's opens it in place of its application. */
 	opening: BrowserEvent?,
-): Menu<BrowserEvent> {
+): Map<String, List<MenuEntry<BrowserEvent>>> {
 	val one = rows.singleOrNull()
 	val ids = rows.map { it.id }
 
 	// What is in the trash is put back, or deleted for good, and nothing else.
 	if (rows.all { it.item is Item.InTrash })
-		return menu {
-			item("Put back", BrowserEvent.PutBack(ids), id = "builtin.put-back")
-			separator()
-			item(
-				"Delete permanently",
-				BrowserEvent.AskedToErase(ids),
-				keys = bindings.keys(Action.Erase),
-				id = "builtin.erase",
-			)
+		return slots {
+			slot("builtin.put-back") {
+				item("Put back", BrowserEvent.PutBack(ids), id = "builtin.put-back")
+			}
+			slot("builtin.erase") {
+				item(
+					"Delete permanently",
+					BrowserEvent.AskedToErase(ids),
+					keys = bindings.keys(Action.Erase),
+					id = "builtin.erase",
+				)
+			}
 		}
 
 	// What prism does itself, it does to files on disk: where any row is not one, there are no paths to do it to.
@@ -147,289 +197,349 @@ private fun rowsMenuOf(
 	val exploring = state.choosing is Choosing.Exploring
 	val folder = one?.takeIf { it.isFolder }?.path
 
-	return menu {
+	return slots {
 		one?.let { row ->
 			when {
 				row.isFolder -> {
-					item(
-						"Open",
-						opening ?: BrowserEvent.Activated(row.id),
-						keys = bindings.keys(Action.Open),
-						id = "builtin.open",
-					)
+					slot("builtin.open") {
+						item(
+							"Open",
+							opening ?: BrowserEvent.Activated(row.id),
+							keys = bindings.keys(Action.Open),
+							id = "builtin.open",
+						)
+					}
 					if (exploring)
 						folder?.let {
-							item(
-								"Open in new window",
-								BrowserEvent.Requested(Request.NewWindow(it)),
-								id = "builtin.open-in-new-window",
-							)
+							slot("builtin.open-in-new-window") {
+								item(
+									"Open in new window",
+									BrowserEvent.Requested(Request.NewWindow(it)),
+									id = "builtin.open-in-new-window",
+								)
+							}
 						}
 					// A folder picker gives a folder: this one, without going into it.
 					if (state.choosing is Choosing.Folder)
-						item("Select folder", BrowserEvent.Picked(row.id))
+						slot("builtin.select-folder") {
+							item("Select folder", BrowserEvent.Picked(row.id), id = "builtin.select-folder")
+						}
 				}
-				state.choosing is Choosing.SaveAs -> item("Save over it", BrowserEvent.Picked(row.id))
+				state.choosing is Choosing.SaveAs ->
+					slot("builtin.save-over") {
+						item("Save over it", BrowserEvent.Picked(row.id), id = "builtin.save-over")
+					}
 				else ->
-					item(
-						"Open",
-						opening ?: BrowserEvent.Picked(row.id),
-						keys = bindings.keys(Action.Open),
-						id = "builtin.open",
-					)
+					slot("builtin.open") {
+						item(
+							"Open",
+							opening ?: BrowserEvent.Picked(row.id),
+							keys = bindings.keys(Action.Open),
+							id = "builtin.open",
+						)
+					}
 			}
 		}
 		// Several files open together, each with its application.
 		if (exploring && one == null && paths != null && rows.any { !it.isFolder })
-			item(
-				"Open",
-				BrowserEvent.Accepted,
-				keys = bindings.keys(Action.Open),
-				id = "builtin.open",
-			)
+			slot("builtin.open") {
+				item(
+					"Open",
+					BrowserEvent.Accepted,
+					keys = bindings.keys(Action.Open),
+					id = "builtin.open",
+				)
+			}
 		if (exploring && rows.none { it.isFolder })
 			paths?.let {
-				item(
-					"Open with…",
-					// Another application can still be chosen for what an action opens, this once: it is the action
-					// that is its default, which choosing an application does not change.
-					BrowserEvent.Requested(Request.OpenWith(it, settable = opening == null)),
-					id = "builtin.open-with",
-				)
+				slot("builtin.open-with") {
+					item(
+						"Open with…",
+						// Another application can still be chosen for what an action opens, this once: it is the action
+						// that is its default, which choosing an application does not change.
+						BrowserEvent.Requested(Request.OpenWith(it, settable = opening == null)),
+						id = "builtin.open-with",
+					)
+				}
 			}
-		separator()
-		own.forEach(::add)
-		separator()
 		if (exploring) {
 			if (paths != null)
-				item(
-					"Cut",
-					BrowserEvent.CutFiles(ids),
-					keys = bindings.keys(Action.CutFiles),
-					id = "builtin.cut",
-				)
+				slot("builtin.cut") {
+					item(
+						"Cut",
+						BrowserEvent.CutFiles(ids),
+						keys = bindings.keys(Action.CutFiles),
+						id = "builtin.cut",
+					)
+				}
 			// Entries of a place are copied where their place says how they are brought out of it.
 			if (paths != null || state.carrying(rows) != null)
-				item(
-					"Copy",
-					BrowserEvent.CopiedFiles(ids),
-					keys = bindings.keys(Action.CopyFiles),
-					id = "builtin.copy",
-				)
+				slot("builtin.copy") {
+					item(
+						"Copy",
+						BrowserEvent.CopiedFiles(ids),
+						keys = bindings.keys(Action.CopyFiles),
+						id = "builtin.copy",
+					)
+				}
 			folder?.let {
-				item("Paste into folder", BrowserEvent.Pasted(it), id = "builtin.paste-into")
+				slot("builtin.paste-into") {
+					item("Paste into folder", BrowserEvent.Pasted(it), id = "builtin.paste-into")
+				}
 			}
-			separator()
 		}
 		paths?.let {
 			one?.let { row ->
+				slot("builtin.rename") {
+					item(
+						"Rename",
+						BrowserEvent.StartedRenaming(row.id),
+						keys = bindings.keys(Action.Rename),
+						id = "builtin.rename",
+					)
+				}
+			}
+			slot("builtin.copy-path") {
 				item(
-					"Rename",
-					BrowserEvent.StartedRenaming(row.id),
-					keys = bindings.keys(Action.Rename),
-					id = "builtin.rename",
+					if (one != null) "Copy path" else "Copy paths",
+					BrowserEvent.CopiedPaths(it),
+					keys = bindings.keys(Action.CopyPaths),
+					id = "builtin.copy-path",
 				)
 			}
-			item(
-				if (one != null) "Copy path" else "Copy paths",
-				BrowserEvent.CopiedPaths(it),
-				keys = bindings.keys(Action.CopyPaths),
-				id = "builtin.copy-path",
-			)
 		}
 		folder?.let { pinning(state, it) }
 		if (exploring)
 			folder?.let {
+				slot("builtin.terminal") {
+					item(
+						"Open terminal here",
+						BrowserEvent.OpenedTerminal(it),
+						enabled = state.terminal.opensInFolder,
+						id = "builtin.terminal",
+					)
+				}
+			}
+		// The trash apart from the rest, where it is not pressed in passing; deleting for good is asked first.
+		if (paths != null) {
+			slot("builtin.trash") {
 				item(
-					"Open terminal here",
-					BrowserEvent.OpenedTerminal(it),
-					enabled = state.terminal.opensInFolder,
-					id = "builtin.terminal",
+					"Move to trash",
+					BrowserEvent.Trashed(ids),
+					keys = bindings.keys(Action.Trash),
+					id = "builtin.trash",
 				)
 			}
-		// The trash apart from the rest, last, where it is not pressed in passing; deleting for good is asked first.
-		separator()
-		if (paths != null) {
-			item(
-				"Move to trash",
-				BrowserEvent.Trashed(ids),
-				keys = bindings.keys(Action.Trash),
-				id = "builtin.trash",
-			)
 			if (exploring)
-				item(
-					"Delete permanently",
-					BrowserEvent.AskedToErase(ids),
-					keys = bindings.keys(Action.Erase),
-					id = "builtin.erase",
-				)
+				slot("builtin.erase") {
+					item(
+						"Delete permanently",
+						BrowserEvent.AskedToErase(ids),
+						keys = bindings.keys(Action.Erase),
+						id = "builtin.erase",
+					)
+				}
 		}
 		if (exploring)
 			paths?.let {
-				separator()
-				item(
-					"Properties",
-					BrowserEvent.Requested(Request.Properties(it)),
-					keys = bindings.keys(Action.Properties),
-					id = "builtin.properties",
-				)
+				slot("builtin.properties") {
+					item(
+						"Properties",
+						BrowserEvent.Requested(Request.Properties(it)),
+						keys = bindings.keys(Action.Properties),
+						id = "builtin.properties",
+					)
+				}
 			}
 	}
 }
 
 /** Pinning [path] to the sidebar, or taking it off where quick access shows it. */
-private fun MenuBuilder<BrowserEvent>.pinning(state: BrowserState, path: Path) {
+private fun Slots.pinning(state: BrowserState, path: Path) {
 	when (val shown = state.sidebar.shown.firstOrNull { it.path == path }) {
-		null -> item("Pin to sidebar", BrowserEvent.Pinned(path), id = "builtin.pin")
+		null ->
+			slot("builtin.pin") {
+				item("Pin to sidebar", BrowserEvent.Pinned(path), id = "builtin.pin")
+			}
 		else -> unpinning(shown)
 	}
 }
 
-/** Taking [item] off the sidebar: a folder pinned, unpinned; one of prism's own, hidden, since it is never removed. */
-private fun MenuBuilder<BrowserEvent>.unpinning(item: SidebarItem) {
-	when (item) {
+/** Taking [shown] off the sidebar: a folder pinned, unpinned; one of prism's own, hidden, since it is never removed. */
+private fun Slots.unpinning(shown: SidebarItem) {
+	when (shown) {
 		is SidebarItem.Pinned ->
-			item(
-				"Unpin from sidebar",
-				BrowserEvent.Unpinned(item),
-				id = "builtin.pin",
-			)
+			slot("builtin.unpin") {
+				item("Unpin from sidebar", BrowserEvent.Unpinned(shown), id = "builtin.unpin")
+			}
 		is SidebarItem.Own, SidebarItem.Trash ->
-			item(
-				"Hide from sidebar",
-				BrowserEvent.Unpinned(item),
-				id = "builtin.pin",
-			)
+			slot("builtin.hide-from-sidebar") {
+				item(
+					"Hide from sidebar",
+					BrowserEvent.Unpinned(shown),
+					id = "builtin.hide-from-sidebar",
+				)
+			}
 		is SidebarItem.Drive -> Unit
 	}
 }
 
-private fun folderMenuOf(
+/** What prism offers for the space around the rows: the folder shown, or what else is. */
+private fun spaceSlots(
 	state: BrowserState,
 	bindings: Bindings,
-	own: List<MenuEntry<BrowserEvent>>,
-): Menu<BrowserEvent> {
+): Map<String, List<MenuEntry<BrowserEvent>>> {
 	val folders = state.choosing is Choosing.Folder
 	val exploring = state.choosing is Choosing.Exploring
 	// A place takes what is pasted where it says what taking files in does.
 	val takes = state.place?.let { state.actions.into(it.placed) } != null
+	val hidden = state.entryFilters.hidden
 
-	return menu {
+	return slots {
 		state.changes.undo.lastOrNull()?.let {
-			item(
-				"Undo ${doneBy(it.done)}",
-				BrowserEvent.Undone,
-				keys = bindings.keys(Action.Undo),
-				id = "builtin.undo",
-			)
+			slot("builtin.undo") {
+				item(
+					"Undo ${doneBy(it.done)}",
+					BrowserEvent.Undone,
+					keys = bindings.keys(Action.Undo),
+					id = "builtin.undo",
+				)
+			}
 		}
 		state.changes.redo.lastOrNull()?.let {
-			item(
-				"Redo ${doneBy(it.done)}",
-				BrowserEvent.Redone,
-				keys = bindings.keys(Action.Redo),
-				id = "builtin.redo",
+			slot("builtin.redo") {
+				item(
+					"Redo ${doneBy(it.done)}",
+					BrowserEvent.Redone,
+					keys = bindings.keys(Action.Redo),
+					id = "builtin.redo",
+				)
+			}
+		}
+		if (state.inTrash)
+			slot("builtin.empty-trash") {
+				item(
+					"Empty trash",
+					BrowserEvent.AskedToEmpty,
+					enabled = state.entryCount > 0,
+					id = "builtin.empty-trash",
+				)
+			}
+		if (exploring && (state.folder != null || takes))
+			slot("builtin.paste") {
+				item(
+					"Paste",
+					BrowserEvent.Pasted(),
+					keys = bindings.keys(Action.Paste),
+					id = "builtin.paste",
+				)
+			}
+		slot("builtin.sort") { submenu("Sort by") { sorts(state) } }
+		slot("builtin.view") {
+			submenu("View") {
+				radio(
+					"List",
+					state.layout == Layout.List,
+					BrowserEvent.Viewed(Layout.List),
+					keys = bindings.keys(Action.ViewList),
+				)
+				radio(
+					"Gallery",
+					state.layout == Layout.Gallery,
+					BrowserEvent.Viewed(Layout.Gallery),
+					keys = bindings.keys(Action.ViewGallery),
+				)
+				separator()
+				// Each can be chosen where it would change something: what it would do is asked of the reducer itself.
+				item(
+					"Larger",
+					BrowserEvent.Zoomed(1),
+					keys = bindings.keys(Action.ZoomIn),
+					enabled = state.changedBy(BrowserEvent.Zoomed(1)),
+				)
+				item(
+					"Smaller",
+					BrowserEvent.Zoomed(-1),
+					keys = bindings.keys(Action.ZoomOut),
+					enabled = state.changedBy(BrowserEvent.Zoomed(-1)),
+				)
+				item(
+					"Usual size",
+					BrowserEvent.Unzoomed,
+					keys = bindings.keys(Action.ZoomReset),
+					enabled = state.changedBy(BrowserEvent.Unzoomed),
+				)
+			}
+		}
+		// A folder picker has no files to show.
+		if (!folders)
+			slot("builtin.hidden-files") {
+				check(
+					"Show hidden files",
+					hidden.files,
+					BrowserEvent.ToggledHiddenFiles,
+					alternate = BrowserEvent.ToggledHiddenFiles,
+				)
+			}
+		slot("builtin.hidden-folders") {
+			check(
+				"Show hidden folders",
+				hidden.folders,
+				BrowserEvent.ToggledHiddenFolders,
+				alternate = BrowserEvent.ToggledHiddenFolders,
 			)
 		}
-		separator()
-		if (state.inTrash) {
-			item(
-				"Empty trash",
-				BrowserEvent.AskedToEmpty,
-				enabled = state.entryCount > 0,
-				id = "builtin.empty-trash",
-			)
-			separator()
-		}
-		if (exploring && (state.folder != null || takes)) {
-			item(
-				"Paste",
-				BrowserEvent.Pasted(),
-				keys = bindings.keys(Action.Paste),
-				id = "builtin.paste",
-			)
-			separator()
-		}
-		own.forEach(::add)
-		separator()
-		submenu("Sort by") { sorts(state) }
-		submenu("View") {
-			radio(
-				"List",
-				state.layout == Layout.List,
-				BrowserEvent.Viewed(Layout.List),
-				keys = bindings.keys(Action.ViewList),
-			)
-			radio(
-				"Gallery",
-				state.layout == Layout.Gallery,
-				BrowserEvent.Viewed(Layout.Gallery),
-				keys = bindings.keys(Action.ViewGallery),
-			)
-			separator()
-			// Each can be chosen where it would change something: what it would do is asked of the reducer itself.
-			item(
-				"Larger",
-				BrowserEvent.Zoomed(1),
-				keys = bindings.keys(Action.ZoomIn),
-				enabled = state.changedBy(BrowserEvent.Zoomed(1)),
-			)
-			item(
-				"Smaller",
-				BrowserEvent.Zoomed(-1),
-				keys = bindings.keys(Action.ZoomOut),
-				enabled = state.changedBy(BrowserEvent.Zoomed(-1)),
-			)
-			item(
-				"Usual size",
-				BrowserEvent.Unzoomed,
-				keys = bindings.keys(Action.ZoomReset),
-				enabled = state.changedBy(BrowserEvent.Unzoomed),
-			)
-		}
-		separator()
-		hiddenChecks(state, folders)
-		separator()
 		// A search's results, and a place, are in no one folder: there is nowhere to make one, and no path to copy.
 		state.folder?.let {
-			item(
-				"New folder",
-				BrowserEvent.MadeFolder,
-				keys = bindings.keys(Action.NewFolder),
-				id = "builtin.new-folder",
-			)
-			if (exploring)
+			slot("builtin.new-folder") {
 				item(
-					"New file",
-					BrowserEvent.MadeFile,
-					keys = bindings.keys(Action.NewFile),
-					id = "builtin.new-file",
+					"New folder",
+					BrowserEvent.MadeFolder,
+					keys = bindings.keys(Action.NewFolder),
+					id = "builtin.new-folder",
 				)
-			item("Copy path", BrowserEvent.CopiedPaths(listOf(it)), id = "builtin.copy-path")
+			}
+			if (exploring)
+				slot("builtin.new-file") {
+					item(
+						"New file",
+						BrowserEvent.MadeFile,
+						keys = bindings.keys(Action.NewFile),
+						id = "builtin.new-file",
+					)
+				}
+			slot("builtin.copy-path") {
+				item("Copy path", BrowserEvent.CopiedPaths(listOf(it)), id = "builtin.copy-path")
+			}
 			pinning(state, it)
 			if (exploring)
-				item(
-					"Open terminal here",
-					BrowserEvent.OpenedTerminal(it),
-					keys = bindings.keys(Action.OpenTerminal),
-					enabled = state.terminal.opensInFolder,
-					id = "builtin.terminal",
-				)
+				slot("builtin.terminal") {
+					item(
+						"Open terminal here",
+						BrowserEvent.OpenedTerminal(it),
+						keys = bindings.keys(Action.OpenTerminal),
+						enabled = state.terminal.opensInFolder,
+						id = "builtin.terminal",
+					)
+				}
 		}
-		item(
-			"Refresh",
-			BrowserEvent.Refreshed,
-			keys = bindings.keys(Action.Refresh),
-			id = "builtin.refresh",
-		)
+		slot("builtin.refresh") {
+			item(
+				"Refresh",
+				BrowserEvent.Refreshed,
+				keys = bindings.keys(Action.Refresh),
+				id = "builtin.refresh",
+			)
+		}
 		if (exploring)
 			state.folder?.let {
-				separator()
-				item(
-					"Properties",
-					BrowserEvent.Requested(Request.Properties(listOf(it))),
-					id = "builtin.properties",
-				)
+				slot("builtin.properties") {
+					item(
+						"Properties",
+						BrowserEvent.Requested(Request.Properties(listOf(it))),
+						id = "builtin.properties",
+					)
+				}
 			}
 	}
 }
@@ -466,50 +576,56 @@ fun appMenuOf(
 	}
 
 /**
- * The menu of something the sidebar shows: open it, here or in a window of its own; the trash emptied; and, for what
- * quick access shows, taken off it, or quick access arranged.
+ * What prism offers for something the sidebar shows: open it, here or in a window of its own; the trash emptied; and,
+ * for what quick access shows, taken off it, or quick access arranged.
  */
-private fun sidebarMenuOf(
+private fun sidebarSlots(
 	state: BrowserState,
 	item: SidebarItem,
-	own: List<MenuEntry<BrowserEvent>>,
-): Menu<BrowserEvent> =
-	menu {
+): Map<String, List<MenuEntry<BrowserEvent>>> {
+	val exploring = state.choosing is Choosing.Exploring
+
+	return slots {
 		when (val path = item.path) {
 			null -> {
-				item("Open", BrowserEvent.OpenedTrash, id = "builtin.open")
-				if (state.choosing is Choosing.Exploring)
-					item("Empty trash", BrowserEvent.AskedToEmpty, id = "builtin.empty-trash")
+				slot("builtin.open") { item("Open", BrowserEvent.OpenedTrash, id = "builtin.open") }
+				if (exploring)
+					slot("builtin.empty-trash") {
+						item("Empty trash", BrowserEvent.AskedToEmpty, id = "builtin.empty-trash")
+					}
 			}
 			else -> {
-				item("Open", BrowserEvent.Opened(path), id = "builtin.open")
-				if (state.choosing is Choosing.Exploring) {
-					item(
-						"Open in new window",
-						BrowserEvent.Requested(Request.NewWindow(path)),
-						id = "builtin.open-in-new-window",
-					)
-					separator()
-					own.forEach(::add)
-					separator()
-					item(
-						"Properties",
-						BrowserEvent.Requested(Request.Properties(listOf(path))),
-						id = "builtin.properties",
-					)
+				slot("builtin.open") { item("Open", BrowserEvent.Opened(path), id = "builtin.open") }
+				if (exploring) {
+					slot("builtin.open-in-new-window") {
+						item(
+							"Open in new window",
+							BrowserEvent.Requested(Request.NewWindow(path)),
+							id = "builtin.open-in-new-window",
+						)
+					}
+					slot("builtin.properties") {
+						item(
+							"Properties",
+							BrowserEvent.Requested(Request.Properties(listOf(path))),
+							id = "builtin.properties",
+						)
+					}
 				}
 			}
 		}
 		if (item !is SidebarItem.Drive) {
-			separator()
 			unpinning(item)
-			item(
-				"Arrange quick access…",
-				BrowserEvent.ArrangingQuickAccess(true),
-				id = "builtin.arrange",
-			)
+			slot("builtin.arrange") {
+				item(
+					"Arrange quick access…",
+					BrowserEvent.ArrangingQuickAccess(true),
+					id = "builtin.arrange",
+				)
+			}
 		}
 	}
+}
 
 /**
  * The orders the listing can be put in: a folder's by each column, either way; a search's best first as well, and by

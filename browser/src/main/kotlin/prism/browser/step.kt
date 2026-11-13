@@ -1026,9 +1026,17 @@ private fun answered(state: BrowserState, answer: Answer): Step =
 		is Answer.ScratchMade -> state.scratched(answer.folder, answer.pending)
 		is Answer.Configured ->
 			Step(
-				state.copy(actions = answer.actions, terminal = answer.terminal),
+				state.copy(
+					actions = answer.actions,
+					terminal = answer.terminal,
+					menus = answer.menus,
+				),
 			)
 		is Answer.Placed -> Step(state.copy(sidebar = answer.sidebar))
+		is Answer.Relisted ->
+			Step(
+				state.copy(looks = state.looks.relisted(state.role, answer.listings)),
+			)
 		// A read of a folder no longer shown is too late to matter.
 		is Answer.Arrived ->
 			if (answer.folder == state.folder)
