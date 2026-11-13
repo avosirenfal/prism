@@ -269,7 +269,13 @@ class LiveIndex private constructor(
 					store.make(made(meanwhile, store.index, indexer))
 					scans = scans - id
 				}
-				store.flush()
+				// What was read is made, whether or not it can be written now: a write that fails is said by whoever
+				// writes next ([flush], a daemon's every tick), with what was made kept until then.
+				try {
+					store.flush()
+				} catch (unwritten: Exception) {
+					Unit
+				}
 			}, scanning)
 	}
 

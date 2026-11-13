@@ -22,6 +22,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.longOrNull
+import prism.desktop.asChildOfPrism
 import prism.index.Given
 import prism.index.Index
 import prism.index.given
@@ -327,6 +328,7 @@ object ProcessCommands : Commands {
 		try {
 			val process =
 				ProcessBuilder(invocation.words)
+					.asChildOfPrism()
 					.directory(invocation.folder.toFile())
 					.redirectInput(ProcessBuilder.Redirect.from(java.io.File("/dev/null")))
 					.apply { environment().putAll(invocation.environment) }

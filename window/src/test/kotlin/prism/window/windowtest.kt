@@ -15,16 +15,20 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import java.nio.file.Path
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assumptions.assumeTrue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.assertThrows
 import org.lwjgl.sdl.SDLEvents.SDL_EVENT_DROP_BEGIN
 import org.lwjgl.sdl.SDLEvents.SDL_EVENT_DROP_COMPLETE
 import org.lwjgl.sdl.SDLEvents.SDL_EVENT_DROP_FILE
@@ -180,5 +184,162 @@ class WindowTest {
 		assertEquals(Dropped.Files(listOf(Path.of("/tmp/a file.txt"))), gotten)
 		if (copied != null || System.getenv("WAYLAND_DISPLAY") == null)
 			assertEquals("file:///tmp/a", copied)
+	}
+
+	/** A click at 10, 10 in [window]'s points. */
+	private fun click(window: NativeWindow) {
+		push(window, SDL_EVENT_MOUSE_MOTION) { it.motion().x(10f).y(10f) }
+		push(window, SDL_EVENT_MOUSE_BUTTON_DOWN) {
+			it
+				.button()
+				.button(SDL_BUTTON_LEFT.toByte())
+				.down(true)
+				.clicks(1)
+				.x(10f)
+				.y(10f)
+		}
+		push(window, SDL_EVENT_MOUSE_BUTTON_UP) {
+			it
+				.button()
+				.button(SDL_BUTTON_LEFT.toByte())
+				.clicks(1)
+				.x(10f)
+				.y(10f)
+		}
+	}
+
+	/** The ways a window's content goes wrong, each in a window of its own. */
+	private enum class Wrong {
+		/** As it is composed for the first time. */
+		Composing,
+
+		/** As it is composed again, something it reads having changed. */
+		Recomposing,
+
+		/** As it is drawn. */
+		Drawing,
+
+		/** In an effect of it. */
+		Effect,
+
+		/** In a coroutine of an effect of it, on another thread. */
+		Elsewhere,
+
+		/** As it is given a click. */
+		Clicked,
+	}
+
+	@Test
+	fun aWindowThatFailsIsToldOfAloneAndTheOthersGoOn() {
+		assumeTrue(
+			System.getProperty("window.display") != null,
+			"needs a display: -Pwindow.display",
+		)
+
+		val failures = HashMap<Wrong, Throwable>()
+		var clicks = 0
+
+		application("prism-test") {
+			var open by remember { mutableStateOf(Wrong.entries.toSet()) }
+			var trip by remember { mutableStateOf(false) }
+
+			for (wrong in open)
+				androidx.compose.runtime.key(wrong) {
+					Window(
+						onCloseRequest = { open = open - wrong },
+						title = wrong.name,
+						size = DpSize(200.dp, 100.dp),
+						onFailure = {
+							failures[wrong] = it
+							open = open - wrong
+						},
+					) {
+						when (wrong) {
+							Wrong.Composing -> error("composing")
+							Wrong.Recomposing ->
+								if (trip)
+									error("recomposing")
+							Wrong.Drawing ->
+								Box(
+									Modifier.fillMaxSize().drawBehind {
+										if (trip)
+											error("drawing")
+									},
+								)
+							Wrong.Effect ->
+								LaunchedEffect(trip) {
+									if (trip)
+										error("effect")
+								}
+							Wrong.Elsewhere ->
+								LaunchedEffect(trip) {
+									if (trip)
+										launch(Dispatchers.IO) { error("elsewhere") }
+								}
+							Wrong.Clicked -> {
+								Box(Modifier.fillMaxSize().clickable { error("clicked") })
+								LaunchedEffect(trip) {
+									if (trip)
+										click(window)
+								}
+							}
+						}
+					}
+				}
+
+			// The window that does nothing wrong: there before, during and after, and clicked once the rest are gone.
+			Window(
+				onCloseRequest = ::exitApplication,
+				title = "sound",
+				size = DpSize(200.dp, 100.dp),
+			) {
+				Box(Modifier.fillMaxSize().clickable { clicks++ })
+				LaunchedEffect(Unit) {
+					delay(500)
+					trip = true
+					delay(1000)
+					click(window)
+					delay(300)
+					exitApplication()
+				}
+			}
+		}
+
+		assertEquals(Wrong.entries.toSet(), failures.keys)
+		assertEquals(
+			Wrong.entries.associateWith { it.name.lowercase() },
+			failures.mapValues { it.value.message },
+		)
+		assertEquals(1, clicks)
+	}
+
+	@Test
+	fun aWindowWithNobodyToTellEndsTheApplicationSayingWhy() {
+		assumeTrue(
+			System.getProperty("window.display") != null,
+			"needs a display: -Pwindow.display",
+		)
+
+		val failed =
+			assertThrows<WindowsFailed> {
+				application("prism-test") {
+					Window(
+						onCloseRequest = ::exitApplication,
+						title = "untold",
+						size = DpSize(200.dp, 100.dp),
+					) {
+						var trip by remember { mutableStateOf(false) }
+
+						if (trip)
+							error("nobody was told")
+						LaunchedEffect(Unit) {
+							delay(300)
+							trip = true
+						}
+					}
+				}
+			}
+
+		assertEquals("nobody was told", failed.cause?.message)
 	}
 }

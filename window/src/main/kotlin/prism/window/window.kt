@@ -38,6 +38,8 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import java.awt.Cursor
 import java.nio.file.Path
+import kotlin.coroutines.EmptyCoroutineContext
+import kotlinx.coroutines.CoroutineExceptionHandler
 import org.lwjgl.sdl.SDLEvents.SDL_EVENT_DROP_BEGIN
 import org.lwjgl.sdl.SDLEvents.SDL_EVENT_DROP_COMPLETE
 import org.lwjgl.sdl.SDLEvents.SDL_EVENT_DROP_FILE
@@ -93,6 +95,9 @@ import org.lwjgl.sdl.SDLMouse.SDL_SYSTEM_CURSOR_TEXT
 import org.lwjgl.sdl.SDLMouse.SDL_SYSTEM_CURSOR_WAIT
 import org.lwjgl.sdl.SDLMouse.SDL_SYSTEM_CURSOR_W_RESIZE
 import org.lwjgl.sdl.SDLMouse.SDL_SetCursor
+import org.lwjgl.sdl.SDLStdinc.SDL_GetEnvironment
+import org.lwjgl.sdl.SDLStdinc.SDL_SetEnvironmentVariable
+import org.lwjgl.sdl.SDLStdinc.SDL_UnsetEnvironmentVariable
 import org.lwjgl.sdl.SDLVideo.SDL_CreateWindow
 import org.lwjgl.sdl.SDLVideo.SDL_DestroyWindow
 import org.lwjgl.sdl.SDLVideo.SDL_GetWindowDisplayScale
@@ -118,6 +123,9 @@ val LocalNativeWindow = staticCompositionLocalOf<NativeWindow?> { null }
 /**
  * A window of SDL's, with a Compose scene in it: drawn as [Pixels] say, each event SDL has for it given to the scene
  * as Compose's own windows give theirs. Made, used and closed on the windows' thread ([Ui]).
+ *
+ * Its scene and its recomposer are its own, so what fails in it fails it alone ([fail]): it is told to [onFailure]
+ * once, and from then on the window draws nothing and takes no event, until it is closed.
  */
 class NativeWindow internal constructor(
 	internal val app: Application,
@@ -125,6 +133,8 @@ class NativeWindow internal constructor(
 	size: DpSize,
 	decorated: Boolean,
 	at: IntOffset?,
+	/** The desktop's token for whoever asked for this window, which lets it be given the keyboard as it is shown. */
+	private val activation: String? = null,
 ) {
 	private val place = at
 	private val sdl: Long
@@ -147,6 +157,12 @@ class NativeWindow internal constructor(
 	/** What closing the window by its title bar, or the platform's own means, asks for. */
 	internal var onCloseRequest: () -> Unit = {}
 
+	/** Who is told what went wrong in the window, once: the application itself, until someone else is. */
+	internal var onFailure: (Throwable) -> Unit = app::fail
+
+	/** Whether something went wrong in the window: its scene is not to be trusted with a frame or an event again. */
+	private var failed = false
+
 	internal val drops = Drops()
 
 	private var density by mutableStateOf(Density(1f))
@@ -158,7 +174,18 @@ class NativeWindow internal constructor(
 	internal var wantsFrame = true
 		private set
 
-	private val recomposer = FrameRecomposer(Ui) { invalidate() }
+	// What fails as the window's content is composed again, or in an effect or a coroutine of it, never reaches
+	// whoever asked for the frame: the recomposer's own coroutine ends with it, and tells whoever is in its context.
+	private val recomposer =
+		FrameRecomposer(
+			Ui +
+				CoroutineExceptionHandler {
+					_,
+					failure,
+					->
+					fail(failure)
+				},
+		) { invalidate() }
 
 	private val info =
 		object : WindowInfo {
@@ -268,10 +295,8 @@ class NativeWindow internal constructor(
 		Log.say { "window $id: ${pixels.javaClass.simpleName}" }
 
 		// A Wayland window takes a buffer only once the compositor has said how it is to be: shown first, then drawn.
-		if (pixels is WaylandPixels) {
-			SDL_ShowWindow(sdl)
-			shown = true
-		}
+		if (pixels is WaylandPixels)
+			show()
 		density = Density(scale)
 		pixelSize = pixelSizeOf()
 
@@ -293,10 +318,47 @@ class NativeWindow internal constructor(
 	}
 
 	internal fun invalidate() {
-		if (!wantsFrame) {
+		if (!wantsFrame && !failed) {
 			wantsFrame = true
 			Ui.wake()
 		}
+	}
+
+	/**
+	 * Something went wrong in the window: [failure] told to [onFailure], the first time, and the window left as it is,
+	 * drawing nothing more and taking no more events, for whoever opened it to close. What its telling throws is the
+	 * application's.
+	 */
+	internal fun fail(failure: Throwable) {
+		// A coroutine of the content's that fails on another thread fails the window here, on its own.
+		if (!Ui.isCurrent)
+			return Ui.dispatch(EmptyCoroutineContext) { fail(failure) }
+		if (failed)
+			return
+
+		failed = true
+		wantsFrame = false
+		try {
+			onFailure(failure)
+		} catch (untold: Throwable) {
+			app.fail(untold.also { it.addSuppressed(failure) })
+		}
+	}
+
+	/** The window put on the screen, asking the compositor for the keyboard with [activation] where it was given one. */
+	private fun show() {
+		// SDL activates a Wayland window as it shows it with the token its environment holds, as a program started by
+		// a launcher finds it there; for a window asked for by another process, the token is put there for the showing.
+		val environment = SDL_GetEnvironment()
+
+		if (activation != null && environment != 0L) {
+			SDL_SetEnvironmentVariable(environment, ACTIVATION_TOKEN, activation, true)
+			SDL_ShowWindow(sdl)
+			SDL_UnsetEnvironmentVariable(environment, ACTIVATION_TOKEN)
+		} else {
+			SDL_ShowWindow(sdl)
+		}
+		shown = true
 	}
 
 	/** What the window shows, with [locals] as its composition's, from the composition that opened it. */
@@ -333,7 +395,7 @@ class NativeWindow internal constructor(
 
 	/** A frame drawn, if one was asked for: the scene's frame, its layout and its drawing, into the window's pixels. */
 	internal fun frame(nanos: Long) {
-		if (closed || !wantsFrame)
+		if (closed || failed || !wantsFrame)
 			return
 
 		wantsFrame = false
@@ -367,8 +429,7 @@ class NativeWindow internal constructor(
 
 		// Shown once there is something in it, rather than empty first.
 		if (!shown) {
-			shown = true
-			SDL_ShowWindow(sdl)
+			show()
 			// Placed again once shown: a window not yet on the screen is placed as the platform likes when it is.
 			place?.let { SDL_SetWindowPosition(sdl, it.x, it.y) }
 		}
@@ -398,8 +459,11 @@ class NativeWindow internal constructor(
 	private var pointer = Offset.Zero
 	private var pressed = PointerButtons()
 
-	/** One of SDL's events for this window, handled. */
+	/** One of SDL's events for this window, handled; none but a request to close it, once it has failed. */
 	internal fun handle(event: SDL_Event) {
+		if (failed && event.type() != SDL_EVENT_WINDOW_CLOSE_REQUESTED)
+			return
+
 		when (event.type()) {
 			SDL_EVENT_WINDOW_CLOSE_REQUESTED -> onCloseRequest()
 			SDL_EVENT_WINDOW_RESIZED, SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED -> {
@@ -621,11 +685,29 @@ class NativeWindow internal constructor(
 			return
 
 		closed = true
-		app.drags.closed(this)
-		scene.close()
-		recomposer.close()
-		pixels.close()
+
+		// Each let go of whatever the one before came to, and SDL's window destroyed whatever they did: a window whose
+		// scene failed is closed all the same, and what closing a sound one throws is its failure.
+		val closing =
+			listOf(
+				{ app.drags.closed(this) },
+				scene::close,
+				recomposer::close,
+				pixels::close,
+			)
+
+		for (close in closing)
+			try {
+				close()
+			} catch (failure: Throwable) {
+				fail(failure)
+			}
 		SDL_DestroyWindow(sdl)
+	}
+
+	private companion object {
+		/** The variable a program finds the desktop's activation token in, and SDL reads as it shows a window. */
+		const val ACTIVATION_TOKEN = "XDG_ACTIVATION_TOKEN"
 	}
 }
 

@@ -14,6 +14,7 @@ import prism.desktop.Launcher
 import prism.desktop.TerminalChoice
 import prism.desktop.TerminalCommand
 import prism.desktop.TerminalOptions
+import prism.desktop.asChildOfPrism
 
 /*
  * Starting what prism opens as processes of their own. A process the JVM starts is its child, in its session and its
@@ -200,6 +201,7 @@ class DetachedLauncher(
 			return try {
 				val builder =
 					ProcessBuilder(command)
+						.asChildOfPrism()
 						.directory(folder.toFile())
 						.redirectInput(ProcessBuilder.Redirect.from(File("/dev/null")))
 						.redirectOutput(ProcessBuilder.Redirect.DISCARD)

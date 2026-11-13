@@ -80,7 +80,10 @@ internal fun serviceFile(name: String, command: List<String>): String =
 	|
 	""".trimMargin()
 
-/** The desktop entry that opens folders: `prism portal show`, given what is opened. */
+/**
+ * The desktop entry that opens folders: `prism explore`, given what is opened, which the prism already running shows
+ * where there is one.
+ */
 internal fun folderEntry(command: List<String>): String =
 	"""
 	|$WRITTEN_BY
@@ -89,7 +92,7 @@ internal fun folderEntry(command: List<String>): String =
 	|Name=prism
 	|GenericName=File Manager
 	|Comment=Browse the file system
-	|Exec=${(command + listOf("portal", "show")).joinToString(" ", transform = ::quoted)} %U
+	|Exec=${(command + listOf("explore")).joinToString(" ", transform = ::quoted)} %U
 	|MimeType=inode/directory;
 	|Categories=System;FileTools;FileManager;
 	|Terminal=false

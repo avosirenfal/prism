@@ -40,20 +40,25 @@ class Watcher private constructor(
 	fun lost(): Long? = (watch.lost() as? Sys.Ok)?.value
 
 	private fun read() {
-		while (running) {
-			val batch = ArrayList<Observed>()
+		try {
+			while (running) {
+				val batch = ArrayList<Observed>()
 
-			when (val read = watch.await(Wait.AtMost(READ_EVERY_MILLIS), batch::add)) {
-				is Sys.Failed ->
-					if (read.errno.name != "EINTR") {
-						stopped = "reading the ring failed: $read"
+				when (val read = watch.await(Wait.AtMost(READ_EVERY_MILLIS), batch::add)) {
+					is Sys.Failed ->
+						if (read.errno.name != "EINTR") {
+							stopped = "reading the ring failed: $read"
 
-						return
-					}
-				is Sys.Ok ->
-					if (batch.isNotEmpty())
-						seen(batch)
+							return
+						}
+					is Sys.Ok ->
+						if (batch.isNotEmpty())
+							seen(batch)
+				}
 			}
+		} catch (failed: Throwable) {
+			// Never ended without saying so: whoever keeps an index from this reads its places again instead.
+			stopped = "reading the ring failed: $failed"
 		}
 	}
 

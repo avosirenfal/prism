@@ -23,17 +23,30 @@ data class Category(
 	val nodes: List<Node>,
 )
 
-/** Commands named after a word: `prism probe watch`. */
+/**
+ * Commands named after a word: `prism probe watch`. Where it has a [default], words that name none of its commands
+ * are that command's: `prism ~/Documents` is `prism explore ~/Documents`, and `prism` alone is `prism explore`.
+ */
 class Group(
 	override val name: String,
 	override val help: String,
 	val categories: List<Category>,
+	/** The command run by words that name no command, which is one of the group's own; null where there is none. */
+	val default: Command? = null,
 ) : Node {
 	init {
-		val names = categories.flatMap { category -> category.nodes.map { it.name } }
-		val twice = names.groupBy { it }.filterValues { it.size > 1 }.keys
+		val nodes = categories.flatMap { it.nodes }
+		val twice =
+			nodes
+				.map { it.name }
+				.groupBy { it }
+				.filterValues { it.size > 1 }
+				.keys
 
 		require(twice.isEmpty()) { "$name: commands named twice: $twice" }
+		require(default == null || default in nodes) {
+			"$name: its default, ${default?.name}, is not one of its commands"
+		}
 	}
 
 	fun child(name: String): Node? =

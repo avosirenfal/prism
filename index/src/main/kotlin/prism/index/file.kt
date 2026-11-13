@@ -74,13 +74,17 @@ object IndexFile {
 	private const val PRESENT: Byte = 2
 	private const val ABSENT: Byte = 3
 
-	/** The index [file] holds. */
+	/** The index [file] holds; or that there is none there; or why what is there cannot be read. */
 	fun read(file: Path): IndexRead {
 		val bytes =
 			try {
 				Files.readAllBytes(file)
 			} catch (missing: NoSuchFileException) {
 				return IndexRead.Missing
+			} catch (failed: IOException) {
+				// There, or in the way, and not to be read (a folder, a file this user may not read, a disk that
+				// fails): said, as a file that is no index is, rather than thrown at whoever only wanted an index.
+				return IndexRead.Unreadable("$file cannot be read: ${failed.message ?: failed}")
 			}
 
 		if (bytes.size < HEADER || !bytes.copyOf(MAGIC.size).contentEquals(MAGIC))

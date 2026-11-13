@@ -1,13 +1,19 @@
 package prism.explorer
 
 import java.nio.file.Path
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -20,6 +26,7 @@ import prism.browser.FileClipboard
 import prism.browser.Finder
 import prism.browser.FolderWatcher
 import prism.browser.Landing
+import prism.browser.Location
 import prism.browser.Outcome
 import prism.browser.Request
 import prism.browser.RowId
@@ -45,18 +52,28 @@ import prism.preferences.Role
  * list of windows, each made from a request (a folder to browse, the properties of some files, an application to open
  * them with, the preferences) and gone when it is closed. The windows are drawn from that list (windows.kt), so the
  * list is all there is to know of what is open: the explorer run on its own (`prism explore`) ends when it is empty,
- * and the daemon, which will run the explorer for every application that asks, keeps it while it runs.
+ * and the daemon, which runs the explorer for every application that asks, keeps it while it runs.
+ *
+ * A window is on its own: what it does is done in a scope of its own, and what goes wrong there, or in drawing it
+ * ([Explorer.failed]), closes that window and no other, is said on standard error, and is shown in a window that says
+ * what happened ([ExplorerWindow.Failed]). The explorer, its other windows, and whatever else the process is doing
+ * (the daemon's index) go on.
  */
 
 /** A window the explorer has open, told apart from the others by [id]. */
 sealed interface ExplorerWindow {
 	val id: Int
 
-	/** Files browsed: a browser's [session], whose work is done in [scope], which ends with the window. */
+	/**
+	 * Files browsed: a browser's [session], whose work is done in [scope], which ends with the window. [activation]
+	 * is the desktop's token for whoever asked for the window, where it was asked for from outside, with which the
+	 * window is given the keyboard as it opens.
+	 */
 	class Browsing internal constructor(
 		override val id: Int,
 		val session: Session,
 		internal val scope: CoroutineScope,
+		val activation: String? = null,
 	) : ExplorerWindow
 
 	/**
@@ -89,7 +106,46 @@ sealed interface ExplorerWindow {
 		override val id: Int,
 		val raised: Int = 0,
 	) : ExplorerWindow
+
+	/**
+	 * What is shown in place of a window that failed and was closed: [what] it was ("Documents", "Preferences"), the
+	 * [failure], and where a browser can be opened [again], for a window that was browsing.
+	 */
+	data class Failed(
+		override val id: Int,
+		val what: String,
+		val failure: Failure,
+		val again: Start?,
+	) : ExplorerWindow
 }
+
+/** Something that went wrong, as it is shown and copied: in a line ([summary]), and in full ([trace]). */
+data class Failure(
+	val summary: String,
+	val trace: String,
+) {
+	companion object {
+		fun of(failure: Throwable): Failure =
+			Failure(
+				// What kind of thing went wrong, and what it says of itself, where it says anything.
+				listOfNotNull(
+					failure.javaClass.simpleName.ifEmpty {
+						failure.javaClass.name
+					},
+					failure.message,
+				).joinToString(": "),
+				failure.stackTraceToString().trimEnd(),
+			)
+	}
+}
+
+/** A picker's window failed before the picker ended: what whoever asked for it is told, in place of an answer. */
+class PickerFailed(
+	cause: Throwable?,
+) : RuntimeException(
+		"the picker's window failed" + (cause?.let { ": ${Failure.of(it).summary}" } ?: ""),
+		cause,
+	)
 
 /** A picker another application asks for. */
 data class Asking(
@@ -134,7 +190,8 @@ sealed interface Choice {
  * The explorer, browsing over [disk] (and searching with [finder]) on [desktop], with the [clipboard] files are copied
  * to and the user's [preferences], every window's. Its windows' work is done in children of [scope], which should run
  * on the thread the windows are drawn on, as a composition's does; a new window opens on [search], the state a
- * search's window starts in (one ready to search, or one that says why there is none).
+ * search's window starts in (one ready to search, or one that says why there is none). What goes wrong in a window is
+ * told to [report], with what the window was, before it is shown.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class Explorer(
@@ -148,6 +205,10 @@ class Explorer(
 	private val search: Search,
 	/** What says a folder shown has changed on disk, for its window to read it again. */
 	watcher: FolderWatcher = FolderWatcher.NONE,
+	/** Where what goes wrong in a window is said, beside being shown: standard error, unless told otherwise. */
+	private val report: (String, Throwable) -> Unit = { what, failure ->
+		System.err.println("prism: $what: ${failure.stackTraceToString().trimEnd()}")
+	},
 ) {
 	private val services =
 		Services(disk, finder, desktop, clipboard, preferences, watcher = watcher)
@@ -159,6 +220,15 @@ class Explorer(
 	private val open = MutableStateFlow<List<ExplorerWindow>>(emptyList())
 	private val defaultsSet = MutableStateFlow(0)
 
+	/** What each picker's window that failed failed with, until whoever waits for the picker's answer has read it. */
+	private val failures = ConcurrentHashMap<Int, Throwable>()
+
+	/**
+	 * The windows being made, by id, each with what its work has already failed with, if it has: a window's scope is
+	 * made before the window, and what fails in it meanwhile is the window's failure once it is in the list.
+	 */
+	private val unborn = HashMap<Int, Throwable?>()
+
 	/** The windows open, in the order they opened. */
 	val windows: StateFlow<List<ExplorerWindow>> = open.asStateFlow()
 
@@ -166,11 +236,15 @@ class Explorer(
 	val defaults: StateFlow<Int> = defaultsSet.asStateFlow()
 
 	/** A window browsing [folder]; with [chosen], the entry of that name chosen in it, the cursor on it. */
-	fun browse(folder: Path, chosen: String? = null) = browse(Start.Folder(folder), chosen)
+	fun browse(folder: Path, chosen: String? = null, activation: String? = null) =
+		browse(Start.Folder(folder), chosen, activation)
 
-	/** A window browsing from [start]: a folder, or a place; in a folder, [chosen] chosen where it is given. */
-	fun browse(start: Start, chosen: String? = null) {
-		val window = scope.child()
+	/**
+	 * A window browsing from [start]: a folder, or a place; in a folder, [chosen] chosen where it is given. With
+	 * [activation], the desktop's token for whoever asked, the window is given the keyboard as it opens.
+	 */
+	fun browse(start: Start, chosen: String? = null, activation: String? = null) {
+		val (id, window) = making()
 		val sidebar = sidebarOf(desktop.places, home, preferences.preferences.value)
 
 		val first =
@@ -207,16 +281,17 @@ class Explorer(
 
 		val browsing =
 			ExplorerWindow.Browsing(
-				ids.incrementAndGet(),
+				id,
 				Session(first, services, window, requests = {
 					ask(it) { event -> asking.getCompleted().send(event) }
 				}),
 				window,
+				activation,
 			)
 
 		asking.complete(browsing.session)
 
-		open.update { it.plusElement(browsing) }
+		opened(browsing)
 		// A browser ends as a picker is cancelled: closed (Ctrl+W, or its menu), it is closed here.
 		window.launch {
 			browsing.session.outcome.await()
@@ -264,11 +339,11 @@ class Explorer(
 
 	/** A picker of folders opened for [request]: what it chooses, or that it was cancelled, is the answer. */
 	private fun pick(request: Request.PickFolder, reply: (BrowserEvent) -> Unit) {
-		val window = scope.child()
+		val (id, window) = making()
 
 		val picking =
 			ExplorerWindow.Picking(
-				ids.incrementAndGet(),
+				id,
 				request.title,
 				Session(
 					opened(
@@ -287,11 +362,18 @@ class Explorer(
 				window,
 			)
 
-		open.update { it.plusElement(picking) }
+		opened(picking)
 		window.launch {
-			val outcome = picking.session.outcome.await()
+			// Answered however the picker ends: one whose window failed chose nothing, and whoever asked is told so
+			// rather than left waiting.
+			val chosen =
+				try {
+					(picking.session.outcome.await() as? Outcome.Chosen)?.paths?.firstOrNull()
+				} catch (stopped: CancellationException) {
+					null
+				}
 
-			reply(BrowserEvent.Answered((outcome as? Outcome.Chosen)?.paths?.firstOrNull()))
+			reply(BrowserEvent.Answered(chosen))
 			close(picking)
 		}
 	}
@@ -299,10 +381,10 @@ class Explorer(
 	/**
 	 * A picker for another application, as [asking] says, in a window of its own until it ends: what it ends with,
 	 * and the filter in use as it did. Cancelled from outside (the application went, or the portal took it away), its
-	 * window is closed as it is.
+	 * window is closed as it is. Where its window fails before it ends, there is no answer: [PickerFailed] says why.
 	 */
 	suspend fun choose(asking: Asking): Answered {
-		val window = scope.child()
+		val (id, window) = making()
 
 		val first =
 			opened(
@@ -328,20 +410,28 @@ class Explorer(
 
 		val picking =
 			ExplorerWindow.Picking(
-				ids.incrementAndGet(),
+				id,
 				asking.title,
 				Session(first, services, window),
 				window,
 				asking.parent,
 			)
 
-		open.update { it.plusElement(picking) }
+		opened(picking)
+
+		// Waited for in the window's own scope, which ends with the window: a picker whose window failed never ends,
+		// and its answer is not waited for for ever.
+		val ending = window.async { picking.session.outcome.await() }
 
 		return try {
-			val outcome = picking.session.outcome.await()
+			Answered(ending.await(), picking.session.state.value.typeFilter)
+		} catch (stopped: CancellationException) {
+			// Cancelled from outside, as it is; otherwise it was the window that stopped.
+			currentCoroutineContext().ensureActive()
 
-			Answered(outcome, picking.session.state.value.typeFilter)
+			throw PickerFailed(failures.remove(id))
 		} finally {
+			failures.remove(id)
 			close(picking)
 		}
 	}
@@ -367,11 +457,101 @@ class Explorer(
 		}
 	}
 
+	/**
+	 * [window] failed with [failure], in drawing it or in what it was doing: it is closed and what it was doing
+	 * stopped, the failure is reported, and a window that says what happened is opened in its place, from which a
+	 * browser can be opened again where it was. Every other window is left as it is.
+	 */
+	fun failed(window: ExplorerWindow, failure: Throwable) = failed(window.id, failure)
+
+	private fun failed(id: Int, failure: Throwable) {
+		// A window's work can fail before the window is in the list (a session starts as it is made): kept for it.
+		synchronized(unborn) {
+			if (id in unborn) {
+				unborn[id] = unborn[id] ?: failure
+
+				return
+			}
+		}
+
+		val window = open.value.firstOrNull { it.id == id }
+		val what = window?.let(::describe) ?: "a window that had closed"
+
+		report("$what failed", failure)
+		if (window == null)
+			return
+
+		if (window is ExplorerWindow.Picking)
+			failures[id] = failure
+		close(window)
+		// The window that says so failing in its turn is said on standard error alone.
+		if (window !is ExplorerWindow.Failed)
+			opening {
+				ExplorerWindow.Failed(it, titleOf(window), Failure.of(failure), againFor(window))
+			}
+	}
+
+	/** Where a browser is opened again, for [window] that failed: where it was browsing, or its home. */
+	private fun againFor(window: ExplorerWindow): Start? =
+		(window as? ExplorerWindow.Browsing)?.let {
+			Start.Folder(it.session.state.value.folder ?: home)
+		}
+
 	private fun opening(window: (Int) -> ExplorerWindow) =
 		open.update {
 			it.plusElement(window(ids.incrementAndGet()))
 		}
 
-	private fun CoroutineScope.child(): CoroutineScope =
-		CoroutineScope(coroutineContext + SupervisorJob(coroutineContext[Job]))
+	/**
+	 * A window about to be made: its id, and the scope its work is done in. The work stops with the window, one part
+	 * of it failing stops no other, and what fails in it with nobody waiting for it is the window's failure, kept
+	 * until the window is in the list ([opened]).
+	 */
+	private fun making(): Pair<Int, CoroutineScope> {
+		val id = ids.incrementAndGet()
+
+		synchronized(unborn) { unborn[id] = null }
+
+		return id to
+			CoroutineScope(
+				scope.coroutineContext + SupervisorJob(scope.coroutineContext[Job]) +
+					CoroutineExceptionHandler { _, failure -> failed(id, failure) },
+			)
+	}
+
+	/** [window], made, in the list of those open; and failed at once, where its work already has. */
+	private fun opened(window: ExplorerWindow) {
+		open.update { it.plusElement(window) }
+		synchronized(unborn) { unborn.remove(window.id) }?.let { failed(window.id, it) }
+	}
+
+	companion object {
+		/** What [window] is called, as its title bar would say. */
+		fun titleOf(window: ExplorerWindow): String =
+			when (window) {
+				is ExplorerWindow.Browsing ->
+					when (val at = window.session.state.value.at) {
+						is Location.Folder -> (at.path.fileName ?: at.path).toString()
+						is Location.Results -> "Search"
+						is Location.Place -> at.placed.title
+						Location.Trash -> "Trash"
+						is Location.System -> "System"
+					}
+				is ExplorerWindow.Picking -> window.title
+				is ExplorerWindow.Properties -> propertiesTitleOf(window.paths)
+				is ExplorerWindow.OpenWith -> openWithTitleOf(window.choice)
+				is ExplorerWindow.Settings -> "Preferences"
+				is ExplorerWindow.Failed -> "${window.what} failed"
+			}
+
+		/** What [window] is, as a report of its failure says. */
+		private fun describe(window: ExplorerWindow): String =
+			when (window) {
+				is ExplorerWindow.Browsing ->
+					"the window on ${window.session.state.value.folder ?: titleOf(window)}"
+				is ExplorerWindow.Picking -> "the picker “${window.title}”"
+				is ExplorerWindow.Failed -> "the window that says ${window.what} failed"
+				else -> "the window “${titleOf(window)}”"
+			}
+	}
 }

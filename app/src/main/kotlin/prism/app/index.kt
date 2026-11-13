@@ -8,6 +8,7 @@ import kotlin.time.Duration
 import kotlin.time.measureTimedValue
 import prism.cli.Args
 import prism.cli.Command
+import prism.cli.InputError
 import prism.cli.Outcome
 import prism.cli.ParamType
 import prism.index.Index
@@ -68,8 +69,25 @@ object IndexCommand : Command(
 		)
 
 	override fun run(args: Args): Outcome {
-		val file = args[file]
+		val file = args[file].toAbsolutePath().normalize()
 
+		// Read, the file is whoever's; written, it is this command's alone, and never while a daemon keeps it.
+		val writing = args[fresh] || !Files.exists(file)
+
+		val lock =
+			if (writing)
+				IndexLock.take(file)
+					?: throw InputError(
+						"a prism daemon is keeping $file, and would write over what this wrote; " +
+							"stop it first, or index into another file with --file",
+					)
+			else
+				null
+
+		return lock.use { indexed(args, file) }
+	}
+
+	private fun indexed(args: Args, file: Path): Outcome {
 		if (args[fresh])
 			Files.deleteIfExists(file)
 

@@ -1,46 +1,25 @@
 package prism.app
 
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.io.path.Path
-import kotlinx.coroutines.awaitCancellation
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
-import prism.browser.JvmDisk
-import prism.browser.JvmFolderWatcher
-import prism.browser.Request
-import prism.browser.SystemFileClipboard
 import prism.cli.Args
 import prism.cli.Category
 import prism.cli.Command
 import prism.cli.Group
 import prism.cli.InputError
 import prism.cli.Outcome
+import prism.cli.Param
 import prism.cli.ParamType
 import prism.dbus.Connection
 import prism.dbus.Opening
 import prism.desktop.MimeType
 import prism.desktop.freedesktop.Freedesktop
 import prism.desktop.freedesktop.Xdg
-import prism.explorer.Explorer
-import prism.explorer.ExplorerWindows
-import prism.portal.FileChooser
-import prism.portal.FileManager
-import prism.portal.Owning
-import prism.portal.Showing
-import prism.portal.own
 import prism.portal.pathOf
-import prism.portal.serveFileChooser
-import prism.portal.serveFileManager
 import prism.portal.showInFileManager
-import prism.preferences.PreferenceFile
-import prism.window.application
 
 /*
  * `prism portal`: prism as the desktop's file chooser and file manager (docs/portal.md). `serve` is the process that
@@ -59,7 +38,11 @@ val PortalGroup =
 		),
 	)
 
-/** `prism portal serve`: the file chooser and the file manager, served until the process is stopped. */
+/**
+ * `prism portal serve`: the file chooser and the file manager, served until the process is stopped; and, as every
+ * prism that has windows is, the session's prism, which other prisms open their windows in. It is the daemon without
+ * its index: what D-Bus starts where no daemon is running.
+ */
 object PortalServe : Command(
 	"serve",
 	"serve the file chooser and the file manager on the session bus, a window for each request, until stopped",
@@ -67,18 +50,8 @@ object PortalServe : Command(
 	private val indexing = Indexing(this)
 	private val theme = themeOption()
 	private val decorated = decoratedFlag("Escape or Cancel closes a picker")
-	private val replace =
-		flag(
-			"--replace",
-			help =
-				"take the names from whatever has them (another prism, or another file manager), " +
-					"where it lets them go",
-		)
-	private val noManager =
-		flag(
-			"--no-file-manager",
-			help = "serve the file chooser alone, and leave org.freedesktop.FileManager1 to another",
-		)
+	private val replace = replaceFlag()
+	private val noManager = noManagerFlag()
 
 	override fun run(args: Args): Outcome {
 		val bus =
@@ -91,114 +64,49 @@ object PortalServe : Command(
 
 		val home = Path(System.getProperty("user.home"))
 		val (search, finder) = indexing.searchOf(args, home)
-		val desktop = windowsDesktop()
+
+		val instance =
+			Instance(
+				Windows(Hosting(args[theme], args[decorated], search, finder), Lasting.UntilStopped),
+				"prism portal serve (process ${ProcessHandle.current().pid()}): the session's " +
+					"windows for as long as it runs; it keeps no index (prism daemon does)",
+			)
 
 		bus.use {
-			PreferenceFile.open().use { preferences ->
-				Appearance.follow(args[theme]).use { appearance ->
-					application(APP_ID) {
-						val scheme by appearance.changes.collectAsState(appearance.first)
-						val scope = rememberCoroutineScope()
-
-						val explorer =
-							remember {
-								Explorer(
-									JvmDisk(),
-									finder,
-									desktop,
-									SystemFileClipboard,
-									preferences,
-									scope,
-									home,
-									search,
-									JvmFolderWatcher,
-								)
-							}
-
-						LaunchedEffect(bus) {
-							// Served before the names are asked for: D-Bus hands a call that started this process to it the
-							// moment it has the name, and a call before its method is served would be answered that there
-							// is no such method.
-							val chooser =
-								bus
-									.serveFileChooser(scope) { request ->
-										val asking = askingOf(request, desktop.types, home)
-
-										pickedOf(request, asking, explorer.choose(asking), desktop.types)
-									}.takeIf { serving ->
-										owned(bus.own(FileChooser.BACKEND, args[replace]), FileChooser.BACKEND)
-											.also {
-												if (!it)
-													serving.close()
-											}
-									}
-
-							val manager =
-								bus
-									.serveFileManager { showing -> scope.launch { shown(explorer, showing) } }
-									.takeIf { serving ->
-										(
-											!args[noManager] &&
-												owned(bus.own(FileManager.NAME, args[replace]), FileManager.NAME)
-										).also {
-											if (!it)
-												serving.close()
-										}
-									}
-
-							if (chooser == null && manager == null) {
-								warn(this@PortalServe, "nothing to serve")
-								exitApplication()
-							}
-
-							try {
-								awaitCancellation()
-							} finally {
-								chooser?.close()
-								manager?.close()
-							}
-						}
-
-						ExplorerWindows(explorer, paletteOf(args[theme], scheme), args[decorated])
-					}
-				}
-			}
+			stayed(
+				this,
+				instance,
+				BusNames(chooser = true, manager = !args[noManager], replace = args[replace]),
+				home,
+				bus,
+				needsBus = true,
+			)
 		}
 
 		return Outcome("")
 	}
-
-	/** Whether [owning] says this has [name]; where it does not, why, on standard error. */
-	private fun owned(owning: Owning, name: String): Boolean =
-		when (owning) {
-			Owning.Owned -> true
-			Owning.Taken ->
-				false.also {
-					warn(this, "another has $name; --replace takes it, where it lets it go")
-				}
-			Owning.Failed -> false.also { warn(this, "the bus would not give $name") }
-		}
-
-	/** What the file manager is asked to show, shown: folders in windows, items chosen in theirs, or properties. */
-	private fun shown(explorer: Explorer, showing: Showing) {
-		when (showing) {
-			is Showing.Folders -> showing.paths.forEach { explorer.browse(it) }
-			// Each folder once, with the first of its items asked for chosen in it.
-			is Showing.Items ->
-				showing.paths
-					.groupBy { it.parent ?: it }
-					.forEach { (folder, items) ->
-						explorer.browse(folder, items.first().fileName?.toString())
-					}
-			is Showing.Properties -> explorer.ask(Request.Properties(showing.paths))
-		}
-	}
 }
+
+/** `--replace`: a bus name another has, taken. */
+internal fun Command.replaceFlag(): Param<Boolean> =
+	flag(
+		"--replace",
+		help =
+			"take the names from whatever has them (another prism, or another file manager), " +
+				"where it lets them go",
+	)
+
+/** `--no-file-manager`: the file manager's name left to another. */
+internal fun Command.noManagerFlag(): Param<Boolean> =
+	flag(
+		"--no-file-manager",
+		help = "leave org.freedesktop.FileManager1 to another, and do not serve it",
+	)
 
 /**
  * `prism portal show`: what is named shown by the file manager on the bus (a folder in a window, a file in its
- * folder), starting `prism portal serve` where D-Bus has been told to; or, where no file manager answers, by an explorer
- * in this process.
+ * folder), whichever program that is, starting one where D-Bus has been told how; or, where no file manager answers,
+ * by prism, as `prism explore` shows it.
  */
 object PortalShow : Command(
 	"show",
@@ -233,27 +141,17 @@ object PortalShow : Command(
 				}
 			}
 
-		if (!shown) {
-			val first = paths.first()
-			val folder =
-				if (Files.isDirectory(first))
-					first
-				else
-					first.parent ?: home
-
-			explored(
+		return if (shown)
+			Outcome("")
+		else
+			opened(
 				this,
-				folder,
-				first.takeIf { it != folder }?.fileName?.toString(),
-				home,
-				prism.browser.Search.Unavailable(prism.browser.BrowserState.NO_INDEX),
-				null,
-				args[theme],
-				decorated = false,
-			)
-		}
-
-		return Outcome("")
+				Request(
+					listOf(ExploreCommand.name, "--") + paths.map { it.toString() },
+					Caller.here(),
+				),
+				apart = args[theme] != Theme.Auto,
+			) { Hosting(args[theme]) }
 	}
 }
 
@@ -262,7 +160,13 @@ private fun commandOf(given: Path?): List<String> =
 	listOf(
 		(
 			given
-				?: System.getProperty("jpackage.app-path")?.let { Path(it) }
+				?: (
+					System.getProperty(
+						"prism.launcher",
+					) ?: System.getProperty("jpackage.app-path")
+				)?.let {
+					Path(it)
+				}
 				?: throw InputError(
 					"say which command runs prism, with --command: the launcher of an app image " +
 						"(./gradlew :app:createDistributable makes one, as build/compose/binaries/main/app/prism/bin/prism)",

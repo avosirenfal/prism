@@ -45,7 +45,6 @@ import prism.browser.HostedBrowser
 import prism.browser.HostedWindow
 import prism.browser.LocalPalette
 import prism.browser.LocalType
-import prism.browser.Location
 import prism.browser.Palette
 import prism.browser.Scaled
 import prism.browser.Space
@@ -86,20 +85,16 @@ fun ExplorerWindows(explorer: Explorer, palette: Palette, decorated: Boolean) {
 		key(window.id) {
 			when (window) {
 				is ExplorerWindow.Browsing -> {
+					// Read so that the title is made again as the browser goes from one folder to another.
 					val state by window.session.state.collectAsState()
 
 					Window(
 						onCloseRequest = { explorer.close(window) },
-						title =
-							when (val at = state.at) {
-								is Location.Folder -> (at.path.fileName ?: at.path).toString()
-								is Location.Results -> "Search"
-								is Location.Place -> at.placed.title
-								Location.Trash -> "Trash"
-								is Location.System -> "System"
-							},
+						title = state.let { Explorer.titleOf(window) },
 						size = DpSize(1100.dp, 680.dp),
 						decorated = decorated,
+						onFailure = { explorer.failed(window, it) },
+						activation = window.activation,
 					) {
 						HostedBrowser(this.window, window.session, explorer.preferences, palette)
 					}
@@ -111,6 +106,7 @@ fun ExplorerWindows(explorer: Explorer, palette: Palette, decorated: Boolean) {
 						title = window.title,
 						size = DpSize(900.dp, 600.dp),
 						decorated = decorated,
+						onFailure = { explorer.failed(window, it) },
 					) {
 						// A dialog of the application that asked, where it is an X11 window prism can name; and in
 						// front, where the window manager lets it be, since it was asked for from elsewhere.
@@ -127,6 +123,7 @@ fun ExplorerWindows(explorer: Explorer, palette: Palette, decorated: Boolean) {
 						{
 							explorer.close(window)
 						},
+						onFailure = { explorer.failed(window, it) },
 						typography = preferences.typography,
 						dates = preferences.dates,
 						zoom =
@@ -145,6 +142,7 @@ fun ExplorerWindows(explorer: Explorer, palette: Palette, decorated: Boolean) {
 						{
 							explorer.close(window)
 						},
+						onFailure = { explorer.failed(window, it) },
 						typography = preferences.typography,
 						dates = preferences.dates,
 						zoom =
@@ -161,12 +159,37 @@ fun ExplorerWindows(explorer: Explorer, palette: Palette, decorated: Boolean) {
 						palette,
 						decorated,
 						{ explorer.close(window) },
+						onFailure = { explorer.failed(window, it) },
 						raised = window.raised,
 						typography = preferences.typography,
 						dates = preferences.dates,
 						zoom = zoomOf(WindowKind.Preferences),
 					) {
 						SettingsWindow(explorer) { explorer.close(window) }
+					}
+				is ExplorerWindow.Failed ->
+					Dialog(
+						Explorer.titleOf(window),
+						DpSize(720.dp, 520.dp),
+						palette,
+						decorated,
+						{ explorer.close(window) },
+						onFailure = { explorer.failed(window, it) },
+						typography = preferences.typography,
+						dates = preferences.dates,
+					) {
+						FailedView(
+							window,
+							onAgain =
+								window.again?.let { again ->
+									{
+										explorer.close(window)
+										explorer.browse(again)
+									}
+								},
+							onCopy = ::toClipboard,
+							onClose = { explorer.close(window) },
+						)
 					}
 			}
 		}
@@ -273,7 +296,8 @@ internal val WINDOW_STEPS =
 
 /**
  * A window of [size] for something the explorer shows beside its browsers, hosted as every prism window is, and closed
- * by [onClose] (its own buttons call it too) or by Escape where nothing in it uses the key. Each time [raised] changes,
+ * by [onClose] (its own buttons call it too) or by Escape where nothing in it uses the key; what goes wrong in it is
+ * told to [onFailure]. Each time [raised] changes,
  * it is brought to the front. It is drawn as large as [zoom] says, which Ctrl and the wheel change, as they zoom a
  * page in a web browser (and Ctrl with + and -, and Ctrl+0 back to its usual size).
  */
@@ -284,6 +308,7 @@ private fun Dialog(
 	palette: Palette,
 	decorated: Boolean,
 	onClose: () -> Unit,
+	onFailure: (Throwable) -> Unit,
 	raised: Int = 0,
 	typography: Typography = Typography(),
 	dates: DateFormat = DateFormat.Written,
@@ -295,6 +320,7 @@ private fun Dialog(
 		title = title,
 		size = size,
 		decorated = decorated,
+		onFailure = onFailure,
 	) {
 		val native = window
 

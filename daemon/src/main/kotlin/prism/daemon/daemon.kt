@@ -1,6 +1,8 @@
 package prism.daemon
 
 import java.nio.file.Path
+import java.util.concurrent.CompletableFuture
+import java.util.concurrent.CompletionException
 import java.util.concurrent.Executors
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.ScheduledExecutorService
@@ -36,6 +38,9 @@ fun interface Feed {
 						)
 				}
 			}
+
+		/** No feed at all, and [why]: a daemon that reads its roots again now and then, and is told nothing between. */
+		fun none(why: String) = Feed { Feeding.Off(why) }
 	}
 }
 
@@ -82,6 +87,13 @@ data class DaemonSettings(
 	val tick: Duration = 5.seconds,
 	/** How often the roots are read again where there is no watcher to say what changed. */
 	val rescanWithoutWatcher: Duration = 30.minutes,
+	/**
+	 * Where what goes wrong is said, with what was being done: standard error, unless told otherwise. A daemon goes on
+	 * from whatever it reports here.
+	 */
+	val report: (String, Throwable) -> Unit = { doing, failure ->
+		System.err.println("prism: $doing failed: ${failure.stackTraceToString().trimEnd()}")
+	},
 )
 
 /**
@@ -97,6 +109,13 @@ data class DaemonSettings(
  * no longer asked for are let go, and the watcher is looked at: where it lost changes (its ring was full), the roots
  * are read again, since what was lost cannot be known. Without a watcher (where the kernel will not load one), the
  * daemon runs all the same, and reads its roots again every [DaemonSettings.rescanWithoutWatcher].
+ *
+ * **What goes wrong.** Nothing that fails here stops the daemon: each failure is reported
+ * ([DaemonSettings.report]) and gone on from, by the same means as everything else is recovered from, which is reading
+ * the disk again. A scan that fails is read again at the next reading of the roots; changes that could not be made
+ * have the roots read again, since which were made cannot be known; a write that fails leaves what it had to write to
+ * be written at the next tick, and is said once, not at every tick, until it succeeds or fails differently. Closing
+ * writes what was made, whatever else closing came to.
  */
 class Daemon private constructor(
 	val live: LiveIndex,
@@ -139,22 +158,29 @@ class Daemon private constructor(
 	/** When the roots were last read again for want of a watcher, in nanoseconds of [System.nanoTime]. */
 	private var rescanned: Long = System.nanoTime()
 
+	/** What the last write of the index failed with, as text; null while it is written. */
+	private var unwritten: String? = null
+
 	init {
 		val every = settings.tick.inWholeMilliseconds
 
-		ticks.scheduleWithFixedDelay(::tick, every, every, TimeUnit.MILLISECONDS)
+		reported("reading ${settings.roots.joinToString()}", live.opened)
+		// A tick that threw would be the last: the executor runs a task that failed no more.
+		ticks.scheduleWithFixedDelay({
+			carrying("keeping the index", ::tick)
+		}, every, every, TimeUnit.MILLISECONDS)
 	}
 
 	private fun tick() {
-		live.flush()
-		live.tidy()
+		written()
+		carrying("letting go of places read for searches") { live.tidy() }
 
 		when (val now = feeding) {
 			is Feeding.On -> {
 				val count = now.lost() ?: lost
 
 				if (count > lost)
-					live.rescanRoots()
+					rescanRoots()
 				lost = count
 				now.stopped()?.let { why -> feeding = Feeding.Off(why) }
 			}
@@ -163,24 +189,68 @@ class Daemon private constructor(
 					settings.rescanWithoutWatcher.inWholeNanoseconds
 				) {
 					rescanned = System.nanoTime()
-					live.rescanRoots()
+					rescanRoots()
 				}
 		}
 	}
 
-	/** The watcher stopped, what it saw made, the index written, and its scans stopped. */
+	/** The roots read again, and what that fails with, if it does, reported: they are read again the next time. */
+	fun rescanRoots() = reported("reading the roots again", live.rescanRoots())
+
+	/**
+	 * What was made written, and a failure to write reported when it is not the one reported last: a disk that is
+	 * full is said once, not every few seconds. What could not be written is kept, and written the next time.
+	 */
+	private fun written() {
+		try {
+			live.flush()
+			unwritten = null
+		} catch (failed: Throwable) {
+			val why = failed.toString()
+
+			if (why != unwritten)
+				settings.report("writing the index", failed)
+			unwritten = why
+		}
+	}
+
+	/** [work] done, and what it throws reported as a failure of [doing], and gone on from. */
+	private fun carrying(doing: String, work: () -> Unit) {
+		try {
+			work()
+		} catch (failed: Throwable) {
+			settings.report(doing, failed)
+		}
+	}
+
+	/** [scan], with what it fails with, if it does, reported as a failure of [doing]. */
+	private fun reported(
+		doing: String,
+		scan: CompletableFuture<Unit>,
+	): CompletableFuture<Unit> =
+		scan.whenComplete { _, failed ->
+			if (failed != null)
+				settings.report(doing, (failed as? CompletionException)?.cause ?: failed)
+		}
+
+	/**
+	 * The watcher stopped, what it saw made, the index written, and its scans stopped: each whatever the one before
+	 * came to, so that the index is written even where stopping the watcher failed.
+	 */
 	override fun close() {
 		ticks.shutdownNow()
-		(feeding as? Feeding.On)?.stop?.close()
-		relay.close()
-		live.close()
+		carrying("stopping the watcher") { (feeding as? Feeding.On)?.stop?.close() }
+		carrying("making the last changes") { relay.close() }
+		carrying("writing the index") { live.close() }
 	}
 
 	/**
 	 * What carries a feed's changes to a live index: a queue, emptied on a thread of its own once there is an index to
 	 * make them in, every batch waiting then made as one.
 	 */
-	private class Relay : AutoCloseable {
+	private class Relay(
+		private val report: (String, Throwable) -> Unit,
+	) : AutoCloseable {
 		private val queue = LinkedBlockingQueue<List<Changed>>()
 
 		@Volatile
@@ -201,7 +271,18 @@ class Daemon private constructor(
 								generateSequence { queue.poll() }.forEach(all::addAll)
 							}
 
-						live.changed(batch.distinct())
+						// Changes that could not be made are made up for as lost ones are: which were made cannot be
+						// known, so the roots are read again. The thread goes on to the next, whatever these came to.
+						try {
+							live.changed(batch.distinct())
+						} catch (failed: Throwable) {
+							report("making ${batch.size} changes", failed)
+							try {
+								live.rescanRoots()
+							} catch (again: Throwable) {
+								report("reading the roots again", again)
+							}
+						}
 					}
 				}
 		}
@@ -225,9 +306,17 @@ class Daemon private constructor(
 			feed: Feed,
 			beforeMaking: (Set<Where>) -> Unit,
 		): Daemon {
-			val relay = Relay()
+			val relay = Relay(settings.report)
+
 			// The watcher first: from here on, nothing is missed, and what is seen waits in the queue for the index.
-			val feeding = feed.start(relay::seen)
+			// A feed that cannot even say why it will not start is no feed, and the daemon runs without.
+			val feeding =
+				try {
+					feed.start(relay::seen)
+				} catch (failed: Throwable) {
+					settings.report("starting the watcher", failed)
+					Feeding.Off("it could not be started: $failed")
+				}
 
 			val live =
 				LiveIndex.open(

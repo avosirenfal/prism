@@ -43,10 +43,15 @@ tailrec fun invocation(
 		is Group -> {
 			val first = words.firstOrNull()
 			val child = first?.let(node::child)
+			val default = node.default
 
 			when {
-				first == null || first in HELP -> Invocation.Help(node, path)
-				child == null ->
+				first != null && first in HELP -> Invocation.Help(node, path)
+				child != null -> invocation(child, words.drop(1), path + child.name)
+				// Words that name no command are the default's, where there is one: none at all among them.
+				default != null -> invocation(default, words, path + default.name)
+				first == null -> Invocation.Help(node, path)
+				else ->
 					Invocation.Wrong(
 						node,
 						path,
@@ -55,7 +60,6 @@ tailrec fun invocation(
 						else
 							"no command '$first'",
 					)
-				else -> invocation(child, words.drop(1), path + child.name)
 			}
 		}
 	}

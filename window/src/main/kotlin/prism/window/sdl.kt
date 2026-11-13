@@ -5,6 +5,7 @@ import org.lwjgl.sdl.SDLHints.SDL_HINT_APP_ID
 import org.lwjgl.sdl.SDLHints.SDL_HINT_APP_NAME
 import org.lwjgl.sdl.SDLHints.SDL_HINT_FRAMEBUFFER_ACCELERATION
 import org.lwjgl.sdl.SDLHints.SDL_HINT_MOUSE_FOCUS_CLICKTHROUGH
+import org.lwjgl.sdl.SDLHints.SDL_HINT_QUIT_ON_LAST_WINDOW_CLOSE
 import org.lwjgl.sdl.SDLHints.SDL_HINT_VIDEO_ALLOW_SCREENSAVER
 import org.lwjgl.sdl.SDLHints.SDL_HINT_VIDEO_DRIVER
 import org.lwjgl.sdl.SDLHints.SDL_SetHint
@@ -160,6 +161,9 @@ internal class Sdl private constructor(
 			// A click on a window that is not focused acts as well as focusing it, as on every desktop but macOS.
 			SDL_SetHint(SDL_HINT_MOUSE_FOCUS_CLICKTHROUGH, "1")
 			SDL_SetHint(SDL_HINT_VIDEO_ALLOW_SCREENSAVER, "1")
+			// Which windows are open, and whether the application goes on with none, is the application's to say: a
+			// process that opens windows for others (prism's daemon) is not ended by its last one being closed.
+			SDL_SetHint(SDL_HINT_QUIT_ON_LAST_WINDOW_CLOSE, "0")
 			if (System.getenv("SDL_VIDEO_DRIVER") == null &&
 				System.getenv("WAYLAND_DISPLAY") != null
 			)

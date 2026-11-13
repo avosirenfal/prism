@@ -2,6 +2,7 @@ package prism.daemon
 
 import java.nio.file.Path
 import java.util.Collections
+import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
@@ -144,6 +145,72 @@ class DaemonTest {
 			daemon.live.opened.get(30, TimeUnit.SECONDS)
 			assertTrue("docs/a.txt" in daemon.live.index.names())
 		}
+	}
+
+	@Test
+	fun aWatcherThatFailsToStartIsReportedAndTheDaemonRunsWithout() {
+		made("docs/a.txt")
+
+		val reported = CopyOnWriteArrayList<Pair<String, Throwable>>()
+
+		val settings =
+			settings().copy(report = {
+				doing,
+				failure,
+				->
+				reported += doing to failure
+			})
+
+		Daemon.start(settings, Feed { error("no libbpf") }).use { daemon ->
+			assertEquals(
+				Daemon.Watching.Off(
+					"it could not be started: java.lang.IllegalStateException: no libbpf",
+				),
+				daemon.watching,
+			)
+			daemon.live.opened.get(30, TimeUnit.SECONDS)
+			assertTrue("docs/a.txt" in daemon.live.index.names())
+		}
+
+		assertEquals(listOf("starting the watcher"), reported.map { it.first })
+	}
+
+	@Test
+	fun anIndexThatCannotBeWrittenIsSaidOnceAndKeptCurrentAllTheSame() {
+		made("docs/a.txt")
+
+		// The index's file is to be in a folder that is a file: it can never be written.
+		val reported = CopyOnWriteArrayList<Pair<String, Throwable>>()
+		val blocked = state.resolve("blocked").also { it.writeText("") }
+
+		val settings =
+			settings().copy(
+				file = blocked.resolve("index.prism"),
+				report = { doing, failure -> reported += doing to failure },
+			)
+
+		val feed = Given()
+
+		Daemon.start(settings, feed).use { daemon ->
+			daemon.live.opened.get(30, TimeUnit.SECONDS)
+			assertTrue("docs/a.txt" in daemon.live.index.names())
+
+			// Changes are made in it as they are seen, written or not.
+			made("docs/b.txt")
+			feed.seen(listOf(Changed(idOf("docs"), Name.of("b.txt"))))
+			eventually { "docs/b.txt" in daemon.live.index.names() }
+
+			// Many ticks on, each of which failed to write, it has been said once.
+			eventually { reported.isNotEmpty() }
+			Thread.sleep(600)
+			assertEquals(listOf("writing the index"), reported.map { it.first })
+		}
+
+		// Closing tried once more, and said so: nothing was lost that the next start does not read again.
+		assertEquals(
+			listOf("writing the index", "writing the index"),
+			reported.map { it.first },
+		)
 	}
 
 	@Test

@@ -1,6 +1,7 @@
 package prism.explorer
 
 import java.nio.file.Path
+import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.io.path.createDirectories
 import kotlin.io.path.deleteExisting
 import kotlin.io.path.exists
@@ -8,7 +9,10 @@ import kotlin.io.path.writeText
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
@@ -16,16 +20,21 @@ import kotlinx.coroutines.withTimeout
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertInstanceOf
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import prism.browser.Actions
 import prism.browser.BrowserEvent
+import prism.browser.Choosing
+import prism.browser.Disk
 import prism.browser.JvmDisk
 import prism.browser.Listing
 import prism.browser.MemoryFileClipboard
 import prism.browser.Request
 import prism.browser.Search
+import prism.browser.Start
 import prism.browser.Target
+import prism.browser.TypeFilter
 import prism.browser.UserAction
 import prism.browser.subjectOf
 import prism.desktop.MimeType
@@ -41,30 +50,36 @@ class ExplorerTest {
 	@TempDir
 	lateinit var root: Path
 
-	private fun explored(test: suspend (Explorer, FakeDesktop, MemoryPreferences) -> Unit) =
-		runBlocking {
-			val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-			val desktop = FakeDesktop(root)
-			val preferences = MemoryPreferences()
+	/** What the explorer reported, as the tests' in place of standard error: what failed, and with what. */
+	private val reported = CopyOnWriteArrayList<Pair<String, Throwable>>()
 
-			val explorer =
-				Explorer(
-					JvmDisk(),
-					null,
-					desktop,
-					MemoryFileClipboard(),
-					preferences,
-					scope,
-					root,
-					Search.Unavailable("none"),
-				)
+	private fun explored(
+		disk: Disk = JvmDisk(),
+		test: suspend (Explorer, FakeDesktop, MemoryPreferences) -> Unit,
+	) = runBlocking {
+		val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+		val desktop = FakeDesktop(root)
+		val preferences = MemoryPreferences()
 
-			try {
-				withTimeout(10_000) { test(explorer, desktop, preferences) }
-			} finally {
-				scope.cancel()
-			}
+		val explorer =
+			Explorer(
+				disk,
+				null,
+				desktop,
+				MemoryFileClipboard(),
+				preferences,
+				scope,
+				root,
+				Search.Unavailable("none"),
+				report = { what, failure -> reported += what to failure },
+			)
+
+		try {
+			withTimeout(10_000) { test(explorer, desktop, preferences) }
+		} finally {
+			scope.cancel()
 		}
+	}
 
 	private val Explorer.browsers get() =
 		windows.value
@@ -145,6 +160,120 @@ class ExplorerTest {
 				browsing.session.state.first { state ->
 					projects in state.sidebar.shown.map { it.path }
 				}
+		}
+
+	/**
+	 * A disk that reads every folder but [broken], which it fails at as a mistake in prism would that a session does
+	 * not answer for: a session says of a folder that throws an exception that it cannot be read, and goes on, so this
+	 * throws what is no exception.
+	 */
+	private fun diskFailingAt(broken: Path): Disk {
+		val disk = JvmDisk()
+
+		return object : Disk by disk {
+			override fun read(folder: Path): Listing.Read =
+				if (folder == broken)
+					throw NotImplementedError("the disk is on fire")
+				else
+					disk.read(folder)
+		}
+	}
+
+	@Test
+	fun aWindowWhoseWorkFailsIsClosedReportedAndShownAndTheOthersGoOn() {
+		val broken = root.resolve("broken").createDirectories()
+
+		explored(diskFailingAt(broken)) { explorer, _, _ ->
+			explorer.browse(root)
+			explorer.browse(broken)
+
+			val sound = explorer.browsers.first()
+
+			// The window on the folder that cannot be read is gone, and one that says so is in its place.
+			val failed =
+				explorer.windows
+					.first { windows -> windows.any { it is ExplorerWindow.Failed } }
+					.filterIsInstance<ExplorerWindow.Failed>()
+					.single()
+
+			assertEquals("broken", failed.what)
+			assertEquals("NotImplementedError: the disk is on fire", failed.failure.summary)
+			assertTrue("diskFailingAt" in failed.failure.trace, failed.failure.trace)
+			assertEquals(Start.Folder(broken), failed.again)
+			assertEquals("the window on $broken failed", reported.single().first)
+			assertEquals("the disk is on fire", reported.single().second.message)
+
+			// The other window is as it was, and still browses.
+			assertEquals(listOf(sound.id, failed.id), explorer.windows.value.map { it.id })
+			sound.session.state.first { it.listing is Listing.Read }
+			sound.session.send(BrowserEvent.Requested(Request.Properties(listOf(root))))
+			explorer.windows.first { windows -> windows.any { it is ExplorerWindow.Properties } }
+		}
+	}
+
+	@Test
+	fun aWindowThatCannotBeDrawnIsClosedAndTheWindowThatSaysSoFailingIsOnlyReported() =
+		explored { explorer, _, _ ->
+			explorer.ask(Request.Properties(listOf(root)))
+			explorer.ask(Request.Preferences)
+
+			val (properties, settings) = explorer.windows.value
+
+			// As the windows' thread tells it, when drawing a window throws.
+			explorer.failed(properties, IllegalArgumentException("no such glyph"))
+
+			val failed = explorer.windows.value.last() as ExplorerWindow.Failed
+
+			assertEquals(listOf(settings, failed), explorer.windows.value)
+			assertEquals("IllegalArgumentException: no such glyph", failed.failure.summary)
+			// Nothing to open again: it was not browsing.
+			assertEquals(null, failed.again)
+
+			// The window that says so fails too: closed, said on standard error, and no window opened to say that.
+			explorer.failed(failed, IllegalStateException("again"))
+			assertEquals(listOf(settings), explorer.windows.value)
+			assertEquals(2, reported.size)
+			assertTrue("the window that says" in reported.last().first, reported.last().first)
+
+			// A window already closed that is said to have failed (its last frame, say) changes nothing.
+			explorer.failed(properties, IllegalStateException("late"))
+			assertEquals(listOf(settings), explorer.windows.value)
+		}
+
+	@Test
+	fun aPickerWhoseWindowFailsAnswersWhoeverAskedThatItFailed() =
+		explored { explorer, _, _ ->
+			val asking =
+				Asking("Open", Choosing.OneFile(), root, listOf(TypeFilter.ALL_FILES))
+
+			suspend fun picker(): ExplorerWindow.Picking =
+				explorer.windows
+					.first { windows -> windows.any { it is ExplorerWindow.Picking } }
+					.filterIsInstance<ExplorerWindow.Picking>()
+					.single()
+
+			coroutineScope {
+				val answer = async { runCatching { explorer.choose(asking) } }
+
+				explorer.failed(picker(), IllegalStateException("drawn wrong"))
+
+				val failure =
+					assertInstanceOf(PickerFailed::class.java, answer.await().exceptionOrNull())
+
+				assertEquals(
+					"the picker's window failed: IllegalStateException: drawn wrong",
+					failure.message,
+				)
+				assertTrue(explorer.windows.value.none { it is ExplorerWindow.Picking })
+
+				// One cancelled from outside is cancelled, as it was before, and its window closed.
+				val cancelled = async { explorer.choose(asking) }
+
+				picker()
+				cancelled.cancelAndJoin()
+				assertTrue(cancelled.isCancelled)
+				assertTrue(explorer.windows.value.none { it is ExplorerWindow.Picking })
+			}
 		}
 
 	/** The one action written as [text], as the preferences would have it. */

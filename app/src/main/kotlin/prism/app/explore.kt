@@ -1,106 +1,122 @@
 package prism.app
 
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
+import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.io.path.Path
-import kotlinx.coroutines.flow.first
-import prism.browser.Finder
-import prism.browser.JvmDisk
-import prism.browser.JvmFolderWatcher
-import prism.browser.Search
-import prism.browser.SystemFileClipboard
 import prism.cli.Args
 import prism.cli.Command
+import prism.cli.InputError
 import prism.cli.Outcome
 import prism.cli.ParamType
-import prism.explorer.Explorer
-import prism.explorer.ExplorerWindows
-import prism.preferences.PreferenceFile
-import prism.window.application
+import prism.portal.pathOf
 
 /**
- * `prism explore`: the file explorer, in a window on a folder, and in as many more as it is asked for, until the last
- * is closed. It is the explorer as the daemon will run it, in a process of its own: its preferences are the same file,
- * watched, so a place pinned here is pinned in every picker and explorer, running or not.
+ * `prism explore`, and `prism` with no command: the file explorer, on a folder. Where a prism with windows is already
+ * running (the daemon, or one started before this), that one opens the window and this one is done at once, so a
+ * window costs no start of a Java program; where none is, this one opens it, is the session's prism for as long as it
+ * has a window open, and ends when its last is closed. `--isolated` keeps it to itself either way.
  */
-object ExploreCommand : Command(
-	"explore",
-	"open the file explorer on a folder",
-) {
-	private val folder =
-		argument(
-			"FOLDER",
-			ParamType.FOLDER,
-			default = { Path(System.getProperty("user.home")) },
-			shown = "your home",
+internal object ExploreCommand :
+	Command(
+		"explore",
+		"open the file explorer on a folder (your home, unless named): in the prism already running, where one is",
+	),
+	Served {
+	private val items =
+		arguments(
+			"ITEM",
+			ParamType.TEXT.named("FOLDER|FILE|URI"),
+			help =
+				"what to show, each in a window: a folder; or a file, shown in its folder, " +
+					"chosen; or either as a file:// URI",
+		)
+
+	private val isolated =
+		flag(
+			"--isolated",
+			help =
+				"open it in a process of its own, whether or not a prism is already running, " +
+					"which no other prism then opens its windows in",
 		)
 	private val indexing = Indexing(this)
 	private val theme = themeOption()
 	private val decorated = decoratedFlag("the window's menu or Ctrl+W closes it")
 
-	override fun run(args: Args): Outcome {
-		val home = Path(System.getProperty("user.home"))
-		val (search, finder) = indexing.searchOf(args, home)
+	/** What [args] ask to be shown, as [caller] meant them: paths read from the folder they were said in. */
+	private fun shownBy(args: Args, caller: Caller, home: Path): List<Path> =
+		args[items]
+			.map { word ->
+				val path =
+					if (word.startsWith("file:"))
+						pathOf(word) ?: throw InputError("$word is not a file:// URI of a path")
+					else
+						caller.resolved(Path(word))
 
-		explored(this, args[folder], null, home, search, finder, args[theme], args[decorated])
+				if (!Files.exists(path))
+					throw InputError("$word does not exist")
+
+				path
+			}.ifEmpty { listOf(home) }
+
+	override suspend fun serve(args: Args, caller: Caller, instance: Instance): Outcome {
+		val shown = shownBy(args, caller, Path(System.getProperty("user.home")))
+
+		instance.windows.with { explorer ->
+			shown.forEach {
+				explorer.show(it, caller.activation)
+			}
+		}
 
 		return Outcome("")
+	}
+
+	override fun run(args: Args): Outcome {
+		val home = Path(System.getProperty("user.home"))
+
+		// What is said of how its windows are is said of a prism of its own: a running one's are as it was started.
+		val own =
+			args[isolated] || indexing.given(args) || args[theme] != Theme.Auto || args[decorated]
+
+		return opened(
+			this,
+			Request(listOf(name, "--") + args[items], Caller.here()),
+			apart = own,
+		) {
+			val (search, finder) = indexing.searchOf(args, home)
+
+			Hosting(args[theme], args[decorated], search, finder)
+		}
 	}
 }
 
 /**
- * The explorer, run in this process on [folder] ([chosen] chosen in it, where given), until its last window is closed:
- * what `prism explore` is, and what `prism portal show` falls back to where no file manager answers on the bus.
+ * `prism status`: what the prism already running says of itself: what it is, its index and whether the kernel is
+ * telling it of changes, its windows. Status 1, and that none is, where none is running.
  */
-internal fun explored(
-	command: Command,
-	folder: Path,
-	chosen: String?,
-	home: Path,
-	search: Search,
-	finder: Finder?,
-	theme: Theme,
-	decorated: Boolean,
-) {
-	val desktop = windowsDesktop()
+internal object StatusCommand :
+	Command(
+		"status",
+		"say what the prism already running is doing: its index, whether changes are watched, its windows",
+	),
+	Served {
+	override suspend fun serve(args: Args, caller: Caller, instance: Instance): Outcome =
+		Outcome(instance.describe().joinToString("\n"))
 
-	PreferenceFile.open().use { preferences ->
-		preferences.problem?.let {
-			warn(command, "the preferences can't be read ($it); every default is used meanwhile")
-		}
+	override fun run(args: Args): Outcome {
+		val place =
+			InstancePlace.of()
+				?: return Outcome(
+					"XDG_RUNTIME_DIR names no folder a running prism could be asked in.",
+					1,
+				)
 
-		Appearance.follow(theme).use { appearance ->
-			application(APP_ID) {
-				val scheme by appearance.changes.collectAsState(appearance.first)
-				val scope = rememberCoroutineScope()
-
-				val explorer =
-					remember {
-						Explorer(
-							JvmDisk(),
-							finder,
-							desktop,
-							SystemFileClipboard,
-							preferences,
-							scope,
-							home,
-							search,
-							JvmFolderWatcher,
-						).also { it.browse(folder, chosen) }
-					}
-
-				// Run on its own, the explorer is done when its last window is.
-				LaunchedEffect(explorer) {
-					explorer.windows.first { it.isEmpty() }
-					exitApplication()
+		return when (val asked = ask(place, Request(listOf(name), Caller.here()))) {
+			Asking.Nobody -> Outcome("No prism is running.", 1)
+			is Asking.Answered ->
+				when (val reply = asked.reply) {
+					is Reply.Done -> Outcome(reply.ran.out, reply.ran.status)
+					is Reply.Unable -> Outcome("A prism is running, and cannot say: ${reply.why}.", 1)
 				}
-
-				ExplorerWindows(explorer, paletteOf(theme, scheme), decorated)
-			}
 		}
 	}
 }

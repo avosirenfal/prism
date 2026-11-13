@@ -83,6 +83,9 @@ internal class Indexing(
 					"(\$XDG_CACHE_HOME/prism/index.prism); read once, and never updated",
 		)
 
+	/** Whether [args] ask for an index at all. */
+	fun given(args: Args): Boolean = args[index] != null
+
 	/**
 	 * The search [args] ask for, and what it searches: none without `--index`; with it, the index in its file, with the
 	 * usage (`$XDG_STATE_HOME/prism/usage.prism`), or, where there is no index there or it cannot be read, a warning

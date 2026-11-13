@@ -39,15 +39,27 @@ private fun synopsis(node: Node): String =
 			).joinToString(" ")
 	}
 
+/** How [command] is written after [before]: its name (or nothing, as a group's default), its arguments, its options. */
+private fun written(command: Command, before: List<String>, named: Boolean): String =
+	(
+		before +
+			synopsis(command).let {
+				if (named)
+					it
+				else
+					it.removePrefix(command.name).trim()
+			} +
+			listOfNotNull("[OPTIONS]".takeIf { command.params.any { it is Opt<*> } })
+	).filter { it.isNotEmpty() }.joinToString(" ")
+
 private fun usage(node: Node, path: List<String>): String =
 	"usage: " +
 		when (node) {
-			is Group -> "${path.joinToString(" ")} COMMAND ..."
-			is Command ->
-				(
-					path.dropLast(1) + synopsis(node) +
-						listOfNotNull("[OPTIONS]".takeIf { node.params.any { it is Opt<*> } })
-				).joinToString(" ")
+			is Group ->
+				"${path.joinToString(" ")} COMMAND ..." +
+					// The default's words, written without its name, are a usage of the group's own.
+					(node.default?.let { "\n       ${written(it, path, named = false)}" } ?: "")
+			is Command -> written(node, path.dropLast(1), named = true)
 		}
 
 /** How wide help is: its descriptions wrap within it. */
@@ -102,7 +114,16 @@ fun help(node: Node, path: List<String>): String =
 					listed.flatMap { category ->
 						listOf("", "${category.name}:") +
 							rows(category.nodes.map { synopsis(it) to it.help }, width)
-					} + listOf("", "${path.joinToString(" ")} COMMAND --help: what a command takes")
+					} +
+						listOfNotNull(
+							"",
+							node.default?.let {
+								"Without a COMMAND, ${path.joinToString(
+									" ",
+								)} is ${path.joinToString(" ")} ${it.name}."
+							},
+							"${path.joinToString(" ")} COMMAND --help: what a command takes",
+						)
 				}
 				is Command -> {
 					val positional = node.params.filterIsInstance<Positional<*, *>>()
@@ -123,7 +144,10 @@ fun help(node: Node, path: List<String>): String =
 fun mistake(node: Node, path: List<String>, message: String): String =
 	"${path.joinToString(
 		" ",
-	)}: $message\n${usage(node, path)}; ${path.joinToString(" ")} --help says more"
+	)}: $message\n${usage(
+		node,
+		path,
+	).lineSequence().first()}; ${path.joinToString(" ")} --help says more"
 
 /**
  * What [words] run in [root], as the process would show it: the text for stdout, the text for stderr, and the exit

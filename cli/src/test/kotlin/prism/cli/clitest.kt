@@ -157,6 +157,43 @@ class CliTest {
 	}
 
 	@Test
+	fun wordsThatNameNoCommandAreTheDefaultCommands() {
+		val defaulted =
+			Group(
+				"root",
+				"the commands",
+				listOf(Category("probing", listOf(Probe, Maybe, Index))),
+				default = Maybe,
+			)
+
+		fun ran(vararg words: String): Invocation.Run =
+			assertInstanceOf(Invocation.Run::class.java, invocation(defaulted, words.toList()))
+
+		// No words at all, a word that is no command, and an option alone: each the default's.
+		assertEquals(Maybe, ran().command)
+		assertEquals("home", ran().args[Maybe.where])
+		assertEquals("there", ran("there").args[Maybe.where])
+		assertEquals(Size(3, 4), ran("--size", "3x4").args[Maybe.size])
+		assertEquals(listOf("root", "maybe"), ran("there").path)
+		// A command's name is the command, and help asked of the group is the group's.
+		assertEquals(Index, ran("index").command)
+		assertInstanceOf(Invocation.Help::class.java, invocation(defaulted, listOf("--help")))
+		// What the default cannot read is its mistake.
+		assertEquals(
+			"unexpected word 'two'",
+			assertInstanceOf(
+				Invocation.Wrong::class.java,
+				invocation(defaulted, listOf("one", "two")),
+			).message,
+		)
+
+		val help = execute(defaulted, listOf("--help")).out
+
+		assertTrue("usage: root COMMAND ...\n       root [WHERE] [OPTIONS]" in help, help)
+		assertTrue("Without a COMMAND, root is root maybe." in help, help)
+	}
+
+	@Test
 	fun aValueOfAnotherCommandIsRefused() {
 		val args = run("in", "--need", "1")
 
