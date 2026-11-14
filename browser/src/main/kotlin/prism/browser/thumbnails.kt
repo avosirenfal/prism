@@ -14,12 +14,17 @@ import kotlin.math.roundToInt
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import org.jetbrains.skia.Bitmap
+import org.jetbrains.skia.Codec
+import org.jetbrains.skia.Data
+import org.jetbrains.skia.EncodedOrigin
 import org.jetbrains.skia.FilterMipmap
 import org.jetbrains.skia.FilterMode
 import org.jetbrains.skia.Image
 import org.jetbrains.skia.MipmapMode
 import org.jetbrains.skia.Rect
 import org.jetbrains.skia.Surface
+import org.jetbrains.skia.makeFromFileName
 
 /**
  * Small pictures of image files, for the gallery. Each is decoded by Skia (the library Compose draws with), scaled to
@@ -79,39 +84,62 @@ class Thumbnails(
 			}
 		}
 
-	/** [path] decoded and scaled down to fit a square of [side]; null where it cannot be read or decoded. */
+	/**
+	 * [path] decoded and scaled down to fit a square of [side]; null where it cannot be read or decoded. The file is
+	 * mapped and decoded by Skia, in memory of its own: read into Java's, a photograph would be megabytes of garbage
+	 * for a picture of a few thousand pixels, for every tile of a folder of them.
+	 */
 	private fun pictureOf(path: Path, side: Int): ImageBitmap? {
-		val bytes =
-			try {
-				if (Files.size(path) > LARGEST)
-					return null
+		try {
+			if (Files.size(path) > LARGEST)
+				return null
+		} catch (failed: IOException) {
+			return null
+		}
 
-				Files.readAllBytes(path)
-			} catch (failed: IOException) {
+		// Only Skia's own reading is tried: it throws for a file it cannot map (gone since it was asked of) and for one
+		// that is no image it knows, and nothing else here is expected to fail.
+		val (pixels, origin) =
+			try {
+				Data.makeFromFileName(path.toString()).use { data ->
+					Codec.makeFromData(data).use { it.readPixels() to it.encodedOrigin }
+				}
+			} catch (undecodable: RuntimeException) {
 				return null
 			}
 
-		val image =
-			try {
-				Image.makeFromEncoded(bytes)
-			} catch (undecodable: IllegalArgumentException) {
-				return null
-			}
+		return pixels.use { scaled(it, origin, side) }
+	}
 
-		return image.use {
-			val scale = minOf(side.toFloat() / max(it.width, it.height), 1f)
-			val width = (it.width * scale).roundToInt().coerceAtLeast(1)
-			val height = (it.height * scale).roundToInt().coerceAtLeast(1)
+	/**
+	 * [pixels], which are a picture as its file holds it, the way up [origin] says it is (a photograph taken with the
+	 * camera on its side says so, and is held on its side), scaled down to fit a square of [side].
+	 */
+	private fun scaled(pixels: Bitmap, origin: EncodedOrigin, side: Int): ImageBitmap {
+		val turned = origin.swapsWidthHeight()
+		val across = if (turned) pixels.height else pixels.width
+		val down = if (turned) pixels.width else pixels.height
+		val scale = minOf(side.toFloat() / max(across, down), 1f)
+		val width = (across * scale).roundToInt().coerceAtLeast(1)
+		val height = (down * scale).roundToInt().coerceAtLeast(1)
+		val held = Rect.makeWH(pixels.width.toFloat(), pixels.height.toFloat())
 
+		// Its pixels as they are, not a copy of them: nothing writes to them after this.
+		pixels.setImmutable()
+
+		return Image.makeFromBitmap(pixels).use { image ->
 			Surface.makeRasterN32Premul(width, height).use { surface ->
-				surface.canvas.drawImageRect(
-					it,
-					Rect.makeWH(it.width.toFloat(), it.height.toFloat()),
-					Rect.makeWH(width.toFloat(), height.toFloat()),
-					FilterMipmap(FilterMode.LINEAR, MipmapMode.LINEAR),
-					null,
-					true,
-				)
+				surface.canvas
+					.scale(width.toFloat() / across, height.toFloat() / down)
+					.concat(origin.toMatrix(across, down))
+					.drawImageRect(
+						image,
+						held,
+						held,
+						FilterMipmap(FilterMode.LINEAR, MipmapMode.LINEAR),
+						null,
+						true,
+					)
 				surface.makeImageSnapshot().toComposeImageBitmap()
 			}
 		}

@@ -12,6 +12,7 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotSame
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertSame
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 
@@ -61,6 +62,104 @@ class ThumbnailTest {
 
 			assertEquals(32, small.width)
 			assertEquals(24, small.height)
+		}
+
+	@Test
+	fun aPhotographTakenOnItsSideIsMadeTheWayUpItSaysItIs() =
+		runBlocking {
+			// A JPEG, red on its left and blue on its right, that says (in its EXIF) that its left is its top: a camera
+			// held on its side writes one so.
+			val image = BufferedImage(80, 40, BufferedImage.TYPE_INT_RGB)
+
+			for (x in 0 until 80)
+				for (y in 0 until 40)
+					image.setRGB(x, y, (if (x < 40) Color.RED else Color.BLUE).rgb)
+
+			val plain = work.resolve("plain.jpg").also { ImageIO.write(image, "jpg", it.toFile()) }
+			val bytes = Files.readAllBytes(plain)
+
+			// EXIF: a TIFF of one entry, the orientation (tag 0x0112), which is 6 for "the left is the top".
+			val tiff =
+				byteArrayOf(
+					'I'.code.toByte(),
+					'I'.code.toByte(),
+					42,
+					0,
+					8,
+					0,
+					0,
+					0,
+					1,
+					0,
+					0x12,
+					0x01,
+					3,
+					0,
+					1,
+					0,
+					0,
+					0,
+					6,
+					0,
+					0,
+					0,
+					0,
+					0,
+					0,
+					0,
+				)
+
+			val exif = "Exif".toByteArray() + byteArrayOf(0, 0) + tiff
+			val length = exif.size + 2
+			val app1 =
+				byteArrayOf(0xFF.toByte(), 0xE1.toByte(), (length shr 8).toByte(), length.toByte()) +
+					exif
+
+			val turned =
+				work.resolve("turned.jpg").also {
+					Files.write(it, bytes.copyOfRange(0, 2) + app1 + bytes.copyOfRange(2, bytes.size))
+				}
+
+			fun colourAt(
+				picture: androidx.compose.ui.graphics.ImageBitmap,
+				x: Int,
+				y: Int,
+			): Color {
+				val pixel = IntArray(1)
+
+				picture.readPixels(pixel, x, y, 1, 1)
+
+				return Color(pixel[0])
+			}
+
+			fun reddish(colour: Color) = colour.red > 180 && colour.blue < 80
+
+			fun bluish(colour: Color) = colour.blue > 180 && colour.red < 80
+
+			val upright = Thumbnails().of(plain, Instant.EPOCH, 256)!!
+			val onItsSide = Thumbnails().of(turned, Instant.EPOCH, 256)!!
+
+			assertEquals(80 to 40, upright.width to upright.height)
+			assertTrue(reddish(colourAt(upright, 10, 20)) && bluish(colourAt(upright, 70, 20)))
+			// Turned: as tall as it was wide, and what was its left is its top.
+			assertEquals(40 to 80, onItsSide.width to onItsSide.height)
+			assertTrue(reddish(colourAt(onItsSide, 20, 10)), "${colourAt(onItsSide, 20, 10)}")
+			assertTrue(bluish(colourAt(onItsSide, 20, 70)), "${colourAt(onItsSide, 20, 70)}")
+		}
+
+	@Test
+	fun everyFormatSkiaReadsIsMade() =
+		runBlocking {
+			for (format in listOf("png", "jpg", "gif", "bmp")) {
+				val made =
+					Thumbnails().of(
+						picture(work, "picture.$format", 300, 200),
+						Instant.EPOCH,
+						128,
+					)
+
+				assertEquals(128 to 85, made?.let { it.width to it.height }, format)
+			}
 		}
 
 	@Test
