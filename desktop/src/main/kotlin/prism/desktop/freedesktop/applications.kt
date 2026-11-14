@@ -197,7 +197,7 @@ class DesktopEntries(
 	}
 
 	/** The entries read again: an application installed or removed meanwhile is seen. */
-	fun reread() {
+	override fun reread() {
 		installed = read()
 	}
 }

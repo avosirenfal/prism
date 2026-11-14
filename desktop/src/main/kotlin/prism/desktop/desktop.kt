@@ -18,6 +18,9 @@ interface Desktop {
 	val places: Places
 	val facts: FileFacts
 
+	/** Where the pictures applications are known by are found; nowhere, where the desktop has none. */
+	val icons: Icons get() = Icons.NONE
+
 	/** The machine's drives and what is on them, as the System page shows them; none, where the desktop knows none. */
 	val storage: StorageReader get() = StorageReader { Storage(emptyList()) }
 
@@ -117,12 +120,52 @@ data class Application(
 	val icon: String? = null,
 	/** Where the desktop keeps what says all this: a desktop entry's path. */
 	val source: Path? = null,
+	/** What kind of program it is, where it says: "Web Browser", of Firefox. */
+	val generic: String? = null,
+	/** What it is for, in a line, where it says. */
+	val comment: String? = null,
+	/** Other words it is found by: "internet", "www", of a browser. */
+	val keywords: List<String> = emptyList(),
+	/** The other things it can be started to do: a new private window, of a browser. */
+	val actions: List<ApplicationAction> = emptyList(),
+) {
+	/** This application started to do [action] in place of what it does when simply started. */
+	fun doing(action: ApplicationAction): Application =
+		copy(name = "$name: ${action.name}", command = action.command, icon = action.icon ?: icon)
+}
+
+/** Something an application can be started to do other than open: a desktop entry's action. */
+data class ApplicationAction(
+	/** The desktop's name for it, among its application's: `new-private-window`. */
+	val id: String,
+	val name: String,
+	/** How the application is started to do it, as [Application.command] is written. */
+	val command: List<String>,
+	val icon: String? = null,
 )
+
+/** The pictures the desktop's applications (and anything else it names by an icon) are known by. */
+fun interface Icons {
+	/**
+	 * The file of the icon [name], as an application names its own: a name in the user's icon theme, or a path. The
+	 * one drawn nearest [size] pixels across at [scale] (2, on a display of twice the density) is given, a picture that
+	 * scales (SVG) or a PNG; null where there is none.
+	 */
+	fun find(name: String, size: Int, scale: Int): Path?
+
+	companion object {
+		/** No icons: every application without a picture. */
+		val NONE = Icons { _, _, _ -> null }
+	}
+}
 
 /** The applications the desktop knows, and which opens each type by default. */
 interface Applications {
 	/** Every application a person would choose from, by name. */
 	fun all(): List<Application>
+
+	/** What is installed read again, where the desktop keeps what it read: one installed or removed since is seen. */
+	fun reread() = Unit
 
 	/** The applications that say they open [type] (or a type it is a kind of): the default first. */
 	fun forType(type: MimeType): List<Application>
