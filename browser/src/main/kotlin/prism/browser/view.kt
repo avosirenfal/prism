@@ -2961,9 +2961,10 @@ private fun NoticeLayer(notice: Notice, onEvent: (BrowserEvent) -> Unit) {
 	val words = wordsOf(notice)
 	val first = remember { FocusRequester() }
 	val asks = words.no != null
-	// What cannot be undone starts with the keyboard on the way out of it, so Enter alone does nothing.
-	val wary = notice is Notice.ConfirmErase
-	val trouble = notice is Notice.Failed || wary
+	// Deleting for good that was not what was asked for starts with the keyboard on the way out of it, so Enter alone
+	// does nothing; what was asked for outright starts on Yes.
+	val wary = (notice as? Notice.ConfirmErase)?.wary == true
+	val trouble = notice is Notice.Failed || notice is Notice.ConfirmErase
 
 	Modal(
 		words.title,

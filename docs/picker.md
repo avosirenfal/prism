@@ -337,8 +337,9 @@ the desktop's own dialogs can:
   no trash"), and nothing is deleted unless the user says so. Of several, those with a trash are trashed, and only
   those without are asked about.
 - **Delete permanently** (Shift+Delete, or the menu): deleted for good, with all a folder holds, once the user says so
-  (a link is deleted itself, never what it leads to). The notice starts with the keyboard on Cancel, so Enter pressed
-  in passing does nothing. It cannot be undone.
+  (a link is deleted itself, never what it leads to). It was asked for, so the notice starts with the keyboard on its
+  Yes, and Enter deletes. Where it was not (Delete, on a drive with no trash), and for "Empty trash", the keyboard
+  starts on Cancel, so Enter pressed in passing does nothing. It cannot be undone.
 - **The trash** (quick access's "Trash"): every trash's entries together, the home trash's and each mounted drive's,
   with where each was ("Original location") and when it was trashed ("Date deleted"). An entry is put back where it
   was, never over something there now (undone, it is trashed again), or deleted for good, once asked; Delete there
@@ -663,8 +664,8 @@ list by one row, not a page, and a row far away is scrolled to directly (never b
   temporary folder, then clicked, double-clicked, Ctrl- and Shift-clicked, typed at and tabbed through with
   Compose's own test input, and what it shows and how it ends checked: the filter menu by pointer, by Ctrl-click and
   by keyboard; a row's menu renaming it on disk; F2 and Escape; the trash, without asking, by Delete and by the menu,
-  and Ctrl+Z and Ctrl+Shift+Z putting back and trashing again; Shift+Delete asking first, Enter on its notice
-  cancelling, and deleting for good once confirmed; the trash in quick access, an entry put back from it; quick
+  and Ctrl+Z and Ctrl+Shift+Z putting back and trashing again; Shift+Delete asking first, Escape on its notice
+  cancelling, and Enter deleting for good; the trash in quick access, an entry put back from it; quick
   access's own window, one of prism's own hidden there and not removable, and moved; the folder's menu sorting
   through a submenu and making a folder, then the rename and the folder undone and redone, by the menu and by keys;
   Shift+F10; Ctrl and the wheel, over the listing and over the places while a search is typed; Ctrl+1, Ctrl+2 and

@@ -790,7 +790,15 @@ sealed interface Notice {
 	data class ConfirmErase(
 		val erasing: Erasing,
 		val noTrash: String? = null,
-	) : Notice
+	) : Notice {
+		/**
+		 * Whether the keyboard starts on the way out of it, so that Enter pressed in passing deletes nothing: where
+		 * deleting for good is not what was asked for (Delete, on a drive with no trash), or is the whole trash at
+		 * once. Asked to delete what is chosen for good (Shift+Delete, or its menu), the user means it, and Enter
+		 * says yes.
+		 */
+		val wary: Boolean get() = noTrash != null || erasing == Erasing.Everything
+	}
 
 	/** Something the user asked for could not be done: what ("Couldn't rename “a.txt”"), and why. */
 	data class Failed(

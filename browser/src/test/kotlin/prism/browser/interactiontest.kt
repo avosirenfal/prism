@@ -850,20 +850,23 @@ class InteractionTest {
 		}
 
 	@Test
-	fun shiftDeleteDeletesForGoodOnlyOnceAsked_TheKeyboardStartingOnCancel() =
+	fun shiftDeleteDeletesForGoodOnlyOnceAsked_TheKeyboardStartingOnYes() =
 		picking {
 			row("todo.txt").performClick()
 			focused().performKeyInput { withKeyDown(Key.ShiftLeft) { pressKey(Key.Delete) } }
 
 			waitUntil(timeoutMillis = TIMEOUT) { asked() }
-			// Enter, as the notice opens, cancels: what cannot be undone is not done by a key pressed in passing.
-			press(Key.Enter)
+			// Nothing is deleted until it is answered; Escape answers no.
+			assertTrue(work.resolve("todo.txt").exists())
+			press(Key.Escape)
 			waitUntil(timeoutMillis = TIMEOUT) { !asked() }
 			assertTrue(work.resolve("todo.txt").exists())
 
+			// Deleting for good is what was asked for, so the keyboard starts on Yes, and Enter says it.
 			focused().performKeyInput { withKeyDown(Key.ShiftLeft) { pressKey(Key.Delete) } }
 			waitUntil(timeoutMillis = TIMEOUT) { asked() }
-			onNodeWithTag("yes").performClick()
+			waitForIdle()
+			press(Key.Enter)
 			waitUntil(timeoutMillis = TIMEOUT) { !work.resolve("todo.txt").exists() }
 			// Gone for good: not in the trash.
 			assertFalse(bin.resolve("files/todo.txt").exists())

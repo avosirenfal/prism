@@ -1229,6 +1229,8 @@ class StepTest {
 			effectsOf(trashed, BrowserEvent.Confirmed),
 		)
 		assertTrue(effectsOf(trashed, BrowserEvent.Dismissed).isEmpty())
+		// Deleting for good was not what was asked for: the keyboard starts on the way out of it.
+		assertTrue((trashed.notice as Notice.ConfirmErase).wary)
 	}
 
 	@Test
@@ -1239,6 +1241,9 @@ class StepTest {
 			Notice.ConfirmErase(Erasing.Files(listOf(home.resolve("main.kt")))),
 			asked.notice,
 		)
+		// It was asked for, so the keyboard starts on Yes; the whole trash at once starts on the way out.
+		assertFalse((asked.notice as Notice.ConfirmErase).wary)
+		assertTrue(Notice.ConfirmErase(Erasing.Everything).wary)
 		assertEquals(
 			listOf(Effect.Erase(Erasing.Files(listOf(home.resolve("main.kt"))))),
 			effectsOf(asked, BrowserEvent.Confirmed),
