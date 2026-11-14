@@ -135,6 +135,11 @@ class NativeWindow internal constructor(
 	at: IntOffset?,
 	/** The desktop's token for whoever asked for this window, which lets it be given the keyboard as it is shown. */
 	private val activation: String? = null,
+	/**
+	 * Whether its size can be changed by the user. One that cannot is, to a window manager that tiles, a dialog: left
+	 * floating at the size it asked for, over the windows it tiles, rather than made a tile among them.
+	 */
+	resizable: Boolean = true,
 ) {
 	private val place = at
 	private val sdl: Long
@@ -245,7 +250,8 @@ class NativeWindow internal constructor(
 	init {
 		val gpu = app.sdl.rendering.onGpu
 		val flags =
-			SDL_WINDOW_RESIZABLE or SDL_WINDOW_HIGH_PIXEL_DENSITY or SDL_WINDOW_HIDDEN or
+			SDL_WINDOW_HIGH_PIXEL_DENSITY or SDL_WINDOW_HIDDEN or
+				(if (resizable) SDL_WINDOW_RESIZABLE else 0L) or
 				(if (gpu) SDL_WINDOW_OPENGL else 0L) or
 				(if (decorated) 0L else SDL_WINDOW_BORDERLESS)
 

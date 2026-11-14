@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -60,9 +61,10 @@ import prism.window.WindowLocals
 
 /*
  * The search of the index, drawn over the picker as Everything's and Listary's are: a field across the top of a
- * window, the query coloured as it is read (each part by what it is, and what is wrong underlined), the first few
- * matches under it, and a button that shows every match in the listing. The arrows go through the matches from the
- * field, which keeps the keyboard throughout; Enter goes to the match they are on, or, from the field, shows every
+ * window, the query coloured as it is read (each part by what it is, and what is wrong underlined), the matches
+ * under it, a few in sight at once ([ResultList]), and a button that shows every match in the listing. The arrows, and
+ * Page Up and Down, go through the matches from the field, which keeps the keyboard throughout, the list scrolling
+ * to keep the one they are on in sight; Enter goes to the match they are on, or, from the field, shows every
  * match; Escape, or a click outside, puts the window away. Its field is empty each time it opens. A `?` beside the
  * field shows how a query is written, in a sentence and a handful of queries ([QueryHelp]), each of which is typed
  * into the field when clicked.
@@ -165,6 +167,8 @@ private fun Searching(
 			when (key.key) {
 				Key.DirectionDown -> BrowserEvent.MatchMoved(1)
 				Key.DirectionUp -> BrowserEvent.MatchMoved(-1)
+				Key.PageDown -> BrowserEvent.MatchMoved(Search.SHOWN)
+				Key.PageUp -> BrowserEvent.MatchMoved(-Search.SHOWN)
 				Key.Enter, Key.NumPadEnter -> BrowserEvent.SearchEntered
 				else -> null
 			}
@@ -228,14 +232,15 @@ private fun Searching(
 		is Finding.Matched -> {
 			val matches = found.matches
 
-			Column(Modifier.testTag("matches")) {
-				for (at in 0 until search.listed)
-					Match(
-						matches.rowOf(at, null),
-						home,
-						highlighted = at == search.highlighted,
-					) { onEvent(BrowserEvent.MatchChosen(at)) }
-			}
+			ResultList(
+				search.listed,
+				search.highlighted,
+				rowHeight = type.row + Space.xs,
+				height = (type.row + Space.xs) * Search.SHOWN,
+				tag = "matches",
+				rowTag = { "match:${matches.nameOf(it)}" },
+				onChoose = { onEvent(BrowserEvent.MatchChosen(it)) },
+			) { Match(matches.rowOf(it, null), home) }
 			Text(
 				when (matches.size) {
 					0 -> "Nothing matches"
@@ -302,50 +307,20 @@ private fun Help(onTry: (String) -> Unit) {
 	}
 }
 
-/** One match: its icon, its name, and where it is, highlighted where the arrows are on it. */
+/** One match, in its row: its icon, its name, and where it is. */
 @Composable
-private fun Match(row: Row, home: Path, highlighted: Boolean, onClick: () -> Unit) {
+private fun RowScope.Match(row: Row, home: Path) {
 	val palette = LocalPalette.current
 	val type = LocalType.current
-	val hover = remember { MutableInteractionSource() }
-	val hovered by hover.collectIsHoveredAsState()
-	val shape = RoundedCornerShape(Radius.medium)
 
-	Row(
-		Modifier
-			.fillMaxWidth()
-			.height(type.row + Space.xs)
-			.background(
-				when {
-					highlighted -> palette.chosen
-					hovered -> palette.hover
-					else -> Color.Transparent
-				},
-				shape,
-			).hoverable(hover)
-			.clickable(onClick = onClick)
-			.semantics { selected = highlighted }
-			.testTag("match:${row.name}")
-			.padding(horizontal = Space.s),
-		verticalAlignment = Alignment.CenterVertically,
-	) {
-		GlyphIcon(
-			if (row.isFolder) Glyph.Folder else Glyph.File,
-			palette.text,
-			type.icon,
-			category = row.category,
-		)
-		Spacer(Modifier.width(Space.s + Space.xxs))
-		Text(row.name, style = type.body, maxLines = 1, overflow = TextOverflow.Ellipsis)
-		Spacer(Modifier.width(Space.l))
-		Text(
-			row.path?.let { folderOf(it, home) }.orEmpty(),
-			style = type.muted,
-			maxLines = 1,
-			overflow = TextOverflow.Ellipsis,
-			modifier = Modifier.weight(1f),
-		)
-	}
+	GlyphIcon(
+		if (row.isFolder) Glyph.Folder else Glyph.File,
+		palette.text,
+		type.icon,
+		category = row.category,
+	)
+	Spacer(Modifier.width(Space.s + Space.xxs))
+	ResultText(row.name, row.path?.let { folderOf(it, home) }.orEmpty())
 }
 
 /**

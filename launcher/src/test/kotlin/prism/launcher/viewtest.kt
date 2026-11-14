@@ -1,0 +1,405 @@
+package prism.launcher
+
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.test.ComposeUiTest
+import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.assertIsSelected
+import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performKeyInput
+import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.pressKey
+import androidx.compose.ui.test.runComposeUiTest
+import androidx.compose.ui.test.withKeyDown
+import java.nio.file.Files
+import java.nio.file.Path
+import java.time.Clock
+import java.time.Instant
+import java.time.ZoneOffset
+import kotlin.io.path.createDirectories
+import kotlin.io.path.writeText
+import kotlinx.coroutines.runBlocking
+import org.jetbrains.skia.EncodedImageFormat
+import org.jetbrains.skia.Surface
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNotNull
+import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.io.TempDir
+import prism.browser.BrowserTheme
+import prism.browser.Category
+import prism.browser.Palette
+import prism.browser.StaticFinder
+import prism.browser.renderedPng
+import prism.desktop.Activation
+import prism.desktop.Icons
+import prism.desktop.freedesktop.Freedesktop
+import prism.index.Index
+import prism.index.Indexer
+
+/**
+ * The launcher drawn and worked as a user works it: typed into, moved through with the arrows, and what is chosen
+ * started; its icons drawn from the files an icon theme has; and pictures of it, for a person to look at.
+ */
+@OptIn(ExperimentalTestApi::class)
+class LauncherViewTest {
+	@TempDir
+	lateinit var home: Path
+
+	private val now = Instant.parse("2026-11-14T10:00:00Z")
+
+	private fun made(vararg files: String) =
+		files.forEach {
+			home.resolve(it).also { path -> path.parent.createDirectories() }.writeText(it)
+		}
+
+	/** A launcher over the tests' desktop and an index of [home], drawn; what it started and asked for kept. */
+	private fun launching(
+		check: ComposeUiTest.(LauncherSession, FakeDesktop, FakeHost, MemoryLaunches) -> Unit,
+	) = runComposeUiTest {
+		val desktop = FakeDesktop(home)
+		val host = FakeHost()
+		val launches = MemoryLaunches()
+		val finder =
+			StaticFinder(Index.EMPTY.with(Indexer(mounts = emptyList()).index(home)), home = home)
+		val running = arrayOfNulls<LauncherSession>(1)
+
+		setContent {
+			val scope = rememberCoroutineScope()
+
+			val session =
+				remember {
+					LauncherSession(
+						LauncherServices(
+							desktop,
+							finder,
+							launches,
+							home,
+							clock = Clock.fixed(now, ZoneOffset.UTC),
+						),
+						host,
+						scope,
+					).also { running[0] = it }
+				}
+
+			BrowserTheme { LauncherView(session, LauncherBindings.DEFAULT) }
+		}
+		waitForIdle()
+		check(running[0]!!, desktop, host, launches)
+	}
+
+	private fun ComposeUiTest.press(key: Key) =
+		onNodeWithTag("launcher-query").performKeyInput { pressKey(key) }
+
+	private fun ComposeUiTest.until(what: () -> Boolean) =
+		waitUntil(timeoutMillis = 10_000, condition = what)
+
+	@Test
+	fun whatIsTypedIsFoundTheArrowsMoveThroughItAndEnterStartsIt() =
+		launching { session, desktop, host, launches ->
+			onNodeWithTag("launcher-query").performTextInput("fire")
+			waitForIdle()
+			assertEquals(
+				listOf("Firefox", "Firewall Configuration"),
+				session.state.value.entries
+					.take(2)
+					.map { it.title },
+			)
+			onNodeWithTag("entry:app:firefox.desktop").assertIsSelected()
+
+			// Down, and the row after is the one; Up, and the first is again.
+			press(Key.DirectionDown)
+			waitForIdle()
+			onNodeWithTag("entry:app:firewall.desktop").assertIsSelected()
+			press(Key.DirectionUp)
+			waitForIdle()
+			onNodeWithTag("entry:app:firefox.desktop").assertIsSelected()
+
+			press(Key.Enter)
+			until { "close" in host.asked }
+			assertEquals(listOf(Programs.firefox to emptyList<Path>()), desktop.started.toList())
+			assertEquals(1.0, launches.launches.weightOf("app:firefox.desktop", now), 1e-9)
+		}
+
+	@Test
+	fun filesAreFoundAfterTheApplicationsAndOpenedWithWhatOpensThemAndAFolderInAWindow() {
+		made("Documents/firewall-rules.txt", "Projects/fireworks/readme.md")
+
+		launching { session, desktop, host, _ ->
+			onNodeWithTag("launcher-query").performTextInput("fire")
+			until {
+				session.state.value.entries
+					.any { it is Entry.File }
+			}
+
+			val entries = session.state.value.entries
+
+			// Applications first, then the files and folders the index holds.
+			assertTrue(
+				entries.indexOfFirst {
+					it is Entry.File
+				} > entries.indexOfLast { it is Entry.App },
+			)
+			assertEquals(
+				setOf("firewall-rules.txt", "fireworks"),
+				entries.filterIsInstance<Entry.File>().map { it.title }.toSet(),
+			)
+
+			val file = entries.indexOfFirst { it.title == "firewall-rules.txt" }
+
+			repeat(file) { press(Key.DirectionDown) }
+			waitForIdle()
+			press(Key.Enter)
+			until { "close" in host.asked }
+			assertEquals(
+				listOf(Programs.editor to listOf(home.resolve("Documents/firewall-rules.txt"))),
+				desktop.started.toList(),
+			)
+		}
+		launching { session, desktop, host, _ ->
+			onNodeWithTag("launcher-query").performTextInput("fireworks")
+			until {
+				session.state.value.entries
+					.any { it is Entry.File }
+			}
+			press(Key.Enter)
+			until { "close" in host.asked }
+			assertEquals(
+				listOf("browse ${home.resolve("Projects/fireworks")}", "close"),
+				host.asked.toList(),
+			)
+			assertEquals(emptyList<Any>(), desktop.started.toList())
+		}
+	}
+
+	@Test
+	fun theKeysShowAResultInItsFolderOpenTheSettingsAndPutTheLauncherAway() {
+		made("Documents/notes.md")
+
+		launching { session, _, host, _ ->
+			onNodeWithTag("launcher-query").performTextInput("notes")
+			until {
+				session.state.value.entries
+					.any { it is Entry.File }
+			}
+			onNodeWithTag("launcher-query").performKeyInput {
+				withKeyDown(Key.CtrlLeft) { pressKey(Key.Enter) }
+			}
+			until { "close" in host.asked }
+			assertEquals(
+				listOf("reveal ${home.resolve("Documents/notes.md")}", "close"),
+				host.asked.toList(),
+			)
+		}
+		launching { _, _, host, _ ->
+			onNodeWithTag("launcher-query").performKeyInput {
+				withKeyDown(Key.CtrlLeft) { pressKey(Key.Comma) }
+			}
+			until { "close" in host.asked }
+			assertEquals(listOf("settings", "close"), host.asked.toList())
+		}
+		launching { session, _, host, _ ->
+			// Escape lets go of what is typed first, and then of the launcher.
+			onNodeWithTag("launcher-query").performTextInput("fire")
+			waitForIdle()
+			press(Key.Escape)
+			waitForIdle()
+			assertEquals("", session.state.value.query)
+			assertEquals(emptyList<String>(), host.asked.toList())
+			press(Key.Escape)
+			until { "close" in host.asked }
+		}
+	}
+
+	@Test
+	fun aRowClickedIsChosenAndOneThatCannotBeStartedSaysWhy() =
+		launching { session, desktop, host, _ ->
+			desktop.failing = "it is not installed"
+			onNodeWithTag("launcher-query").performTextInput("foot")
+			waitForIdle()
+			onNodeWithTag("entry:app:foot.desktop").performClick()
+			until { session.state.value.notice != null }
+			assertEquals(
+				"Foot could not be started: it is not installed",
+				session.state.value.notice,
+			)
+			assertEquals(emptyList<String>(), host.asked.toList())
+
+			desktop.failing = null
+			onNodeWithTag("entry:app:foot.desktop").performClick()
+			until { "close" in host.asked }
+		}
+
+	@Test
+	fun theResultsScrollToKeepTheOneTheArrowsAreOnInSight() =
+		launching { session, desktop, _, _ ->
+			desktop.installed =
+				(1..40).map { Programs.application("app%02d".format(it), "Program %02d".format(it)) }
+			session.send(LauncherEvent.ApplicationsRead(desktop.applications.all()))
+			waitForIdle()
+			assertEquals(
+				0,
+				onAllNodes(hasTestTag("entry:app:app30.desktop")).fetchSemanticsNodes().size,
+			)
+
+			repeat(29) { press(Key.DirectionDown) }
+			waitForIdle()
+			onNodeWithTag("entry:app:app30.desktop").assertIsSelected()
+			// And back up, a page at a time.
+			repeat(6) { press(Key.PageUp) }
+			waitForIdle()
+			onNodeWithTag("entry:app:app01.desktop").assertIsSelected()
+		}
+
+	@Test
+	fun anIconIsDrawnFromAPngOrAnSvgAtTheSizeAskedForAndKept(
+		@TempDir icons: Path,
+	) {
+		val png = icons.resolve("round.png")
+		val svg = icons.resolve("square.svg")
+
+		Surface.makeRasterN32Premul(64, 32).use { surface ->
+			surface.canvas.clear(0xFF3366CC.toInt())
+			Files.write(
+				png,
+				surface.makeImageSnapshot().encodeToData(EncodedImageFormat.PNG)!!.bytes,
+			)
+		}
+		svg.writeText(
+			"""<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16">""" +
+				"""<rect width="16" height="16" fill="#cc3333"/></svg>""",
+		)
+		icons.resolve("broken.png").writeText("not a picture")
+
+		// A PNG keeps its shape within the square; an SVG with no view box is drawn from its own size, to fill it.
+		assertEquals(48 to 24, IconImages.drawn(png, 48)!!.let { it.width to it.height })
+
+		val square = IconImages.drawn(svg, 48)!!
+
+		assertEquals(48 to 48, square.width to square.height)
+		assertNull(IconImages.drawn(icons.resolve("broken.png"), 48))
+		assertNull(IconImages.drawn(icons.resolve("missing.png"), 48))
+
+		var asked = 0
+
+		val images =
+			IconImages(
+				Icons { name, _, _ ->
+					asked++
+					icons.resolve("$name.png").takeIf(Files::exists)
+				},
+			)
+
+		assertNull(images.kept("round", 48))
+		runBlocking {
+			assertNotNull(images.of("round", 48))
+			assertNotNull(images.of("round", 48))
+			assertNull(images.of("nothing", 48))
+			assertNull(images.of("nothing", 48))
+		}
+		// Each is looked for once, whether or not it was found.
+		assertEquals(2, asked)
+		assertNotNull(images.kept("round", 48))
+	}
+
+	@Test
+	fun theLauncherDraws() {
+		// What this machine has installed, with the pictures its icon theme has for them, among the tests' own.
+		val desktop = Freedesktop(activation = Activation.None)
+		val images = IconImages(desktop.icons)
+		val installed = desktop.applications.all()
+		val applications = (Programs.all + installed).sortedBy { it.name.lowercase() }
+
+		runBlocking { applications.forEach { app -> app.icon?.let { images.of(it, 56) } } }
+
+		val first =
+			LauncherState(
+				applications = applications,
+				launches =
+					Launches.NONE
+						.used(Entry.App(Programs.firefox).key, now)
+						.used(Entry.App(Programs.terminal).key, now),
+				now = now,
+			)
+
+		val typed =
+			step(
+				step(first, LauncherEvent.Typed("re")).state,
+				LauncherEvent.FilesArrived(
+					"re",
+					listOf(
+						Entry.File(
+							home.resolve("Documents/Quarterly report.pdf"),
+							Category.Pdf,
+							"~/Documents",
+							"PDF document",
+						),
+						Entry.File(
+							home.resolve("Projects/prism/README.md"),
+							Category.Text,
+							"~/Projects/prism",
+							"Markdown document",
+						),
+						Entry.File(
+							home.resolve("Pictures/Screenshots"),
+							Category.Folder,
+							"~/Pictures",
+							"Folder",
+						),
+						Entry.File(
+							home.resolve("Music/recording.flac"),
+							Category.Audio,
+							"~/Music",
+							"FLAC audio",
+						),
+					),
+					1284,
+				),
+			).state.let { step(it, LauncherEvent.Moved(1)).state }
+
+		val nothing = step(first.copy(searchable = false), LauncherEvent.Typed("zzzz")).state
+
+		val failed =
+			step(
+				typed,
+				LauncherEvent.Started(
+					typed.entries.first(),
+					now,
+					"Firefox could not be started: no such file",
+				),
+			).state
+
+		val drawn =
+			mapOf(
+				"first" to first,
+				"typed" to typed,
+				"nothing" to nothing,
+				"failed" to failed,
+			)
+
+		val (width, height) = LauncherDims.sizeOf(first.preferences)
+
+		for ((name, state) in drawn)
+			for ((tone, palette) in listOf("light" to Palette.Light, "dark" to Palette.Dark)) {
+				val png =
+					renderedPng(width.value.toInt(), height.value.toInt(), palette, scale = 2f) {
+						CompositionLocalProvider(LocalIconImages provides images) { LauncherPane(state) }
+					}
+
+				assertTrue(png.size > 10_000, "$name: ${png.size} bytes")
+				System.getProperty("launcher.screenshots")?.takeIf { it.isNotBlank() }?.let { dir ->
+					Path
+						.of(dir)
+						.also { it.createDirectories() }
+						.resolve("launcher-$name-$tone.png")
+						.toFile()
+						.writeBytes(png)
+				}
+			}
+	}
+}

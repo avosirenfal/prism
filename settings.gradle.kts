@@ -50,6 +50,7 @@ include(
 	":window",
 	":desktop",
 	":browser",
+	":launcher",
 	":explorer",
 	":app",
 	":ktlint-rules",

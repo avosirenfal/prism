@@ -297,6 +297,9 @@ private fun CompositionLocalApplication(
  * [activation] is the token the desktop gave whoever asked for this window (`XDG_ACTIVATION_TOKEN`, from a launcher
  * or another program), which lets a Wayland compositor give the window the keyboard as it opens, as it would not to
  * a window that opened unasked.
+ *
+ * A window that is not [resizable] keeps the size it opened at, which a window manager that tiles takes for a dialog's:
+ * it is left floating over the tiles, where one that can be resized is made a tile.
  */
 @Composable
 fun Window(
@@ -307,6 +310,7 @@ fun Window(
 	at: IntOffset? = null,
 	onFailure: ((Throwable) -> Unit)? = null,
 	activation: String? = null,
+	resizable: Boolean = true,
 	content: @Composable WindowScope.() -> Unit,
 ) {
 	val app =
@@ -321,7 +325,7 @@ fun Window(
 	val made =
 		remember {
 			runCatching {
-				val window = NativeWindow(app, title, size, decorated, at, activation)
+				val window = NativeWindow(app, title, size, decorated, at, activation, resizable)
 
 				val scope =
 					object : WindowScope {

@@ -7,6 +7,8 @@ plugins {
 
 dependencies {
 	api(project(":browser"))
+	// The launcher's window is one of the explorer's, opened and closed as the rest are.
+	api(project(":launcher"))
 
 	@OptIn(org.jetbrains.compose.ExperimentalComposeLibrary::class)
 	testImplementation(compose.uiTest)

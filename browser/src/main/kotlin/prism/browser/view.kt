@@ -1735,7 +1735,7 @@ fun Modifier.zoomedByWheel(onZoom: (Int) -> Unit): Modifier =
 	}
 
 /** [this] style drawn [factor] times as large. */
-internal fun TextStyle.times(factor: Float): TextStyle =
+fun TextStyle.times(factor: Float): TextStyle =
 	copy(
 		fontSize = fontSize * factor,
 		lineHeight =
@@ -2278,7 +2278,7 @@ private fun whereOf(row: Row, home: Path): String =
 	}
 
 /** The folder [path] is in, from `~` where it is under [home]. */
-internal fun folderOf(path: Path, home: Path): String {
+fun folderOf(path: Path, home: Path): String {
 	val folder = path.parent ?: return "/"
 
 	return if (folder.startsWith(home))

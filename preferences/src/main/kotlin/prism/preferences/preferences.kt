@@ -74,6 +74,8 @@ data class Preferences(
 	val scales: Scales = Scales(),
 	/** How dates are written. */
 	val dates: DateFormat = DateFormat.Written,
+	/** How the launcher looks and what it finds. */
+	val launcher: LauncherPreferences = LauncherPreferences(),
 ) {
 	/** The actions and places written here. */
 	val written: ActionsFile get() = ActionsFile(actions, places)

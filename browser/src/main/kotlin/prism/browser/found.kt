@@ -108,13 +108,13 @@ sealed interface Search {
 					text
 			}
 
-		/** How many matches the window lists: the first few. */
-		val listed: Int get() = minOf(LISTED, (found as? Finding.Matched)?.matches?.size ?: 0)
+		/** How many matches the window lists, a few of them in sight at once: every one. */
+		val listed: Int get() = (found as? Finding.Matched)?.matches?.size ?: 0
 	}
 
 	companion object {
-		/** How many matches the search's window lists under its field. */
-		const val LISTED = 8
+		/** How many matches the search's window has in sight under its field; the rest are scrolled to. */
+		const val SHOWN = 8
 	}
 }
 
