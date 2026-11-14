@@ -87,7 +87,7 @@ xdg.portal.config.common."org.freedesktop.impl.portal.FileChooser" = "prism";
 
 One thing about that file is easy to trip on. In each folder the portal reads one file: the one for your desktop
 (`niri-portals.conf`) where there is one, and `portals.conf` only where there is not. So a system that sets
-`xdg.portal.config.niri` as well must say prism there too, which the module's `portal.desktops` is for.
+`xdg.portal.config.niri` as well must say prism there too, which the module does for every configuration there is.
 
 ## A request, followed through
 

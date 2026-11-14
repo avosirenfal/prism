@@ -54,7 +54,7 @@ class PackagingTest {
 		assertNames(
 			module,
 			"Name=${FileManager.NAME}",
-			"\"${FileChooser.INTERFACE}\" = \"$BACKEND_NAME\";",
+			"chooserLine = \"${FileChooser.INTERFACE}=$BACKEND_NAME\";",
 			"\"$FOLDER_MIME\" = \"prism.desktop\";",
 		)
 

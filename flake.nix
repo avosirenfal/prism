@@ -110,6 +110,40 @@
             fileManager.enable = false;
           };
 
+          # A system that has portal configurations of its own, for a desktop and for every desktop.
+          withDesktops =
+            (lib.nixosSystem {
+              inherit system;
+              modules = [
+                self.nixosModules.prism
+                (
+                  { pkgs, ... }:
+                  {
+                    programs.prism.enable = true;
+                    xdg.portal = {
+                      enable = true;
+                      extraPortals = [ pkgs.xdg-desktop-portal-gtk ];
+                      config = {
+                        niri = {
+                          default = [ "gtk" ];
+                          "org.freedesktop.impl.portal.ScreenCast" = [ "gnome" ];
+                        };
+                        common.default = [ "gtk" ];
+                      };
+                    };
+                    boot.loader.grub.enable = false;
+                    fileSystems."/" = {
+                      device = "none";
+                      fsType = "tmpfs";
+                    };
+                    system.stateVersion = lib.trivial.release;
+                  }
+                )
+              ];
+            }).config;
+
+          chooserLine = "org.freedesktop.impl.portal.FileChooser=prism";
+
           said = condition: message: lib.assertMsg condition "prism's module: ${message}";
         in
         {
@@ -118,8 +152,20 @@
           # The module, each way it is meant to be set: what it says of the unit, the portal and the file manager.
           module =
             assert said (
-              asDefault.xdg.portal.config.common."org.freedesktop.impl.portal.FileChooser" == "prism"
-            ) "the file chooser is prism's by default";
+              asDefault.environment.etc."xdg/xdg-desktop-portal/portals.conf".text
+              == "[preferred]\n${chooserLine}\n"
+            ) "the file chooser is prism's by default, in a portals.conf of that one line";
+            assert said (
+              withDesktops.environment.etc."xdg/xdg-desktop-portal/niri-portals.conf".text
+              == "[preferred]\ndefault=gtk\norg.freedesktop.impl.portal.ScreenCast=gnome\n\n${chooserLine}\n"
+            ) "a desktop's own portal configuration is given prism's line after its own";
+            assert said (
+              withDesktops.environment.etc."xdg/xdg-desktop-portal/portals.conf".text
+              == "[preferred]\ndefault=gtk\n\n${chooserLine}\n"
+            ) "and so is the common one beside it";
+            assert said (
+              !(withoutPortal.environment.etc ? "xdg/xdg-desktop-portal/portals.conf")
+            ) "with the portal off, no portal configuration is written";
             assert said
               (lib.hasSuffix "/bin/prism daemon --foreground" asDefault.systemd.user.services.prism.serviceConfig.ExecStart)
               "the daemon is run in the foreground, with nothing turned off, by default";

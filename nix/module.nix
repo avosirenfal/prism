@@ -52,6 +52,34 @@ let
       ]
       ++ lib.optional (!cfg.fileManager.enable) "--no-file-manager";
 
+  # prism preferred for the file chooser, in every portal configuration there is: `portals.conf`, and the file of
+  # each desktop anyone has said anything of (`xdg.portal.config.niri` is `niri-portals.conf`). Every one, because
+  # the portal reads, of the files in one folder, the one for the session's desktop where there is one, and
+  # `portals.conf` only where there is not: a preference said in `portals.conf` alone is never read in a desktop
+  # that has a file of its own.
+  #
+  # It is one line at the end of each file as `xdg.portal.config` makes it, not a definition of that option: which
+  # desktops have a file is read from the option, and what is read from an option cannot also be defined into it.
+  # Each file is one group, `[preferred]`, so a line at its end is in that group; and of two lines for one key, the
+  # portal takes the last, so prism is preferred whatever the file said of the file chooser before.
+  chooserLine = "org.freedesktop.impl.portal.FileChooser=prism";
+
+  portalFiles = lib.listToAttrs (
+    map (
+      desktop:
+      lib.nameValuePair
+        "xdg/xdg-desktop-portal/${lib.optionalString (desktop != "common") "${desktop}-"}portals.conf"
+        {
+          text = lib.mkAfter (
+            # A file nobody else gives anything to is given its group as well.
+            lib.optionalString ((config.xdg.portal.config.${desktop} or { }) == { }) "[preferred]\n"
+            + chooserLine
+            + "\n"
+          );
+        }
+    ) (lib.unique ([ "common" ] ++ builtins.attrNames config.xdg.portal.config))
+  );
+
   # Whether anything would run the unit: the session (the daemon), or D-Bus (the portal's backend, the file manager).
   served = cfg.daemon.enable || cfg.portal.enable || cfg.fileManager.enable;
 in
@@ -117,27 +145,12 @@ in
           through the desktop portal (`org.freedesktop.portal.FileChooser`).
 
           This turns the portal on (`xdg.portal.enable`), adds prism to its backends, and prefers prism for the file
-          chooser in the portal configurations named in {option}`programs.prism.portal.desktops`. Every other portal
-          interface (screenshots, screen casting, the colour scheme) is left to whatever you have set for it.
+          chooser in every portal configuration there is: `portals.conf`, and the file of each desktop you have set
+          anything for in {option}`xdg.portal.config`, whatever each says of the file chooser itself. Every other
+          portal interface (screenshots, screen casting, the colour scheme) is left to whatever you have set for it.
 
           Turned off, prism is still installed, and its daemon still runs and indexes where
           {option}`programs.prism.daemon.enable` says so: only the file chooser is left to another backend.
-        '';
-      };
-
-      desktops = mkOption {
-        type = types.listOf types.str;
-        default = [ "common" ];
-        example = [
-          "common"
-          "niri"
-        ];
-        description = ''
-          The portal configurations (the attributes of {option}`xdg.portal.config`) that prefer prism for the file
-          chooser. `common` is `portals.conf`, read for every desktop.
-
-          Where you set `xdg.portal.config.<desktop>` for your own desktop as well, name that desktop here too: the
-          portal reads `<desktop>-portals.conf` *instead of* the `portals.conf` beside it, not after it.
         '';
       };
     };
@@ -257,10 +270,9 @@ in
       xdg.portal = {
         enable = true;
         extraPortals = [ cfg.package ];
-        config = lib.genAttrs cfg.portal.desktops (_: {
-          "org.freedesktop.impl.portal.FileChooser" = "prism";
-        });
       };
+
+      environment.etc = portalFiles;
     })
 
     (mkIf cfg.fileManager.enable {

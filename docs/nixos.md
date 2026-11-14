@@ -92,7 +92,6 @@ The folder picker is not a fourth thing: choosing a folder is the file chooser a
 | `programs.prism.daemon.roots` | `[ ]` | the folders it indexes; `/` where none is named |
 | `programs.prism.daemon.extraArgs` | `[ ]` | more words for `prism daemon`: `[ "--decorated" ]` for title bars, `[ "--theme" "dark" ]` |
 | `programs.prism.portal.enable` | `true` | prism is the file chooser |
-| `programs.prism.portal.desktops` | `[ "common" ]` | which of `xdg.portal.config`'s configurations prefer prism (see below) |
 | `programs.prism.fileManager.enable` | `true` | prism opens folders, and answers `org.freedesktop.FileManager1` |
 | `programs.prism.watcher.enable` | `false` | loads the eBPF watcher into the kernel at boot (a system service, `prism-watcher.service`) for the daemon to read, so the index follows every change as it is made |
 | `programs.prism.watcher.group` | `"prism"` | the group whose members may read it; made where it is not there |
@@ -128,44 +127,53 @@ The case of prism as the explorer with another backend for the picker:
 With that, the daemon is run with `--no-file-chooser`: it keeps the index and opens prism's own windows, and nothing
 of the portal's is touched (the module does not turn `xdg.portal` on, add a backend, or write a preference).
 
-### The portal's configuration, and `portal.desktops`
+### The portal's configuration
 
 The portal chooses a backend for each interface from `portals.conf` files. NixOS writes them from `xdg.portal.config`:
 `xdg.portal.config.common` is `/etc/xdg/xdg-desktop-portal/portals.conf`, and `xdg.portal.config.niri` is
-`niri-portals.conf` beside it. The module adds one key to each configuration named in `portal.desktops`:
+`niri-portals.conf` beside it.
 
-```ini
-[preferred]
-org.freedesktop.impl.portal.FileChooser=prism
-```
-
-and nothing else, so every other interface is decided by whatever else you have: the portal reads the files in order,
-one from each folder, and takes the first that says anything about the interface it is asking about.
-
-The one thing to know is that in a single folder the portal reads **one** file: `<desktop>-portals.conf` if there is
-one for your desktop, and `portals.conf` only if there is not. So if your own configuration sets
-`xdg.portal.config.niri` (say), then in a niri session `portals.conf` beside it is never read, and prism's key must be
-in the niri one as well:
+Say your configuration has gtk for everything, and GNOME's backend for niri's screen casting:
 
 ```nix
 {
-  programs.prism.portal.desktops = [
-    "common"
-    "niri"
-  ];
+  xdg.portal.config = {
+    niri = {
+      default = [ "gtk" ];
+      "org.freedesktop.impl.portal.ScreenCast" = [ "gnome" ];
+    };
+    common.default = [ "gtk" ];
+  };
 }
 ```
 
-If you set nothing under `xdg.portal.config` yourself, the default is right. To see what the portal decided, run it
-by hand with `-v`, or ask it:
+With `programs.prism.enable`, the files NixOS writes are those, each with one line more at its end:
+
+```ini
+[preferred]
+default=gtk
+org.freedesktop.impl.portal.ScreenCast=gnome
+
+org.freedesktop.impl.portal.FileChooser=prism
+```
+
+So prism is the file chooser, gtk is everything else, and GNOME casts niri's screen, with nothing of yours changed.
+
+The line goes in every file, not `portals.conf` alone, because in a single folder the portal reads **one** file:
+`<desktop>-portals.conf` if there is one for your desktop, and `portals.conf` only if there is not. In a niri session
+with the configuration above, `portals.conf` is never read. Where you have set nothing under `xdg.portal.config`, the
+module writes a `portals.conf` holding the one line, and every other interface is decided by the files after it (your
+desktop's own).
+
+If one of your files names a file chooser itself, prism's line comes after it, and of two lines for one key the
+portal takes the last: `programs.prism.portal.enable` is what says who the file chooser is. Turn it off to have
+another.
+
+To see what the portal decided:
 
 ```bash
 journalctl --user -u xdg-desktop-portal -b | grep -i filechooser
 ```
-
-If you have set a file chooser yourself in the same configuration (`xdg.portal.config.common."org.freedesktop.impl.portal.FileChooser" = "gtk"`),
-the two definitions conflict and the build says so, rather than one of them silently winning. Turn
-`programs.prism.portal.enable` off, or take your line out.
 
 ## What the module does, written out
 
@@ -194,6 +202,11 @@ shows both to the portal and to D-Bus:
   };
 }
 ```
+
+with that last line said again in every other configuration you have (`config.niri`, say), for the reason above. The
+module does not go through `xdg.portal.config` for it: it adds the line to each file as that option makes it, since
+it reads which configurations there are from the option, and a module cannot define an option from what it reads of
+it.
 
 **What opens folders.** This writes the system's `mimeapps.list`; one of your own in `~/.config` still wins over it:
 
