@@ -17,6 +17,7 @@ class Freedesktop(
 	override val types = SharedMimeInfo(xdg)
 	override val applications = DesktopEntries(xdg, types)
 	override val launcher = DetachedLauncher(xdg, activation)
+	override val icons = IconThemes(xdg)
 	override val places = XdgPlaces()
 	override val storage = LinuxStorage()
 	override val facts: FileFacts = JvmFacts(types, ::bornAt)

@@ -173,18 +173,8 @@ class DetachedLauncher(
 					'_'
 			}.joinToString("")
 
-	/** [program] where it is: as it is where it has a `/`, or in a folder of the `PATH`; null where it is not. */
-	private fun find(program: String): Path? {
-		if ('/' in program)
-			return Path.of(program).takeIf { Files.isExecutable(it) }
-
-		return xdg["PATH"]
-			.orEmpty()
-			.split(':')
-			.filter { it.isNotEmpty() }
-			.map { Path.of(it, program) }
-			.firstOrNull { Files.isExecutable(it) && !Files.isDirectory(it) }
-	}
+	/** [program] where it is, or null where it is not: by its path, or on the `PATH` ([Xdg.program]). */
+	private fun find(program: String): Path? = xdg.program(program)
 
 	private companion object {
 		const val ACTIVATION_TOKEN = "XDG_ACTIVATION_TOKEN"

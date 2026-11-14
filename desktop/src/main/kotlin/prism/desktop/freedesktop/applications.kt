@@ -16,7 +16,7 @@ import prism.desktop.MimeType
 /*
  * Applications as freedesktop.org's specifications say them. Each data folder's `applications/` holds desktop entries,
  * an entry's id being its path there with `/` made `-`; the user's folder first, an id it has taking the place of the
- * system's. Which application opens a type is said by the `mimeapps.list` files, read in the order the MIME
+ * system's wholly, so that one that says the application is deleted leaves none (entries.kt). Which application opens a type is said by the `mimeapps.list` files, read in the order the MIME
  * Applications Associations specification gives (the user's settings, the desktop's own first; then the system's;
  * then the data folders'): the first default named for the type (or, failing that, for each type it is a kind of) that
  * is installed and opens it; failing those, the first that says it opens it, in the order the lists add them, then by
@@ -32,23 +32,20 @@ class DesktopEntries(
 	@Volatile
 	private var installed: Map<String, Installed> = read()
 
-	private class Installed(
-		val application: Application,
-		val shown: Boolean,
-	)
-
+	/**
+	 * What is installed: each id's entry in the first data folder that has one, the user's first, and what that
+	 * entry says. An entry there that says the application is deleted, or is not one, or cannot be read, leaves the
+	 * id with nothing installed, whatever a later folder's entry says: that is how a user takes one away.
+	 */
 	private fun read(): Map<String, Installed> =
 		xdg.data
 			.map { it.resolve("applications") }
 			.filter { it.isDirectory() }
-			.reversed()
 			.flatMap { folder ->
-				entriesIn(folder).mapNotNull { file ->
-					val id = file.relativeTo(folder).toString().replace('/', '-')
-					val entry = KeyFile.read(file) ?: return@mapNotNull null
-
-					applicationOf(id, file, entry)?.let { id to Installed(it, !hiddenFromMenus(entry)) }
-				}
+				entriesIn(folder).map { it.relativeTo(folder).toString().replace('/', '-') to it }
+			}.distinctBy { (id, _) -> id }
+			.mapNotNull { (id, file) ->
+				KeyFile.read(file)?.let { installedOf(id, file, it, xdg) }?.let { id to it }
 			}.toMap()
 
 	private fun entriesIn(folder: Path): List<Path> =

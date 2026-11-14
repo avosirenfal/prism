@@ -4,6 +4,7 @@ import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.Path
 import prism.desktop.Application
+import prism.desktop.ApplicationAction
 import prism.desktop.MimeType
 
 /*
@@ -76,43 +77,99 @@ class KeyFile(
 	}
 }
 
-/** A `;`-separated list's items, `\;` being a `;` inside one. */
-fun itemsOf(value: String?): List<String> =
+/**
+ * A list's items, as a key file writes one: apart by [separator] (`;` in a desktop entry, `,` in an icon theme's
+ * index), which is inside an item where a `\` comes before it.
+ */
+fun itemsOf(value: String?, separator: Char = ';'): List<String> =
 	value
-		?.split(Regex("(?<!\\\\);"))
-		?.map { it.replace("\\;", ";").trim() }
+		?.split(Regex("(?<!\\\\)" + Regex.escape(separator.toString())))
+		?.map { it.replace("\\$separator", separator.toString()).trim() }
 		?.filter { it.isNotEmpty() }
 		.orEmpty()
 
+/** An application a desktop entry says is installed, and whether a person choosing among applications is [shown] it. */
+class Installed(
+	val application: Application,
+	val shown: Boolean,
+)
+
 /**
- * The application a desktop entry says, known by [id]; null for an entry that is not an application, or is hidden
- * from the user (`NoDisplay`, `Hidden`), or has nothing to run.
+ * What the desktop entry [entry], known by [id], says is installed, on the desktop [xdg] says this is; null for an
+ * entry that is not an application, or says it is deleted (`Hidden`), or has nothing to run (no `Exec`, or one that
+ * does not read; a `DBusActivatable` entry with no `Exec` is started over D-Bus, which prism does not do), or whose
+ * program is not there (`TryExec`).
+ *
+ * What it says in words is read in the user's language where it says it in that ([Xdg.languages]). It is not shown
+ * where it says so (`NoDisplay`), or says it is for other desktops than this (`OnlyShowIn`, `NotShowIn`, against
+ * `XDG_CURRENT_DESKTOP`); it is installed all the same, and opens what it says it opens.
  */
-fun applicationOf(id: String, file: Path, entry: KeyFile): Application? {
-	val keys = entry["Desktop Entry"]
+fun installedOf(id: String, file: Path, entry: KeyFile, xdg: Xdg): Installed? {
+	val keys = entry[ENTRY]
 
 	if (keys["Type"] != "Application" || keys["Hidden"] == "true")
 		return null
-
-	val command = Exec.split(keys["Exec"] ?: return null) ?: return null
-
-	if (command.isEmpty())
+	if (keys["TryExec"]?.let { it.isNotEmpty() && xdg.program(it) == null } == true)
 		return null
 
-	return Application(
-		id = id,
-		name = keys["Name"] ?: id.removeSuffix(".desktop"),
-		types = itemsOf(keys["MimeType"]).map(::MimeType).toSet(),
-		command = command,
-		inTerminal = keys["Terminal"] == "true",
-		icon = keys["Icon"],
-		source = file,
+	val command = keys["Exec"]?.let(Exec::split)?.takeIf { it.isNotEmpty() } ?: return null
+	val said = Said(keys, xdg.languages)
+
+	val actions =
+		itemsOf(keys["Actions"]).mapNotNull { action ->
+			val its = entry["Desktop Action $action"]
+
+			ApplicationAction(
+				id = action,
+				name = Said(its, xdg.languages)["Name"] ?: return@mapNotNull null,
+				command =
+					its["Exec"]?.let(Exec::split)?.takeIf { it.isNotEmpty() }
+						?: return@mapNotNull null,
+				icon = its["Icon"]?.takeIf { it.isNotEmpty() },
+			)
+		}
+
+	fun names(key: String) = itemsOf(keys[key]).map { it.lowercase() }
+
+	val desktops = xdg.desktops
+	val here =
+		(keys["OnlyShowIn"] == null || names("OnlyShowIn").any { it in desktops }) &&
+			names("NotShowIn").none { it in desktops }
+
+	return Installed(
+		Application(
+			id = id,
+			name = said["Name"] ?: id.removeSuffix(".desktop"),
+			types = itemsOf(keys["MimeType"]).map(::MimeType).toSet(),
+			command = command,
+			inTerminal = keys["Terminal"] == "true",
+			icon = keys["Icon"]?.takeIf { it.isNotEmpty() },
+			source = file,
+			generic = said["GenericName"],
+			comment = said["Comment"],
+			keywords = itemsOf(said["Keywords"]),
+			actions = actions,
+		),
+		shown = here && keys["NoDisplay"] != "true",
 	)
 }
 
-/** Whether a desktop entry says to leave it out of what a person chooses from (an entry for a service, say). */
-fun hiddenFromMenus(entry: KeyFile): Boolean =
-	entry["Desktop Entry"]["NoDisplay"] == "true"
+/**
+ * What a group's [keys] say in words, in the first of [languages] they say it in, or in none (`Name[de]`, `Name`);
+ * a key that says nothing is one that is not there.
+ */
+private class Said(
+	private val keys: Map<String, String>,
+	private val languages: List<String>,
+) {
+	operator fun get(key: String): String? =
+		(languages.map { "$key[$it]" } + key).firstNotNullOfOrNull { name ->
+			keys[name]?.takeIf { it.isNotEmpty() }
+		}
+}
+
+/** The group every desktop entry has, which says what it is. */
+private const val ENTRY = "Desktop Entry"
 
 /** An `Exec` line: split into words, and its field codes filled in. */
 object Exec {

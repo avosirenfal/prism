@@ -252,6 +252,55 @@ entry for the type, with the application added to `[Added Associations]` too, so
 see the same choice. The explorer counts the defaults it has set, and the properties window reads "Opens with" again
 when that count changes.
 
+## Applications, as they are listed, and their icons
+
+"Open with" lists applications; so does anything that starts them by name. What an application is comes from its
+desktop entry (`desktop/freedesktop/entries.kt`), read as the Desktop Entry specification says:
+
+- **Whose entry counts.** Say `/usr/share/applications/firefox.desktop` is installed, and you write
+  `~/.local/share/applications/firefox.desktop`. Yours is the one, wholly: the data folders are read the user's
+  first, and an id's first entry is the only one looked at. If yours says `Hidden=true`, there is no Firefox, as
+  far as prism is concerned, which is how the specification has a user take an application away. The same goes for
+  an entry there that is not an application, or cannot be run.
+- **Whether it is shown.** `NoDisplay=true` keeps an entry out of what a person chooses from (`Applications.all()`),
+  and so does `OnlyShowIn` or `NotShowIn`, where they say the entry is for other desktops than this one
+  (`XDG_CURRENT_DESKTOP`, whatever case either is written in). It is installed all the same, and still opens the
+  types it says it opens.
+- **Whether it is there.** An entry whose `TryExec` names a program that is not on the `PATH` (or a path that is not
+  a program) is not installed.
+- **What it says, in your language.** `Name`, `GenericName`, `Comment` and `Keywords` are read as `Name[de]` and the
+  like where the entry has them for the language messages are in (`LC_ALL`, else `LC_MESSAGES`, else `LANG`), the most
+  particular first: for `sr_YU@Latn`, that, then `sr_YU`, `sr@Latn`, `sr`, and then the key with no language.
+- **What else it does.** `Actions=new-window;new-private-window;` names groups (`[Desktop Action new-window]`), each
+  with a name and a command of its own: an `ApplicationAction`. `application.doing(action)` is the application
+  started to do that, and is launched as any application is, its `Exec` filled in the same way.
+
+An entry with no `Exec` has nothing to run, and is not installed. One that says `DBusActivatable=true` and gives no
+`Exec` is started by a message on the session bus, which prism does not send yet.
+
+An application names its icon (`Icon=firefox`), and `Desktop.icons` finds the file
+(`desktop/freedesktop/icons.kt`), as the Icon Theme specification says. Asked for `firefox` at 32 pixels on a
+display of twice the density:
+
+1. A path (`Icon=/opt/app/logo.png`) is the picture itself. A name written with its kind (`firefox.png`) is the name.
+2. The user's theme is looked in: its `index.theme` lists its directories and says of each what size its pictures
+   are, for what scale, and how they may be used at other sizes (at that size alone, between a least and a most, or
+   within a few pixels). A directory that says it is for 32 pixels at scale 2 is looked in first; failing those, the
+   directories are tried nearest first, by how far their pictures are from 64 real pixels. A theme's pictures are in
+   its folder under every folder of themes (`~/.icons`, then each data folder's `icons`), since an application adds
+   its icon to `hicolor` in a folder of its own, though one `index.theme` describes them all.
+3. Then each theme that one inherits from, each once; then `hicolor`; then a file of that name lying in a folder of
+   themes, or in `pixmaps`.
+4. Only if the whole name is nowhere is it tried with less of it: `folder-music-symbolic`, then `folder-music`, then
+   `folder`.
+
+PNG and SVG are found (an SVG first in a directory that scales); XPM is not. Which theme is the user's is the first
+of these that names one that is installed: `PRISM_ICON_THEME`; `gtk-icon-theme-name` in GTK 4's `settings.ini`, then
+GTK 3's; `[Icons] Theme` in `kdeglobals`; GNOME's setting, asked of `gsettings` if it is installed; then Adwaita,
+breeze or Papirus; then `hicolor`. A theme is read once, and every answer kept, so asking for a few hundred icons each
+time a window opens costs a few hundred lookups in a map; `icons.reread()` forgets both, as
+`applications.reread()` reads the entries again.
+
 ## The bindings window
 
 Every key the browser answers is an `Action` (`browser/bindings.kt`) with default chords: "Search everything" is
@@ -299,6 +348,7 @@ explorer's windows, the properties, the chooser, the bindings. What differs is b
 |---|---|---|---|
 | `FileTypes` | shared-mime-info's globs | uniform type identifiers, mapped to MIME types where they have one | the registry's extensions and their content types |
 | `Applications` | desktop entries and `mimeapps.list` | Launch Services (`LSCopyApplicationURLsForURL`, `LSSetDefaultRoleHandlerForContentType`) | the registry's `OpenWithProgids` and the user's choice |
+| `Icons` | the Icon Theme specification's themes | the application bundle's `.icns` (`NSWorkspace iconForFile`) | the executable's own (`SHGetFileInfo`) |
 | `Launcher` | `setsid --fork`, in a systemd scope where there is one | `open -a`, which Launch Services starts outside prism already | `ShellExecuteEx`, likewise |
 | `Places` | the XDG user directories, and `/media`, `/mnt` | `~/Library`'s well-known folders, and `/Volumes` | the known folders, and the drives |
 | `FileFacts` | the JVM's POSIX views, statx for when a file was made | the JVM's POSIX views give all of it | the JVM's DOS and ACL views |

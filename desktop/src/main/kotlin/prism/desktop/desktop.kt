@@ -131,7 +131,12 @@ data class Application(
 ) {
 	/** This application started to do [action] in place of what it does when simply started. */
 	fun doing(action: ApplicationAction): Application =
-		copy(name = "$name: ${action.name}", command = action.command, icon = action.icon ?: icon)
+		copy(
+			name = "$name: ${action.name}",
+			command = action.command,
+			icon =
+				action.icon ?: icon,
+		)
 }
 
 /** Something an application can be started to do other than open: a desktop entry's action. */
@@ -152,6 +157,9 @@ fun interface Icons {
 	 * scales (SVG) or a PNG; null where there is none.
 	 */
 	fun find(name: String, size: Int, scale: Int): Path?
+
+	/** What was read of the icons forgotten, where the desktop keeps it: a theme installed or chosen since is seen. */
+	fun reread() = Unit
 
 	companion object {
 		/** No icons: every application without a picture. */
