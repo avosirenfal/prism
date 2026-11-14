@@ -243,19 +243,31 @@ class Block private constructor(
 
 		private const val DOT = '.'.code.toByte()
 
+		/** The bit that is set in a lower case letter of ASCII and not in its capital. */
+		private const val CASE = 0x20
+
 		/**
 		 * How many bytes of the name from [from] to [to] are its stem: up to its last `.`, or up to `.tar.` where the
 		 * last extension follows one (`archive.tar.gz`'s stem is `archive`). A leading `.` is the stem's, so
 		 * `.gitignore` is all stem.
 		 */
 		fun stemLength(name: ByteArray, from: Int, to: Int): Int {
-			val dot = (to - 1 downTo from + 1).firstOrNull { name[it] == DOT } ?: return to - from
+			// Worked out for every entry of every block that is made, so with no number boxed and no text made.
+			var dot = to - 1
+
+			while (dot > from && name[dot] != DOT)
+				dot--
+			if (dot <= from)
+				return to - from
+
 			val tar = dot - 4
 
 			val compound =
 				tar > from &&
 					name[tar] == DOT &&
-					String(name, tar + 1, 3, Charsets.ISO_8859_1).equals("tar", ignoreCase = true)
+					(name[tar + 1].toInt() or CASE) == 't'.code &&
+					(name[tar + 2].toInt() or CASE) == 'a'.code &&
+					(name[tar + 3].toInt() or CASE) == 'r'.code
 
 			return (if (compound) tar else dot) - from
 		}

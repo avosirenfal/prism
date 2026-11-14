@@ -21,6 +21,37 @@ class ExtensionTest {
 	}
 
 	@Test
+	fun aNamesStemIsUpToItsLastDotOrUpToTarWhereThatComesBeforeIt() {
+		fun stem(name: String) =
+			name.toByteArray().let { String(it, 0, Block.stemLength(it, 0, it.size)) }
+
+		assertEquals(
+			listOf(
+				"photo",
+				"archive",
+				"ARCHIVE",
+				"a.b",
+				".gitignore",
+				"Makefile",
+				"name",
+				".tar",
+				"x.star",
+			),
+			listOf(
+				"photo.jpg",
+				"archive.tar.gz",
+				"ARCHIVE.TAR.GZ",
+				"a.b.c",
+				".gitignore",
+				"Makefile",
+				"name.",
+				".tar.gz",
+				"x.star.gz",
+			).map(::stem),
+		)
+	}
+
+	@Test
 	fun pointsAreThoseOfTheEntriesThatHaveAnyAndNothingForTheRest() {
 		val points = Points.of(mapOf(7 to 30, 2 to 5, 400 to 1))
 
