@@ -15,7 +15,6 @@ In your system's `flake.nix`, prism is an input, and its module one of the syste
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
     prism.url = "github:avosirenfal/prism";
-    prism.inputs.nixpkgs.follows = "nixpkgs";
   };
 
   outputs =
@@ -57,10 +56,12 @@ Then `prism status` says what the daemon is doing, and `journalctl --user -u pri
 
 Three notes on the input:
 
-- `prism.inputs.nixpkgs.follows = "nixpkgs"` builds prism against your system's nixpkgs rather than the revision in
-  prism's own lock, so the libraries it draws with (Mesa, glvnd, Wayland) are the ones the rest of your system has.
-  It wants a recent nixos-unstable: the package asks for `gradle_9` and `jdk25`. On an older nixpkgs, leave the line
-  out, and prism is built with the nixpkgs it was written against.
+- **Do not make prism's nixpkgs follow your own** (`prism.inputs.nixpkgs.follows = "nixpkgs"`). prism is built by
+  the Gradle of the nixpkgs in prism's own lock, and `nix/deps.json` holds exactly what that Gradle fetches; Gradle's
+  own plugins are of a version with Gradle itself, so another nixpkgs' Gradle asks for ones the lock does not hold,
+  and the build fails with a plugin that "was not found" (`org.gradle.kotlin.kotlin-dsl`). Left to its own lock,
+  prism costs a second nixpkgs in your store, and draws through your system's graphics drivers all the same
+  (`/run/opengl-driver`).
 - prism is built on your machine: there is no cache of it. The first build takes a few minutes (Gradle compiles
   every module), and later builds only when prism's sources change.
 - It builds for `x86_64-linux` only for now: the lock of what Gradle fetches (`nix/deps.json`) holds that system's
