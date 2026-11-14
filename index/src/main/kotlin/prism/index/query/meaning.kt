@@ -378,34 +378,41 @@ private class Reading(
 	private fun modifier(body: BodySyntax.Modifier): Test? {
 		val name = body.name.value.lowercase()
 
-		if (name !in MODIFIERS) {
-			val known = MODIFIERS.joinToString(", ") { "$it:" }
+		/** What [mean] makes of [value], which the modifier needs: said to be missing, where nothing follows the colon. */
+		fun <V : ValueSyntax> given(value: V?, mean: (V) -> Test?): Test? {
+			if (value == null) {
+				unfinishedOr(body.span, "“$name:” needs something after it")
 
-			invalid(body.name.span, "there is no “${body.name.value}:”; the modifiers are $known")
+				return null
+			}
 
-			return null
+			return mean(value)
 		}
 
-		val value = body.value
+		return when (val said = body.said) {
+			is ModifierSyntax.Unknown -> {
+				val known = ModifierSyntax.NAMES.joinToString(", ") { "$it:" }
 
-		if (value == null) {
-			unfinishedOr(body.span, "“$name:” needs something after it")
+				invalid(body.name.span, "there is no “${body.name.value}:”; the modifiers are $known")
 
-			return null
-		}
-
-		return when (name) {
-			"dir" -> dir(value as ValueSyntax.Words)
-			"ext" -> ext(value)
-			"type" -> type(value as ValueSyntax.Words)
-			"is" -> flags(value as ValueSyntax.Words)
-			"recent" -> since(value as ValueSyntax.Words, name)?.let(Test::Recent)
-			"new" -> since(value as ValueSyntax.Words, name)?.let(Test::New)
-			else -> mount(value as ValueSyntax.Words)
+				null
+			}
+			is ModifierSyntax.Dir -> given(said.value, ::dir)
+			is ModifierSyntax.Ext -> given(said.value, ::ext)
+			is ModifierSyntax.Worded ->
+				given(said.value) { value ->
+					when (said.of) {
+						ModifierSyntax.Worded.Kind.Type -> type(value)
+						ModifierSyntax.Worded.Kind.Is -> flags(value)
+						ModifierSyntax.Worded.Kind.Recent -> since(value, name)?.let(Test::Recent)
+						ModifierSyntax.Worded.Kind.New -> since(value, name)?.let(Test::New)
+						ModifierSyntax.Worded.Kind.Mount -> mount(value)
+					}
+				}
 		}
 	}
 
-	private fun dir(value: ValueSyntax.Words): Test? {
+	private fun dir(value: ValueSyntax.Placed): Test? {
 		val content = contentOf(value.text) ?: return null
 		val depth = value.depth?.let { depthOf(it) ?: return null } ?: Depth.ANY
 		val located = !content.raw && (content.text.startsWith("~") || content.isPath)
@@ -462,7 +469,7 @@ private class Reading(
 		}
 	}
 
-	private fun ext(value: ValueSyntax): Test? =
+	private fun ext(value: ValueSyntax.OfExt): Test? =
 		when (value) {
 			is ValueSyntax.Regex ->
 				regex(value.regex, listOf(RegexOn.Name))?.let {
@@ -595,8 +602,6 @@ private class Reading(
 	}
 
 	private companion object {
-		val MODIFIERS = listOf("dir", "ext", "type", "is", "recent", "new", "mount")
-
 		val UNITS: Map<Char, Duration> =
 			mapOf(
 				's' to 1.seconds,

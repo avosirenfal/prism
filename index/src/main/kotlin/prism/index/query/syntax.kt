@@ -58,13 +58,63 @@ sealed interface BodySyntax {
 		val regex: RegexSyntax,
 	) : BodySyntax
 
-	/** `name:value`; [value] null where nothing follows the colon yet. */
+	/** `name:value`: the [name] as written, and which modifier that is, with the value read as that one reads its own. */
 	data class Modifier(
 		override val span: Span,
 		val name: Spanned<String>,
 		val colon: Span,
-		val value: ValueSyntax?,
+		val said: ModifierSyntax,
 	) : BodySyntax
+}
+
+/**
+ * Which modifier a name before a colon is, and its value, read the way that modifier's is: each kind holds the only
+ * kind of value it can have, so what gives a modifier its meaning never has to ask whether it was given the right
+ * one. The value is null where nothing follows the colon yet.
+ */
+sealed interface ModifierSyntax {
+	val value: ValueSyntax?
+
+	/** `dir:`, whose words may have a depth after them. */
+	data class Dir(
+		override val value: ValueSyntax.Placed?,
+	) : ModifierSyntax
+
+	/** `ext:`, which takes words or a regex. */
+	data class Ext(
+		override val value: ValueSyntax.OfExt?,
+	) : ModifierSyntax
+
+	/** A modifier that takes words, and which. */
+	data class Worded(
+		val of: Kind,
+		override val value: ValueSyntax.Words?,
+	) : ModifierSyntax {
+		enum class Kind {
+			Type,
+			Is,
+			Recent,
+			New,
+			Mount,
+			;
+
+			/** Its name, as it is written before the colon. */
+			val word: String get() = name.lowercase()
+		}
+	}
+
+	/** A name that is no modifier's, with the words after it. */
+	data class Unknown(
+		override val value: ValueSyntax.Words?,
+	) : ModifierSyntax
+
+	companion object {
+		const val DIR = "dir"
+		const val EXT = "ext"
+
+		/** Every modifier's name. */
+		val NAMES: List<String> = listOf(DIR, EXT) + Worded.Kind.entries.map { it.word }
+	}
 }
 
 /** The anchor before a term's words. */
@@ -116,8 +166,17 @@ data class RegexSyntax(
 sealed interface ValueSyntax {
 	val span: Span
 
-	/** Words, bare or quoted; for `dir:`, with the [depth] after them. */
+	/** What `ext:` takes: words, or a regex. */
+	sealed interface OfExt : ValueSyntax
+
+	/** Words, bare or quoted. */
 	data class Words(
+		override val span: Span,
+		val text: TextSyntax,
+	) : OfExt
+
+	/** `dir:`'s words, with the [depth] after them where there is one. */
+	data class Placed(
 		override val span: Span,
 		val text: TextSyntax,
 		val depth: DepthSyntax?,
@@ -127,7 +186,7 @@ sealed interface ValueSyntax {
 	data class Regex(
 		override val span: Span,
 		val regex: RegexSyntax,
-	) : ValueSyntax
+	) : OfExt
 }
 
 /** `:3`, `:3-5`, `:2-`: the [colon], and what follows it, which may be nothing yet. */
@@ -141,7 +200,7 @@ data class DepthSyntax(
 object QueryGrammar {
 	/** [text] read into its terms. Any text reads: what no rule expects is a term's junk, or a term of its own. */
 	fun read(text: String): QuerySyntax =
-		(query.parse(text, 0) as Step.Took).value.let { QuerySyntax(text, it) }
+		QuerySyntax(text, terms.parse(text, space.many().parse(text, 0).next).value)
 
 	private val space = charThat { it.isWhitespace() }
 
@@ -282,24 +341,35 @@ object QueryGrammar {
 				pure(BodySyntax.Words(Span(parts.first().start, parts.last().end), start, text, last))
 		}
 
-	/** A modifier's value, by the modifier's [name]. */
-	private fun valueOf(name: String): Parser<ValueSyntax> {
-		val text =
-			firstOf(quoted, bare).map {
-				ValueSyntax.Words(it.span, it, null) as ValueSyntax
-			}
+	/** Which modifier [name] is, with its value, read as that modifier's is; no value where none follows. */
+	private fun saidOf(name: String): Parser<ModifierSyntax> {
+		val words = firstOf(quoted, bare).map { ValueSyntax.Words(it.span, it) }
+		val lowered = name.lowercase()
 
-		return when (name.lowercase()) {
-			"ext" -> firstOf(regex(char('/')).map { ValueSyntax.Regex(it.span, it) }, text)
-			"dir" ->
-				(firstOf(quoted, dirBare) and depth.optional()).map { (words, depth) ->
-					ValueSyntax.Words(
-						Span(words.span.start, depth?.span?.end ?: words.span.end),
-						words,
-						depth,
-					)
+		return when (lowered) {
+			ModifierSyntax.EXT ->
+				firstOf<ValueSyntax.OfExt>(
+					regex(char('/')).map { ValueSyntax.Regex(it.span, it) },
+					words,
+				).optional()
+					.map(ModifierSyntax::Ext)
+			ModifierSyntax.DIR ->
+				(firstOf(quoted, dirBare) and depth.optional())
+					.map { (words, depth) ->
+						ValueSyntax.Placed(
+							Span(words.span.start, depth?.span?.end ?: words.span.end),
+							words,
+							depth,
+						)
+					}.optional()
+					.map(ModifierSyntax::Dir)
+			else ->
+				words.optional().map { value ->
+					ModifierSyntax.Worded.Kind.entries
+						.firstOrNull { it.word == lowered }
+						?.let { ModifierSyntax.Worded(it, value) }
+						?: ModifierSyntax.Unknown(value)
 				}
-			else -> text
 		}
 	}
 
@@ -310,10 +380,10 @@ object QueryGrammar {
 
 	private val modifier: Parser<BodySyntax> =
 		(modifierName and char(':').spanned()).then { (name, colon) ->
-			valueOf(name.value).optional().map { value ->
-				val end = value?.span?.end ?: colon.span.end
+			saidOf(name.value).map { said ->
+				val end = said.value?.span?.end ?: colon.span.end
 
-				BodySyntax.Modifier(Span(name.span.start, end), name, colon.span, value)
+				BodySyntax.Modifier(Span(name.span.start, end), name, colon.span, said)
 			}
 		}
 
@@ -339,9 +409,6 @@ object QueryGrammar {
 				pure(TermSyntax(span, negation?.span, body, junk))
 		}
 
-	private val query: Parser<List<TermSyntax>> =
-		(
-			space.many() and
-				(term before space.many()).many()
-		).map { it.second }
+	/** A query's terms, from its first: as many as there are, none included, so any text is read. */
+	private val terms: Always<List<TermSyntax>> = (term before space.many()).many()
 }

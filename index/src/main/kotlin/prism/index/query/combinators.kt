@@ -46,6 +46,11 @@ fun interface Parser<out T> {
 	fun parse(text: String, at: Int): Step<T>
 }
 
+/** A parser that takes something wherever it is asked, if only nothing: what it gives is never [Step.Missed]. */
+fun interface Always<out T> : Parser<T> {
+	override fun parse(text: String, at: Int): Step.Took<T>
+}
+
 /** A character [test] passes. */
 fun charThat(test: (Char) -> Boolean): Parser<Char> =
 	Parser { text, at ->
@@ -126,8 +131,8 @@ fun <T> firstOf(vararg alternatives: Parser<T>): Parser<T> =
 fun <T> Parser<T>.optional(): Parser<T?> = firstOf(this, pure(null))
 
 /** This parser as many times as it matches in a row, none included; it stops where one matches without reading. */
-fun <T> Parser<T>.many(): Parser<List<T>> =
-	Parser { text, start ->
+fun <T> Parser<T>.many(): Always<List<T>> =
+	Always { text, start ->
 		val values = ArrayList<T>()
 		var at = start
 

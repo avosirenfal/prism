@@ -5,19 +5,24 @@ import kotlin.time.Duration.Companion.days
 import kotlin.time.Duration.Companion.hours
 import kotlin.time.Duration.Companion.minutes
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import prism.index.query.BodySyntax
 import prism.index.query.Case
 import prism.index.query.Depth
 import prism.index.query.Flag
 import prism.index.query.Group
+import prism.index.query.ModifierSyntax
 import prism.index.query.Problem
 import prism.index.query.Query
 import prism.index.query.QueryBuilder
+import prism.index.query.QueryGrammar
 import prism.index.query.QueryText
 import prism.index.query.RegexOn
 import prism.index.query.Since
 import prism.index.query.Span
+import prism.index.query.ValueSyntax
 import prism.index.query.query
 
 /**
@@ -300,6 +305,29 @@ class ParserTest {
 				throw AssertionError("“$text” read to ${read.query}, which did not run", failed)
 			}
 		}
+	}
+
+	@Test
+	fun everyModifiersNameReadsAsThatModifierWithTheValueItTakesAndNoOtherNameDoes() {
+		fun said(text: String) =
+			(
+				QueryGrammar
+					.read(text)
+					.terms
+					.single()
+					.body as BodySyntax.Modifier
+			).said
+
+		for (name in ModifierSyntax.NAMES) {
+			assertFalse(said("$name:x") is ModifierSyntax.Unknown, name)
+			assertFalse(said("${name.uppercase()}:x") is ModifierSyntax.Unknown, name)
+			// Nothing after the colon yet: the same modifier, with no value.
+			assertEquals(null, said("$name:").value, name)
+		}
+		assertTrue(said("dir:photos:2") is ModifierSyntax.Dir)
+		assertTrue(said("ext:/jpe?g/").value is ValueSyntax.Regex)
+		assertTrue(said("type:/jpe?g/").value is ValueSyntax.Words)
+		assertTrue(said("colour:red") is ModifierSyntax.Unknown)
 	}
 
 	@Test

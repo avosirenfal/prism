@@ -104,10 +104,11 @@ object Marks {
 				is BodySyntax.Regex -> regex(body.regex)
 				is BodySyntax.Modifier ->
 					listOf(Mark(body.name.span, Role.Modifier), Mark(body.colon, Role.Colon)) +
-						when (val value = body.value) {
+						when (val value = body.said.value) {
 							null -> emptyList()
 							is ValueSyntax.Regex -> regex(value.regex)
-							is ValueSyntax.Words ->
+							is ValueSyntax.Words -> text(value.text, Role.Value)
+							is ValueSyntax.Placed ->
 								text(value.text, Role.Value) +
 									listOfNotNull(value.depth?.let { Mark(it.span, Role.Depth) })
 						}

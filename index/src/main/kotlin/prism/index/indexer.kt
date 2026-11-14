@@ -170,20 +170,18 @@ class Indexer(
 		for (entry in 0 until packed.size) {
 			val inside = packed.inside[entry]
 
-			val place =
+			// A folder that was read: what is in it, and where it is, which are had together or not at all.
+			val under =
 				inside?.let {
-					where.child(
-						packed.names.copyOfRange(
-							packed.nameAt[entry],
-							packed.nameAt[
-								entry +
-									1,
-							],
-						),
-					)
+					it to
+						where.child(
+							packed.names.copyOfRange(packed.nameAt[entry], packed.nameAt[entry + 1]),
+						)
 				}
 
-			val on = inside?.dev?.let { deviceOf(it, place!!, device) } ?: device
+			val on =
+				under?.let { (inside, place) -> inside.dev?.let { deviceOf(it, place, device) } }
+					?: device
 
 			val id =
 				builder.add(
@@ -196,8 +194,7 @@ class Indexer(
 					packed.nameAt[entry + 1],
 				)
 
-			if (inside != null)
-				lay(builder, id, place!!, inside, on)
+			under?.let { (inside, place) -> lay(builder, id, place, inside, on) }
 		}
 	}
 

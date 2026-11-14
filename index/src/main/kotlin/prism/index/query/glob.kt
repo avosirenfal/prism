@@ -14,26 +14,29 @@ data class Glob(
 	val parts: List<Part>,
 ) {
 	sealed interface Part {
+		/** A part that is no choice between others: what a glob is made of once its choices are read out ([readings]). */
+		sealed interface Flat : Part
+
 		/** Characters as themselves. */
 		data class Text(
 			val text: String,
-		) : Part {
+		) : Flat {
 			init {
 				require(text.isNotEmpty()) { "a glob's text is at least one character" }
 			}
 		}
 
 		/** `?`: one character. */
-		data object One : Part
+		data object One : Flat
 
 		/** `*`: any run of characters, none included. */
-		data object Run : Part
+		data object Run : Flat
 
 		/** `[...]`: one character of [spans], or with [negated], one character of none of them. */
 		data class Class(
 			val spans: List<Chars>,
 			val negated: Boolean,
-		) : Part {
+		) : Flat {
 			init {
 				require(spans.isNotEmpty()) { "a class holds at least one character" }
 			}
@@ -66,7 +69,7 @@ data class Glob(
 	 * Every way of reading this glob without a choice in it, each a run of parts: `*.{jpg,png}` is `*.jpg` and
 	 * `*.png`. A choice in a choice is read out too.
 	 */
-	val readings: List<List<Part>> by lazy {
+	val readings: List<List<Part.Flat>> by lazy {
 		parts.fold(listOf(emptyList())) { readings, part ->
 			when (part) {
 				is Part.Choice ->
@@ -75,7 +78,7 @@ data class Glob(
 							alternative.readings.map { before + it }
 						}
 					}
-				else -> readings.map { it + part }
+				is Part.Flat -> readings.map { it + part }
 			}
 		}
 	}

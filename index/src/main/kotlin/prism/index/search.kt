@@ -154,9 +154,10 @@ private fun placesOf(
 	val named =
 		segments
 			.asSequence()
-			.map { (it as? Segment.Named)?.pattern as? TextPattern.Literal }
-			.takeWhile { it != null && it.text != "." && it.text != ".." }
-			.map { it!!.text.encodeToByteArray() }
+			.map { ((it as? Segment.Named)?.pattern as? TextPattern.Literal)?.text }
+			.takeWhile { it != null && it != "." && it != ".." }
+			.filterNotNull()
+			.map(String::encodeToByteArray)
 			.toList()
 
 	return starts.map { start -> named.fold(start, Where::child) }
@@ -525,8 +526,6 @@ private class Matching(
 											Glob.Part.One -> Token.One
 											Glob.Part.Run -> Token.Run
 											is Glob.Part.Class -> Token.OneOf(part, anyCase = !sensitive)
-											// Read out by [Glob.readings], which has none.
-											is Glob.Part.Choice -> error("a reading has no choice in it")
 										}
 									}.toTypedArray()
 							},
@@ -571,20 +570,23 @@ private class LiteralMatch(
 	}
 }
 
-/** A glob's tokens over bytes. */
+/** A glob's tokens over bytes: a run of any characters, or what takes something of its own ([Single]). */
 private sealed interface Token {
+	data object Run : Token
+
+	/** What matches at one place or does not, taking what it matches: all a glob has but its runs. */
+	sealed interface Single : Token
+
 	class Bytes(
 		val bytes: ByteArray,
-	) : Token
+	) : Single
 
-	data object One : Token
-
-	data object Run : Token
+	data object One : Single
 
 	class OneOf(
 		private val spans: Glob.Part.Class,
 		private val anyCase: Boolean,
-	) : Token {
+	) : Single {
 		fun has(codePoint: Int): Boolean =
 			spans.has(codePoint) ||
 				(
@@ -618,21 +620,22 @@ private class GlobMatch(
 
 		while (true) {
 			if (token < tokens.size) {
-				val next = tokens[token]
+				when (val next = tokens[token]) {
+					Token.Run -> {
+						run = token
+						runFrom = at
+						token++
+						continue
+					}
+					is Token.Single -> {
+						val after = step(next, bytes, at, to)
 
-				if (next === Token.Run) {
-					run = token
-					runFrom = at
-					token++
-					continue
-				}
-
-				val after = step(next, bytes, at, to)
-
-				if (after >= 0) {
-					at = after
-					token++
-					continue
+						if (after >= 0) {
+							at = after
+							token++
+							continue
+						}
+					}
 				}
 			} else if (at == to) {
 				return true
@@ -648,7 +651,7 @@ private class GlobMatch(
 	}
 
 	/** Where [token] leaves off, matched at [at]; -1 where it does not match there. */
-	private fun step(token: Token, bytes: ByteArray, at: Int, to: Int): Int =
+	private fun step(token: Token.Single, bytes: ByteArray, at: Int, to: Int): Int =
 		when (token) {
 			is Token.Bytes ->
 				if (to - at >= token.bytes.size &&
@@ -676,7 +679,6 @@ private class GlobMatch(
 					Utf8.next(bytes, at, to)
 				else
 					-1
-			Token.Run -> error("a run is matched by backtracking")
 		}
 }
 
