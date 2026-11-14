@@ -25,6 +25,7 @@ import prism.index.query.Since
 import prism.index.query.query
 import prism.linux.Dev
 import prism.linux.Fd
+import prism.linux.KernelDev
 import prism.linux.Mount
 import prism.linux.orThrow
 import prism.linux.statx
@@ -158,8 +159,14 @@ class SearchTest {
 
 		// The tree's own device is said to be ZFS, for `mount:`.
 		val dev = statx(Fd.CWD, root.toString()).orThrow().dev
+
 		val indexer =
-			Indexer(mounts = listOf(Mount(1, Dev(dev.major, dev.minor), "/", root, "zfs", "pool")))
+			Indexer(
+				mounts =
+					listOf(
+						Mount(1, KernelDev(Dev(dev.major, dev.minor)), "/", root, "zfs", "pool"),
+					),
+			)
 
 		index = Index.EMPTY.with(indexer.index(root))
 	}

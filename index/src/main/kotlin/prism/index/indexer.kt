@@ -8,6 +8,7 @@ import prism.linux.AtFlags
 import prism.linux.Dev
 import prism.linux.Fd
 import prism.linux.FileKind
+import prism.linux.KernelDev
 import prism.linux.Mount
 import prism.linux.Mounts
 import prism.linux.Stat
@@ -216,7 +217,8 @@ class Indexer(
 		return when {
 			mount != null -> Device(dev, mount.dev, mount.type)
 			above != null -> Device(dev, above.kernel, above.type)
-			else -> Device(dev, dev, null)
+			// No mount says what the kernel calls it: taken to be what the stat said, as it is off btrfs.
+			else -> Device(dev, KernelDev(dev), null)
 		}
 	}
 

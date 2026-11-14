@@ -2,6 +2,7 @@ package prism.index
 
 import prism.linux.Dev
 import prism.linux.FileKind
+import prism.linux.KernelDev
 
 /**
  * What an entry of the index is. The index holds folders, files and links, and nothing else (no devices, pipes or
@@ -49,11 +50,8 @@ enum class Kind(
 	}
 }
 
-/** What identifies a file on a machine: its device and its inode. A watcher names the folder a change is in by it. */
-data class FileId(
-	val dev: Dev,
-	val ino: Long,
-)
+/** What identifies a file on a machine ([prism.linux.FileId]): what a watcher names the folder a change is in by. */
+typealias FileId = prism.linux.FileId
 
 /**
  * A file system entries are on: the device a stat of them gives ([dev]), the device of the file system's superblock
@@ -63,7 +61,7 @@ data class FileId(
  */
 data class Device(
 	val dev: Dev,
-	val kernel: Dev,
+	val kernel: KernelDev,
 	val type: String?,
 )
 

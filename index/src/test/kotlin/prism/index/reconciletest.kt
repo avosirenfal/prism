@@ -15,6 +15,7 @@ import org.junit.jupiter.api.io.TempDir
 import prism.index.query.Depth
 import prism.index.query.query
 import prism.linux.Dev
+import prism.linux.KernelDev
 import prism.linux.Mount
 
 /**
@@ -126,25 +127,25 @@ class ReconcileTest {
 			Indexer(
 				mounts =
 					listOf(
-						Mount(1, Dev(disk.major, disk.minor), "/", Path("/"), "ext4", "/dev/vda"),
-						Mount(2, Dev(pool.major, pool.minor), "/", Path("/home"), "btrfs", "/dev/vdb"),
+						Mount(1, KernelDev(disk), "/", Path("/"), "ext4", "/dev/vda"),
+						Mount(2, KernelDev(pool), "/", Path("/home"), "btrfs", "/dev/vdb"),
 					),
 			)
 
 		val top = indexer.deviceOf(disk, Where.of(Path("/srv")), null)
 
 		// The top of a tree: under the deepest mount above it.
-		assertEquals(Device(disk, disk, "ext4"), top)
+		assertEquals(Device(disk, KernelDev(disk), "ext4"), top)
 		// The same device below: the same.
 		assertEquals(top, indexer.deviceOf(disk, Where.of(Path("/srv/data")), top))
 
 		// A mount point: mountinfo says the kernel's number, which for a btrfs subvolume is not a stat's.
 		val home = indexer.deviceOf(Dev(0, 51), Where.of(Path("/home")), top)
 
-		assertEquals(Device(Dev(0, 51), pool, "btrfs"), home)
+		assertEquals(Device(Dev(0, 51), KernelDev(pool), "btrfs"), home)
 		// A subvolume within it, mounted nowhere of its own: the file system above it, as the kernel sees it.
 		assertEquals(
-			Device(Dev(0, 52), pool, "btrfs"),
+			Device(Dev(0, 52), KernelDev(pool), "btrfs"),
 			indexer.deviceOf(Dev(0, 52), Where.of(Path("/home/user")), home),
 		)
 	}

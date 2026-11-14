@@ -25,6 +25,7 @@ import prism.index.Name
 import prism.index.Where
 import prism.index.query.query
 import prism.linux.Fd
+import prism.linux.KernelDev
 import prism.linux.orThrow
 import prism.linux.statx
 
@@ -55,10 +56,10 @@ class LiveIndexTest {
 
 	private fun where(path: String) = Where.of(root.resolve(path))
 
-	/** [path]'s folder as the watcher names it: its device and inode. */
+	/** [path]'s folder as the watcher names it: its device and inode. The device is the stat's, which off btrfs is the kernel's. */
 	private fun idOf(path: String): FileId =
 		statx(Fd.CWD, root.resolve(path).toString()).orThrow().let {
-			FileId(it.dev, it.ino)
+			FileId(KernelDev(it.dev), it.ino)
 		}
 
 	private fun Index.names(): Set<String> =

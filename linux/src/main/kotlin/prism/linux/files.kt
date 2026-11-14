@@ -109,20 +109,49 @@ enum class FileKind {
 	}
 }
 
-/** A device number, as statx gives it (major and minor) and as the kernel keeps it (`MKDEV`: the minor in 20 bits). */
+/** A device number, as statx gives it: major and minor. */
 data class Dev(
 	val major: Int,
 	val minor: Int,
 ) {
-	/** The kernel's own encoding, which a BPF program reads from `super_block.s_dev`. */
-	val kernel: Int get() = (major shl 20) or minor
-
 	override fun toString(): String = "$major:$minor"
+}
+
+/**
+ * A file system's device as the kernel names it: its superblock's (`super_block.s_dev`), which is what mountinfo lists
+ * and what a BPF program reads. Not the device a stat of a file on it gives ([Dev]): the two are one number everywhere
+ * but on btrfs, where each subvolume is a device of its own to a stat and the whole file system is one device to the
+ * kernel. A type of its own, so that neither can be given where the other is meant: a folder looked for by the one a
+ * stat gave would be found everywhere but on btrfs.
+ */
+@JvmInline
+value class KernelDev(
+	val dev: Dev,
+) {
+	/** The kernel's own encoding (`MKDEV`: the minor in the low 20 bits), as a BPF program reads it. */
+	val encoded: Int get() = (dev.major shl 20) or dev.minor
+
+	override fun toString(): String = dev.toString()
 
 	companion object {
-		fun ofKernel(encoded: Int): Dev = Dev(encoded ushr 20, encoded and 0xFFFFF)
+		fun ofEncoded(encoded: Int): KernelDev =
+			KernelDev(
+				Dev(
+					encoded ushr 20,
+					encoded and 0xFFFFF,
+				),
+			)
 	}
 }
+
+/**
+ * What identifies a file on a machine: its file system's device, as the kernel names it, and its inode. A watcher
+ * names the folder a change is in by it.
+ */
+data class FileId(
+	val dev: KernelDev,
+	val ino: Long,
+)
 
 /** An inode as statx described it: what a listing shows of an entry, and what identifies it. */
 data class Stat(

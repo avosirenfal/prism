@@ -8,8 +8,9 @@ import prism.ebpfloader.RecordView
 import prism.ebpfloader.Refusal
 import prism.ebpfloader.RingReader
 import prism.ebpfloader.load
-import prism.linux.Dev
+import prism.linux.FileId
 import prism.linux.FileKind
+import prism.linux.KernelDev
 import prism.linux.Sys
 import prism.linux.Wait
 import prism.linux.map
@@ -24,46 +25,125 @@ import prism.probe.Lost
  * what an index makes of it is the daemon's.
  */
 
-/** One change the kernel made to a directory's entries, as the watcher saw it. */
-class Observed(
-	val change: Change,
-	/** The device, as the kernel names the file system: its superblock's. */
-	val dev: Dev,
-	/** The directory the entry is in, or was in before a move. */
-	val parent: Long,
-	/** Where a move took the entry; null for anything that is not a move. */
-	val movedTo: Long?,
-	/** The entry's inode; null for an entry that is gone. */
-	val ino: Long?,
-	/** The entry's name as the directory holds it: bytes, which need not be UTF-8. After a move, its new name. */
-	name: ByteArray,
-	/** What the entry is, where it is still there to say. */
-	val kind: FileKind?,
+/**
+ * One change the kernel made to a directory's entries, as the watcher saw it: the [folder] the entry is in, or was in
+ * before a move; the entry's [name] there, or after a move its new one; and [what] was done to it, which says what
+ * each kind of change has to say and nothing another kind's (only a move has somewhere it went, and only an entry
+ * that is still there has an inode).
+ */
+data class Observed(
+	val folder: FileId,
+	val name: EntryName,
+	val what: Done,
+	/** The process that did it. */
 	val tgid: Int,
 	val atNs: Long,
 ) {
-	private val name = name.copyOf()
-
-	/** The entry's name, copied. */
-	fun name(): ByteArray = name.copyOf()
-
-	override fun equals(other: Any?): Boolean =
-		other is Observed &&
-			change == other.change &&
-			dev == other.dev &&
-			parent == other.parent &&
-			movedTo == other.movedTo &&
-			ino == other.ino &&
-			name.contentEquals(other.name) &&
-			kind == other.kind &&
-			tgid == other.tgid &&
-			atNs == other.atNs
-
-	override fun hashCode(): Int =
-		(dev.hashCode() * 31 + parent.hashCode()) * 31 + name.contentHashCode()
+	/** The change, as the probe names it. */
+	val change: Change get() = what.change
 
 	override fun toString(): String =
-		"$change $dev $parent${movedTo?.let { " -> $it" }.orEmpty()}/${name.decodeToString()}"
+		"$change ${folder.dev} ${folder.ino}${(what as? Done.Moved)?.let {
+			" -> ${it.to.ino}"
+		}.orEmpty()}/$name"
+}
+
+/** An entry's name as its directory holds it: bytes, which need not be UTF-8, and which nothing can change. */
+class EntryName(
+	bytes: ByteArray,
+) {
+	private val bytes = bytes.copyOf()
+
+	/** The name's bytes, copied. */
+	fun bytes(): ByteArray = bytes.copyOf()
+
+	override fun equals(other: Any?): Boolean =
+		other is EntryName && bytes.contentEquals(other.bytes)
+
+	override fun hashCode(): Int = bytes.contentHashCode()
+
+	override fun toString(): String = bytes.decodeToString()
+}
+
+/** An entry that is there after a change: its inode, and what it is, where its mode says. */
+data class Present(
+	val ino: Long,
+	val kind: FileKind?,
+)
+
+/** What a change did to an entry. */
+sealed interface Done {
+	/** The change, as the probe names it. */
+	val change: Change
+
+	/** An entry that was not there is: a file, a folder, a link, or a second name for a file that had one. */
+	data class Made(
+		val made: Making,
+		val entry: Present,
+	) : Done {
+		override val change: Change get() = made.change
+	}
+
+	/** An entry is gone: found by its name, since it has nothing else left. */
+	data class Removed(
+		val removed: Removing,
+	) : Done {
+		override val change: Change get() = removed.change
+	}
+
+	/**
+	 * The entry was moved [to] another folder (or the same one, renamed), where it has the change's name; or,
+	 * [swapped], changed places with the entry that was there (`RENAME_EXCHANGE`).
+	 */
+	data class Moved(
+		val to: FileId,
+		val swapped: Boolean,
+		val entry: Present,
+	) : Done {
+		override val change: Change
+			get() =
+				if (swapped)
+					Change.Exchanged
+				else
+					Change.Moved
+	}
+
+	/** What was made. */
+	enum class Making(
+		val change: Change,
+	) {
+		File(Change.FileMade),
+		Directory(Change.DirectoryMade),
+		Symlink(Change.SymlinkMade),
+		Node(Change.NodeMade),
+		Link(Change.Linked),
+	}
+
+	/** What was removed. */
+	enum class Removing(
+		val change: Change,
+	) {
+		File(Change.FileRemoved),
+		Directory(Change.DirectoryRemoved),
+	}
+
+	companion object {
+		/**
+		 * What a record of [change] says was done: [to] is the inode of the folder a move went to, on [dev], and
+		 * [entry] what the entry is now, both as the record has them (0 where it has none). Null for a record that
+		 * does not say what its kind of change must: a move to nowhere.
+		 */
+		internal fun of(change: Change, dev: KernelDev, to: Long, entry: Present): Done? =
+			when (change) {
+				Change.Moved, Change.Exchanged ->
+					to.takeIf { it != 0L }?.let {
+						Moved(FileId(dev, it), change == Change.Exchanged, entry)
+					}
+				else ->
+					Making.entries.firstOrNull { it.change == change }?.let { Made(it, entry) }
+						?: Removing.entries.firstOrNull { it.change == change }?.let(::Removed)
+			}
+	}
 }
 
 /** What starting the watcher gave: a watch, or why there is none. */
@@ -120,17 +200,21 @@ class Watch internal constructor(
 	private fun observed(record: RecordView<FsChange>): Observed? {
 		val name = record.text(FsChange.name).takeIf { it.isNotEmpty() } ?: return null
 		val change = record.entry(FsChange.change, Change.entries) ?: return null
-		val ino = record.number(FsChange.ino)
-		val mode = record.number(FsChange.mode).toInt()
+		val dev = KernelDev.ofEncoded(record.number(FsChange.dev).toInt())
+
+		val entry =
+			Present(
+				record.number(FsChange.ino),
+				FileKind.ofMode(record.number(FsChange.mode).toInt()),
+			)
+
+		val what =
+			Done.of(change, dev, record.number(FsChange.toParentIno), entry) ?: return null
 
 		return Observed(
-			change = change,
-			dev = Dev.ofKernel(record.number(FsChange.dev).toInt()),
-			parent = record.number(FsChange.parentIno),
-			movedTo = record.number(FsChange.toParentIno).takeIf { it != 0L },
-			ino = ino.takeIf { it != 0L },
-			name = name,
-			kind = if (mode == 0) null else FileKind.ofMode(mode),
+			folder = FileId(dev, record.number(FsChange.parentIno)),
+			name = EntryName(name),
+			what = what,
 			tgid = record.number(FsChange.tgid).toInt(),
 			atNs = record.number(FsChange.atNs),
 		)

@@ -406,7 +406,7 @@ class LinuxStorage(
 				// A block device's own number, or, for a file system that numbers its superblock apart (btrfs), its
 				// source's.
 				val device =
-					blockOf(dev)?.let { dev to it }
+					blockOf(dev.dev)?.let { dev.dev to it }
 						?: first.source
 							.takeIf { it.startsWith("/dev/") }
 							?.let { source ->

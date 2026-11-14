@@ -18,6 +18,7 @@ import prism.ebpfloader.Attachment
 import prism.linux.Sys
 import prism.linux.Wait
 import prism.probe.FsWatch
+import prism.watcher.Done
 import prism.watcher.Observed
 import prism.watcher.Pinning
 import prism.watcher.Readers
@@ -155,15 +156,15 @@ object ProbeWatch : Command(
 	}
 
 	private fun print(seen: Observed) {
-		val moved = seen.movedTo?.let { " -> $it" }.orEmpty()
+		val moved = (seen.what as? Done.Moved)?.let { " -> ${it.to.ino}" }.orEmpty()
 
 		println(
 			"%-16s %s %d%s/%s  pid %d".format(
 				seen.change,
-				seen.dev,
-				seen.parent,
+				seen.folder.dev,
+				seen.folder.ino,
 				moved,
-				seen.name().decodeToString(),
+				seen.name,
 				seen.tgid,
 			),
 		)

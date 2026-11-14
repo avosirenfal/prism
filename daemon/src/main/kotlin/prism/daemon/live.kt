@@ -92,10 +92,35 @@ class LiveIndex private constructor(
 	private val beforeMaking: (Set<Where>) -> Unit,
 	read: Set<Where>,
 ) : AutoCloseable {
+	/**
+	 * What was changed while something was read, batch by batch as it was seen. A batch is added in one step, however
+	 * many came before it: a list copied for each would be copied whole for every batch of a long first scan, on a
+	 * machine whose files change all the while.
+	 */
+	private class Meanwhile private constructor(
+		private val last: Collection<Changed>,
+		private val before: Meanwhile?,
+	) {
+		operator fun plus(batch: Collection<Changed>): Meanwhile =
+			Meanwhile(batch.toList(), this)
+
+		/** Every change, in the order they were seen. */
+		fun all(): List<Changed> =
+			generateSequence(this) { it.before }
+				.map { it.last }
+				.toList()
+				.asReversed()
+				.flatten()
+
+		companion object {
+			val NONE = Meanwhile(emptyList(), null)
+		}
+	}
+
 	/** A scan in flight: the [places] it reads, and what was [changed] while it read. */
 	private data class Scan(
 		val places: Set<Where>,
-		val changed: List<Changed>,
+		val changed: Meanwhile,
 	)
 
 	/** A place read for searches alone: its own [indexer] (its rules set aside), its [index] once read, and when it was last [used]. */
@@ -103,7 +128,7 @@ class LiveIndex private constructor(
 		val place: Where,
 		val indexer: Indexer,
 		val index: Index?,
-		val changed: List<Changed>,
+		val changed: Meanwhile,
 		val ready: CompletableFuture<Unit>,
 		val used: Instant,
 	)
@@ -258,7 +283,7 @@ class LiveIndex private constructor(
 
 		val id = scanIds.incrementAndGet()
 
-		synchronized(lock) { scans = scans + (id to Scan(places, emptyList())) }
+		synchronized(lock) { scans = scans + (id to Scan(places, Meanwhile.NONE)) }
 
 		return CompletableFuture
 			.supplyAsync({
@@ -272,7 +297,7 @@ class LiveIndex private constructor(
 					}
 
 				synchronized(lock) {
-					val meanwhile = scans.getValue(id).changed
+					val meanwhile = scans.getValue(id).changed.all()
 
 					store.make(changes)
 					store.make(made(meanwhile, store.index, indexer))
@@ -296,7 +321,7 @@ class LiveIndex private constructor(
 
 		val rules = indexer.rules.notIgnoring(indexer.rules.matching(place))
 		val own = Indexer(rules, indexer.mounts, indexer.backend, indexer.threads)
-		val begun = AdHoc(place, own, null, emptyList(), CompletableFuture(), now)
+		val begun = AdHoc(place, own, null, Meanwhile.NONE, CompletableFuture(), now)
 
 		adHoc = adHoc + (place to begun)
 		adHocScanning.execute {
@@ -305,12 +330,12 @@ class LiveIndex private constructor(
 
 				synchronized(lock) {
 					adHoc[place]?.let { asked ->
-						val held = read.with(made(asked.changed, read, own))
+						val held = read.with(made(asked.changed.all(), read, own))
 
 						// A place read now holds any read before under it: those are let go.
 						adHoc =
 							adHoc.filterKeys { !it.within(place) } +
-							(place to asked.copy(index = held, changed = emptyList()))
+							(place to asked.copy(index = held, changed = Meanwhile.NONE))
 					}
 				}
 				begun.ready.complete(Unit)

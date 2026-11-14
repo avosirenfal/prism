@@ -18,7 +18,7 @@ import kotlin.io.path.readLines
  */
 data class Mount(
 	val id: Long,
-	val dev: Dev,
+	val dev: KernelDev,
 	val root: String,
 	val at: Path,
 	val type: String,
@@ -59,7 +59,7 @@ object Mounts {
 			else
 				Mount(
 					id,
-					Dev(device[0].toInt(), device[1].toInt()),
+					KernelDev(Dev(device[0].toInt(), device[1].toInt())),
 					unescaped(fields[3]),
 					Path(unescaped(fields[4])),
 					fields[separator + 1],

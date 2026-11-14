@@ -14,6 +14,7 @@ import prism.index.query.QueryBuilder
 import prism.index.query.RegexOn
 import prism.index.query.query
 import prism.linux.Dev
+import prism.linux.KernelDev
 
 /**
  * How fast the index is at the size of a whole desktop: a made-up tree of `-Pindex.benchmark=N` entries (folders of
@@ -91,7 +92,7 @@ class SearchBenchmark {
 	private fun made(size: Int): Block {
 		val random = Random(2026)
 		val builder = BlockBuilder(Where.ROOT)
-		val disk = Device(Dev(259, 1), Dev(259, 1), "ext4")
+		val disk = Device(Dev(259, 1), KernelDev(Dev(259, 1)), "ext4")
 		var count = 0
 
 		fun add(under: Int, name: String, kind: Kind): Int =

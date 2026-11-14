@@ -21,6 +21,7 @@ import prism.index.query.QueryBuilder
 import prism.index.query.query
 import prism.linux.Dev
 import prism.linux.Fd
+import prism.linux.KernelDev
 import prism.linux.Mount
 import prism.linux.orThrow
 import prism.linux.statx
@@ -267,7 +268,7 @@ class IndexTest {
 			)
 
 		val mounts =
-			listOf(Mount(1, Dev(0, 99), "/", root.resolve("fake-proc"), "proc", "proc"))
+			listOf(Mount(1, KernelDev(Dev(0, 99)), "/", root.resolve("fake-proc"), "proc", "proc"))
 		val index = Index.EMPTY.with(Indexer(rules, mounts).index(root))
 
 		assertEquals(
@@ -287,7 +288,9 @@ class IndexTest {
 		made("docs/a.txt", "music/b.mp3")
 
 		fun idOf(path: String): FileId =
-			statx(Fd.CWD, root.resolve(path).toString()).orThrow().let { FileId(it.dev, it.ino) }
+			statx(Fd.CWD, root.resolve(path).toString()).orThrow().let {
+				FileId(KernelDev(it.dev), it.ino)
+			}
 
 		val index = Index.EMPTY.with(indexer.index(root))
 

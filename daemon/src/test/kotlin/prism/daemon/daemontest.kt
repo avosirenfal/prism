@@ -20,10 +20,13 @@ import prism.index.Name
 import prism.linux.Dev
 import prism.linux.Fd
 import prism.linux.FileKind
+import prism.linux.KernelDev
 import prism.linux.orThrow
 import prism.linux.statx
-import prism.probe.Change
+import prism.watcher.Done
+import prism.watcher.EntryName
 import prism.watcher.Observed
+import prism.watcher.Present
 
 /**
  * The daemon: its feed started before its index is read, so a change made while the index is read is not missed;
@@ -50,7 +53,7 @@ class DaemonTest {
 
 	private fun idOf(path: String): FileId =
 		statx(Fd.CWD, root.resolve(path).toString()).orThrow().let {
-			FileId(it.dev, it.ino)
+			FileId(KernelDev(it.dev), it.ino)
 		}
 
 	private fun Index.names(): Set<String> =
@@ -229,37 +232,31 @@ class DaemonTest {
 
 	@Test
 	fun whatTheWatcherSeesIsTheFolderItWasInAndTheEntry() {
-		val dev = Dev(8, 1)
+		val dev = KernelDev(Dev(8, 1))
+		val entry = Present(7, FileKind.Regular)
 
-		fun seen(change: Change, movedTo: Long? = null) =
-			Observed(
-				change,
-				dev,
-				10,
-				movedTo,
-				7,
-				"a.txt".encodeToByteArray(),
-				FileKind.Regular,
-				1,
-				0,
-			)
+		fun seen(what: Done) =
+			Observed(FileId(dev, 10), EntryName("a.txt".encodeToByteArray()), what, 1, 0)
 
 		val name = Name.of("a.txt")
 
-		assertEquals(listOf(Changed(FileId(dev, 10), name)), changedOf(seen(Change.FileMade)))
 		assertEquals(
 			listOf(Changed(FileId(dev, 10), name)),
-			changedOf(seen(Change.DirectoryRemoved)),
+			changedOf(seen(Done.Made(Done.Making.File, entry))),
+		)
+		assertEquals(
+			listOf(Changed(FileId(dev, 10), name)),
+			changedOf(seen(Done.Removed(Done.Removing.Directory))),
 		)
 		// A move gives only the entry's new name: the folder it left is read again.
 		assertEquals(
 			listOf(Changed(FileId(dev, 10), null), Changed(FileId(dev, 20), name)),
-			changedOf(seen(Change.Moved, movedTo = 20)),
+			changedOf(seen(Done.Moved(FileId(dev, 20), swapped = false, entry))),
 		)
 		// A swap: both folders.
 		assertEquals(
 			listOf(Changed(FileId(dev, 10), null), Changed(FileId(dev, 20), null)),
-			changedOf(seen(Change.Exchanged, movedTo = 20)),
+			changedOf(seen(Done.Moved(FileId(dev, 20), swapped = true, entry))),
 		)
 	}
 }

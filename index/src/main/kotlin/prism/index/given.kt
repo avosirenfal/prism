@@ -3,6 +3,7 @@ package prism.index
 import java.util.Arrays
 import java.util.TreeMap
 import prism.linux.Dev
+import prism.linux.KernelDev
 
 /*
  * An index of a tree that was given, and not read from a disk: what a command listed of an archive, say, or of the
@@ -18,7 +19,7 @@ data class Given(
 )
 
 /** The device every entry of a given tree is said to be on: none, since they are on no disk. */
-private val NOWHERE = Device(Dev(0, 0), Dev(0, 0), null)
+private val NOWHERE = Device(Dev(0, 0), KernelDev(Dev(0, 0)), null)
 
 /**
  * An index of [entries], under `/`. A folder is held wherever something is under one, whether or not it was given

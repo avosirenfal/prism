@@ -11,11 +11,10 @@ import kotlin.io.path.Path
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
-import prism.index.FileId
 import prism.index.Indexer
 import prism.index.Name
 import prism.index.Where
-import prism.probe.Change
+import prism.watcher.Done
 import prism.watcher.Observed
 import prism.watcher.Watcher
 
@@ -68,14 +67,15 @@ sealed interface Feeding {
  * both folders read again.
  */
 fun changedOf(observed: Observed): List<Changed> {
-	val from = FileId(observed.dev, observed.parent)
-	val to = observed.movedTo?.let { FileId(observed.dev, it) }
-	val name = runCatching { Name.of(observed.name()) }.getOrNull()
+	val name = runCatching { Name.of(observed.name.bytes()) }.getOrNull()
 
-	return when (observed.change) {
-		Change.Moved -> listOfNotNull(Changed(from, null), to?.let { Changed(it, name) })
-		Change.Exchanged -> listOfNotNull(Changed(from, null), to?.let { Changed(it, null) })
-		else -> listOf(Changed(from, name))
+	return when (val what = observed.what) {
+		is Done.Made, is Done.Removed -> listOf(Changed(observed.folder, name))
+		is Done.Moved ->
+			listOf(
+				Changed(observed.folder, null),
+				Changed(what.to, name.takeUnless { what.swapped }),
+			)
 	}
 }
 

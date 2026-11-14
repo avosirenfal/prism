@@ -85,7 +85,10 @@ class FilesTest {
 
 	@Test
 	fun theKernelsDeviceEncodingRoundTrips() {
-		assertEquals(Dev(254, 3), Dev.ofKernel(Dev(254, 3).kernel))
+		assertEquals(
+			KernelDev(Dev(254, 3)),
+			KernelDev.ofEncoded(KernelDev(Dev(254, 3)).encoded),
+		)
 	}
 
 	@Test

@@ -13,6 +13,7 @@ import java.nio.file.StandardCopyOption
 import java.nio.file.StandardOpenOption
 import java.util.zip.CRC32C
 import prism.linux.Dev
+import prism.linux.KernelDev
 
 /*
  * The index's file (docs/format.md says it byte by byte): a header, then frames. The first frame is a snapshot of the
@@ -315,8 +316,8 @@ object IndexFile {
 		for (device in block.devices) {
 			out.count(device.dev.major)
 			out.count(device.dev.minor)
-			out.count(device.kernel.major)
-			out.count(device.kernel.minor)
+			out.count(device.kernel.dev.major)
+			out.count(device.kernel.dev.minor)
 			out.bytes(device.type?.encodeToByteArray())
 		}
 		out.count(block.size)
@@ -362,7 +363,7 @@ object IndexFile {
 			List(read.count()) {
 				Device(
 					Dev(read.count(), read.count()),
-					Dev(read.count(), read.count()),
+					KernelDev(Dev(read.count(), read.count())),
 					read.bytes()?.decodeToString(),
 				)
 			}

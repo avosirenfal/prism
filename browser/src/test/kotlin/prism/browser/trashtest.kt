@@ -15,6 +15,7 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import prism.linux.Dev
+import prism.linux.KernelDev
 import prism.linux.Mount
 
 /**
@@ -48,7 +49,7 @@ class TrashTest {
 		}
 
 	private fun mount(id: Long, at: Path, type: String, source: String) =
-		Mount(id, Dev(0, id.toInt()), "/", at, type, source)
+		Mount(id, KernelDev(Dev(0, id.toInt())), "/", at, type, source)
 
 	private val trash get() = Trash(homeTrash, uid, mounts)
 
