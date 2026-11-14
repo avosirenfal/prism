@@ -16,6 +16,9 @@ import prism.cli.Ran
  * best first, a line each. It is the picker's search of everything without the picker: what a script reads, what
  * `cd` is given, what a person chooses from on the terminal.
  *
+ * A shell's folder is the shell's own, which no program it starts can change: so a search only ever prints, and
+ * `--select` is how it prints exactly one path or nothing, for a function of the shell's to go to (docs/shell.md).
+ *
  * Nothing here searches. The index is the daemon's, kept current, so the running prism is asked for what it holds
  * ([RunningPrism], the plumbing command `prism matches`); where none is running, or the one that is keeps no index,
  * whoever made the command says what is done instead ([Seeker]): the Java prism reads the index's file, and the
@@ -123,22 +126,64 @@ class RunningPrism(
 			?.takeUnless { it is Sifted.NoIndex }
 }
 
+/** Which of what a search finds is wanted, as its options say. */
+internal sealed interface Wanted {
+	/** The first [most], printed. */
+	data class Listed(
+		val most: Int,
+	) : Wanted
+
+	/** The one match there is (`--select`): more than one is a mistake of whoever asked, and said to be. */
+	data object Only : Wanted
+
+	/**
+	 * One, chosen from a menu of the first [most] (`--interactive`). Where [alone] (`--select` too), a search that
+	 * finds one thing gives it with no menu to choose it from.
+	 */
+	data class Chosen(
+		val most: Int,
+		val alone: Boolean,
+	) : Wanted
+}
+
+/** What a search came to, for what was wanted of it. */
+internal sealed interface Came {
+	/** These paths, to be printed. */
+	data class Paths(
+		val paths: List<String>,
+	) : Came
+
+	/** Nothing matches. */
+	data object Nothing : Came
+
+	/** One was wanted, and [total] match: the [first] few of them, to show why. */
+	data class Several(
+		val total: Int,
+		val first: List<String>,
+	) : Came
+
+	/** The menu was left with nothing chosen. */
+	data object Cancelled : Came
+
+	/** The query cannot be searched for: what is wrong with it, a line each. */
+	data class Wrong(
+		val problems: List<String>,
+	) : Came
+}
+
 /**
  * `prism search QUERY...`, which asks [running] and, where that has no answer, [otherwise]. What it prints goes
  * through [out] as it is (a path a line, or a NUL after each), and what it says to the person through [err]; one of
- * several paths is chosen by [choose]. [environment] is where a shell's wrapper says how it wants to be told where to
- * go ([GOTO_FILE]).
+ * several paths is chosen by [choose].
  */
 class SearchCommand(
 	private val running: (Sought) -> Sifted? = RunningPrism()::seek,
 	private val otherwise: Seeker,
-	private val environment: Map<String, String> = System.getenv(),
 	private val out: (String) -> Unit = { System.out.print(it) },
 	private val err: (String) -> Unit = { System.err.println(it) },
 	private val choose: (
 		List<String>,
 	) -> String? = { paths -> chosenFrom(paths, IN_SIGHT) { it } },
-	private val isFolder: (Path) -> Boolean = { Files.isDirectory(it) },
 ) : Command(
 		"search",
 		"print the paths the index holds that fit a query (docs/search.md), the best first: " +
@@ -152,8 +197,9 @@ class SearchCommand(
 				"the query, in the search's language; its words are joined with spaces, " +
 					"and one with a space in it is a quoted term. A word that starts with " +
 					"a dash is the query's (-draft: not draft) unless it is exactly one " +
-					"of the options below; write such a term after -- " +
-					"(prism search report -- -g)",
+					"of the options below. Where the words have a -- among them, the " +
+					"query is what follows it, and what is before it is options alone, " +
+					"which can then be run together (prism search -si -- report -g)",
 		)
 	private val best = flag("-b", "--best", help = "only the best match")
 	private val count =
@@ -174,16 +220,16 @@ class SearchCommand(
 					"sight; the arrows or j and k move, Enter chooses, Esc cancels), " +
 					"and print it",
 		)
-	private val goto =
+	private val select =
 		flag(
-			"-g",
-			"--goto",
+			"-s",
+			"--select",
 			help =
-				"print the folder to go to in place of the match: the match, if it is a " +
-					"folder, or the folder it is in. With more than one match (and no " +
-					"-b or -i) they are listed on standard error, with status " +
-					"$SEVERAL. A shell changes folder itself: " +
-					"eval \"\$(prism shell zsh)\" makes prism search -g do it",
+				"print the match where there is exactly one; with more than one, say so " +
+					"on standard error, print nothing, and end with status $SEVERAL. " +
+					"With -i, more than one are chosen among from the menu, and one is " +
+					"printed without it: prism search -si -- report is always one path, " +
+					"or none",
 		)
 	private val files = flag("--files", help = "files only: is:file")
 	private val folders = flag("--dirs", help = "folders only: is:dir")
@@ -196,94 +242,96 @@ class SearchCommand(
 
 	override val dashedArguments: Boolean get() = true
 
+	// A mistake in its words is, to a script, what a query that cannot be searched for is: nothing was looked for.
+	override val mistaken: Int get() = Matches.WRONG
+
 	override fun run(args: Args): Outcome {
+		if (args[words].isEmpty())
+			throw InputError("what to search for is missing")
+
 		val text =
 			(
 				args[words].map(::termOf) +
 					listOfNotNull("is:file".takeIf { args[files] }, "is:dir".takeIf { args[folders] })
 			).joinToString(" ")
 
-		if (args[words].isEmpty())
-			throw InputError("what to search for is missing")
-
-		val wanted =
+		val most =
 			when {
 				args[best] -> 1
 				args[all] -> Int.MAX_VALUE
 				else -> args[count]
 			}
 
-		val found =
-			when (val sifted = sifted(text, wanted)) {
-				is Sifted.Found -> sifted
-				is Sifted.Wrong -> {
-					sifted.problems.forEach { err("prism search: $it") }
-
-					return Outcome("", Matches.WRONG)
-				}
-				is Sifted.NoIndex -> throw InputError(sifted.why)
+		val wanted =
+			when {
+				// The best is one match whatever else is asked: nothing is left to choose, or to be too many.
+				args[best] -> Wanted.Listed(1)
+				args[interactive] -> Wanted.Chosen(most, alone = args[select])
+				args[select] -> Wanted.Only
+				else -> Wanted.Listed(most)
 			}
 
 		val end = if (args[nul]) "\u0000" else "\n"
 
-		/** [path] printed; or, where a folder is what was asked for, the folder to go to for it. */
-		fun given(path: String): Outcome {
-			if (!args[goto]) {
-				out(path + end)
-
-				return Outcome("")
+		return when (val came = came(text, wanted)) {
+			is Came.Paths -> {
+				out(came.paths.joinToString("") { it + end })
+				Outcome("")
 			}
-
-			val folder =
-				Path(path)
-					.let {
-						if (isFolder(it))
-							it
-						else
-							it.parent ?: it
-					}.toString()
-
-			// A shell's wrapper reads where to go from a file it named, so that everything else printed is the
-			// user's to read; without one, the folder is what is printed.
-			when (val file = environment[GOTO_FILE]?.takeIf { it.isNotEmpty() }) {
-				null -> out(folder + end)
-				else ->
-					try {
-						Files.writeString(Path(file), folder)
-					} catch (failed: IOException) {
-						throw InputError("$file cannot be written (${failed.message ?: failed})")
-					}
-			}
-
-			return Outcome("")
-		}
-
-		return when {
-			found.paths.isEmpty() -> {
-				if (args[goto] || args[interactive])
+			Came.Nothing -> {
+				// Said where one path was asked for, and a person or a script is waiting for it.
+				if (wanted !is Wanted.Listed)
 					err("prism search: nothing matches")
 
 				Outcome("", NOTHING)
 			}
-			args[interactive] ->
+			is Came.Several -> {
+				err(
+					"prism search: ${"%,d".format(came.total)} matches, and --select takes " +
+						"one: narrow it, take the best (-b), or choose (-i)",
+				)
+				came.first.forEach(err)
+				if (came.total > came.first.size)
+					err("… and ${"%,d".format(came.total - came.first.size)} more")
+				Outcome("", SEVERAL)
+			}
+			Came.Cancelled -> Outcome("", CANCELLED)
+			is Came.Wrong -> {
+				came.problems.forEach { err("prism search: $it") }
+				Outcome("", Matches.WRONG)
+			}
+		}
+	}
+
+	/** What a search for [text] comes to, for what is [wanted] of it. */
+	private fun came(text: String, wanted: Wanted): Came {
+		// One is wanted, and whether there is one is all that is asked: the first few, to say which, and how many.
+		val asked =
+			when (wanted) {
+				is Wanted.Listed -> wanted.most
+				Wanted.Only -> SHOWN_OF_SEVERAL
+				is Wanted.Chosen -> wanted.most
+			}
+
+		val found =
+			when (val sifted = sifted(text, asked)) {
+				is Sifted.Found -> sifted
+				is Sifted.Wrong -> return Came.Wrong(sifted.problems)
+				is Sifted.NoIndex -> throw InputError(sifted.why)
+			}
+
+		return when {
+			found.paths.isEmpty() -> Came.Nothing
+			wanted is Wanted.Listed -> Came.Paths(found.paths)
+			found.total == 1 && (wanted is Wanted.Only || (wanted as Wanted.Chosen).alone) ->
+				Came.Paths(found.paths.take(1))
+			wanted is Wanted.Only -> Came.Several(found.total, found.paths)
+			else ->
 				try {
-					choose(found.paths)?.let(::given) ?: Outcome("", CANCELLED)
+					choose(found.paths)?.let { Came.Paths(listOf(it)) } ?: Came.Cancelled
 				} catch (none: NoTerminal) {
 					throw InputError(none.why)
 				}
-			args[goto] && found.paths.size > 1 -> {
-				err(
-					"prism search: ${"%,d".format(found.total)} matches, so nowhere to go: " +
-						"narrow it, take the best (-b), or choose (-i)",
-				)
-				found.paths.forEach(err)
-				Outcome("", SEVERAL)
-			}
-			args[goto] -> given(found.paths.single())
-			else -> {
-				out(found.paths.joinToString("") { it + end })
-				Outcome("")
-			}
 		}
 	}
 
@@ -321,16 +369,13 @@ class SearchCommand(
 		/** How many matches are asked for at once. */
 		internal const val PAGE = 20_000
 
-		/** The statuses of nothing found, of more than one place to go, and of a menu cancelled. */
+		/** How many of several matches are shown where one was wanted: enough to see why there is not one. */
+		internal const val SHOWN_OF_SEVERAL = 5
+
+		/** The statuses of nothing found, of more than one where one was wanted, and of a menu cancelled. */
 		const val NOTHING = 1
 		const val SEVERAL = 3
 		const val CANCELLED = 130
-
-		/**
-		 * The variable a shell's wrapper names a file in, for `--goto` to write where to go into: the shell reads it
-		 * and changes folder, which no program it starts can do for it (shell.kt).
-		 */
-		const val GOTO_FILE = "PRISM_GOTO_FILE"
 
 		/**
 		 * A word of the command line as a term of the query. A shell has taken a word's quotes by the time it is

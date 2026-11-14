@@ -21,7 +21,7 @@ import prism.cli.execute
  *
  * So it does only that: its words are asked of the session's prism, which reads them as its own command line and
  * answers what they printed; and what this program does itself (`search`, which may have a menu to show on this
- * terminal, and `shell`) it does, asking the session's prism for what it needs. Everything else, and everything
+ * terminal) it does, asking the session's prism for what it needs. Everything else, and everything
  * nobody answered, is the Java prism's, started with the same words, its input and output this program's own: to
  * whoever ran it, there is one prism, and this is how fast it starts.
  */
@@ -37,7 +37,7 @@ internal val OWN =
 		listOf(
 			Category(
 				"searching",
-				listOf(SearchCommand(otherwise = { throw HandedOver() }), ShellCommand),
+				listOf(SearchCommand(otherwise = { throw HandedOver() })),
 			),
 		),
 	)

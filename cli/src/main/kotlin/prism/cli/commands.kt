@@ -75,10 +75,16 @@ abstract class Command(
 	/**
 	 * Whether a word that starts with a dash and names none of its options is an argument, rather than a mistake:
 	 * for a command whose arguments are in a language of their own in which a dash means something (`prism search
-	 * report -draft`, where `-draft` is "not draft"). A word that is exactly one of its options is still that option;
-	 * what follows `--` is arguments, as everywhere.
+	 * report -draft`, where `-draft` is "not draft"). A word that is exactly one of its options is still that option.
+	 *
+	 * That is so only of words with no `--` among them. Where there is one, it says where the arguments begin, so
+	 * what is before it is read as any command's words are: short options run together (`-si`), and a dashed word
+	 * that is no option a mistake; and what follows it is arguments, as everywhere.
 	 */
 	open val dashedArguments: Boolean get() = false
+
+	/** The exit status of a mistake in its words: 1, unless the command's own statuses say another is the one. */
+	open val mistaken: Int get() = 1
 
 	/** What it prints for [args], and its exit status; a problem with what it was given is an [InputError]. */
 	abstract fun run(args: Args): Outcome

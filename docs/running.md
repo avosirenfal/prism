@@ -42,8 +42,7 @@ The rest of this document is each of those parts in turn.
 | `prism daemon` | the daemon, started apart from the terminal; returns once it has said it started |
 | `prism daemon --foreground` | the daemon, run in place, saying what it does on the terminal until stopped: how systemd runs it, and how to watch it |
 | `prism status` | what the prism already running says of itself; status 1 where none is |
-| `prism search QUERY...` | the paths the index holds that fit a query, best first, printed; `-g` goes to what it finds, `-i` chooses from a menu (docs/shell.md); answered by the prism already running, of its live index, or from the index's file where none is |
-| `prism shell bash\|zsh\|fish` | the function that lets `prism search -g` change that shell's folder |
+| `prism search QUERY...` | the paths the index holds that fit a query, best first, printed; `-s` exactly one, `-i` chosen from a menu (docs/shell.md, which has a shell's function that goes to what is found); answered by the prism already running, of its live index, or from the index's file where none is |
 
 `prism --help` lists the rest. A word after `prism` that names no command is `prism explore`'s, so `prism ~/Documents`
 is `prism explore ~/Documents`; a folder whose name is a command's is written with a path (`prism ./index`).

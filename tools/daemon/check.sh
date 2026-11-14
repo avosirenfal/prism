@@ -151,15 +151,29 @@ check "the best alone, and a word with a dash that is no option is the query's" 
 check "what a term leaves out is left out" "1" "$("$PRISM" search a.txt -ext:txt > /dev/null; echo $?)"
 check "nothing found is status 1" "1" "$("$PRISM" search zzzz > /dev/null; echo $?)"
 check "a query that cannot be searched for is status 2" "2" "$("$PRISM" search foo:bar 2> /dev/null; echo $?)"
-check "goto says the folder of the one match" "$tree/docs" "$("$PRISM" search --goto a.txt)"
-# The function `prism shell` prints, read by a shell of its own (with prism named by its place, which that shell does
-# not have on its path), and where that shell is after a search told to go.
+check "select gives the one match" "$tree/docs/a.txt" "$("$PRISM" search -s a.txt)"
+check "and refuses several, printing nothing" "3:" "$("$PRISM" search -s tree/ 2> /dev/null; echo "$?:")"
+check "options are run together before two dashes, and the query follows them" "$tree/docs/a.txt" \
+	"$("$PRISM" search -sb -- a -nothing)"
+check "where a dashed word that is no option is a mistake" "2" "$("$PRISM" search -nothing -- a 2> /dev/null; echo $?)"
+# The function docs/shell.md gives for bash, read by a shell of its own (with prism named by its place, which that
+# shell does not have on its path), and where that shell is after it: a file's folder, and a folder itself.
 went() {
 	PRISM="$PRISM" bash -c '
-		eval "$("$PRISM" shell bash | sed "s|command prism|\"\$PRISM\"|g")"
-		prism search --goto "$1" > /dev/null && pwd' _ "$1"
+		prism() { "$PRISM" "$@"; }
+		pcd() {
+			local found
+			found="$(prism search -si -- "$@")" || return
+			if [ -d "$found" ]; then
+				cd -- "$found"
+			else
+				cd -- "$(dirname -- "$found")"
+			fi
+		}
+		pcd "$@" && pwd' _ "$@"
 }
-check "and the shell's function goes there" "$tree/docs" "$(went a.txt)"
+check "the shell's function goes to the folder of a file found" "$tree/docs" "$(went a.txt)"
+check "and into a folder found" "$tree/docs" "$(went =docs is:dir)"
 check "a NUL after each path" "$tree/docs/a.txt" "$("$PRISM" search -0 a.txt | tr -d '\0')"
 
 echo "--- stopped, it writes its index and takes its socket away"

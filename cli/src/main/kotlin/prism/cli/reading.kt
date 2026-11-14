@@ -76,21 +76,68 @@ private fun read(command: Command, words: List<String>): Parsed<Args> {
 	val byName = opts.flatMap { opt -> opt.names.map { it to opt } }.toMap()
 	val positional = command.params.filterIsInstance<Positional<*, *>>()
 
-	return options(
-		words,
-		byName,
-		Read(emptyMap(), emptyList()),
-		command.dashedArguments,
-	).then { read ->
+	// A `--` among the words says where the arguments begin, so nothing before it need be guessed at.
+	val dashes =
+		when {
+			!command.dashedArguments -> Dashes.Options
+			"--" in words -> Dashes.OptionsAlone
+			else -> Dashes.Arguments
+		}
+
+	return options(words, byName, Read(emptyMap(), emptyList()), dashes).then { read ->
 		optionValues(opts, read.options).then { options ->
 			positionalValues(positional, read.positional).then { Parsed.Value(Args(options + it)) }
 		}
 	}
 }
 
+/** How a word that starts with a dash and names no option is read. */
+private enum class Dashes {
+	/** As an option, and so a mistake; but a lone `-` and a negative number are words of their own. */
+	Options,
+
+	/** As an option, and so a mistake, whatever follows its dash: the arguments are after a `--`. */
+	OptionsAlone,
+
+	/** As an argument ([Command.dashedArguments]). */
+	Arguments,
+}
+
 /** An option's word: `--name`, `--name=VALUE`, or `-o`; a lone `-` and a negative number are words of their own. */
 private fun isOption(word: String) =
 	word.length > 1 && word.startsWith("-") && word[1] != '.' && !word[1].isDigit()
+
+/** Whether [word], which names no option, is read as one all the same, and so is a mistake, as [dashes] say. */
+private fun looksLikeOption(word: String, dashes: Dashes): Boolean =
+	when (dashes) {
+		Dashes.Options -> isOption(word)
+		Dashes.OptionsAlone -> word.length > 1 && word.startsWith("-")
+		Dashes.Arguments -> false
+	}
+
+/**
+ * The options [word] runs together, each as it is written alone (`-si` is `-s` and `-i`): null where it is not
+ * short options run together, every letter of it one of [byName]'s. Only the last may take a value, which is the
+ * word after it; one before the last that takes a value is said, since `-ns 5` gives `-n` nothing.
+ */
+private fun runTogether(
+	word: String,
+	byName: Map<String, Opt<*>>,
+): Parsed<List<String>>? {
+	if (word.length < 3 || !word.startsWith("-") || word.startsWith("--") || '=' in word)
+		return null
+
+	val each = word.drop(1).map { "-$it" }
+
+	if (each.any { it !in byName })
+		return null
+
+	return each.dropLast(1).firstOrNull { byName[it] !is Flag }?.let {
+		Parsed.Invalid(
+			"$it takes a value, so it is written last of those run together in $word",
+		)
+	} ?: Parsed.Value(each)
+}
 
 private fun <T> value(type: ParamType<T>, word: String, of: String): Parsed<T> =
 	when (val parsed = type.read(word)) {
@@ -99,33 +146,45 @@ private fun <T> value(type: ParamType<T>, word: String, of: String): Parsed<T> =
 	}
 
 /**
- * [words] read from the first on, options by [byName], into [read]. Where [dashed], a word that looks like an option
- * and names none is an argument ([Command.dashedArguments]).
+ * [words] read from the first on, options by [byName], into [read]; a word that starts with a dash and names no
+ * option read as [dashes] say.
  */
 private tailrec fun options(
 	words: List<String>,
 	byName: Map<String, Opt<*>>,
 	read: Read,
-	dashed: Boolean,
+	dashes: Dashes,
 ): Parsed<Read> {
 	val word = words.firstOrNull() ?: return Parsed.Value(read)
 
 	if (word == "--")
 		return Parsed.Value(read.copy(positional = read.positional + words.drop(1)))
-	// A word that is one of the command's options is that option, whatever it looks like (`-0`, which would
-	// otherwise be a number); any other is an option only where it looks like one, and the command takes none such
-	// for arguments.
-	if (word.substringBefore('=') !in byName && (!isOption(word) || dashed))
-		return options(
-			words.drop(1),
-			byName,
-			read.copy(positional = read.positional + word),
-			dashed,
-		)
 
 	val name = word.substringBefore('=')
+
+	// A word that is one of the command's options is that option, whatever it looks like (`-0`, which would
+	// otherwise be a number). Any other is short options run together, where dashed words are options and every
+	// letter of it is one; or an option that is not there, where it looks like one; or an argument.
+	if (name !in byName) {
+		val together = runTogether(word, byName).takeIf { dashes != Dashes.Arguments }
+
+		return when {
+			together is Parsed.Invalid -> together
+			together is Parsed.Value ->
+				options(together.value + words.drop(1), byName, read, dashes)
+			looksLikeOption(word, dashes) -> Parsed.Invalid("unknown option $name")
+			else ->
+				options(
+					words.drop(1),
+					byName,
+					read.copy(positional = read.positional + word),
+					dashes,
+				)
+		}
+	}
+
 	val inline = word.substringAfter('=', "").takeIf { '=' in word }
-	val opt = byName[name] ?: return Parsed.Invalid("unknown option $name")
+	val opt = byName.getValue(name)
 	val given = read.options[opt].orEmpty()
 
 	if (given.isNotEmpty() && opt !is Repeated<*>)
@@ -181,7 +240,7 @@ private tailrec fun options(
 					options =
 						read.options + (opt to given + value),
 				),
-				dashed,
+				dashes,
 			)
 		}
 	}

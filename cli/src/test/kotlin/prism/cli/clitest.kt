@@ -164,6 +164,82 @@ class CliTest {
 		assertEquals("unknown option -draft", wrong("probe", "-draft"))
 	}
 
+	/** A command with short options, as most have: what is run together is each of them. */
+	private object Short : Command("short", "short options") {
+		val words = arguments("WORD", ParamType.TEXT)
+		val all = flag("-a", "--all", help = "")
+		val best = flag("-b", "--best", help = "")
+		val count = option("-n", "--count", type = ParamType.INT, default = 20, help = "")
+		val nul = flag("-0", "--null", help = "")
+
+		override fun run(args: Args) = Outcome("")
+	}
+
+	@Test
+	fun shortOptionsAreRunTogetherAndOnlyTheLastTakesAValue() {
+		fun read(command: Command, vararg words: String): Args =
+			assertInstanceOf(Invocation.Run::class.java, invocation(command, words.toList())).args
+
+		fun wrongly(command: Command, vararg words: String): String =
+			assertInstanceOf(
+				Invocation.Wrong::class.java,
+				invocation(command, words.toList()),
+			).message
+
+		val together = read(Short, "-ab0", "x")
+
+		assertEquals(
+			listOf(true, true, true),
+			listOf(Short.all, Short.best, Short.nul).map {
+				together[it]
+			},
+		)
+		assertEquals(listOf("x"), together[Short.words])
+
+		// The last may take a value, which is the word after.
+		val counted = read(Short, "-abn", "3", "x")
+
+		assertEquals(3, counted[Short.count])
+		assertEquals(listOf("x"), counted[Short.words])
+		assertEquals(
+			"-n takes a value, so it is written last of those run together in -nab",
+			wrongly(Short, "-nab", "3"),
+		)
+		// A letter that is no option makes the whole word one that is not there; twice is twice, as written apart.
+		assertEquals("unknown option -abx", wrongly(Short, "-abx"))
+		assertEquals("-a given twice", wrongly(Short, "-aa"))
+		assertEquals("-a given twice", wrongly(Short, "-a", "-ba"))
+		// A long option is not letters run together, nor is one with a value written into it.
+		assertEquals("unknown option --ab", wrongly(Short, "--ab"))
+		assertEquals("unknown option -ab", wrongly(Short, "-ab=3"))
+
+		// Where dashed words are arguments, they stay arguments, however like options run together they look;
+		// until two dashes say where the arguments begin, and what is before them is options alone.
+		assertEquals(listOf("-bn", "x"), read(Seek, "-bn", "x")[Seek.words])
+
+		val dashed = read(Seek, "-bn", "3", "--", "-draft", "-b")
+
+		assertEquals(true, dashed[Seek.best])
+		assertEquals(3, dashed[Seek.count])
+		assertEquals(listOf("-draft", "-b"), dashed[Seek.words])
+		assertEquals("unknown option -draft", wrongly(Seek, "-draft", "--", "report"))
+		assertEquals("unknown option -5", wrongly(Seek, "-5", "--", "report"))
+		assertEquals(listOf("first", "report"), read(Seek, "first", "--", "report")[Seek.words])
+		// A command says what a mistake in its words ends with: 1, unless it has a status of its own for that.
+		assertEquals(1, execute(Seek, listOf("-draft", "--", "x")).status)
+		assertEquals(
+			2,
+			execute(
+				object : Command("picky", "its own status for a mistake") {
+					override val mistaken: Int get() = 2
+
+					override fun run(args: Args) = Outcome("")
+				},
+				listOf("--nope"),
+			).status,
+		)
+	}
+
 	@Test
 	fun mistakesAreRefusedNotReadAnotherWay() {
 		assertEquals("unknown option --nope", wrong("probe", "in", "--need", "1", "--nope"))

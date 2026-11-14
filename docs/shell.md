@@ -24,7 +24,7 @@ term to be fitted, the results in the order the picker's search gives them. So e
 | `-a`, `--all` | every match, however many |
 | `-b`, `--best` | only the best one |
 | `-i`, `--interactive` | choose one from a menu on the terminal, and print it (below) |
-| `-g`, `--goto` | print the folder to go to, in place of the match (below) |
+| `-s`, `--select` | exactly one match, printed; more than one is an error, or with `-i` a menu (below) |
 | `--files`, `--dirs` | files only, folders only: `is:file`, `is:dir`, said in fewer letters |
 | `-0`, `--null` | a NUL after each path in place of a new line, for `xargs -0` and names with new lines in them |
 
@@ -35,30 +35,46 @@ Its exit status says what happened, as `grep`'s does:
 | 0 | something was found, and printed |
 | 1 | nothing matches; or there is no index to search, which it says |
 | 2 | the query cannot be searched for: what is wrong with it is said on standard error |
-| 3 | `--goto` found more than one place to go |
+| 3 | `--select` found more than one match, and there was no menu to choose from |
 | 130 | the menu was cancelled |
 
 ### Words that start with a dash
 
 In the search's language a dash before a term means "not": `-draft` leaves out names with "draft" in them. On a
-command line a dash starts an option. `prism search` reads its words so:
+command line a dash starts an option. `prism search` reads its words in one of two ways, by whether there is a `--`
+among them.
+
+**With no `--`**, the query and the options are mixed, and told apart word by word:
 
 - a word that is **exactly** one of its options (`-b`, `--best`, `-n`, `-0`, ...) is that option;
-- any other word that starts with a dash is the query's: `-draft`, `-ext:pdf`, `-is:hidden`;
-- everything after `--` is the query's, whatever it looks like.
+- any other word that starts with a dash is the query's: `-draft`, `-ext:pdf`, `-is:hidden`.
 
-So `prism search report -draft -b` is the best match for `report -draft`. Short options are not run together
-(`-bi` is a term, "not bi"), which keeps the options few enough to remember: a negated term is an option only if it
-is one of `-a`, `-b`, `-g`, `-i`, `-n` or `-0`. To leave out names with a "g" in them, write the term after two
-dashes, or with the quotes the language gives it, inside quotes the shell takes:
+So `prism search report -draft -b` is the best match for `report -draft`. Short options are not run together here
+(`-bi` is a term, "not bi"): if they were, a word like `-big` or `-sin` would be three options and not a term.
+
+**With a `--`**, it says where the query begins, so nothing has to be guessed:
+
+- what is before it is options, as any command reads them: short ones can be run together (`-si` is `-s` and `-i`),
+  and one that takes a value is written last, its value after it (`-sin 5`);
+- a word before it that starts with a dash and is not an option, or options run together, is a mistake, said with
+  status 2, rather than quietly taken for part of the query;
+- what is after it is the query, every word of it, whatever it looks like.
 
 ```console
-$ prism search report -- -g
-$ prism search report '-"g"'
+$ prism search -si -- report -draft
+$ prism search -bn 5 -- -s
 ```
 
-`-"g"` typed bare does not do it: the shell takes the quotes away before prism sees the word, and what arrives is
-`-g`.
+The second searches for "not s". That is how a term that looks like an option is written: after the two dashes. It
+can also be written with the quotes the language gives it, inside quotes the shell takes:
+
+```console
+$ prism search report -- -s
+$ prism search report '-"s"'
+```
+
+`-"s"` typed bare does not do it: the shell takes the quotes away before prism sees the word, and what arrives is
+`-s`.
 
 A shell takes a word's quotes in general, so a word that arrives with a space in it is taken for a quoted term:
 `prism search "tax return"` searches for `"tax return"`, and `prism search dir:"old photos"` for `dir:"old photos"`.
@@ -103,37 +119,74 @@ $ $EDITOR "$(prism search -i --files config)"
 When it ends, however it ends, the terminal is as it was and the menu's lines are gone. With no terminal (a script
 run by cron), `-i` says so and exits 1.
 
-## Going to what was found
+## Exactly one: `--select`
 
-`prism search -g QUERY` is for changing folder. With one match, it prints the folder to go to: the match itself, if
-it is a folder, and otherwise the folder it is in. With several, it lists them on standard error and exits 3, since
-it cannot know which you meant: narrow the query, take the best with `-b`, or choose with `-i`.
+A script, or a function of your shell's, usually wants one path, not a list. `-s` is how a search is told so:
 
-A program cannot change the folder of the shell that ran it; only the shell can. So one line in the file your shell
-reads as it starts gives the shell a function that does:
+| what the query finds | `prism search -s` | `prism search -s -i` |
+|---|---|---|
+| one match | prints it, status 0 | prints it, status 0, with no menu |
+| several | prints nothing; says how many on standard error, with the first five, status 3 | the menu; prints the one chosen, or nothing and status 130 where it is cancelled |
+| none | prints nothing; "nothing matches" on standard error, status 1 | the same |
 
-| shell | the line |
-|---|---|
-| bash (`~/.bashrc`) | `eval "$(prism shell bash)"` |
-| zsh (`~/.zshrc`) | `eval "$(prism shell zsh)"` |
-| fish (`~/.config/fish/config.fish`) | `prism shell fish \| source` |
+So `prism search -si -- QUERY` is always one path on standard output, or none and a status that is not 0. It counts
+every match there is, not only those that would be printed: `-s -n 1` over fifty matches is still several. `-n` and
+`-a` say how many the menu holds, as they do for `-i` alone. `-b` is one match already, so with it `-s` and `-i` have
+nothing left to do, and the best is printed.
 
-With it:
+## Going to what it finds
+
+A program cannot change the folder of the shell that ran it; only the shell can. So prism prints where to go, and a
+function of the shell's goes there. These go to a folder found, or to the folder a file found is in: at once where
+one thing matches, and after choosing from the menu where several do.
+
+For bash and zsh, in `~/.bashrc` or `~/.zshrc`:
+
+```bash
+# Go to what prism finds: a folder itself, or the folder a file is in.
+pcd() {
+	local found
+	found="$(prism search -si -- "$@")" || return
+	if [ -d "$found" ]; then
+		cd -- "$found"
+	else
+		cd -- "$(dirname -- "$found")"
+	fi
+}
+```
+
+For fish, in `~/.config/fish/functions/pcd.fish`:
+
+```fish
+# Go to what prism finds: a folder itself, or the folder a file is in.
+function pcd --description 'go to what prism finds'
+	set -l found (prism search -si -- $argv); or return
+	if test -d "$found"
+		cd -- "$found"
+	else
+		cd -- (dirname -- "$found")
+	end
+end
+```
 
 ```console
-~ $ prism search -g prism docs
-~/Projects/prism/docs $ prism search -g -i report
+~ $ pcd prism docs
+~/Projects/prism/docs $ pcd report .pdf
 (a menu; Enter on ~/Documents/2026/report.pdf)
 ~/Documents/2026 $
 ```
 
-The function is called `prism` and stands in front of the program. Anything but a search it passes on untouched. For
-a search, it names a file in `PRISM_GOTO_FILE` for prism to write the folder into, and changes to that folder
-afterwards if anything was written. So the search prints what it would have printed without the function (its
-matches, its menu, what is wrong with a query), and only a `--goto` that found where to go changes anything.
-`prism shell bash` prints the function, a dozen lines, if you would rather read it than take that on trust.
+The menu is drawn on the terminal and not on standard output, which is why `$(...)` can read the path while you are
+choosing it. Cancelled, or with nothing found, the function returns the search's status and you stay where you were.
 
-Without the function, `--goto` prints the folder, and `cd "$(prism search -g -b report)"` does the same by hand.
+Without a function, the same by hand, for folders only:
+
+```console
+$ cd "$(prism search -s --dirs -- photos 2024)"
+```
+
+`prism search ... | cd` does not work in any shell: `cd` takes where to go as a word, not from its input, and in a
+pipeline it would run in a shell of its own, whose folder is not yours.
 
 ## Who searches
 
@@ -151,14 +204,14 @@ Nothing in `prism search` reads the index. It asks:
 Starting Java takes about a fifth of a second before a program has read its first word. Asking the daemon for a
 window, the launcher, its status or a search needs none of what that time buys: it is a few words written to a
 socket. So the `prism` on your path, in the flake's package, is not Java. It is a small program compiled ahead of
-time (GraalVM's native-image) from the same Kotlin: the `client` module, which holds what one prism asks another and
-how, `prism search`, and `prism shell`.
+time (GraalVM's native-image) from the same Kotlin: the `client` module, which holds what one prism asks another,
+how, and `prism search`.
 
 What it does with its words:
 
 | words | done by |
 |---|---|
-| `search ...`, `shell ...` | the client itself; a search asks the prism running, as above |
+| `search ...` | the client itself, which asks the prism running, as above |
 | anything else, with a prism running | sent to it as typed. It reads them as its own command line, and answers what they printed |
 | anything nobody answered | the Java prism, started with the same words, its input and output the client's own |
 
@@ -181,7 +234,6 @@ runs):
 | `prism launcher` (the daemon has shown it) | about 16 ms | about 0.18 s |
 | `prism search report` | about 10 ms | about 0.16 s |
 | `prism ~/Documents` (the daemon has opened the window) | about 12 ms | about 0.16 s |
-| `prism shell bash` (nobody asked) | about 5 ms | about 0.13 s |
 
 ### Where the Java prism is
 
@@ -206,11 +258,13 @@ later. The flake's dev shell sets `GRAALVM_HOME`; the package builds the client 
 ## Tested
 
 - `CliTest`: a word with a dash that names no option is an argument where a command says so, an option's own word
-  is still the option, and everything after `--` is an argument.
+  is still the option, and everything after `--` is an argument; short options run together, the last alone taking
+  a value; and, with a `--`, what is before it options alone, a dashed word that is none of them refused.
 - `SearchTest` (client): which words are options and which the query, a word with a space quoted again; what each
-  option prints and exits with; every match asked for a page at a time; `--goto`'s folder, its several, its file
-  for the shell's function; the menu's choice printed or gone to, cancelled, and refused without a terminal; and what
-  was found said by one prism to another and read back.
+  option prints and exits with; every match asked for a page at a time; options run together before a `--`, and a
+  stray dashed word there refused with status 2; `--select`'s one match, its several and its none, and with a menu
+  the one given without it and the one chosen; the menu's choice printed, cancelled, and refused without a terminal;
+  and what was found said by one prism to another and read back.
 - `MenuTest` (client): which lines are in sight for every place of the highlight, what each key is, and how the
   lines are drawn.
 - `ClientTest` (client): words asked of a prism listening as they were typed, what is left to the Java prism, and
@@ -218,9 +272,13 @@ later. The flake's dev shell sets `GRAALVM_HOME`; the package builds the client 
 - `PathSearchTest` (app): matches from an index best first and by page, a wrong query refused with why, the index's
   file read and reported missing, a running prism answering from its index, and what asks for a prism of its own
   refused.
-- `tools/daemon/check.sh`: `prism search` answered by a running daemon, its statuses, `--goto` and the shell's
-  function changing folder, and a search reading the index's file once the daemon is gone; run with the app image,
+- `tools/daemon/check.sh`: `prism search` answered by a running daemon, its statuses, `--select` giving one match
+  and refusing several, options run together before a `--`, the bash function above changing folder, and a search
+  reading the index's file once the daemon is gone; run with the app image,
   with the client built here, and with the Nix package.
 
 The menu itself was tried on a terminal of its own (a pty, keys sent as a terminal sends them), by the client and by
-the Java prism; that is not among the tests Gradle runs.
+the Java prism: `-si` with several matches (one chosen, and cancelled), with one (given with no menu), with none, and
+run together with a count. The fish function above was read by fish 3.7 and gone with, to a file's folder, into a
+folder, and to one with a space in its name. Neither is among the tests Gradle runs; the bash function is among the
+check's, and was not tried in zsh.

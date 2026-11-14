@@ -107,15 +107,7 @@ class ClientTest {
 	}
 
 	@Test
-	fun searchAndShellAreDoneHereAndSearchWithNobodyToAskIsHandedOver() {
-		// The function a shell reads is printed without asking anyone.
-		val shell = answered(listOf("shell", "bash"), null, caller)!!
-
-		assertEquals(0, shell.status)
-		assertTrue(shell.out.startsWith("prism() {"))
-		assertTrue(SearchCommand.GOTO_FILE in shell.out)
-		assertTrue("function prism" in answered(listOf("shell", "fish"), null, caller)!!.out)
-		assertEquals(1, answered(listOf("shell", "tcsh"), null, caller)!!.status)
+	fun searchIsDoneHereAndWithNobodyToAskIsHandedOver() {
 		// Its help is its own, under prism's name.
 		assertTrue(
 			answered(listOf("search", "--help"), null, caller)!!

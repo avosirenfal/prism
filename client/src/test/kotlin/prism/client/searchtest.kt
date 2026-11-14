@@ -1,26 +1,22 @@
 package prism.client
 
-import java.nio.file.Path
 import kotlin.io.path.Path
-import kotlin.io.path.readText
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
-import org.junit.jupiter.api.io.TempDir
 import prism.cli.Ran
 import prism.cli.execute
 
 /**
  * `prism search`, over an index of the tests' own: which of its words are options and which the query, what each
- * option prints and ends with, where `--goto` goes, and how what is found is said by one prism to another.
+ * option prints and ends with, the one match `--select` gives, and how what is found is said by one prism to another.
  */
 class SearchTest {
-	/** What the tests' index holds for any query, best first; the folders among them. */
+	/** What the tests' index holds for any query, best first. */
 	private val held =
 		listOf("/home/a/Documents/report.pdf", "/home/a/Documents", "/home/a/old/report.txt") +
 			(4..50).map { "/home/a/more/file$it" }
-	private val folders = setOf("/home/a/Documents")
 
 	/** What a search printed, said and ended with, and what it asked for. */
 	private class Run(
@@ -41,7 +37,6 @@ class SearchTest {
 		},
 		running: Boolean = true,
 		chosen: (List<String>) -> String? = { error("no menu was expected") },
-		environment: Map<String, String> = emptyMap(),
 	): Run {
 		val out = StringBuilder()
 		val err = ArrayList<String>()
@@ -51,11 +46,9 @@ class SearchTest {
 			SearchCommand(
 				running = { sought -> answer(sought).takeIf { running }?.also { asked += sought } },
 				otherwise = { sought -> answer(sought).also { asked += sought } },
-				environment = environment,
 				out = { out.append(it) },
 				err = { err += it },
 				choose = chosen,
-				isFolder = { it.toString() in folders },
 			)
 
 		val ran: Ran = execute(command, words.toList())
@@ -85,10 +78,12 @@ class SearchTest {
 		assertEquals(1, mixed.asked.single().limit)
 		// What collides with an option is written after two dashes; quotes of its own are left as they are.
 		assertEquals(
-			"report -g -b -\"g\"",
-			search("report", "--", "-g", "-b", "-\"g\"").asked.single().text,
+			"report -s -b -\"s\"",
+			search("report", "--", "-s", "-b", "-\"s\"").asked.single().text,
 		)
 		assertEquals(SearchCommand.COUNT, search("report", "--", "-b").asked.single().limit)
+		// With no two dashes, short options are not run together: -bi is "not bi", the query's.
+		assertEquals("report -bi", search("report", "-bi").asked.single().text)
 		// Files only, folders only: said in the query's own words.
 		assertEquals("report is:file", search("report", "--files").asked.single().text)
 		assertEquals("report is:dir", search("report", "--dirs").asked.single().text)
@@ -166,53 +161,151 @@ class SearchTest {
 	}
 
 	@Test
-	fun gotoPrintsTheFolderOfTheOneMatchAndListsSeveralWithAStatusOfItsOwn(
-		@TempDir folder: Path,
-	) {
-		fun only(path: String): (Sought) -> Sifted = { Sifted.Found(1, listOf(path)) }
+	fun withTwoDashesWhatIsBeforeThemIsOptionsAloneWhichCanBeRunTogether() {
+		val menus = ArrayList<List<String>>()
 
-		// A folder is gone into; a file's folder is gone to.
+		// -si is -s and -i; what follows the dashes is the query, dashed words and all.
+		val both =
+			search("-si", "--", "report", "-draft", "-b", chosen = { paths ->
+				menus += paths
+				paths[1]
+			})
+
+		assertEquals("report -draft -b", both.asked.single().text)
+		assertEquals("${held[1]}\n", both.out)
+		assertEquals(held.take(SearchCommand.COUNT), menus.single())
+
+		// One that takes a value is the last of those run together, and its value the word after.
+		val counted = search("-bn", "3", "--", "report")
+
+		assertEquals("report", counted.asked.single().text)
+		assertEquals("${held[0]}\n", counted.out)
 		assertEquals(
-			"/home/a/Documents\n",
-			search("doc", "-g", answer = only("/home/a/Documents")).out,
-		)
-		assertEquals(
-			"/home/a/Documents\n",
-			search("report", "-g", answer = only("/home/a/Documents/report.pdf")).out,
+			held.take(2).joinToString("") { "$it\u0000" },
+			search("-0n", "2", "--", "file").out,
 		)
 
-		val several = search("report", "-g")
+		val early = search("-nb", "3", "--", "report")
 
-		assertEquals(SearchCommand.SEVERAL, several.status)
-		assertEquals("", several.out)
-		assertTrue(several.err.first().startsWith("prism search: 50 matches, so nowhere to go"))
-		assertEquals(held.take(20), several.err.drop(1))
+		assertEquals(Matches.WRONG, early.status)
+		assertTrue(
+			early.err.single().startsWith(
+				"search: -n takes a value, so it is written last of those run together in -nb",
+			),
+		)
+		assertEquals(emptyList<Sought>(), early.asked)
 
-		val nothing = search("zzz", "-g", answer = { Sifted.Found(0, emptyList()) })
+		// A dashed word before the dashes that is no option, and no run of them, is a mistake, and nothing is
+		// searched for: the query is what follows the dashes.
+		for (stray in listOf("-draft", "-x", "--nope", "-ext:pdf", "-5")) {
+			val wrong = search("report", stray, "--", "more")
 
-		assertEquals(SearchCommand.NOTHING, nothing.status)
-		assertEquals(listOf("prism search: nothing matches"), nothing.err)
-		// The best of several is somewhere to go.
-		assertEquals("/home/a/Documents\n", search("report", "-g", "-b").out)
-
-		// A shell's wrapper is told through the file it names, and nothing is printed.
-		val file = folder.resolve("goto")
-
-		val told =
-			search(
-				"report",
-				"-g",
-				"-b",
-				environment = mapOf(SearchCommand.GOTO_FILE to file.toString()),
+			assertEquals(Matches.WRONG, wrong.status, stray)
+			assertTrue(
+				wrong.err.single().startsWith(
+					"search: unknown option ${stray.substringBefore('=')}",
+				),
+				"$stray: ${wrong.err}",
 			)
-
-		assertEquals("", told.out)
-		assertEquals(0, told.status)
-		assertEquals("/home/a/Documents", file.readText())
+			assertEquals(emptyList<Sought>(), wrong.asked, stray)
+		}
+		// A word with no dash before them is the query's still, before what follows them.
+		assertEquals("report more", search("report", "-b", "--", "more").asked.single().text)
 	}
 
 	@Test
-	fun interactiveGivesTheMatchChosenOrGoesToItAndCancelledGivesNothing() {
+	fun selectGivesTheOneMatchAndSaysSoWhereThereAreSeveralOrNone() {
+		fun only(path: String): (Sought) -> Sifted = { Sifted.Found(1, listOf(path)) }
+
+		val one = search("doc", "-s", answer = only("/home/a/Documents"))
+
+		assertEquals("/home/a/Documents\n", one.out)
+		assertEquals(0, one.status)
+		assertEquals(emptyList<String>(), one.err)
+		// Whether there is one is all it asks: a few, to say which they are where there are more.
+		assertEquals(SearchCommand.SHOWN_OF_SEVERAL, one.asked.single().limit)
+
+		val several = search("report", "--select")
+
+		assertEquals(SearchCommand.SEVERAL, several.status)
+		assertEquals("", several.out)
+		assertTrue(
+			several.err.first().startsWith("prism search: 50 matches, and --select takes one"),
+		)
+		assertEquals(
+			held.take(SearchCommand.SHOWN_OF_SEVERAL) + "… and 45 more",
+			several.err.drop(1),
+		)
+		// However many are to be printed, it is every match that is counted.
+		assertEquals(SearchCommand.SEVERAL, search("report", "-s", "-n", "1").status)
+
+		val two =
+			search("x", "-s", answer = { Sifted.Found(2, listOf("/a/one", "/a/two")) })
+
+		assertEquals(listOf("/a/one", "/a/two"), two.err.drop(1))
+
+		val nothing = search("zzz", "-s", answer = { Sifted.Found(0, emptyList()) })
+
+		assertEquals(SearchCommand.NOTHING, nothing.status)
+		assertEquals("", nothing.out)
+		assertEquals(listOf("prism search: nothing matches"), nothing.err)
+		// The best of several is one match, whatever else is asked.
+		assertEquals("${held[0]}\n", search("report", "-s", "-b").out)
+		assertEquals("${held[0]}\n", search("report", "-s", "-i", "-b").out)
+		assertEquals(
+			"/home/a/Documents\u0000",
+			search("doc", "-s", "-0", answer = only("/home/a/Documents")).out,
+		)
+	}
+
+	@Test
+	fun selectWithAMenuGivesTheOneMatchWithoutItAndTheOneChosenOfSeveral() {
+		val menus = ArrayList<List<String>>()
+
+		// One match is given as it is: there is nothing to choose.
+		val one =
+			search("doc", "-s", "-i", answer = { Sifted.Found(1, listOf("/home/a/Documents")) })
+
+		assertEquals("/home/a/Documents\n", one.out)
+		assertEquals(0, one.status)
+
+		// Several are chosen among, the menu of as many as would be printed.
+		val chosen =
+			search("report", "-s", "-i", "-n", "5", chosen = { paths ->
+				menus += paths
+				paths[3]
+			})
+
+		assertEquals("${held[3]}\n", chosen.out)
+		assertEquals(0, chosen.status)
+		assertEquals(held.take(5), menus.single())
+		assertEquals(emptyList<String>(), chosen.err)
+
+		val cancelled = search("report", "-s", "-i", chosen = { null })
+
+		assertEquals("", cancelled.out)
+		assertEquals(SearchCommand.CANCELLED, cancelled.status)
+
+		val nothing =
+			search("zzz", "-si", "--", "zzz", answer = { Sifted.Found(0, emptyList()) })
+
+		assertEquals(SearchCommand.NOTHING, nothing.status)
+		assertEquals(listOf("prism search: nothing matches"), nothing.err)
+		// Without --select, a menu of one is still a menu: what -i alone has always been.
+		search("doc", "-i", answer = {
+			Sifted.Found(
+				1,
+				listOf("/home/a/Documents"),
+			)
+		}, chosen = { paths ->
+			menus += paths
+			paths.single()
+		})
+		assertEquals(listOf("/home/a/Documents"), menus.last())
+	}
+
+	@Test
+	fun interactiveGivesTheMatchChosenAndCancelledGivesNothing() {
 		val menus = ArrayList<List<String>>()
 
 		val picked =
@@ -227,11 +320,6 @@ class SearchTest {
 		assertEquals(held.take(20), menus.single())
 		search("report", "-i", "-a", chosen = { paths -> paths.last().also { menus += paths } })
 		assertEquals(held, menus.last())
-
-		assertEquals(
-			"/home/a/old\n",
-			search("report", "-i", "-g", chosen = { it[2] }).out,
-		)
 
 		val cancelled = search("report", "-i", chosen = { null })
 

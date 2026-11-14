@@ -167,7 +167,7 @@ fun execute(root: Node, words: List<String>): Ran =
 			Ran(
 				"",
 				mistake(invocation.node, invocation.path, invocation.message),
-				1,
+				(invocation.node as? Command)?.mistaken ?: 1,
 			)
 		is Invocation.Run ->
 			try {
