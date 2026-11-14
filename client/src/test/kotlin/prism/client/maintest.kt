@@ -142,7 +142,7 @@ class ClientTest {
 
 		assertNull(javaPrism(emptyMap(), client))
 
-		val beside = program("out/libexec/prism/prism")
+		val beside = program("out/$JAVA_PRISM_INSTALLED")
 
 		assertEquals(beside, javaPrism(emptyMap(), client))
 

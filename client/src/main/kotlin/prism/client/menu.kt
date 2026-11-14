@@ -103,7 +103,7 @@ internal class Menu<T>(
 		return (first until first + height).map { index ->
 			val mark = if (index == at) "> " else "  "
 
-			Line((mark + shown(items[index])).take(width.coerceAtLeast(4)), index == at)
+			Line((mark + shown(items[index])).take(width), index == at)
 		} +
 			Line(
 				"${at + 1} of ${items.size} · Enter chooses, Esc cancels".take(width),
@@ -184,12 +184,15 @@ fun <T> chosenFrom(items: List<T>, lines: Int = 8, shown: (T) -> String): T? {
 		if (stty(terminal, "raw", "-echo") == null)
 			throw NoTerminal("the terminal cannot be made to read a key at a time")
 
+		// How wide the terminal is, where it says: one that says nothing, or nothing a line fits in, is taken for
+		// the width terminals have had since they were made of glass.
 		val width =
 			stty(terminal, "size")
 				?.trim()
 				?.split(' ')
 				?.getOrNull(1)
-				?.toIntOrNull() ?: DEFAULT_WIDTH
+				?.toIntOrNull()
+				?.takeIf { it >= NARROWEST } ?: DEFAULT_WIDTH
 
 		return FileInputStream(terminal).use { keys ->
 			FileOutputStream(terminal).use { screen ->
@@ -247,10 +250,12 @@ private const val CLEAR_LINE = "\u001B[2K"
 private const val HIDE_CURSOR = "\u001B[?25l"
 private const val SHOW_CURSOR = "\u001B[?25h"
 private const val DEFAULT_WIDTH = 80
+private const val NARROWEST = 8
 
 /**
- * The bytes of one key: one byte, or, after an Escape, what follows it at once (an arrow's sequence arrives whole; an
- * Escape pressed alone is followed by nothing).
+ * The bytes of one key: one byte, or, after an Escape, the sequence it begins (an arrow's arrives whole; an Escape
+ * pressed alone is followed by nothing). A sequence ends at the byte that says which key it was, so keys that arrive
+ * together (typed ahead, or pasted) are each read as the key they are.
  */
 private fun read(keys: FileInputStream): List<Int> {
 	val first = keys.read()
@@ -262,13 +267,30 @@ private fun read(keys: FileInputStream): List<Int> {
 
 	// What an arrow sends after its Escape is there within a moment; a person's next key is not.
 	Thread.sleep(SEQUENCE_MILLIS)
+	if (keys.available() == 0)
+		return listOf(first)
 
-	return listOf(first) +
-		List(keys.available().coerceAtMost(LONGEST_SEQUENCE)) { keys.read() }
+	val introducer = keys.read()
+
+	if (introducer != '['.code && introducer != 'O'.code)
+		return listOf(first, introducer)
+
+	tailrec fun rest(read: List<Int>): List<Int> =
+		if (read.size >= LONGEST_SEQUENCE || keys.available() == 0 ||
+			read.lastOrNull() in FINAL
+		)
+			read
+		else
+			rest(read + keys.read())
+
+	return listOf(first, introducer) + rest(emptyList())
 }
 
 private const val SEQUENCE_MILLIS = 25L
 private const val LONGEST_SEQUENCE = 8
+
+/** The bytes one of which ends a control sequence, saying which key it was. */
+private val FINAL = 0x40..0x7E
 
 /** `stty` run on [terminal] with [words], and what it printed; null where it could not be run, or failed. */
 private fun stty(terminal: File, vararg words: String): String? =

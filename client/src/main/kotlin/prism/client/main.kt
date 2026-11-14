@@ -63,17 +63,23 @@ internal fun answered(words: List<String>, place: InstancePlace?, caller: Caller
 	}
 }
 
+/**
+ * Where a package puts the Java prism, from the folder its `bin` is in: beside the programs a person runs, and not
+ * among them (the flake's package, nix/package.nix, which a test holds to this).
+ */
+const val JAVA_PRISM_INSTALLED = "libexec/prism/prism"
+
 /** The variable that names the Java prism, where it is not beside this program. */
 const val JAVA_PRISM = "PRISM_JAVA"
 
 /**
  * The Java prism this program hands its words to: the one [environment] names, or the one installed with this
- * program, which is `../libexec/prism/prism` from where this program is. Null where neither is there.
+ * program ([JAVA_PRISM_INSTALLED], from the folder this program's is in). Null where neither is there.
  */
 internal fun javaPrism(environment: Map<String, String>, program: Path?): Path? =
 	(
 		environment[JAVA_PRISM]?.takeIf { it.isNotEmpty() }?.let(::Path)
-			?: program?.parent?.parent?.resolve("libexec/prism/prism")
+			?: program?.parent?.parent?.resolve(JAVA_PRISM_INSTALLED)
 	)?.takeIf { Files.isExecutable(it) }
 
 /** Where this program is, as the kernel has it. */
@@ -120,6 +126,9 @@ private fun handedOver(words: List<String>): Int {
 /** The status of there being no Java prism to hand words to: a command that cannot be run, as a shell says it. */
 private const val NO_JAVA = 127
 
+/** The status of a mistake of prism's own, as the Java prism has it (`EX_SOFTWARE`). */
+private const val FAILED = 70
+
 fun main(args: Array<String>) {
 	val out =
 		PrintStream(
@@ -132,7 +141,19 @@ fun main(args: Array<String>) {
 	System.setErr(PrintStream(FileOutputStream(FileDescriptor.err), true, Charsets.UTF_8))
 
 	val words = args.toList()
-	val ran = answered(words, InstancePlace.of(), Caller.here())
+
+	val ran =
+		try {
+			answered(words, InstancePlace.of(), Caller.here())
+		} catch (failed: Throwable) {
+			// A mistake of this program's own: said in full, with the status the Java prism gives its own.
+			out.flush()
+			System.err.println(
+				"prism: prism ${words.joinToString(" ")} failed: " +
+					failed.stackTraceToString().trimEnd(),
+			)
+			exitProcess(FAILED)
+		}
 
 	if (ran == null) {
 		out.flush()

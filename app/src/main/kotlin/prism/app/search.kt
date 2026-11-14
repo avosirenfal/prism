@@ -39,7 +39,7 @@ internal fun sifted(sought: Sought, find: (Query) -> Searched): Sifted {
 
 	if (wrong.isNotEmpty())
 		return Sifted.Wrong(
-			wrong.map { "${it.message}: ${sought.text.substring(it.span.start, it.span.end)}" },
+			wrong.map { "${it.message} (“${sought.text.substring(it.span.start, it.span.end)}”)" },
 		)
 	if (read.query.terms.isEmpty())
 		return Sifted.Wrong(listOf("there is nothing in “${sought.text}” to search for yet"))

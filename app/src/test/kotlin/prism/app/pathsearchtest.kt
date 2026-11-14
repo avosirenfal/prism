@@ -99,7 +99,7 @@ class PathSearchTest {
 			wrong.problems.single().startsWith("there is no “foo:”"),
 			wrong.problems.single(),
 		)
-		assertTrue(wrong.problems.single().endsWith(": foo"), wrong.problems.single())
+		assertTrue(wrong.problems.single().endsWith("(“foo”)"), wrong.problems.single())
 		assertInstanceOf(Sifted.Wrong::class.java, sifted(Sought("ext:", 0, 20), find))
 		// An alias nobody defined cannot be searched for.
 		assertInstanceOf(Sifted.Wrong::class.java, sifted(Sought("~nosuchalias/", 0, 20), find))

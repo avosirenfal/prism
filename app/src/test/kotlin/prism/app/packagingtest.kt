@@ -5,6 +5,7 @@ import java.nio.file.Path
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Assumptions.assumeTrue
 import org.junit.jupiter.api.Test
+import prism.client.JAVA_PRISM_INSTALLED
 import prism.portal.FileChooser
 import prism.portal.FileManager
 
@@ -38,11 +39,15 @@ class PackagingTest {
 			// The entry's file is named for the windows' app id, which is how a compositor finds it.
 			"share/applications/$APP_ID.desktop",
 			"Exec=\$out/bin/prism ${ExploreCommand.ISOLATED}",
-			"Exec=\$out/bin/prism ${DaemonCommand.name} --foreground",
+			// What stays is the Java prism itself, with no client waiting on it.
+			"Exec=\$java ${DaemonCommand.name} --foreground",
+			"java=\$out/\${javaPrism}",
+			"javaPrism = \"$JAVA_PRISM_INSTALLED\";",
+			"install -m755 client/build/native/prism \$out/bin/prism",
 			// What gives back to a program prism starts what the wrapper changed for prism.
 			"PRISM_RESTORE_LD_LIBRARY_PATH",
-			"bin/prism ${ProbeGroup.name} ${ProbeLoad.name} --group prism",
-			"bin/prism ${ProbeGroup.name} ${ProbeUnload.name}",
+			"\$java ${ProbeGroup.name} ${ProbeLoad.name} --group prism",
+			"\$java ${ProbeGroup.name} ${ProbeUnload.name}",
 			"-Dprism.launcher=",
 		)
 	}
