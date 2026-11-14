@@ -161,31 +161,46 @@ internal class Windows(
 	private val asks = Channel<Ask<*>>(Channel.UNLIMITED)
 	private val stopping = CompletableDeferred<Unit>()
 
-	/** Why there are no windows now, where there are none: said to `prism status`. */
-	@Volatile
-	private var unable: String? = "none has been asked for yet"
+	/**
+	 * How the windows stand: one thing at a time, so that there is never an explorer and a reason for there being
+	 * none, nor windows given up that are also running.
+	 */
+	private sealed interface Standing {
+		/** No windows now, and [why]: said to `prism status`. There are once one is asked for and can be opened. */
+		data class Without(
+			val why: String,
+		) : Standing
 
-	/** Why there will be no more windows, once they have failed too often to be started again. */
-	@Volatile
-	private var givenUp: String? = null
+		/** The windows run, with this explorer. */
+		data class Running(
+			val explorer: Explorer,
+		) : Standing
+
+		/** There will be no more windows, and [why]: they failed too often to be started again. */
+		data class GivenUp(
+			val why: String,
+		) : Standing
+	}
+
+	/** Read from any thread (`prism status`, whoever asks for a window); written from the windows'. */
+	private val standing =
+		AtomicReference<Standing>(Standing.Without("none has been asked for yet"))
 
 	/** What a search of this prism's searches: its index; none, where it keeps none. */
 	val finder: Finder? get() = hosting.finder
 
-	/** The explorer, while the windows run. */
-	@Volatile
-	private var explorer: Explorer? = null
-
 	/** How the windows are, in a few words. */
 	fun describe(): String =
-		explorer?.windows?.value?.size?.let { open ->
-			when (open) {
-				0 -> "none open"
-				1 -> "1 open"
-				else -> "$open open"
-			}
+		when (val now = standing.get()) {
+			is Standing.Running ->
+				when (val open = now.explorer.windows.value.size) {
+					0 -> "none open"
+					1 -> "1 open"
+					else -> "$open open"
+				}
+			is Standing.Without -> "none open: ${now.why}"
+			is Standing.GivenUp -> "none open: ${now.why}"
 		}
-			?: "none open: ${givenUp ?: unable ?: "they are starting"}"
 
 	/**
 	 * [work] done with the explorer, on the windows' thread, and what it gives: once there are windows to do it with,
@@ -193,7 +208,7 @@ internal class Windows(
 	 * itself throws, as it threw it. An asker cancelled while it waits has what it asked stopped.
 	 */
 	suspend fun <T> with(work: suspend (Explorer) -> T): T {
-		givenUp?.let { throw NoWindows(it) }
+		(standing.get() as? Standing.GivenUp)?.let { throw NoWindows(it.why) }
 
 		val ask = Ask(work)
 
@@ -238,7 +253,7 @@ internal class Windows(
 						return
 
 					// Ended by the platform, with nothing asking it to: the display went away.
-					unable = "the display went away"
+					standing.set(Standing.Without("the display went away"))
 					Report.say("the display went away; windows are opened again when one is asked for")
 				} catch (none: NoDisplay) {
 					if (!staying)
@@ -247,9 +262,8 @@ internal class Windows(
 					val why = "there is no display to open windows on (${none.message})"
 
 					// Said once for as long as it stays so, not at every request.
-					if (unable != why)
+					if (standing.getAndSet(Standing.Without(why)) != Standing.Without(why))
 						Report.say("$why; windows are opened once there is one, when one is asked for")
-					unable = why
 					first?.refuse(why)
 					refuseWaiting(why)
 				} catch (failed: WindowsFailed) {
@@ -260,7 +274,9 @@ internal class Windows(
 						"prism's windows failed, every one of them; whatever else prism is doing goes on",
 						failed.cause ?: failed,
 					)
-					unable = "they failed, and are started again when one is asked for"
+					standing.set(
+						Standing.Without("they failed, and are started again when one is asked for"),
+					)
 
 					val now = System.nanoTime()
 
@@ -272,13 +288,19 @@ internal class Windows(
 							"the windows of the prism already running failed ${failures.size} times in " +
 								"${FAILING_WITHIN.inWholeMinutes} minutes, and it has given up opening them"
 
-						givenUp = why
+						standing.set(Standing.GivenUp(why))
 						Report.say("$why; restart it to have them again")
 
 						return refusing(why)
 					}
 				} finally {
-					explorer = null
+					// Ended with nothing said of why: stopped, or the last window closed.
+					standing.updateAndGet {
+						if (it is Standing.Running)
+							Standing.Without("they have ended")
+						else
+							it
+					}
 				}
 
 				// With no windows to keep, nothing runs until one is asked for.
@@ -346,8 +368,7 @@ internal class Windows(
 						}
 					}
 
-					this@Windows.explorer = explorer
-					unable = null
+					standing.set(Standing.Running(explorer))
 
 					// Each request on its own: one that fails, or is cancelled, is no other's concern.
 					supervisorScope {
