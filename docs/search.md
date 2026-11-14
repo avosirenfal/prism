@@ -43,7 +43,8 @@ in `.pdf`, which is the extension and nothing else.
 
 ## Globs
 
-A word with a glob character is a glob over the whole stem (or the whole name, by the same rule):
+A word with a glob character is a glob, found anywhere in the stem (or the whole name, by the same rule) just as a
+plain word is:
 
 | glob | means |
 |---|---|
@@ -53,9 +54,15 @@ A word with a glob character is a glob over the whole stem (or the whole name, b
 | `{a,b}` | one of several; they may hold globs of their own |
 | `\` | the next character as itself |
 
-So `*.jpg` is every JPEG, `*.{jpg,png}` every JPEG and PNG, `img_????` a stem of `img_` and four characters, and
-`\[draft\]*` a stem that starts with the literal `[draft]`. A glob already matches the whole of what it is matched
-against, so `^` and `$` change nothing about it.
+So `.*metis` is a dot, then anything, then `metis`, wherever in a name they come (`whatever.ngfx-metis`);
+`*.{jpg,png}` a name with `.jpg` or `.png` in it; `img_????` a stem with `img_` and four characters in it; and
+`\[draft\]*` a stem with the literal `[draft]` in it. The anchors hold a glob as they hold a word: `*.jpg$` is a
+name that ends in `.jpg` (as `ext:jpg` is), `^img_*` a stem that starts with `img_`, and `=img_????` a stem that is
+`img_` and four characters and nothing else. A `*` at an end that nothing holds says nothing: `*.jpg` and `.jpg`
+find the same names.
+
+Only a name term is found anywhere. A level of a path (`photos/*.jpg`'s `photos`), and what `dir:`, `ext:`, `type:`
+and `mount:` take, are globs over the whole of what they name.
 
 ## Quoted and raw terms
 

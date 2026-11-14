@@ -87,6 +87,9 @@ enum class Glyph {
 	/** A ring with a part of it filled: how full the machine's drives are, the System page. */
 	System,
 
+	/** A question mark in a ring: how something is done. */
+	Help,
+
 	/** A drive that plugs in: a USB stick, a card. */
 	Removable,
 
@@ -233,6 +236,30 @@ fun DrawScope.drawGlyph(
 			drawCircle(tint, 8.5f * unit, at(unit, 12f, 12f), style = line(unit))
 			drawCircle(tint, 1.1f * unit, at(unit, 12f, 8f))
 			stroked(unit, tint, listOf(12f to 11f, 12f to 16.5f))
+		}
+		Glyph.Help -> {
+			drawCircle(tint, 8.5f * unit, at(unit, 12f, 12f), style = line(unit))
+			// The hook: most of a ring, from its left round over the top, and then back in and down.
+			drawPath(
+				Path().apply {
+					arcTo(
+						androidx.compose.ui.geometry.Rect(
+							9.4f * unit,
+							7.2f * unit,
+							14.6f * unit,
+							12.4f * unit,
+						),
+						startAngleDegrees = 180f,
+						sweepAngleDegrees = 225f,
+						forceMoveTo = true,
+					)
+					lineTo(12f * unit, 13.3f * unit)
+					lineTo(12f * unit, 14.1f * unit)
+				},
+				tint,
+				style = line(unit),
+			)
+			drawCircle(tint, 1.1f * unit, at(unit, 12f, 16.9f))
 		}
 		Glyph.System -> {
 			drawCircle(tint, 8.5f * unit, at(unit, 12f, 12f), style = line(unit))

@@ -11,6 +11,7 @@ import kotlin.time.Duration.Companion.days
 import kotlin.time.Duration.Companion.hours
 import kotlin.time.Duration.Companion.minutes
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.TestInstance
@@ -307,7 +308,15 @@ class SearchTest {
 	}
 
 	@Test
-	fun aGlobMatchesTheWholeStemOrName() {
+	fun aGlobIsFoundAnywhereInTheStemOrNameAsAWordIsUnlessAnAnchorHoldsIt() {
+		// .*g: a dot, then anything, then a g, wherever in the name they are; never only a name that starts with one.
+		assertTrue("q4-report.pdf" !in found { +word(".*g") })
+		assertTrue(
+			found { +word(".*g") }.containsAll(jpgs + setOf("img_abcd.png", "img_2025.jpeg")),
+		)
+		// .*g$, and the same held at both ends, which is a whole name: one that starts with a dot.
+		assertTrue("img_2025.jpeg" in found { +word(".*g", end = true) })
+		assertEquals(emptySet<String>(), found { +exactly(".*g") })
 		// *.jpg
 		assertEquals(jpgs, found { +word("*.jpg") })
 		// *.{jpg,png}
@@ -315,11 +324,18 @@ class SearchTest {
 			jpgs + setOf("img_abcd.png", "funny/b.png"),
 			found { +word("*.{jpg,png}") },
 		)
-		// img_????
+		// img_????: anywhere in a stem, so in one longer than it too.
+		assertEquals(
+			setOf("img_2024.jpg", "img_2025.jpeg", "img_abcd.png", "Img_*copy.txt"),
+			found {
+				+word("img_????")
+			},
+		)
+		// =img_????: a stem that is exactly that.
 		assertEquals(
 			setOf("img_2024.jpg", "img_2025.jpeg", "img_abcd.png"),
 			found {
-				+word("img_????")
+				+exactly("img_????")
 			},
 		)
 		// img_[0-9]*

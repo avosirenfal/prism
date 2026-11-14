@@ -519,15 +519,22 @@ private class Matching(
 					is TextPattern.Wildcard ->
 						GlobMatch(
 							pattern.glob.readings.map { parts ->
-								parts
-									.map { part ->
+								val tokens =
+									parts.map { part ->
 										when (part) {
 											is Glob.Part.Text -> Token.Bytes(bytes(part.text))
 											Glob.Part.One -> Token.One
 											Glob.Part.Run -> Token.Run
 											is Glob.Part.Class -> Token.OneOf(part, anyCase = !sensitive)
 										}
-									}.toTypedArray()
+									}
+
+								// Found anywhere, as a word is, but where an anchor holds it: an end that is not
+								// held may have anything past it, which is a run there.
+								val before = listOf(Token.Run).takeUnless { anchors.start }.orEmpty()
+								val after = listOf(Token.Run).takeUnless { anchors.end }.orEmpty()
+
+								(before + tokens + after).toTypedArray()
 							},
 						)
 				}

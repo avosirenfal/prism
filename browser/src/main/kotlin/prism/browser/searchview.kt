@@ -211,12 +211,6 @@ private fun Searching(
 		) { onEvent(BrowserEvent.ShowedResults) }
 	}
 
-	if (search.help)
-		Help { example ->
-			onEvent(BrowserEvent.SearchTyped(example))
-			field.requestFocus()
-		}
-
 	read.problems.firstOrNull { it.kind == Problem.Kind.Invalid }?.let {
 		Text(
 			it.message,
@@ -271,54 +265,6 @@ private fun Searching(
 	}
 }
 
-/**
- * How a query is written, in short ([QueryHelp]): a sentence or two, and a query a line with what it finds, each
- * coloured as the field would colour it, and given to [onTry] when clicked, to be typed there and tried.
- */
-@Composable
-private fun Help(onTry: (String) -> Unit) {
-	val palette = LocalPalette.current
-	val type = LocalType.current
-	val shape = RoundedCornerShape(Radius.medium)
-
-	Column(
-		Modifier
-			.fillMaxWidth()
-			.background(palette.hover, shape)
-			.padding(Space.m)
-			.testTag("search-help-shown"),
-		verticalArrangement = Arrangement.spacedBy(Space.xxs),
-	) {
-		Text(QueryHelp.SUMMARY, style = type.muted)
-		Spacer(Modifier.height(Space.xs))
-		for (example in QueryHelp.EXAMPLES) {
-			val coloured =
-				remember(example, palette) {
-					QueryColouring(QueryText.read(example.text), palette)
-						.filter(AnnotatedString(example.text))
-						.text
-				}
-
-			Row(
-				Modifier
-					.fillMaxWidth()
-					.clickable { onTry(example.text) }
-					.testTag("help:${example.text}"),
-				verticalAlignment = Alignment.CenterVertically,
-			) {
-				Text(coloured, style = type.mono, maxLines = 1, modifier = Modifier.width(170.dp))
-				Text(
-					example.finds,
-					style = type.muted,
-					maxLines = 1,
-					overflow = TextOverflow.Ellipsis,
-					modifier = Modifier.weight(1f),
-				)
-			}
-		}
-	}
-}
-
 /** One match, in its row: its icon, its name, and where it is. */
 @Composable
 private fun RowScope.Match(row: Row, home: Path) {
@@ -333,65 +279,4 @@ private fun RowScope.Match(row: Row, home: Path) {
 	)
 	Spacer(Modifier.width(Space.s + Space.xxs))
 	ResultText(row.name, row.path?.let { folderOf(it, home) }.orEmpty())
-}
-
-/**
- * A query's text coloured as it is read: each part by its [Role], and each problem underlined, in red where it leaves
- * its term out of the search, faintly where the term is only unfinished. The text itself is not changed, so where
- * the caret is needs no mapping.
- */
-private class QueryColouring(
-	private val read: ReadQuery,
-	private val palette: Palette,
-) : VisualTransformation {
-	override fun filter(text: AnnotatedString): TransformedText =
-		TransformedText(coloured(text.text), OffsetMapping.Identity)
-
-	private fun coloured(text: String): AnnotatedString =
-		buildAnnotatedString {
-			append(text)
-			for (mark in read.marks)
-				spanOf(mark.span.start, mark.span.end, text)?.let { (from, to) ->
-					addStyle(SpanStyle(color = colourOf(mark.role)), from, to)
-				}
-			for (problem in read.problems)
-				spanOf(problem.span.start, problem.span.end, text)?.let { (from, to) ->
-					addStyle(
-						SpanStyle(
-							textDecoration = TextDecoration.Underline,
-							color =
-								when (problem.kind) {
-									Problem.Kind.Invalid -> palette.pdf
-									Problem.Kind.Unfinished -> Color.Unspecified
-								},
-						),
-						from,
-						to,
-					)
-				}
-		}
-
-	/** A span within [text], or null for one beyond it (marks of an older reading, for a moment) or empty. */
-	private fun spanOf(start: Int, end: Int, text: String): Pair<Int, Int>? =
-		(start.coerceIn(0, text.length) to end.coerceIn(0, text.length)).takeIf {
-			it.first <
-				it.second
-		}
-
-	private fun colourOf(role: Role): Color =
-		when (role) {
-			Role.Word -> palette.text
-			Role.Negation, Role.Junk -> palette.pdf
-			Role.Anchor, Role.Flag, Role.Modifier, Role.Colon, Role.Depth -> palette.accent
-			Role.Wildcard, Role.Escape -> palette.archive
-			Role.Quote -> palette.textMuted
-			Role.Slash, Role.Place -> palette.folder
-			Role.Regex, Role.RegexDelimiter -> palette.video
-			Role.Value -> palette.image
-		}
-
-	override fun equals(other: Any?): Boolean =
-		other is QueryColouring && other.read == read && other.palette == palette
-
-	override fun hashCode(): Int = read.hashCode() * 31 + palette.hashCode()
 }

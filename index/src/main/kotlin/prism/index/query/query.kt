@@ -97,8 +97,8 @@ data class Anchors(
 }
 
 /**
- * How a name is matched: [pattern] against [part] of it. A literal is found anywhere in it unless [anchors] hold it to
- * the start or the end; a glob matches the whole of it.
+ * How a name is matched: [pattern] against [part] of it. A literal or a glob, it is found anywhere in it unless
+ * [anchors] hold it to the start or the end.
  */
 data class NameMatch(
 	val pattern: TextPattern,

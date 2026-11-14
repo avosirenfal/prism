@@ -26,7 +26,7 @@ object QueryHelp {
 			Example("^report", "names that start with it"),
 			Example("report$", "names that end with it, the extension aside"),
 			Example("=report", "names that are exactly it, whatever their extension"),
-			Example("*.{jpg,png}", "a glob: * is anything, ? one character, {a,b} either"),
+			Example("img_*.{jpg,png}", "a glob: * is anything, ? one character, {a,b} either"),
 			Example("\"tax return\"", "words with a space between them"),
 			Example("-draft", "not: without “draft” in the name"),
 			Example("~/Documents/", "everything under a folder"),
