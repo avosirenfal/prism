@@ -275,8 +275,11 @@ and takes it from one that had it exclusively and then asks on demand; sway give
 demand nothing until it is clicked, and leaves the keyboard with one that had it exclusively and then asks on demand.
 So an overlay that shares the keyboard asks on demand as it is made; not given the keyboard 150 ms after its first
 frame, it asks exclusively, to be given it, and asks on demand again once it has it; and where that costs it the
-keyboard at once (within 300 ms, which no person's click is), it asks exclusively for good. `NativeWindow` drives
-this from SDL's own account of the keyboard (`keyboardGiven`, `keyboardTaken`), and the log says each step.
+keyboard at once (within 300 ms, which no person's click is), it asks exclusively for good. How a surface stands in
+this is one value (`Grip`, `window/grip.kt`: held, asking, to be given, shared since when, or gone), and what follows
+from each thing its window hears (a moment waited, the keyboard given, taken, the surface closed) is a function of
+it that says what to ask the compositor, with no surface and no clock: `GripTest` goes through what each compositor
+does. `NativeWindow` tells it SDL's own account of the keyboard, and the log says each step.
 
 SDL scales such a surface itself where it was made high-density, so sizes are in points and drawing in pixels, as
 for a window, and both of prism's ways of drawing a window on Wayland (OpenGL through EGL, and shared memory) draw
