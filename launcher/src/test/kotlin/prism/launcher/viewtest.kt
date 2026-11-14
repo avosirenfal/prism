@@ -370,13 +370,13 @@ class LauncherViewTest {
 	@Test
 	fun aRowClickedIsChosenAndOneThatCannotBeStartedSaysWhy() =
 		launching { session, desktop, host, _ ->
-			desktop.failing = "it is not installed"
+			desktop.failing = "It is not installed."
 			onNodeWithTag("launcher-query").performTextInput("foot")
 			waitForIdle()
 			onNodeWithTag("entry:app:foot.desktop").performClick()
 			until { session.state.value.notice != null }
 			assertEquals(
-				"Couldn't start Foot: it is not installed",
+				"Couldn't start Foot. It is not installed.",
 				session.state.value.notice,
 			)
 			assertEquals(emptyList<String>(), host.asked.toList())
@@ -521,7 +521,7 @@ class LauncherViewTest {
 				LauncherEvent.Started(
 					typed.entries.first(),
 					now,
-					"Couldn't start Firefox: no such file",
+					"Couldn't start Firefox. No such file.",
 				),
 			).state
 

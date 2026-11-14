@@ -296,10 +296,10 @@ class TerminalsTest {
 		assertTrue(openOnly.opensInFolder && !openOnly.runsCommands)
 		assertTrue(!runOnly.opensInFolder && runOnly.runsCommands)
 		assertEquals(
-			"it has no command line for running a command",
+			"No command line is set for running a command.",
 			opened(openOnly, listOf("htop")),
 		)
-		assertEquals("it has no command line for opening in a folder", opened(runOnly))
+		assertEquals("No command line is set for opening a folder.", opened(runOnly))
 		assertEquals(
 			listOf("foot", "-D", folder.toString(), "htop"),
 			opened(runOnly, listOf("htop")),
@@ -323,7 +323,7 @@ class TerminalsTest {
 		// A name not installed, or one nothing says how to tell a folder: said, not guessed at.
 		installed("odd-term")
 		assertEquals(
-			"“not-here” is not installed, or not on the PATH",
+			"“not-here” isn't installed or isn't on the PATH.",
 			opened(TerminalChoice.Named("not-here")),
 		)
 		assertTrue(
@@ -331,7 +331,7 @@ class TerminalsTest {
 				opened(
 					TerminalChoice.Named("odd-term"),
 				) as String
-			).contains("write its command lines"),
+			).contains("Set its command lines"),
 		)
 		assertEquals("it's wrong", opened(TerminalChoice.Unreadable("{}", "it's wrong")))
 	}

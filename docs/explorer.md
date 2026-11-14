@@ -310,12 +310,12 @@ done, the way a game's controls are set.
 
 ![The key bindings page](explorer-keys.png)
 
-The actions are listed in the groups they belong to, each group together under its name: getting around, finding,
-the view, moving through the list, choosing, files and folders, undoing, windows, and the user's own actions
+The actions are listed in the groups they belong to, each group together under its name: Navigation, Search, View,
+Cursor, Selection, Files, History, Windows, and the user's own Custom actions
 (docs/menus.md), each with the chord it names as its default. A group is a `KeyGroup` every action names
 (`Action.group`), and the page lists the groups in the order the actions are in, so an action added to the enum is on
 the page, under its group, with nothing else to change. Where an action does not act from anywhere, the row says
-where under its name ("from the list").
+where under its name ("in the file list").
 
 The filter narrows the list by what is typed (an action's name, a group's name, or a chord), keeping each action
 under its group and leaving out any group with nothing in it; "Find by shortcut" narrows it to what a chord pressed does;

@@ -297,7 +297,7 @@ private fun confirmed(
 					)
 			) {
 				is Launched.Started -> null
-				is Launched.Failed -> "Couldn't start ${launched.what}: ${launched.why}"
+				is Launched.Failed -> "Couldn't start ${launched.what}. ${launched.why}"
 			}
 		}
 	}

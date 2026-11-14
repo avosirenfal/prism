@@ -217,5 +217,5 @@ class LauncherSession(
 	}
 
 	private fun failureOf(launched: Launched): String? =
-		(launched as? Launched.Failed)?.let { "Couldn't start ${it.what}: ${it.why}" }
+		(launched as? Launched.Failed)?.let { "Couldn't start ${it.what}. ${it.why}" }
 }

@@ -67,10 +67,11 @@ class DetachedLauncher(
 
 	private fun run(command: List<String>, folder: Path, label: String?): Launched {
 		val program =
-			command.firstOrNull() ?: return Launched.Failed("nothing", "there is nothing to run")
+			command.firstOrNull()
+				?: return Launched.Failed("the command", "There is nothing to run.")
 
 		if (find(program) == null)
-			return Launched.Failed(program, "“$program” is not installed, or not on the PATH")
+			return Launched.Failed(program, "“$program” isn't installed or isn't on the PATH.")
 
 		// Asked for only now, for what is surely started: a desktop entry's name is the application's, as a token names it.
 		return spawn(
@@ -97,7 +98,7 @@ class DetachedLauncher(
 					terminals.preferred()
 						?: return TerminalCommand.Failed(
 							"a terminal",
-							"no terminal was found: choose one in the preferences",
+							"No terminal was found. Choose one in Preferences.",
 						)
 				// The command lines as written, each only filled in; one not written is not used.
 				is TerminalChoice.CommandLines ->
@@ -105,14 +106,14 @@ class DetachedLauncher(
 						command == null ->
 							choice.inFolder?.let { TerminalCommand.Ready(it.filled(folder)) }
 								?: TerminalCommand.Failed(
-									"the terminal in the preferences",
-									"it has no command line for opening in a folder",
+									"the terminal",
+									"No command line is set for opening a folder.",
 								)
 						else ->
 							choice.running?.let { TerminalCommand.Ready(it.filled(folder, command)) }
 								?: TerminalCommand.Failed(
-									"the terminal in the preferences",
-									"it has no command line for running a command",
+									"the terminal",
+									"No command line is set for running a command.",
 								)
 					}
 				is TerminalChoice.Named ->
@@ -120,17 +121,17 @@ class DetachedLauncher(
 						?: return TerminalCommand.Failed(
 							choice.name,
 							if (!terminals.installed(choice.name))
-								"“${choice.name}” is not installed, or not on the PATH"
+								"“${choice.name}” isn't installed or isn't on the PATH."
 							else
-								"prism does not know how to tell “${choice.name}” a folder or give it a command: write " +
-									"its command lines in the preferences",
+								"prism doesn't know how to start “${choice.name}”. Set its command lines in " +
+									"Preferences.",
 						)
 				is TerminalChoice.Unreadable ->
-					return TerminalCommand.Failed("the terminal in the preferences", choice.why)
+					return TerminalCommand.Failed("the terminal", choice.why)
 			}
 
 		return terminal.opening(folder, command)?.let(TerminalCommand::Ready)
-			?: TerminalCommand.Failed(terminal.name, "it cannot be given a command to run")
+			?: TerminalCommand.Failed(terminal.name, "It can't run a command.")
 	}
 
 	/** [command] started in a session of its own, and in a scope of its own where the user's systemd is running. */
@@ -213,7 +214,7 @@ class DetachedLauncher(
 					process.waitFor(5, TimeUnit.SECONDS) &&
 					process.exitValue() != 0
 				)
-					Launched.Failed(what, "it could not be started (status ${process.exitValue()})")
+					Launched.Failed(what, "It exited with status ${process.exitValue()}.")
 				else
 					Launched.Started(what)
 			} catch (failed: IOException) {

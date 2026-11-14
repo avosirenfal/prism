@@ -244,7 +244,7 @@ interface Launcher {
 		choice: TerminalChoice,
 		command: List<String>? = null,
 	): TerminalCommand =
-		TerminalCommand.Failed("a terminal", "there is no terminal on this desktop")
+		TerminalCommand.Failed("a terminal", "No terminal is available on this desktop.")
 
 	/** The terminals there are to choose from, and the one the desktop says is the user's; none, for a launcher that knows none. */
 	fun terminals(): TerminalOptions = TerminalOptions.NONE

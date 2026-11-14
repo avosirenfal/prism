@@ -94,10 +94,10 @@ class KeysTest {
 		)
 		// Where an action acts is said beside it, where that is not everywhere.
 		assertNull(Action.Back.where)
-		assertEquals("from the list", Action.Rename.where)
+		assertEquals("in the file list", Action.Rename.where)
 		// What is found by a group's name is that group's.
-		assertTrue(Finding.Words("undo").shows(Action.Redo, Action.Redo.defaults))
-		assertFalse(Finding.Words("undo").shows(Action.Back, Action.Back.defaults))
+		assertTrue(Finding.Words("history").shows(Action.Redo, Action.Redo.defaults))
+		assertFalse(Finding.Words("history").shows(Action.Back, Action.Back.defaults))
 	}
 
 	@Test
@@ -276,7 +276,7 @@ class KeysTest {
 
 			// A group's name finds the group's.
 			onNode(hasSetTextAction() and hasAnyAncestor(hasTestTag("bindings-filter")))
-				.performTextReplacement("getting")
+				.performTextReplacement("navig")
 			waitForIdle()
 			onNodeWithTag("binding:Back").assertExists()
 			onNodeWithTag("binding:EditAddress").assertExists()
@@ -295,7 +295,7 @@ class KeysTest {
 			onNodeWithTag("reset:Back").performClick()
 			waitForIdle()
 			assertEquals(Action.Back.defaults, settings.rebinding.bindings.of(Action.Back))
-			onNodeWithText("Every key is as it came.").assertExists()
+			onNodeWithText("No shortcuts have been changed.").assertExists()
 		}
 
 	@Test

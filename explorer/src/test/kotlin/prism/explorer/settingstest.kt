@@ -291,7 +291,7 @@ class SettingsTest {
 		assertEquals("Mine", settings.actions["mine"]?.label)
 		assertEquals(listOf("wrong"), settings.actions.broken.map { it.id })
 		assertTrue(
-			"nothing fills “{nowhere}”" in
+			"Unknown placeholder “{nowhere}”" in
 				settings.actions.broken
 					.single()
 					.why,

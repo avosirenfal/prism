@@ -323,7 +323,7 @@ class Daemon private constructor(
 					feed.start(relay::seen)
 				} catch (failed: Throwable) {
 					settings.report("starting the watcher", failed)
-					Feeding.Off("it could not be started: $failed")
+					Feeding.Off("the watcher couldn't start: $failed")
 				}
 
 			val live =

@@ -167,7 +167,7 @@ class DaemonTest {
 		Daemon.start(settings, Feed { error("no libbpf") }).use { daemon ->
 			assertEquals(
 				Daemon.Watching.Off(
-					"it could not be started: java.lang.IllegalStateException: no libbpf",
+					"the watcher couldn't start: java.lang.IllegalStateException: no libbpf",
 				),
 				daemon.watching,
 			)

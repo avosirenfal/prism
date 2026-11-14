@@ -96,7 +96,7 @@ class PathSearchTest {
 			)
 
 		assertTrue(
-			wrong.problems.single().startsWith("there is no “foo:”"),
+			wrong.problems.single().startsWith("Unknown modifier “foo:”"),
 			wrong.problems.single(),
 		)
 		assertTrue(wrong.problems.single().endsWith("(“foo”)"), wrong.problems.single())
