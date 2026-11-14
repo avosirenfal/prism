@@ -1,5 +1,7 @@
 package prism.browser
 
+import prism.index.Extension
+
 /*
  * What a file is, by its name: the category its icon is drawn for, and the words the type column says. One table,
  * read both ways, so an extension cannot be one category's icon and another's words.
@@ -68,6 +70,38 @@ fun extensionOf(name: String): String? =
 		it.isNotEmpty() &&
 			name.lastIndexOf('.') > 0
 	}
+
+/**
+ * Each known extension's category, by the extension as a number ([Extension]): the same table as [BY_EXTENSION], laid
+ * out to be looked up for every one of a million results of a search without a text made or a number boxed for any.
+ */
+private object ByPacked {
+	private val sorted = BY_EXTENSION.entries.sortedBy { Extension.of("a.${it.key}").packed }
+	private val extensions =
+		LongArray(sorted.size) { Extension.of("a.${sorted[it].key}").packed }
+	private val categories = Array(sorted.size) { sorted[it].value.category }
+
+	init {
+		// An extension too long to be a number would be one no name is ever found to have.
+		check(
+			extensions.none {
+				it == Extension.NONE.packed
+			},
+		) { "an extension longer than ${Extension.LONGEST}" }
+	}
+
+	operator fun get(extension: Extension): Category {
+		val at = extensions.binarySearch(extension.packed)
+
+		return if (at >= 0)
+			categories[at]
+		else
+			Category.Other
+	}
+}
+
+/** What a file whose name has this [extension] is, for its icon: what [categoryOf] says of the name itself. */
+fun categoryOf(extension: Extension): Category = ByPacked[extension]
 
 /** What a file of this name is, for its icon. */
 fun categoryOf(name: String): Category =

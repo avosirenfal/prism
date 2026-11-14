@@ -6,6 +6,8 @@ import java.time.LocalDate
 import java.time.ZoneId
 import java.time.temporal.TemporalAdjusters
 import java.util.BitSet
+import java.util.concurrent.ForkJoinPool
+import java.util.concurrent.ForkJoinTask
 import java.util.regex.Pattern
 import java.util.stream.IntStream
 import kotlin.io.path.Path
@@ -77,13 +79,43 @@ fun Index.search(query: Query, context: SearchContext = SearchContext()): Search
 		is Planning.Refused -> Searched.Refused(plan.why)
 		is Planning.Ready ->
 			Searched.Found(
-				Results(
-					placed.indices.map {
-						plan.plan.run(this, it)
-					},
-				),
+				Searching.run {
+					Results(
+						placed.indices.map {
+							plan.plan.run(this, it)
+						},
+					)
+				},
 			)
 	}
+
+/**
+ * The threads searches are run on: one for every core but one. A search is asked for by whatever is showing a window,
+ * key by key, and a broad one keeps every thread it is given busy for as long as it takes; left every core, it would
+ * take the one the window is drawn on as well, and what is typed would be seen late. Everything a search runs side by
+ * side (a block's slices, the first results' order) is run here, since what is run from one of a pool's threads stays
+ * in that pool.
+ */
+internal object Searching {
+	private val pool =
+		ForkJoinPool(
+			maxOf(1, Runtime.getRuntime().availableProcessors() - 1),
+			{ pool ->
+				ForkJoinPool.defaultForkJoinWorkerThreadFactory.newThread(pool).apply {
+					name = "prism-search-$poolIndex"
+				}
+			},
+			null,
+			false,
+		)
+
+	/** What [search] gives, run on the searches' threads; as it is, where it is asked from one of them. */
+	fun <T> run(search: () -> T): T =
+		if (ForkJoinTask.inForkJoinPool())
+			search()
+		else
+			pool.submit(search).join()
+}
 
 /**
  * The folders this query looks only under: where each of its path terms (and each `dir:` at a path) that starts at
@@ -167,7 +199,9 @@ private class Plan(
 	/** The entries of the [placed]th block of [index] that pass every check, each with its score. */
 	fun run(index: Index, placed: Int): Results.Part {
 		val (block, hidden) = index.placed[placed].let { it.block to it.hidden }
-		val checks = making.map { it(block, placed) }.sortedBy { it.cost }
+		// An array, gone through by its indices: this is asked of every entry of the index, and a list's iterator made
+		// for each would be millions of them for one search.
+		val checks = making.map { it(block, placed) }.sortedBy { it.cost }.toTypedArray()
 
 		val ranker =
 			Ranker.of(
@@ -797,10 +831,14 @@ private class Nfa private constructor(
 private class Walk(
 	val block: Block,
 	private val hidden: Ranges,
-	private val checks: List<Check>,
+	private val checks: Array<Check>,
 	private val ranker: Ranker,
 ) {
-	private val ancestral: List<AncestralCheck> = checks.filterIsInstance<AncestralCheck>()
+	/** An array, as [checks] is: gone through for every folder the walk enters. */
+	private val ancestral: Array<AncestralCheck> =
+		checks
+			.filterIsInstance<AncestralCheck>()
+			.toTypedArray()
 	private val slots = (ancestral.maxOfOrNull { it.slot } ?: -1) + 1
 
 	/** How many levels are on the stack. */
@@ -821,7 +859,10 @@ private class Walk(
 
 	/** The entries from [from] up to [to] that pass every check, each with its score, in the block's order. */
 	fun run(from: Int, to: Int): Hits {
-		val found = LongBuilder()
+		// What is found is written where this thread keeps what it finds, and copied out once at the length it came
+		// to: a list that grows would be copied each time it doubled, for every slice of every search.
+		val found = FOUND.get()
+		var count = 0
 
 		depth = 0
 		ends[0] = Int.MAX_VALUE
@@ -853,8 +894,8 @@ private class Walk(
 			while (ends[depth] <= entry)
 				depth--
 
-			if (block.nameLength(entry) > 0 && checks.all { it.test(this, entry) != it.negated }) {
-				found.add(Hit.of(entry, ranker.score(entry, depth + 1, hiddenAt[depth])).packed)
+			if (block.nameLength(entry) > 0 && passes(entry)) {
+				found[count++] = Hit.of(entry, ranker.score(entry, depth + 1, hiddenAt[depth])).packed
 			}
 
 			if (block.end[entry] > entry + 1 && block.nameLength(entry) > 0)
@@ -862,7 +903,16 @@ private class Walk(
 			entry++
 		}
 
-		return Hits(found.toArray())
+		return Hits.of(found, count)
+	}
+
+	/** Whether [entry] passes every check: run for every entry of the block, so it makes nothing. */
+	private fun passes(entry: Int): Boolean {
+		for (check in checks)
+			if (check.test(this, entry) == check.negated)
+				return false
+
+		return true
 	}
 
 	/** Into the folder [entry]. */
@@ -938,6 +988,13 @@ private class Walk(
 	private companion object {
 		const val INITIAL = 32
 		const val DOT = '.'.code.toByte()
+
+		/**
+		 * Where each thread that walks writes what a slice finds, before it is copied out at its own length: as long
+		 * as the longest slice, and kept from one search to the next, so that walking makes nothing but what it
+		 * found.
+		 */
+		val FOUND: ThreadLocal<LongArray> = ThreadLocal.withInitial { LongArray(Plan.SLICE) }
 	}
 }
 

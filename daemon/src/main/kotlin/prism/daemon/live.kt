@@ -112,6 +112,9 @@ class LiveIndex private constructor(
 	private val lock = Any()
 	private val scanIds = AtomicInteger()
 	private var scans: Map<Int, Scan> = emptyMap()
+
+	/** Written under [lock]; read without it by a search, which so need not wait for a change being made. */
+	@Volatile
 	private var adHoc: Map<Where, AdHoc> = emptyMap()
 
 	private val scanning: ExecutorService =
@@ -188,7 +191,10 @@ class LiveIndex private constructor(
 	fun search(query: Query, context: SearchContext = SearchContext()): LiveSearch {
 		val now = Instant.now()
 
-		tidy(now)
+		// A change is made under the lock, the disk read for it as it is: a search that took the lock where it has
+		// nothing to do under it would wait for that, and so would whoever is typing the query.
+		if (adHoc.isNotEmpty())
+			tidy(now)
 
 		val found =
 			when (val searched = index.search(query, context)) {
@@ -203,7 +209,10 @@ class LiveIndex private constructor(
 			}
 
 		val asked =
-			synchronized(lock) { leftOut.map { adHocFor(it, now) }.distinctBy { it.place } }
+			if (leftOut.isEmpty())
+				emptyList()
+			else
+				synchronized(lock) { leftOut.map { adHocFor(it, now) }.distinctBy { it.place } }
 
 		val alone =
 			asked

@@ -108,6 +108,57 @@ class CannotDraw(
 	message: String,
 ) : RuntimeException(message)
 
+/**
+ * What says where the windows' thread was slow: with `PRISM_STALL_LOG` set to a number of milliseconds, every turn of
+ * the windows' loop that took longer is said on standard error, with what each part of it took (what other threads
+ * left to be done, composing, laying out and drawing, each event). A window stutters when its thread is kept from the
+ * next frame, by its own work or by the whole process being stopped (a collection of garbage); this tells which
+ * turn, and how long, for whoever is looking for why. Not set, it costs a comparison a turn.
+ */
+internal object Stalls {
+	private val over: Long? =
+		System
+			.getenv("PRISM_STALL_LOG")
+			?.toLongOrNull()
+			?.takeIf { it >= 0 }
+			?.times(1_000_000)
+
+	/** One turn of the loop, timed part by part. */
+	class Turn(
+		private val over: Long,
+	) {
+		private val began = System.nanoTime()
+		private var last = began
+		private val parts = StringBuilder()
+
+		/** [what] was done since the part before. */
+		fun did(what: String) {
+			val now = System.nanoTime()
+
+			if (now - last >= 1_000_000)
+				parts
+					.append(
+						", ",
+					).append(what)
+					.append(' ')
+					.append((now - last) / 1_000_000)
+					.append(" ms")
+			last = now
+		}
+
+		/** The turn is over: said, where it took too long. */
+		fun done() {
+			val took = System.nanoTime() - began
+
+			if (took > over)
+				System.err.println("prism.window: a turn of ${took / 1_000_000} ms$parts")
+		}
+	}
+
+	/** A turn to time; none, where nothing is asked to be said. */
+	fun turn(): Turn? = over?.let(::Turn)
+}
+
 /** What the window module says of itself on standard error, where `PRISM_WINDOW_LOG` is set: how it draws, and why. */
 internal object Log {
 	private val on = System.getenv("PRISM_WINDOW_LOG") != null

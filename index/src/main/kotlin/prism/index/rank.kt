@@ -63,6 +63,43 @@ internal enum class Tier {
 	WordStart,
 	Prefix,
 	Whole,
+	;
+
+	/** How many steps it is worth, the worst one. */
+	val steps: Int get() = ordinal + 1
+}
+
+/**
+ * Points by entry, for the few entries that have any: looked up for every result of a search, so by halving a sorted
+ * array of the entries, with no number boxed; nothing, for an entry that has none.
+ */
+internal class Points private constructor(
+	private val entries: IntArray,
+	private val points: IntArray,
+) {
+	operator fun get(entry: Int): Int {
+		if (entries.isEmpty())
+			return 0
+
+		val at = java.util.Arrays.binarySearch(entries, entry)
+
+		return if (at >= 0)
+			points[at]
+		else
+			0
+	}
+
+	companion object {
+		/** The points [of] says, each entry's once. */
+		fun of(of: Map<Int, Int>): Points {
+			val sorted = of.entries.sortedBy { it.key }
+
+			return Points(
+				IntArray(sorted.size) { sorted[it].key },
+				IntArray(sorted.size) { sorted[it].value },
+			)
+		}
+	}
 }
 
 /** A word of the query whose match of a name counts: its bytes, folded where the search does not tell case. */
@@ -77,30 +114,34 @@ internal class Word(
  */
 internal class Ranker private constructor(
 	private val block: Block,
-	private val words: List<Word>,
+	private val words: Array<Word>,
 	private val ranking: Ranking,
 	/** The points for each entry used, by entry. */
-	private val used: Map<Int, Int>,
+	private val used: Points,
 	/** The points for each entry in a folder used, by the folder's entry. */
-	private val inUsed: Map<Int, Int>,
+	private val inUsed: Points,
 	/** The points for the root's own folder, which is outside the block: a graft's. */
 	private val rootInUsed: Int,
 	/** The entries under the home folder: from the first up to the one after the last. */
 	private val home: IntRange,
 	private val now: Long,
 ) {
-	/** [entry]'s score, [levels] deep (how many names its path has), under a hidden folder or not. */
+	/**
+	 * [entry]'s score, [levels] deep (how many names its path has), under a hidden folder or not. Run for every
+	 * result of a search, a million of them for a broad one, so it makes nothing: no list is gone through by an
+	 * iterator, and no number is boxed to be looked up.
+	 */
 	fun score(entry: Int, levels: Int, hiddenAbove: Boolean): Int {
-		val name =
-			words.sumOf { word ->
-				tierOf(word, entry)?.let { (it.ordinal + 1) * ranking.perTier } ?: 0
-			}
+		var name = 0
+
+		for (word in words)
+			name += tierOf(word, entry) * ranking.perTier
 
 		val folder =
 			if (entry == 0)
 				rootInUsed
 			else
-				inUsed[block.parent[entry]] ?: 0
+				inUsed[block.parent[entry]]
 		val hidden = hiddenAbove || block.names[block.nameAt[entry]] == DOT
 		val seen = block.seen[entry]
 
@@ -114,7 +155,7 @@ internal class Ranker private constructor(
 			}
 
 		val score =
-			Ranking.BASE + name + (used[entry] ?: 0) + folder + new +
+			Ranking.BASE + name + used[entry] + folder + new +
 				(if (entry in home) ranking.underHome else 0) -
 				minOf(ranking.mostForDepth, ranking.perLevel * levels) -
 				(if (hidden) ranking.hidden else 0)
@@ -122,8 +163,8 @@ internal class Ranker private constructor(
 		return score.coerceIn(0, Ranking.MOST)
 	}
 
-	/** How [word] matches [entry]'s name; null where it is not in it. */
-	private fun tierOf(word: Word, entry: Int): Tier? {
+	/** How many steps [word]'s match of [entry]'s name is worth ([Tier], counted from one); none where it is not in it. */
+	private fun tierOf(word: Word, entry: Int): Int {
 		val bytes =
 			if (word.folded)
 				block.folded
@@ -134,35 +175,47 @@ internal class Ranker private constructor(
 		val to = block.nameAt[entry + 1]
 		val stem = from + block.stem[entry]
 
-		fun at(start: Int) =
-			java.util.Arrays.equals(bytes, start, start + needle.size, needle, 0, needle.size)
+		if (needle.size > to - from)
+			return 0
+
+		val starts =
+			java.util.Arrays.equals(
+				bytes,
+				from,
+				from + needle.size,
+				needle,
+				0,
+				needle.size,
+			)
 
 		return when {
-			needle.size > to - from -> null
-			(needle.size == to - from || needle.size == stem - from) && at(from) -> Tier.Whole
-			at(from) -> Tier.Prefix
-			else -> inside(from, to, needle.size, ::at)
+			starts && (needle.size == to - from || needle.size == stem - from) -> Tier.Whole.steps
+			starts -> Tier.Prefix.steps
+			else -> inside(bytes, from, to, needle)
 		}
 	}
 
 	/**
-	 * How the needle matches inside the name from [from] to [to], where [at] says it is: at a word's start anywhere,
-	 * or only inside a word. Run for every result found, so it looks without making anything.
+	 * How many steps the needle's match inside the name from [from] to [to] is worth: at a word's start anywhere, or
+	 * only inside a word; none where it is not there.
 	 */
-	private inline fun inside(
-		from: Int,
-		to: Int,
-		length: Int,
-		at: (Int) -> Boolean,
-	): Tier? {
-		var found: Tier? = null
+	private fun inside(bytes: ByteArray, from: Int, to: Int, needle: ByteArray): Int {
+		var found = 0
 
-		for (start in from + 1..to - length) {
-			if (!at(start))
+		for (start in from + 1..to - needle.size) {
+			if (!java.util.Arrays.equals(
+					bytes,
+					start,
+					start + needle.size,
+					needle,
+					0,
+					needle.size,
+				)
+			)
 				continue
 			if (startsWord(block.names, from, start))
-				return Tier.WordStart
-			found = Tier.Inside
+				return Tier.WordStart.steps
+			found = Tier.Inside.steps
 		}
 
 		return found
@@ -200,17 +253,20 @@ internal class Ranker private constructor(
 
 			return Ranker(
 				block,
-				words.take(Ranking.WORDS),
+				words.take(Ranking.WORDS).toTypedArray(),
 				ranking,
-				held.associate { (entry, weight) ->
-					entry to
-						points(weight, ranking.perUse, ranking.mostForUse)
-				},
-				held
-					.filter { (entry, _) -> block.kindOf(entry) == Kind.Directory }
-					.associate { (entry, weight) ->
-						entry to points(weight, ranking.perFolderUse, ranking.mostForFolderUse)
+				Points.of(
+					held.associate { (entry, weight) ->
+						entry to points(weight, ranking.perUse, ranking.mostForUse)
 					},
+				),
+				Points.of(
+					held
+						.filter { (entry, _) -> block.kindOf(entry) == Kind.Directory }
+						.associate { (entry, weight) ->
+							entry to points(weight, ranking.perFolderUse, ranking.mostForFolderUse)
+						},
+				),
 				block.root.parent
 					?.let { usage.weightOf(it, now) }
 					?.let { points(it, ranking.perFolderUse, ranking.mostForFolderUse) } ?: 0,

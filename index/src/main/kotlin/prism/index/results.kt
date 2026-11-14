@@ -37,6 +37,9 @@ internal class Hits(
 	operator fun get(at: Int): Hit = Hit(packed[at])
 
 	companion object {
+		/** The first [count] of [found], as they are now: [found] is whoever found them's to write over. */
+		fun of(found: LongArray, count: Int): Hits = Hits(found.copyOf(count))
+
 		/** [slices], which are of one block and in its order, as one. */
 		fun joined(slices: List<Hits>): Hits =
 			slices.singleOrNull() ?: Hits(
@@ -47,6 +50,50 @@ internal class Hits(
 					}
 				},
 			)
+	}
+}
+
+/**
+ * A name's extension, in lower case, as one number: what follows the name's last dot, where that is not its first
+ * byte and something follows it (`photo.JPG`'s is `jpg`, `archive.tar.gz`'s is `gz`, and `.gitignore` and `Makefile`
+ * have [NONE]). Its bytes are the number's, the first the lowest, so two are the same extension exactly where they
+ * are the same number, and a million names' extensions can be looked up without a text being made for any. One
+ * longer than [LONGEST] bytes is [NONE] too: nothing known by its extension has one so long.
+ */
+@JvmInline
+value class Extension private constructor(
+	val packed: Long,
+) {
+	companion object {
+		/** No extension, or one too long to be one anything is known by. */
+		val NONE = Extension(0)
+
+		/** The most bytes an extension has. */
+		const val LONGEST = 8
+
+		private const val DOT = '.'.code.toByte()
+
+		/** The extension of the [name] of a file. */
+		fun of(name: String): Extension =
+			name.toByteArray().let { of(Fold.folded(it), 0, it.size) }
+
+		/** The extension of the name that is [folded]'s bytes from [from] up to [to], which are in lower case. */
+		internal fun of(folded: ByteArray, from: Int, to: Int): Extension {
+			var dot = to - 1
+
+			while (dot > from && folded[dot] != DOT)
+				dot--
+
+			if (dot <= from || dot == to - 1 || to - dot - 1 > LONGEST)
+				return NONE
+
+			var packed = 0L
+
+			for (at in to - 1 downTo dot + 1)
+				packed = (packed shl 8) or (folded[at].toLong() and 0xFF)
+
+			return Extension(packed)
+		}
 	}
 }
 
@@ -139,6 +186,22 @@ class Results internal constructor(
 		}
 
 	fun kindOf(index: Int): Kind = at(index) { part, hit -> part.block.kindOf(hit.entry) }
+
+	/** The [index]th result's extension, read from its name where it is kept: nothing is made. */
+	fun extensionOf(index: Int): Extension =
+		at(index) { part, hit ->
+			val block = part.block
+
+			Extension.of(block.folded, block.nameAt[hit.entry], block.nameAt[hit.entry + 1])
+		}
+
+	/** Whether the [index]th result's name starts with a dot. */
+	fun startsWithDot(index: Int): Boolean =
+		at(index) { part, hit ->
+			val block = part.block
+
+			block.nameLength(hit.entry) > 0 && block.names[block.nameAt[hit.entry]] == DOT
+		}
 
 	/** The [index]th result's score: what put it where it is. */
 	fun scoreOf(index: Int): Int = at(index) { _, hit -> hit.score }
@@ -340,7 +403,10 @@ class Results internal constructor(
 		val NONE = Results(emptyList())
 
 		/** The results of several searches as one, best first among them all: an index's and those of places beside it. */
-		fun of(results: List<Results>): Results = Results(results.flatMap { it.parts })
+		fun of(results: List<Results>): Results =
+			// One search's results are in their order already: putting them in it again would be a second sort of
+			// every one of them, which a search of an index with nothing beside it would pay for nothing.
+			results.singleOrNull() ?: Results(results.flatMap { it.parts })
 
 		/**
 		 * How many of the first results are in the order of their names among equals, whatever was found: as many as
@@ -457,6 +523,7 @@ class Results internal constructor(
 			return at
 		}
 
+		private const val DOT = '.'.code.toByte()
 		private const val ZERO = '0'.code.toByte()
 		private const val NINE = '9'.code.toByte()
 	}

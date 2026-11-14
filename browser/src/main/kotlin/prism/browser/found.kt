@@ -175,10 +175,16 @@ class Matches(
 	/** Each result's [Category]'s ordinal, its sign set where its name starts with a dot. */
 	private val facts: ByteArray =
 		ByteArray(results.size).also { facts ->
+			// Read from each name where the index keeps it: a text made of each would be a million of them for a
+			// broad search, thrown away as soon as it had been looked at.
 			IntStream.range(0, results.size).parallel().forEach { at ->
-				val name = results.nameOf(at)
-				val category = categoryOf(results.kindOf(at), name)
-				val hidden = name.startsWith(".")
+				val category =
+					when (results.kindOf(at)) {
+						EntryKind.Directory, EntryKind.LinkToDirectory -> Category.Folder
+						EntryKind.File, EntryKind.LinkToFile -> categoryOf(results.extensionOf(at))
+						EntryKind.LinkToOther, EntryKind.BrokenLink -> Category.Link
+					}
+				val hidden = results.startsWithDot(at)
 
 				facts[at] = (category.ordinal or (if (hidden) HIDDEN else 0)).toByte()
 			}
@@ -238,14 +244,6 @@ class Matches(
 
 		/** The bit of a fact that says the name starts with a dot: above every category's ordinal. */
 		const val HIDDEN = 0x40
-
-		/** What a row of an entry of this kind and name is, as a folder read from disk would say. */
-		fun categoryOf(kind: EntryKind, name: String): Category =
-			when (kind) {
-				EntryKind.Directory, EntryKind.LinkToDirectory -> Category.Folder
-				EntryKind.File, EntryKind.LinkToFile -> prism.browser.categoryOf(name)
-				EntryKind.LinkToOther, EntryKind.BrokenLink -> Category.Link
-			}
 	}
 }
 

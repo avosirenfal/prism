@@ -336,6 +336,21 @@ Tried for real: on sway 1.9 and niri 26.04, as a layer surface and as a window, 
 behind the launcher); under Xvfb with nothing compositing (opaque, and the launcher square); and under Xvfb with
 xcompmgr, where it is clear drawn by OpenGL and opaque drawn on the CPU.
 
+## When a window stutters
+
+A window stutters when its thread is kept from the next frame: by its own work, or by the whole process being stopped
+for a moment (Java collecting garbage). `PRISM_STALL_LOG=12` has every turn of the windows' loop that took longer
+than that many milliseconds said on standard error, with what each part of it took:
+
+```
+prism.window: a turn of 87 ms, what other threads left for this one 9 ms, laying out and drawing 78 ms
+```
+
+The parts are what other threads left to be done on this one (an answer delivered, a state made), composing, laying
+out and drawing, and each event from the platform. A long turn whose parts are all short was a stop of the whole
+process, which `-Xlog:gc` (given to Java, docs/nixos.md's `extraJvmArgs`) says the times of. Not set, it costs one
+comparison a turn.
+
 ## When no window opens
 
 `PRISM_WINDOW_LOG=1` says on standard error which display server SDL speaks to, what OpenGL's renderer is (or that

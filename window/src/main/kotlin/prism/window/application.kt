@@ -218,7 +218,10 @@ internal class Application(
 
 			Queue().use { queue ->
 				while (running || open.isNotEmpty()) {
+					val turn = Stalls.turn()
+
 					Ui.drain()
+					turn?.did("what other threads left for this one")
 
 					val now = System.nanoTime()
 
@@ -226,13 +229,23 @@ internal class Application(
 						wantsFrame = false
 						recomposer.performFrame(now)
 					}
+					turn?.did("composing")
 
 					open.values.toList().forEach { guarded(it) { window -> window.frame(now) } }
+					turn?.did("laying out and drawing")
 
 					val waiting = wantsFrame || Ui.hasWork || open.values.any { it.wantsFrame }
 
-					// What is queued now, before the next frame; what comes meanwhile, after it.
-					queue.take(if (waiting) 0 else IDLE_MILLIS, ::handle)
+					// What is queued now, before the next frame; what comes meanwhile, after it. Waiting for an event
+					// is not a stall, so the turn is over before it; what handling the events took is the next's.
+					turn?.done()
+					queue.take(if (waiting) 0 else IDLE_MILLIS) { event ->
+						val handling = Stalls.turn()
+
+						handle(event)
+						handling?.did("an event")
+						handling?.done()
+					}
 
 					if (!running)
 						open.values.toList().forEach(::closed)
