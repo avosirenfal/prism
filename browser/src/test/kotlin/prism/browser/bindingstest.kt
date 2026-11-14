@@ -41,10 +41,9 @@ class BindingsTest {
 		val bindings = Bindings.DEFAULT
 
 		assertEquals(Action.SearchIndex, bindings.window(chord("Ctrl+Shift+F")))
-		// Shift+F searches from the listing, and types an F in a text field.
-		assertEquals(chord("Shift+F"), Action.SearchIndex.defaults.first())
-		assertNull(bindings.window(chord("Shift+F")))
-		assertEquals(Action.SearchIndex, bindings.listing(chord("Shift+F")))
+		// Shift+F types an F, in a field and into the listing's own search by letters: it is nothing's chord.
+		assertEquals(listOf(chord("Ctrl+Shift+F")), Action.SearchIndex.defaults)
+		assertNull(bindings.listing(chord("Shift+F")))
 		assertEquals(Action.Refresh, bindings.window(chord("F5")))
 		assertEquals(Action.Back, bindings.window(chord("Mouse Back")))
 		// Backspace is the folder above from the listing, but in a text field it deletes a character.

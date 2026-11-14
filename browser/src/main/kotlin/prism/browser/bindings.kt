@@ -89,8 +89,7 @@ enum class Action(
 	EditAddress("Type a path", Scope.Window, "Ctrl+L", "Alt+D"),
 	SearchFolder("Search this folder", Scope.Window, "Ctrl+F", "F3"),
 
-	// Shift+F types an F wherever text is typed, so it searches from the listing alone; with Ctrl, from anywhere.
-	SearchIndex("Search everything", Scope.Window, "Shift+F", "Ctrl+Shift+F"),
+	SearchIndex("Search everything", Scope.Window, "Ctrl+Shift+F"),
 	Refresh("Read again", Scope.Window, "F5", "Ctrl+R"),
 	ToggleHidden("Show hidden files and folders", Scope.Window, "Ctrl+H"),
 	NewFolder("New folder", Scope.Window, "Ctrl+Shift+N"),

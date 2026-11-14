@@ -40,7 +40,7 @@ import prism.preferences.Sort
  * - Renaming, the trash and making a folder are asked of the disk, and the folder is read again after, whatever came
  *   of it. The Delete key asks before it moves anything to the trash; Shift+Delete and the menu do not. A name with a
  *   slash in it, or `.` or `..`, is refused before the disk is asked.
- * - Shift+F (from the listing; Ctrl+Shift+F from anywhere) searches the index, in a window over the picker that lists
+ * - Ctrl+Shift+F searches the index, in a window over the picker that lists
  *   the first few matches as the query is typed, its field empty each time it opens. A match chosen is gone to: a folder, into it; a file, to the folder it is in, chosen (saving, its name to
  *   save over). The search given shows every match in the listing, as a folder holding them all would show them,
  *   filtered as a folder is and ordered best first; Back from a folder gone into from them returns to them. A folder

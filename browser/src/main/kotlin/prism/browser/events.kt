@@ -166,7 +166,7 @@ sealed interface BrowserEvent : Input {
 
 	// ---- the search of the index ----
 
-	/** The search's window opened over the picker, with nothing typed into it yet (Shift+F, Ctrl+Shift+F). */
+	/** The search's window opened over the picker, with nothing typed into it yet (Ctrl+Shift+F). */
 	data object OpenedSearch : BrowserEvent
 
 	/**

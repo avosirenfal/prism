@@ -1659,12 +1659,11 @@ class InteractionTest {
 	}
 
 	@Test
-	fun shiftFSearchesFromTheListingAndTheQuestionMarkShowsHowAQueryIsWritten() {
+	fun theQuestionMarkShowsHowAQueryIsWrittenAndAnExampleClickedIsTyped() {
 		val home = home()
 
 		picking(folder = home, finder = finderOf(home)) { _ ->
-			// From the listing, Shift+F opens the search; in its field, the same keys type an F.
-			focused().performKeyInput { withKeyDown(Key.ShiftLeft) { pressKey(Key.F) } }
+			ctrlShift(Key.F)
 			waitForIdle()
 			onNodeWithTag("search-layer").assertExists()
 			focusIsIn("search-query")

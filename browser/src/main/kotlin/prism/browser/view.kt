@@ -161,8 +161,7 @@ import prism.window.WindowLocals
  * | Alt+Left, Alt+Right | anywhere | back, forward |
  * | Ctrl+L, Alt+D | anywhere | type a path |
  * | Ctrl+F, F3 | anywhere | search the folder shown |
- * | Shift+F | listing | search the index: the first matches as it is typed, every one in the listing on Enter |
- * | Ctrl+Shift+F | anywhere | the same, from a field too, where Shift+F types an F |
+ * | Ctrl+Shift+F | anywhere | search the index: the first matches as it is typed, every one in the listing on Enter |
  * | Ctrl+H | anywhere | hidden files shown, or not |
  * | F5, Ctrl+R | anywhere | the folder read again |
  * | Ctrl+A | listing | every row chosen |
