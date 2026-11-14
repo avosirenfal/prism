@@ -676,7 +676,7 @@ sealed interface Request {
 	data object KeyBindings : Request
 }
 
-/** Where a window starts: in a folder, or in a place. */
+/** Where a window starts: in a folder, in a place, or on the page of the system's drives. */
 @Immutable
 sealed interface Start {
 	data class Folder(
@@ -686,6 +686,9 @@ sealed interface Start {
 	data class Place(
 		val placed: Placed,
 	) : Start
+
+	/** The System page, whether or not it is among the sidebar's places. */
+	data object System : Start
 }
 
 /** Something a command is run for, and waited on: what is shown as running, and can be stopped. */

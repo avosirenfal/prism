@@ -2,6 +2,7 @@ package prism.launcher
 
 import prism.desktop.Application
 import prism.desktop.ApplicationAction
+import prism.index.query.Own
 
 /*
  * How well what is typed fits an application. What is typed is words; every word must be found in something the
@@ -158,13 +159,24 @@ internal fun scoreOf(words: List<String>, listed: Listed, action: Listed.Doing):
 				placeOf(words.joinToString(" "), listed.owning) == Place.Whole
 		}?.let { it - 5 }
 
-/** What each thing prism does says of itself. */
-private val SAID_BY_COMMAND: Map<LauncherCommand, List<Said>> =
-	LauncherCommand.entries.associateWith { command ->
-		listOf(Said(command.label, 100), Said(command.detail, 25)) +
-			command.keywords.map { Said(it, 50) }
-	}
+/**
+ * What prism does that is found as an application is, by what is typed fitting what it says of itself, and listed
+ * after the applications with nothing typed: a window on the home folder, and the launcher's settings. The settings
+ * are the same entry the word `prism` asks for ([Entry.Prism]), found here by their own words too.
+ */
+internal class Does private constructor(
+	val entry: Entry,
+	keywords: List<String>,
+) {
+	private val said: List<Said> =
+		listOf(Said(entry.title, 100), Said(entry.detail, 25)) + keywords.map { Said(it, 50) }
 
-/** How well [words] fit [command]; null where they do not. */
-internal fun scoreOf(words: List<String>, command: LauncherCommand): Int? =
-	scoreOf(words, SAID_BY_COMMAND.getValue(command))
+	/** How well [words] fit it; null where they do not. */
+	fun scoreOf(words: List<String>): Int? = scoreOf(words, said)
+
+	companion object {
+		val ALL: List<Does> =
+			LauncherCommand.entries.map { Does(Entry.Command(it), it.keywords) } +
+				Does(Entry.Prism(Own.Settings), Own.Settings.words + listOf("launcher", "configure"))
+	}
+}

@@ -38,6 +38,12 @@ interface LauncherHost {
 	/** The launcher's settings, in a window of their own. */
 	fun settings()
 
+	/** The launcher's settings, at what its keys do: their window opened there, or, open already, turned to it. */
+	fun bindings()
+
+	/** An explorer's window on the page of the system's drives. */
+	fun system()
+
 	/** An explorer's window on [folder]. */
 	fun browse(folder: Path)
 
@@ -126,6 +132,8 @@ class LauncherSession(
 			is LauncherEffect.Reveal -> host.reveal(effect.path)
 			is LauncherEffect.Copy -> host.copy(effect.text)
 			LauncherEffect.Settings -> host.settings()
+			LauncherEffect.Bindings -> host.bindings()
+			LauncherEffect.System -> host.system()
 			LauncherEffect.Explore -> host.browse(services.home)
 			is LauncherEffect.Remember -> services.launches.used(effect.key, effect.at)
 			LauncherEffect.Close -> host.close()
@@ -202,7 +210,7 @@ class LauncherSession(
 					opening.failures.firstOrNull()?.let(::failureOf)
 						?: "No application opens ${entry.title}".takeIf { opening.unopened.isNotEmpty() }
 				}
-			is Entry.Command -> null
+			is Entry.Command, is Entry.Prism -> null
 		}
 	}
 

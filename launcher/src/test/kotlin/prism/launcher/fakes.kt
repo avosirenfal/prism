@@ -146,6 +146,14 @@ class FakeHost : LauncherHost {
 		asked += "settings"
 	}
 
+	override fun bindings() {
+		asked += "bindings"
+	}
+
+	override fun system() {
+		asked += "system"
+	}
+
 	override fun browse(folder: Path) {
 		asked += "browse $folder"
 	}

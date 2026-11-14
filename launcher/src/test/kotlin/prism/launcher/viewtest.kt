@@ -6,6 +6,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.test.ComposeUiTest
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.hasTestTag
@@ -47,6 +48,7 @@ import prism.desktop.freedesktop.Freedesktop
 import prism.index.Index
 import prism.index.Indexer
 import prism.index.Searched
+import prism.index.query.Own
 import prism.index.query.Query
 
 /**
@@ -271,6 +273,101 @@ class LauncherViewTest {
 	}
 
 	@Test
+	fun prismsOwnAreFoundByTheWordPrismAndDoneByWhoeverShowsTheLauncher() {
+		launching { session, _, host, _ ->
+			onNodeWithTag("launcher-query").performTextInput("prism")
+			waitForIdle()
+			// Every one of them, first, the arrows on the first.
+			assertEquals(
+				listOf("Settings", "Key bindings", "System", "How to search"),
+				session.state.value.entries
+					.filterIsInstance<Entry.Prism>()
+					.map { it.title },
+			)
+			onNodeWithTag("entry:own:Settings").assertIsSelected()
+			press(Key.DirectionDown)
+			waitForIdle()
+			onNodeWithTag("entry:own:Key bindings").assertIsSelected()
+			press(Key.Enter)
+			until { "close" in host.asked }
+			assertEquals(listOf("bindings", "close"), host.asked.toList())
+		}
+		launching { _, _, host, _ ->
+			onNodeWithTag("launcher-query").performTextInput("prism set")
+			waitForIdle()
+			press(Key.Enter)
+			until { "close" in host.asked }
+			assertEquals(listOf("settings", "close"), host.asked.toList())
+		}
+		launching { _, _, host, _ ->
+			onNodeWithTag("launcher-query").performTextInput("prism system")
+			waitForIdle()
+			onNodeWithTag("entry:own:System").performClick()
+			until { "close" in host.asked }
+			assertEquals(listOf("system", "close"), host.asked.toList())
+		}
+	}
+
+	@Test
+	fun aBareQuestionMarkShowsHowAQueryIsWrittenInPlaceOfTheFieldAndWhatWasFound() =
+		launching { session, _, host, _ ->
+			fun shown(tag: String) = onAllNodes(hasTestTag(tag)).fetchSemanticsNodes().size
+
+			onNodeWithTag("launcher-query").performTextInput("?")
+			waitForIdle()
+			onNodeWithTag("entry:own:How to search").assertIsSelected()
+			assertEquals(0, shown("search-help-shown"))
+			press(Key.Enter)
+			until { session.state.value.help }
+			waitForIdle()
+
+			// The page, and neither the field nor what was found; the launcher is still there.
+			assertEquals(1, shown("search-help-shown"))
+			assertEquals(0, shown("launcher-query"))
+			assertEquals(0, shown("launcher-results"))
+			assertEquals(0, shown("launcher-status"))
+			assertEquals(emptyList<String>(), host.asked.toList())
+
+			// Enter and the arrows are the page's now: nothing found is chosen or moved to behind it.
+			onNodeWithTag("search-help-shown").performKeyInput {
+				pressKey(Key.DirectionDown)
+				pressKey(Key.Enter)
+			}
+			waitForIdle()
+			assertTrue(session.state.value.help)
+			assertEquals(Entry.Prism(Own.Help), session.state.value.current)
+
+			// Escape leaves it for the launcher as it was, the keyboard in its field again.
+			onNodeWithTag("search-help-shown").performKeyInput { pressKey(Key.Escape) }
+			until { !session.state.value.help }
+			waitForIdle()
+			assertEquals(0, shown("search-help-shown"))
+			assertEquals("?", session.state.value.query)
+			onNodeWithTag("launcher-query").assertIsFocused()
+			assertEquals(emptyList<String>(), host.asked.toList())
+
+			// Its ×, likewise.
+			press(Key.Enter)
+			until { session.state.value.help }
+			waitForIdle()
+			onNodeWithTag("search-help-close").performClick()
+			until { !session.state.value.help }
+			waitForIdle()
+			onNodeWithTag("launcher-query").assertIsFocused()
+
+			// A query of the page's clicked is typed into the field, and the page left.
+			press(Key.Enter)
+			until { session.state.value.help }
+			waitForIdle()
+			onNodeWithTag("help:is:dir").performClick()
+			until { !session.state.value.help }
+			waitForIdle()
+			assertEquals("is:dir", session.state.value.query)
+			onNodeWithTag("launcher-query").assertTextContains("is:dir")
+			onNodeWithTag("launcher-query").assertIsFocused()
+		}
+
+	@Test
 	fun aRowClickedIsChosenAndOneThatCannotBeStartedSaysWhy() =
 		launching { session, desktop, host, _ ->
 			desktop.failing = "it is not installed"
@@ -428,12 +525,28 @@ class LauncherViewTest {
 				),
 			).state
 
+		val own =
+			step(
+				step(first, LauncherEvent.Typed("prism")).state,
+				LauncherEvent.FilesArrived("prism", emptyList(), 0),
+			).state
+
+		val help =
+			step(
+				step(first, LauncherEvent.Typed("?")).state,
+				LauncherEvent.Entered,
+			).state
+
+		assertTrue(help.help)
+
 		val drawn =
 			mapOf(
 				"first" to first,
 				"typed" to typed,
 				"nothing" to nothing,
 				"failed" to failed,
+				"prism" to own,
+				"help" to help,
 			)
 
 		val (width, height) = LauncherDims.sizeOf(first.preferences)

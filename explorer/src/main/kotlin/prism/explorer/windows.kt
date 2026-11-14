@@ -255,7 +255,9 @@ fun ExplorerWindows(explorer: Explorer, palette: Palette, decorated: Boolean) {
 						zoom = zoomOf(WindowKind.Preferences),
 					) {
 						CompositionLocalProvider(LocalIconImages provides explorer.icons) {
-							LauncherSettingsWindow(explorer) { explorer.close(window) }
+							LauncherSettingsWindow(explorer, window.asked, window.raised) {
+								explorer.close(window)
+							}
 						}
 					}
 				is ExplorerWindow.Failed ->
@@ -286,9 +288,18 @@ fun ExplorerWindows(explorer: Explorer, palette: Palette, decorated: Boolean) {
 		}
 }
 
-/** The launcher's settings' edits, kept while their window is open, and saved as the preferences' are. */
+/**
+ * The launcher's settings' edits, kept while their window is open, and saved as the preferences' are. The window
+ * is at the page it was [asked] for at, each time it is asked for ([raised] counts them): as it opens, and turned to
+ * it where it was open at another.
+ */
 @Composable
-private fun LauncherSettingsWindow(explorer: Explorer, onClose: () -> Unit) {
+private fun LauncherSettingsWindow(
+	explorer: Explorer,
+	asked: LauncherPage?,
+	raised: Int,
+	onClose: () -> Unit,
+) {
 	val chords =
 		remember {
 			MutableSharedFlow<Chord>(
@@ -301,6 +312,11 @@ private fun LauncherSettingsWindow(explorer: Explorer, onClose: () -> Unit) {
 		mutableStateOf(LauncherSettings(explorer.preferences.preferences.value))
 	}
 	var edits by remember { mutableStateOf(Edits<LauncherSettings>()) }
+
+	LaunchedEffect(raised, asked) {
+		asked?.let { settings = settings.copy(page = it) }
+	}
+
 	val applications = remember { explorer.desktop.applications.all() }
 	val applied by explorer.preferences.preferences.collectAsState()
 

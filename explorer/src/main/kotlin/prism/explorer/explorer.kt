@@ -41,6 +41,7 @@ import prism.browser.TypeFilter
 import prism.browser.World
 import prism.browser.opened
 import prism.browser.openedIn
+import prism.browser.openedOnSystem
 import prism.browser.sidebarOf
 import prism.browser.toClipboard
 import prism.browser.zoomOf
@@ -139,10 +140,14 @@ sealed interface ExplorerWindow {
 		val activation: String? = null,
 	) : ExplorerWindow
 
-	/** The launcher's settings, of which there is one window; [raised] as the preferences' is. */
+	/**
+	 * The launcher's settings, of which there is one window; [raised] as the preferences' is. [asked] is the page it
+	 * was last asked for at, which it turns to each time it is; none, where it was asked for as it is.
+	 */
 	data class LauncherSettings(
 		override val id: WindowId,
 		val raised: Int = 0,
+		val asked: LauncherPage? = null,
 	) : ExplorerWindow
 
 	/**
@@ -285,7 +290,8 @@ class Explorer(
 		browse(Start.Folder(folder), chosen, activation)
 
 	/**
-	 * A window browsing from [start]: a folder, or a place; in a folder, [chosen] chosen where it is given. With
+	 * A window browsing from [start]: a folder, a place, or the System page; in a folder, [chosen] chosen where it is
+	 * given. With
 	 * [activation], the desktop's token for whoever asked, the window is given the keyboard as it opens.
 	 */
 	fun browse(start: Start, chosen: String? = null, activation: String? = null) {
@@ -313,6 +319,14 @@ class Explorer(
 				is Start.Place ->
 					openedIn(
 						start.placed,
+						home,
+						sidebar,
+						search,
+						preferences.preferences.value.listings,
+						zoomOf(preferences.preferences.value, Role.Explorer),
+					)
+				Start.System ->
+					openedOnSystem(
 						home,
 						sidebar,
 						search,
@@ -395,6 +409,10 @@ class Explorer(
 
 				override fun settings() = doing { launcherSettings() }
 
+				override fun bindings() = doing { launcherSettings(LauncherPage.Bindings) }
+
+				override fun system() = doing { this@Explorer.browse(Start.System) }
+
 				override fun browse(folder: Path) = doing { this@Explorer.browse(folder) }
 
 				override fun reveal(path: Path) =
@@ -439,9 +457,14 @@ class Explorer(
 			it.copy(raised = it.raised + 1, page = page)
 		}
 
-	/** The launcher's settings, in their window: the one there is, raised, where it is open already. */
-	fun launcherSettings() =
-		raising({ ExplorerWindow.LauncherSettings(it) }) { it.copy(raised = it.raised + 1) }
+	/**
+	 * The launcher's settings, in their window: the one there is, raised, where it is open already. With [page],
+	 * the window is at that page: opened there, or, open already, turned to it.
+	 */
+	fun launcherSettings(page: LauncherPage? = null) =
+		raising({ ExplorerWindow.LauncherSettings(it, asked = page) }) {
+			it.copy(raised = it.raised + 1, asked = page)
+		}
 
 	/** The one window of its kind there is, opened by [make], or, where it is open, changed by [raise] to be raised. */
 	private inline fun <reified W : ExplorerWindow> raising(

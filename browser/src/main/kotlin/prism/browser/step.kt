@@ -122,6 +122,24 @@ fun openedIn(
 		it.state.copy(at = Location.Place(placed)).listing(placed)
 	}
 
+/** An explorer opened on the System page: its first state, and the read of the machine's storage that it waits for. */
+fun openedOnSystem(
+	home: Path,
+	sidebar: Sidebar,
+	search: Search = Search.Unavailable(BrowserState.NO_INDEX),
+	listings: Listings = Listings(),
+	zoom: Float = 1f,
+): Step =
+	opened(
+		Choosing.Exploring(),
+		home,
+		home,
+		sidebar,
+		search = search,
+		listings = listings,
+		zoom = zoom,
+	).state.shown(Location.System(), History(), null)
+
 fun titleOf(choosing: Choosing): String =
 	when (choosing) {
 		is Choosing.OneFile -> "Open"

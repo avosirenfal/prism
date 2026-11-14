@@ -6,6 +6,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -54,14 +55,17 @@ import prism.browser.Divider
 import prism.browser.EmptyState
 import prism.browser.Glyph
 import prism.browser.GlyphIcon
+import prism.browser.KeyHint
 import prism.browser.LocalPalette
 import prism.browser.LocalType
+import prism.browser.QueryHelpPanel
 import prism.browser.Radius
 import prism.browser.ResultList
 import prism.browser.ResultText
 import prism.browser.Scaled
 import prism.browser.Space
 import prism.browser.Spinner
+import prism.browser.glyph
 import prism.browser.times
 import prism.preferences.LauncherPreferences
 import prism.window.Backdrop
@@ -72,7 +76,8 @@ import prism.window.LocalNativeWindow
  * window; under it what was found, in groups, each result a row with its picture, its name, what is said of it and
  * what kind of thing it is; and along the bottom what the keys do to the result the arrows are on. The field keeps the
  * keyboard throughout: the arrows move through the results from it, the list scrolling to keep the one they are on in
- * sight, and every key is one the user can bind again (bindings.kt).
+ * sight, and every key is one the user can bind again (bindings.kt). How a query is written, asked for (a bare `?`),
+ * is shown in place of all of that, in the same window, until it is left.
  */
 
 /** How long the launcher's window is without the keyboard before it is taken to have lost it, and put away. */
@@ -216,43 +221,71 @@ fun LauncherPane(
 			.clip(inner)
 			.background(palette.overlay)
 			.onPreviewKeyEvent { key ->
+				// While how a query is written is shown, the one key that is the launcher's is the one that leaves
+				// it: the rest are for what is not there, and are the page's own to have (its Escape, its scrolling).
 				val action =
 					(Chord.of(key)?.let(bindings::action) as? LauncherAction)
 						?.takeIf { key.type == KeyEventType.KeyDown }
+						?.takeIf { !state.help || it == LauncherAction.Dismiss }
 
 				action?.let { onEvent(eventOf(it, state.preferences.rows.number - 1)) }
 
 				action != null
 			}.testTag("launcher"),
 	) {
-		QueryField(state, typed, field, onTyped)
-		Divider()
-		Box(Modifier.weight(1f).fillMaxWidth().padding(LauncherDims.around)) {
-			if (state.entries.isEmpty())
-				Nothing(state)
-			else
-				ResultList(
-					state.entries.size,
-					state.highlighted,
-					LauncherDims.row,
-					height = Dp.Infinity,
-					tag = "launcher-results",
-					heading = state::headingAt,
-					rowTag = { "entry:${state.entries[it].key}" },
-					onChoose = { onEvent(LauncherEvent.Chosen(it)) },
-				) { at ->
-					val entry = state.entries[at]
-
-					EntryIcon(entry, LauncherDims.icon)
-					Spacer(Modifier.width(Space.m))
-					ResultText(entry.title, entry.detail, entry.kind)
-				}
-		}
-		Divider()
-		Footer(state, bindings)
+		if (state.help)
+			QueryHelpPanel(
+				onTry = { onEvent(LauncherEvent.Tried(it)) },
+				onClose = { onEvent(LauncherEvent.HelpClosed) },
+				Modifier.weight(1f),
+				fills = true,
+			)
+		else
+			Found(state, bindings, typed, field, onTyped, onEvent)
 	}
 
-	LaunchedEffect(Unit) { field.requestFocus() }
+	// The field has the keyboard as the launcher opens, and again when what was shown in its place is left.
+	LaunchedEffect(state.help) {
+		if (!state.help)
+			field.requestFocus()
+	}
+}
+
+/** The field, what was found for what is typed into it, and what the keys do: the launcher, but for its edge. */
+@Composable
+private fun ColumnScope.Found(
+	state: LauncherState,
+	bindings: Bindings,
+	typed: TextFieldValue,
+	field: FocusRequester,
+	onTyped: (TextFieldValue) -> Unit,
+	onEvent: (LauncherEvent) -> Unit,
+) {
+	QueryField(state, typed, field, onTyped)
+	Divider()
+	Box(Modifier.weight(1f).fillMaxWidth().padding(LauncherDims.around)) {
+		if (state.entries.isEmpty())
+			Nothing(state)
+		else
+			ResultList(
+				state.entries.size,
+				state.highlighted,
+				LauncherDims.row,
+				height = Dp.Infinity,
+				tag = "launcher-results",
+				heading = state::headingAt,
+				rowTag = { "entry:${state.entries[it].key}" },
+				onChoose = { onEvent(LauncherEvent.Chosen(it)) },
+			) { at ->
+				val entry = state.entries[at]
+
+				EntryIcon(entry, LauncherDims.icon)
+				Spacer(Modifier.width(Space.m))
+				ResultText(entry.title, entry.detail, entry.kind)
+			}
+	}
+	Divider()
+	Footer(state, bindings)
 }
 
 /** The field: a magnifier, what is typed, large, and a spinner while the index is searched. */
@@ -350,12 +383,12 @@ private fun EntryIcon(entry: Entry, size: Dp) {
 			is Entry.Command ->
 				GlyphIcon(
 					when (entry.command) {
-						LauncherCommand.Settings -> Glyph.Settings
 						LauncherCommand.Files -> Glyph.Folder
 					},
 					palette.accent,
 					size * 0.75f,
 				)
+			is Entry.Prism -> GlyphIcon(entry.own.glyph, palette.accent, size * 0.75f)
 		}
 	}
 }
@@ -460,49 +493,10 @@ private fun hintsFor(entry: Entry?): List<Pair<LauncherAction, String>> =
 			null -> null
 			is Entry.App, is Entry.Action -> LauncherAction.Open to "Launch"
 			is Entry.File -> LauncherAction.Open to "Open"
-			is Entry.Command -> LauncherAction.Open to "Go"
+			is Entry.Command, is Entry.Prism -> LauncherAction.Open to "Go"
 		},
 		(LauncherAction.Reveal to "Show in folder").takeIf {
-			entry != null &&
-				entry !is Entry.Command
+			entry is Entry.App || entry is Entry.Action || entry is Entry.File
 		},
 		LauncherAction.Settings to "Settings",
 	)
-
-/** What a key does, and the key: each part of the chord on a cap of its own. */
-@Composable
-private fun KeyHint(label: String, chord: Chord) {
-	val palette = LocalPalette.current
-	val type = LocalType.current
-
-	Row(
-		horizontalArrangement = Arrangement.spacedBy(Space.xs),
-		verticalAlignment = Alignment.CenterVertically,
-	) {
-		Text(label, style = type.muted, maxLines = 1)
-		Spacer(Modifier.width(Space.xxs))
-		for (part in capsOf(chord))
-			Box(
-				Modifier
-					.clip(RoundedCornerShape(Radius.small))
-					.background(palette.sunken)
-					.border(1.dp, palette.border, RoundedCornerShape(Radius.small))
-					.padding(horizontal = Space.xs + Space.xxs, vertical = 1.dp),
-			) {
-				Text(part, style = type.heading.copy(color = palette.text), maxLines = 1)
-			}
-	}
-}
-
-/** [chord] as the caps it is pressed on: `Ctrl`, `↵`. */
-internal fun capsOf(chord: Chord): List<String> =
-	chord.toString().split('+').map {
-		when (it) {
-			"Enter" -> "↵"
-			"Escape" -> "Esc"
-			"Comma" -> ","
-			"Up" -> "↑"
-			"Down" -> "↓"
-			else -> it
-		}
-	}

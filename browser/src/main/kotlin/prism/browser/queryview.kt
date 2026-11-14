@@ -63,13 +63,16 @@ import prism.index.query.Role
  * How a query is written ([QueryHelp]), in place of a search's field and results: what it is, a sentence or two, and
  * a query a line with what it finds, each coloured as the field would colour it and given to [onTry] when clicked,
  * to be typed there and tried. It is left by its × or by Escape ([onClose]), back to the search it was asked from. It
- * takes the keyboard while it is shown, since the field it took the place of is not there to have it.
+ * takes the keyboard while it is shown, since the field it took the place of is not there to have it. Where it
+ * [fills] the height it is given (a window of a size of its own, the launcher's), what is said along its bottom is at
+ * the bottom of that; otherwise it is as tall as what it shows.
  */
 @Composable
 fun QueryHelpPanel(
 	onTry: (String) -> Unit,
 	onClose: () -> Unit,
 	modifier: Modifier = Modifier,
+	fills: Boolean = false,
 ) {
 	val palette = LocalPalette.current
 	val type = LocalType.current
@@ -117,7 +120,7 @@ fun QueryHelpPanel(
 		Divider()
 		Column(
 			Modifier
-				.weight(1f, fill = false)
+				.weight(1f, fill = fills)
 				.verticalScroll(rememberScrollState())
 				.padding(horizontal = Space.s, vertical = Space.s),
 		) {

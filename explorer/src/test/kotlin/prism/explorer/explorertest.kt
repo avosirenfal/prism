@@ -237,6 +237,61 @@ class ExplorerTest {
 		}
 
 	@Test
+	fun prismsOwnChosenInTheLauncherOpenItsSettingsWhereAskedAndTheSystemPage() =
+		explored { explorer, _, _ ->
+			suspend fun settled(what: () -> Boolean) {
+				while (!what())
+					delay(10)
+			}
+
+			fun settings() =
+				explorer.windows.value
+					.filterIsInstance<ExplorerWindow.LauncherSettings>()
+					.singleOrNull()
+
+			suspend fun chosen(typed: String) {
+				explorer.launch()
+
+				val launcher =
+					explorer.windows.value
+						.filterIsInstance<ExplorerWindow.Launching>()
+						.single()
+
+				launcher.session.send(LauncherEvent.Typed(typed))
+				launcher.session.send(LauncherEvent.Entered)
+				settled { explorer.windows.value.none { it is ExplorerWindow.Launching } }
+			}
+
+			// Its settings, as they open: at no page in particular.
+			chosen("prism settings")
+			settled { settings() != null }
+			assertEquals(null, settings()?.asked)
+			assertEquals(0, settings()?.raised)
+
+			// Its keys, with that window open: the one window, raised, and turned to them.
+			chosen("prism bindings")
+			settled { settings()?.asked == LauncherPage.Bindings }
+			assertEquals(1, settings()?.raised)
+			// Its settings asked for again leave it at the page it is at.
+			chosen("prism settings")
+			settled { settings()?.raised == 2 }
+			assertEquals(null, settings()?.asked)
+
+			// The System page: a browser's window on it, from which there is nowhere back.
+			chosen("prism system")
+			settled { explorer.browsers.size == 1 }
+
+			val browsing = explorer.browsers.single()
+
+			settled {
+				browsing.session.state.value.system
+					?.storage != null
+			}
+			assertEquals("System", Explorer.titleOf(browsing))
+			assertEquals(emptyList<Any>(), browsing.session.state.value.history.back)
+		}
+
+	@Test
 	fun aPlacePinnedReachesEveryBrowsersSidebar() =
 		explored { explorer, _, preferences ->
 			val projects = root.resolve("projects").createDirectories()

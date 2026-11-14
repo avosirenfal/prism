@@ -12,6 +12,8 @@ Bind `prism launcher` to a key in your window manager (below). Press the key, an
 
 - **Nothing typed** lists every application installed, the ones you start most and most lately first, then the two
   things prism itself does from here ("Files", a window on your home folder, and "Settings").
+- **`prism`**, typed as a word, asks for prism's own things, which come before everything else; and a bare **`?`**
+  for how a query is written (below).
 - **Typing** narrows the list as you type. `fire` finds Firefox by its name; `browser` finds it by what kind of program
   it says it is; `www` by a word it asks to be found by; `vsc` finds Visual Studio Code by the first letters of its
   words. With several words, every one must be found somewhere.
@@ -29,6 +31,35 @@ Along the bottom is what the keys do to the result the arrows are on, and, where
 why.
 
 ![The launcher as it opens](launcher-light.png)
+
+### Prism's own, and how to search
+
+![The launcher with prism typed](launcher-prism.png)
+
+The word `prism`, whole and anywhere in what is typed, lists what is prism's own before the applications and the
+files, which are still looked for, for the same text, and come after:
+
+| typed | first result | chosen, it |
+|---|---|---|
+| `prism settings` | Settings | opens the launcher's settings, as Ctrl+comma does |
+| `prism bindings` | Key bindings | opens the launcher's settings at its keys, or turns their window to them where it is open |
+| `prism system` | System | opens an explorer's window on the System page, pinned to quick access or not |
+| `prism help`, or `?` alone | How to search | shows how a query is written |
+| `prism` | all four, and "Files" | |
+
+The other words need only begin a word of what they are after: `prism set` is Settings, `prism key` the key
+bindings, `prism dri` the System page (its drives). They are the same items an explorer's search finds
+(docs/search.md, `Own`); what each does is whoever lists it's own, so here Settings is the launcher's.
+
+"Settings" is found by its own words too, with no `prism` (`settings`, `preferences`), after the applications, as
+"Files" is; the rest only by `prism`, so that `system` is still your System Monitor first.
+
+![How to search, in the launcher](launcher-help.png)
+
+How a query is written takes the place of the field and the results, in the same window: a sentence on how a query
+is read, and a query a line with what it finds. Clicking one types it into the field and goes back to the results
+for it; Escape, or the × in its corner, goes back to the launcher as it was. While it is shown the launcher's other
+keys do nothing, since what they act on is not there.
 
 ### What is listed, and in what order
 
@@ -223,8 +254,9 @@ so the bind is all there is to add.
 The launcher is a module of its own (`launcher`), made as the browser is:
 
 - **`LauncherState`** (`model.kt`) is everything: what is typed, what is installed, what was started, what the index
-  found, which result the arrows are on. What is shown is worked out from it (`sections`), so nothing shown can be out
-  of step with it.
+  found, which result the arrows are on, whether how to search is shown. What is shown is worked out from it
+  (`sections`), so nothing shown can be out of step with it. Prism's own are `Entry.Prism`, each one of the query
+  system's `Own`, found by `Own.found` for what is typed and what the launcher offers.
 - **`step`** (`step.kt`) is a pure function from a state and an event to the next state and what is to be done: start
   this, search for that, close. It starts nothing itself.
 - **`LauncherSession`** (`session.kt`) does what `step` asks, off the thread the window is drawn on, and sends back
@@ -243,15 +275,20 @@ nothing else with it.
 
 - `LauncherStateTest`: what is found for what is typed and in what order, actions, hidden applications, uses, files
   asked for and stale answers dropped, the arrows' ends, what Enter, Escape, Ctrl+Enter and the copy do, launches kept
-  in a file and halved by time, and its keys as the preferences write and read them.
+  in a file and halved by time, and its keys as the preferences write and read them; prism's own found by the word
+  `prism` before everything else and each done where it belongs, and how to search asked for by `?`, shown, left by
+  Escape and by its ×, with nothing behind it moved or chosen meanwhile.
 - `LauncherViewTest`: the launcher composed and typed into as a user would, over the tests' desktop and a real index
   of a folder: Enter starts the application, a file is opened with what opens it, a folder in a window, a failure is
-  said, forty results scroll under the arrows; an icon drawn from a PNG and from an SVG; and the launcher drawn, in
-  both palettes, with whatever this machine has installed and its icon theme's pictures.
+  said, forty results scroll under the arrows; prism's own chosen by the keys and by a click; how to search in place
+  of the field and the results, the keyboard back in the field when it is left, and a query of its clicked typed
+  there; an icon drawn from a PNG and from an SVG; and the launcher drawn, in both palettes, with whatever this
+  machine has installed and its icon theme's pictures.
 - `KeysTest` (explorer): the launcher's settings changed in their window and written only once applied, its keys
   rebound on the explorer's own page, one that types refused, an application switched off; and the pages drawn.
 - `ExplorerTest`: the launcher shown, put away by being asked for again, following its settings as they change,
-  opening its settings and a folder's window.
+  opening its settings and a folder's window; its settings opened at their keys, their one window turned to them
+  where it is open; and a window opened on the System page.
 - `tools/daemon/check.sh`: `prism launcher` asked of a running daemon shows a window titled "Prism Launcher", and
   asked again puts it away.
 - `tools/launcher/check-wayland.sh`: the launcher on a real compositor (sway, with no screen; or, with `--here`,

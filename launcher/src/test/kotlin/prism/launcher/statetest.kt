@@ -10,6 +10,7 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import prism.browser.Category
+import prism.index.query.Own
 import prism.preferences.LauncherPreferences
 
 /**
@@ -138,6 +139,160 @@ class LauncherStateTest {
 			)
 
 		assertEquals(listOf("Firewall Configuration"), hidden.state.titles("Applications"))
+	}
+
+	@Test
+	fun theWordPrismAsksForPrismsOwnWhichComeBeforeEverythingElseFound() {
+		// Alone, every one of them, and whatever else prism does: before the applications, the arrows on the first.
+		val all = state("prism")
+
+		assertEquals(
+			listOf("Settings", "Key bindings", "System", "How to search", "Files"),
+			all.titles("Prism"),
+		)
+		assertEquals("Prism", all.headingAt(0))
+		assertEquals(Entry.Prism(Own.Settings), all.current)
+
+		// With other words, those whose words they begin; `prism` wherever it comes, in whatever case.
+		assertEquals(listOf("Settings"), state("prism settings").titles("Prism"))
+		assertEquals(listOf("Settings"), state("prism set").titles("Prism"))
+		assertEquals(listOf("Settings"), state("Settings PRISM").titles("Prism"))
+		assertEquals(listOf("Key bindings"), state("prism bindings").titles("Prism"))
+		assertEquals(listOf("System"), state("prism system").titles("Prism"))
+		assertEquals(listOf("How to search"), state("prism help").titles("Prism"))
+		assertEquals(emptyList<String>(), state("prism nothing").titles("Prism"))
+		// Only the word itself: not a word it begins, or that holds it.
+		assertEquals(emptyList<String>(), state("prisms").titles("Prism"))
+
+		// An application that fits what is typed as well comes after them, and so do the files found for it.
+		val tool = Programs.application("prism-settings", "Prism Settings Tool")
+
+		val beside =
+			step(
+				LauncherState(installed = Installed.of(Programs.all + tool), now = now),
+				LauncherEvent.Typed("prism set"),
+			).state
+				.after(
+					LauncherEvent.FilesArrived(
+						"prism set",
+						listOf(file("/home/u/prism settings.txt")),
+						1,
+					),
+				).state
+
+		assertEquals(
+			listOf(
+				"Prism" to "Settings",
+				"Application" to "Prism Settings Tool",
+				"Document" to "prism settings.txt",
+			),
+			beside.entries.map { it.kind to it.title },
+		)
+		assertEquals(listOf("Prism", "Applications", "Files"), beside.sections.map { it.title })
+		assertEquals(Entry.Prism(Own.Settings), beside.current)
+		// The arrows go past it to the rest.
+		assertEquals(
+			"Prism Settings Tool",
+			beside
+				.after(LauncherEvent.Moved(1))
+				.state.current
+				?.title,
+		)
+	}
+
+	@Test
+	fun eachOfPrismsOwnChosenIsDoneWhereItBelongs() {
+		assertEquals(
+			listOf(LauncherEffect.Settings, LauncherEffect.Close),
+			state("prism settings").after(LauncherEvent.Entered).effects,
+		)
+		assertEquals(
+			listOf(LauncherEffect.Bindings, LauncherEffect.Close),
+			state("prism bindings").after(LauncherEvent.Entered).effects,
+		)
+		assertEquals(
+			listOf(LauncherEffect.System, LauncherEffect.Close),
+			state("prism system").after(LauncherEvent.Entered).effects,
+		)
+		// Clicked, as well: the second of them all is the key bindings.
+		assertEquals(
+			listOf(LauncherEffect.Bindings, LauncherEffect.Close),
+			state("prism").after(LauncherEvent.Chosen(1)).effects,
+		)
+
+		// Settings asked for by its own words, with no `prism`, is the same entry, after the applications as it was;
+		// and it is said once where both find it.
+		assertEquals(Entry.Prism(Own.Settings), state("preferences").entries.single())
+		assertEquals(1, state("prism settings").entries.count { it.title == "Settings" })
+		// None of them is anywhere to show in a folder.
+		assertEquals(
+			emptyList<LauncherEffect>(),
+			state("prism system").after(LauncherEvent.Revealed).effects,
+		)
+	}
+
+	@Test
+	fun aBareQuestionMarkAsksHowAQueryIsWrittenShownInTheLaunchersPlaceUntilLeft() {
+		val asked = state("?")
+
+		assertEquals(Entry.Prism(Own.Help), asked.entries.first())
+		assertEquals(Entry.Prism(Own.Help), asked.current)
+		assertFalse(asked.help)
+		// Only alone.
+		assertTrue(state("? report").entries.none { it is Entry.Prism })
+
+		// Chosen, it is shown here: nothing is asked of anybody, and the launcher stays.
+		val shown = asked.after(LauncherEvent.Entered)
+
+		assertTrue(shown.state.help)
+		assertEquals(emptyList<LauncherEffect>(), shown.effects)
+		assertEquals("?", shown.state.query)
+
+		// What moves through the results, or chooses one, or types, does nothing while they are not there.
+		for (event in listOf(
+			LauncherEvent.Moved(1),
+			LauncherEvent.MovedTo(last = true),
+			LauncherEvent.Entered,
+			LauncherEvent.Chosen(0),
+			LauncherEvent.Revealed,
+			LauncherEvent.CopiedPath,
+			LauncherEvent.Typed("firefox"),
+		))
+			assertEquals(LauncherStep(shown.state), step(shown.state, event), "$event")
+
+		// Escape, and its ×, leave it for the launcher as it was; a second Escape is then the launcher's own.
+		for (leaving in listOf(LauncherEvent.Dismissed, LauncherEvent.HelpClosed)) {
+			val left = step(shown.state, leaving)
+
+			assertEquals(asked, left.state)
+			assertEquals(emptyList<LauncherEffect>(), left.effects)
+		}
+		assertEquals(
+			"",
+			shown.state
+				.after(LauncherEvent.Dismissed, LauncherEvent.Dismissed)
+				.state.query,
+		)
+
+		// A query of the page's tried: typed into the field and searched for, the page left.
+		val tried = step(shown.state, LauncherEvent.Tried("type:image"))
+
+		assertFalse(tried.state.help)
+		assertEquals("type:image", tried.state.query)
+		assertEquals(
+			listOf("type:image"),
+			tried.effects.filterIsInstance<LauncherEffect.Search>().map { it.text },
+		)
+
+		// The launcher closed from outside is closed, whatever it shows; and what comes back for it is still taken.
+		assertEquals(
+			listOf(LauncherEffect.Close),
+			step(shown.state, LauncherEvent.Closed).effects,
+		)
+		assertEquals(
+			FilesFound.Found("?", emptyList(), 0),
+			step(shown.state, LauncherEvent.FilesArrived("?", emptyList(), 0)).state.files,
+		)
 	}
 
 	@Test

@@ -3,6 +3,7 @@ package prism.launcher
 import java.nio.file.Path
 import java.time.Instant
 import prism.desktop.Application
+import prism.index.query.Own
 import prism.index.query.Query
 import prism.index.query.QueryText
 import prism.preferences.LauncherPreferences
@@ -47,8 +48,19 @@ sealed interface LauncherEvent {
 	/** The launcher's settings asked for. */
 	data object AskedForSettings : LauncherEvent
 
-	/** Escape: what is typed let go, or, with nothing typed, the launcher put away. */
+	/**
+	 * Escape: how a query is written left, where that is shown; otherwise what is typed let go, or, with nothing
+	 * typed, the launcher put away.
+	 */
 	data object Dismissed : LauncherEvent
+
+	/** How a query is written left (its ×), back to the field and what was found. */
+	data object HelpClosed : LauncherEvent
+
+	/** One of the queries that page shows tried: typed into the field, and the page left. */
+	data class Tried(
+		val query: String,
+	) : LauncherEvent
 
 	/** The launcher to be put away, whatever is typed: its window closed, or the keyboard gone elsewhere. */
 	data object Closed : LauncherEvent
@@ -110,6 +122,12 @@ sealed interface LauncherEffect {
 	/** The launcher's settings, in their window. */
 	data object Settings : LauncherEffect
 
+	/** The launcher's settings, in their window, at what its keys do. */
+	data object Bindings : LauncherEffect
+
+	/** An explorer's window on the page of the system's drives. */
+	data object System : LauncherEffect
+
 	/** An explorer's window on the home folder. */
 	data object Explore : LauncherEffect
 
@@ -129,8 +147,32 @@ data class LauncherStep(
 	val effects: List<LauncherEffect> = emptyList(),
 )
 
-/** [state] after [event], and what is to be done. */
+/**
+ * [state] after [event], and what is to be done. While how a query is written is shown, what moves through the
+ * results or chooses one of them does nothing: they are not there to be seen.
+ */
 fun step(state: LauncherState, event: LauncherEvent): LauncherStep =
+	if (state.help && event.isOfTheResults)
+		LauncherStep(state)
+	else
+		stepped(state, event)
+
+/** Whether this is done to what was found, or to the field: what there is none of while the help is shown. */
+private val LauncherEvent.isOfTheResults: Boolean
+	get() =
+		when (this) {
+			is LauncherEvent.Typed, is LauncherEvent.Moved, is LauncherEvent.MovedTo,
+			LauncherEvent.Entered, is LauncherEvent.Chosen, LauncherEvent.Revealed,
+			LauncherEvent.CopiedPath,
+			-> true
+			LauncherEvent.AskedForSettings, LauncherEvent.Dismissed, LauncherEvent.HelpClosed,
+			is LauncherEvent.Tried, LauncherEvent.Closed, is LauncherEvent.FilesArrived,
+			is LauncherEvent.SearchFailed, is LauncherEvent.ApplicationsRead,
+			is LauncherEvent.PreferencesChanged, is LauncherEvent.Started,
+			-> false
+		}
+
+private fun stepped(state: LauncherState, event: LauncherEvent): LauncherStep =
 	when (event) {
 		is LauncherEvent.Typed ->
 			state.copy(query = event.query, arrowsOn = null, notice = null).searching()
@@ -167,10 +209,20 @@ fun step(state: LauncherState, event: LauncherEvent): LauncherStep =
 		LauncherEvent.AskedForSettings ->
 			LauncherStep(state, listOf(LauncherEffect.Settings, LauncherEffect.Close))
 		LauncherEvent.Dismissed ->
-			if (state.query.isEmpty())
-				LauncherStep(state, listOf(LauncherEffect.Close))
-			else
-				state.copy(query = "", arrowsOn = null, notice = null).searching()
+			when {
+				state.help -> LauncherStep(state.copy(help = false))
+				state.query.isEmpty() -> LauncherStep(state, listOf(LauncherEffect.Close))
+				else -> state.copy(query = "", arrowsOn = null, notice = null).searching()
+			}
+		LauncherEvent.HelpClosed -> LauncherStep(state.copy(help = false))
+		is LauncherEvent.Tried ->
+			state
+				.copy(
+					query = event.query,
+					arrowsOn = null,
+					notice = null,
+					help = false,
+				).searching()
 		LauncherEvent.Closed -> LauncherStep(state, listOf(LauncherEffect.Close))
 		is LauncherEvent.FilesArrived ->
 			// An answer for what was typed before is dropped: the one for what is typed now is on its way.
@@ -233,12 +285,27 @@ private fun LauncherState.chosen(at: Int): LauncherStep =
 				this,
 				listOf(
 					when (entry.command) {
-						LauncherCommand.Settings -> LauncherEffect.Settings
 						LauncherCommand.Files -> LauncherEffect.Explore
 					},
 					LauncherEffect.Close,
 				),
 			)
+		is Entry.Prism ->
+			when (entry.own) {
+				Own.Settings ->
+					LauncherStep(
+						this,
+						listOf(LauncherEffect.Settings, LauncherEffect.Close),
+					)
+				Own.Bindings ->
+					LauncherStep(
+						this,
+						listOf(LauncherEffect.Bindings, LauncherEffect.Close),
+					)
+				Own.System -> LauncherStep(this, listOf(LauncherEffect.System, LauncherEffect.Close))
+				// Shown here, in the launcher's own window, which stays.
+				Own.Help -> LauncherStep(copy(help = true, notice = null))
+			}
 		else ->
 			LauncherStep(
 				copy(arrowsOn = entry.key, notice = null),
@@ -252,5 +319,5 @@ private fun pathOf(entry: Entry): Path? =
 		is Entry.File -> entry.path
 		is Entry.App -> entry.application.source
 		is Entry.Action -> entry.application.source
-		is Entry.Command -> null
+		is Entry.Command, is Entry.Prism -> null
 	}

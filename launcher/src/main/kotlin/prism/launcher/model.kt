@@ -6,6 +6,7 @@ import java.time.Instant
 import prism.browser.Category
 import prism.desktop.Application
 import prism.desktop.ApplicationAction
+import prism.index.query.Own
 import prism.preferences.LauncherPreferences
 
 /*
@@ -70,22 +71,49 @@ sealed interface Entry {
 		override val key: String get() = "command:${command.name}"
 		override val title: String get() = command.label
 		override val detail: String get() = command.detail
-		override val kind: String get() = "Prism"
+		override val kind: String get() = PRISM
+	}
+
+	/**
+	 * Something of prism's own that what is typed asks for by the word `prism`, or by a bare `?` ([Own]): the
+	 * launcher's settings and its keys, the page of the system's drives, how a query is written.
+	 */
+	data class Prism(
+		val own: Own,
+	) : Entry {
+		override val key: String get() = "own:${own.title}"
+		override val title: String get() = own.title
+
+		/** What choosing it does here: the settings and the keys are the launcher's own. */
+		override val detail: String
+			get() =
+				when (own) {
+					Own.Settings -> "How the launcher looks, what it finds, and its keys"
+					Own.Bindings -> "What each of the launcher's keys does"
+					Own.System, Own.Help -> own.does
+				}
+		override val kind: String get() = PRISM
+	}
+
+	companion object {
+		/** What is said of what is prism's own at its row's end, and over it. */
+		const val PRISM = "Prism"
+
+		/** What of prism's own the launcher finds, in the order it lists them in. */
+		val OFFERED: List<Own> = listOf(Own.Settings, Own.Bindings, Own.System, Own.Help)
 	}
 }
 
-/** What prism itself does from the launcher. */
+/**
+ * What prism itself does from the launcher that is nothing of [Own]'s: found as an application is, by what is typed
+ * fitting its name and its words ([Does]).
+ */
 enum class LauncherCommand(
 	val label: String,
 	val detail: String,
 	/** Other words it is found by. */
 	val keywords: List<String>,
 ) {
-	Settings(
-		"Settings",
-		"How the launcher looks, what it finds, and its keys",
-		listOf("launcher", "preferences", "options", "configure", "prism"),
-	),
 	Files(
 		"Files",
 		"Open a window on your home folder",
@@ -159,13 +187,16 @@ data class LauncherState(
 	val arrowsOn: String? = null,
 	/** What went wrong with the last thing chosen, said until something else is typed or chosen. */
 	val notice: String? = null,
+	/** Whether how a query is written is shown, in place of the field and what was found, until it is left. */
+	val help: Boolean = false,
 	/** When this is, for how lately something was used. */
 	val now: Instant = Instant.EPOCH,
 ) {
 	/**
 	 * What is shown, in groups: the applications (and their actions) that fit [query], the best first, then what
-	 * prism does, then the files the index found for it. With nothing typed, every application, those used most and
-	 * most lately first, and what prism does.
+	 * prism does ([Does]), then the files the index found for it. With nothing typed, every application, those used
+	 * most and most lately first, and what prism does. Where [query] asks for prism's own ([Own.found]: the word
+	 * `prism`, or a bare `?`), what it asks for comes before everything, with whatever else prism does that fits.
 	 */
 	val sections: List<Section> by lazy {
 		val shown = installed.listed.filterNot { it.application.id in preferences.hidden }
@@ -189,20 +220,25 @@ data class LauncherState(
 					},
 				)
 
-		val commands =
-			ranked(
-				LauncherCommand.entries.mapNotNull {
-					scored(Entry.Command(it), scoreOf(words, it))
-				},
-			)
+		val own = Own.found(query, Entry.OFFERED).map(Entry::Prism)
+
+		// What prism does that fits as an application does; but for what is asked for outright, which is said once.
+		val does =
+			ranked(Does.ALL.mapNotNull { scored(it.entry, it.scoreOf(words)) }).filterNot {
+				it in
+					own
+			}
 
 		val found = (files as? FilesFound.Found)?.takeIf { words.isNotEmpty() }?.files.orEmpty()
 
-		listOf(
-			Section("Applications", programs),
-			Section("Prism", commands),
-			Section("Files", found),
-		).filter { it.entries.isNotEmpty() }
+		val applications = Section("Applications", programs)
+
+		(
+			if (own.isEmpty())
+				listOf(applications, Section(Entry.PRISM, does))
+			else
+				listOf(Section(Entry.PRISM, own + does), applications)
+		).plus(Section("Files", found)).filter { it.entries.isNotEmpty() }
 	}
 
 	/** Everything shown, in order: what the arrows move through. */
