@@ -3,8 +3,10 @@ package prism.watcher
 import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.attribute.GroupPrincipal
 import java.nio.file.attribute.PosixFileAttributeView
 import java.nio.file.attribute.PosixFilePermissions
+import java.nio.file.attribute.UserPrincipal
 import java.nio.file.attribute.UserPrincipalNotFoundException
 import java.security.MessageDigest
 import kotlin.io.path.Path
@@ -145,24 +147,7 @@ private fun pinned(pins: WatcherPins, readers: Readers): Pinning {
 								"the watcher cannot be pinned in ${pins.folder}: $pinned",
 							)
 						is Sys.Ok -> {
-							// The folder to look in, and the two maps to read (a ring is read by writing where
-							// its reader has read to): the hooks are nobody's to open but root's.
-							val maps = FsWatch.program.maps.map { pins.folder.resolve(it.cName) }
-
-							for (path in maps + pins.folder) {
-								val view = Files.getFileAttributeView(path, PosixFileAttributeView::class.java)
-
-								owner?.let(view::setOwner)
-								group?.let(view::setGroup)
-								view.setPermissions(
-									PosixFilePermissions.fromString(
-										if (path == pins.folder)
-											"rwxr-x---"
-										else
-											"rw-rw----",
-									),
-								)
-							}
+							givenTo(pins.folder, FsWatch.program.maps.map { it.cName }, owner, group)
 
 							Pinning.Pinned(pins.folder, loaded.attachments)
 						}
@@ -170,7 +155,36 @@ private fun pinned(pins: WatcherPins, readers: Readers): Pinning {
 				}
 		}
 	} catch (failed: IOException) {
-		Pinning.Failed("${pins.folder} cannot be written: ${failed.message ?: failed}")
+		// Which step it was is in what failed: its kind, and the file it names.
+		Pinning.Failed("the watcher could not be left in ${pins.folder}: $failed")
+	}
+}
+
+/**
+ * [folder] and the files [names] in it given to [owner] and to [group], where each is said: the folder to look in,
+ * and the files to read and write (a ring is read by writing where its reader has read to). Whatever else is in the
+ * folder (the hooks) is left as it was made, root's alone.
+ */
+internal fun givenTo(
+	folder: Path,
+	names: List<String>,
+	owner: UserPrincipal?,
+	group: GroupPrincipal?,
+) {
+	// The folder as one more path, not as its names: a path is a list of its own names, and `+` would add those.
+	for (path in names.map(folder::resolve).plusElement(folder)) {
+		val view = Files.getFileAttributeView(path, PosixFileAttributeView::class.java)
+
+		owner?.let(view::setOwner)
+		group?.let(view::setGroup)
+		view.setPermissions(
+			PosixFilePermissions.fromString(
+				if (path == folder)
+					"rwxr-x---"
+				else
+					"rw-rw----",
+			),
+		)
 	}
 }
 
