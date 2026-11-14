@@ -29,6 +29,7 @@ import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import prism.browser.Action
+import prism.browser.Bindable
 import prism.browser.Bindings
 import prism.browser.BrowserTheme
 import prism.browser.Chord
@@ -48,6 +49,9 @@ import prism.preferences.Role
  */
 @OptIn(ExperimentalTestApi::class)
 class KeysTest {
+	/** The place of the first of [action]'s chords as they come. */
+	private fun first(action: Bindable) = Slot.Bound(action, action.defaults.first())
+
 	private fun chord(text: String) = Chord.parse(text) ?: error(text)
 
 	private fun application(id: String, name: String) =
@@ -123,7 +127,9 @@ class KeysTest {
 
 		val rebound =
 			given.rebound(
-				given.rebound!!.awaiting(Slot(Action.Back, 0)).pressed(chord("Ctrl+G")),
+				given.rebound!!
+					.awaiting(Slot.Bound(Action.Back, chord("Ctrl+B")))
+					.pressed(chord("Ctrl+G")),
 			)
 
 		assertEquals(mapOf("Back" to listOf("Ctrl+G")), rebound.written.pickerBindings)
@@ -143,7 +149,7 @@ class KeysTest {
 	@Test
 	fun bindingsThatTakeNothingTypedRefuseAKeyThatTypesAndGoOnWaiting() {
 		val rebinding = Rebinding(launcherBindings(), takes = Taking.NothingTyped)
-		val waiting = rebinding.awaiting(Slot(LauncherAction.Settings, 0))
+		val waiting = rebinding.awaiting(first(LauncherAction.Settings))
 
 		for (typed in listOf("K", "Shift+K", "5", "Space", "Comma")) {
 			val refused = waiting.pressed(chord(typed))
@@ -163,7 +169,7 @@ class KeysTest {
 		assertEquals(
 			listOf(chord("K")),
 			Rebinding(Bindings.DEFAULT)
-				.awaiting(Slot(Action.Refresh, 0))
+				.awaiting(first(Action.Refresh))
 				.pressed(chord("K"))
 				.bindings
 				.of(Action.Refresh)
@@ -199,7 +205,7 @@ class KeysTest {
 					it.copy(
 						rebinding =
 							it.rebinding
-								.awaiting(Slot(LauncherAction.Reveal, 0))
+								.awaiting(first(LauncherAction.Reveal))
 								.pressed(chord("Alt+Enter")),
 					)
 				}

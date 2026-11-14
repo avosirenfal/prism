@@ -47,11 +47,25 @@ enum class Page(
 	Actions("Actions"),
 }
 
-/** A chord's place in the bindings table: [action]'s chord at [index], or, past its last, a chord to add. */
-data class Slot(
-	val action: Bindable,
-	val index: Int,
-)
+/**
+ * A chord's place in the bindings table: one of [action]'s chords, to be given another ([Bound]), or the place after
+ * its last, for one more ([New]). A place is named by the chord that is in it, so there is none past an action's last
+ * to name.
+ */
+sealed interface Slot {
+	val action: Bindable
+
+	/** The place [chord] is in, among [action]'s. */
+	data class Bound(
+		override val action: Bindable,
+		val chord: Chord,
+	) : Slot
+
+	/** The place for one more of [action]'s. */
+	data class New(
+		override val action: Bindable,
+	) : Slot
+}
 
 /** That [chord] was given to one action, and taken from [from], which had it. */
 data class Took(
@@ -61,7 +75,7 @@ data class Took(
 
 /**
  * Which of the bindings page's actions are shown: those whose names or chords have [Words] in them (every one, for
- * none); those bound to a [Shortcut] pressed in the window that finds one, as JetBrains' "Find Shortcut" does; or
+ * none); those bound to a [Shortcut], pressed in the window that finds one, as JetBrains' "Find Shortcut" does; or
  * those whose chords are not their defaults ([Changed]).
  */
 sealed interface Finding {
@@ -69,13 +83,9 @@ sealed interface Finding {
 		val text: String,
 	) : Finding
 
-	/**
-	 * Those bound to [chord], pressed while the window that finds it was [open] (every one, until one is). A chord is
-	 * taken only while it is open: closed, the keys are the page's again, and the actions found stay found.
-	 */
+	/** Those bound to [chord]. */
 	data class Shortcut(
-		val chord: Chord?,
-		val open: Boolean,
+		val chord: Chord,
 	) : Finding
 
 	/** Those the user has bound otherwise than they come. */
@@ -92,15 +102,12 @@ sealed interface Finding {
 					action.key.contains(text.trim().replace(" ", ""), ignoreCase = true) ||
 					action.group.label.contains(text.trim(), ignoreCase = true) ||
 					chords.any { it.toString().contains(text.trim(), ignoreCase = true) }
-			is Shortcut -> chord == null || chord in chords
+			is Shortcut -> chord in chords
 			Changed -> chords != action.defaults
 		}
 
 	companion object {
 		val ALL: Finding = Words("")
-
-		/** The window that finds a shortcut, opened: every action shown until one is pressed. */
-		val OPENED: Finding = Shortcut(null, open = true)
 	}
 }
 
@@ -114,82 +121,130 @@ enum class Taking {
 }
 
 /**
- * The bindings as the bindings page edits them: [bindings], the slot a chord is [awaited] for, where one is, what the
- * last chord given was taken from, and which actions are shown ([finding]). A chord pressed while one is awaited is put
- * there and taken from any other action that had it, since a chord does one thing; pressed while the window that finds
- * a shortcut is open, it is found. One these do not take ([takes]) is [refused], and the slot goes on waiting.
+ * What the bindings page does with a chord pressed, and with it which actions it shows ([finding]): one of these,
+ * and so never a chord awaited and a shortcut looked for at once, nor a chord refused with no place waiting for one.
+ */
+sealed interface Hearing {
+	val finding: Finding
+
+	/** Nothing: the keys are the page's own. [took] is what the last chord given was taken from, where it was. */
+	data class Idle(
+		override val finding: Finding = Finding.ALL,
+		val took: Took? = null,
+	) : Hearing
+
+	/**
+	 * A chord, for [slot]. One these bindings do not take ([Taking]) is [refused], the last pressed that was, and the
+	 * slot goes on waiting.
+	 */
+	data class Awaiting(
+		val slot: Slot,
+		override val finding: Finding,
+		val refused: Chord? = null,
+	) : Hearing
+
+	/**
+	 * A shortcut, in the window that finds one: what is shown is what the one pressed last does ([found]), and every
+	 * action until one is.
+	 */
+	data class Seeking(
+		val found: Chord? = null,
+	) : Hearing {
+		override val finding: Finding get() = found?.let(Finding::Shortcut) ?: Finding.ALL
+	}
+}
+
+/**
+ * The bindings as the bindings page edits them: [bindings], and what the page listens for and shows ([hearing]). A
+ * chord pressed while one is awaited is put there and taken from any other action that had it, since a chord does one
+ * thing; pressed while the window that finds a shortcut is open, it is found.
  */
 data class Rebinding(
 	val bindings: Bindings,
-	val awaited: Slot? = null,
-	val took: Took? = null,
-	val finding: Finding = Finding.ALL,
+	val hearing: Hearing = Hearing.Idle(),
 	val takes: Taking = Taking.Any,
-	val refused: Chord? = null,
 ) {
+	/** Which actions are shown. */
+	val finding: Finding get() = hearing.finding
+
 	/** Whether a chord pressed is taken, for a binding or for finding what has it: nothing else sees it then. */
-	val listening: Boolean get() =
-		awaited != null ||
-			(finding as? Finding.Shortcut)?.open == true
+	val listening: Boolean get() = hearing !is Hearing.Idle
+
+	/** The slot a chord is awaited for, where one is. */
+	val awaited: Slot? get() = (hearing as? Hearing.Awaiting)?.slot
+
+	/** The chord pressed for the slot awaited that these do not take, where the last one was. */
+	val refused: Chord? get() = (hearing as? Hearing.Awaiting)?.refused
+
+	/** What the last chord given was taken from, where it was taken from anything. */
+	val took: Took? get() = (hearing as? Hearing.Idle)?.took
 
 	/** How many actions are bound otherwise than they come. */
 	val changed: Int get() = bindings.actions.count { bindings.of(it) != it.defaults }
 
-	/** These, with [bindings] and nothing awaited, taken or refused: what a change to the bindings leaves. */
+	/** These, with [bindings] and nothing listened for: what a change to the bindings leaves. */
 	private fun bound(bindings: Bindings, took: Took? = null): Rebinding =
-		copy(bindings = bindings, awaited = null, took = took, refused = null)
+		copy(bindings = bindings, hearing = Hearing.Idle(finding, took))
 
 	/** These, awaiting a chord for [slot]. */
-	fun awaiting(slot: Slot): Rebinding = copy(awaited = slot, took = null, refused = null)
+	fun awaiting(slot: Slot): Rebinding = copy(hearing = Hearing.Awaiting(slot, finding))
+
+	/** These, with the window that finds a shortcut open: every action shown, until one is pressed. */
+	fun seeking(): Rebinding = copy(hearing = Hearing.Seeking())
 
 	/**
 	 * These, no longer awaiting a chord; the window that finds one closed, what it found still found (every action, where
 	 * it found nothing).
 	 */
 	fun cancelled(): Rebinding =
-		copy(
-			awaited = null,
-			refused = null,
-			finding =
-				when (val finding = finding) {
-					is Finding.Shortcut ->
-						finding.chord?.let { Finding.Shortcut(it, open = false) }
-							?: Finding.ALL
-					else -> finding
-				},
-		)
+		when (hearing) {
+			is Hearing.Idle -> this
+			is Hearing.Awaiting, is Hearing.Seeking -> copy(hearing = Hearing.Idle(finding))
+		}
 
-	/** These, finding as [finding] says. */
-	fun finding(finding: Finding): Rebinding =
-		copy(finding = finding, awaited = null, refused = null)
+	/** These, finding as [finding] says, and listening for nothing. */
+	fun finding(finding: Finding): Rebinding = copy(hearing = Hearing.Idle(finding, took))
 
 	/** These, with [chord] in the slot awaited, if one is; or found, while the window that finds one is open. */
-	fun pressed(chord: Chord): Rebinding {
-		if ((finding as? Finding.Shortcut)?.open == true && awaited == null)
-			return copy(finding = Finding.Shortcut(chord, open = true))
+	fun pressed(chord: Chord): Rebinding =
+		when (val hearing = hearing) {
+			is Hearing.Idle -> this
+			is Hearing.Seeking -> copy(hearing = Hearing.Seeking(chord))
+			is Hearing.Awaiting ->
+				if (takes == Taking.NothingTyped && chord.typesText)
+					copy(hearing = hearing.copy(refused = chord))
+				else
+					given(hearing.slot, chord)
+		}
 
-		val slot = awaited ?: return this
+	/** Where [slot] is among its action's chords: after the last, for one more, and nowhere, for a chord not there. */
+	private fun indexOf(slot: Slot): Int? =
+		when (slot) {
+			is Slot.New -> bindings.of(slot.action).size
+			is Slot.Bound -> bindings.of(slot.action).indexOf(slot.chord).takeIf { it >= 0 }
+		}
 
-		if (takes == Taking.NothingTyped && chord.typesText)
-			return copy(refused = chord)
-
+	/** These, with [chord] in [slot], taken from whatever had it; as they are, for a slot that is no longer there. */
+	private fun given(slot: Slot, chord: Chord): Rebinding {
+		val index = indexOf(slot) ?: return cancelled()
 		val from = bindings.clashes(slot.action, chord)
 
 		return bound(
-			bindings.bound(slot.action, slot.index, chord),
+			bindings.bound(slot.action, index, chord),
 			Took(chord, from).takeIf { from.isNotEmpty() },
 		)
 	}
 
 	/** These, without the chord in [slot]. */
-	fun removed(slot: Slot): Rebinding = bound(bindings.unbound(slot.action, slot.index))
+	fun removed(slot: Slot.Bound): Rebinding =
+		bound(indexOf(slot)?.let { bindings.unbound(slot.action, it) } ?: bindings)
 
 	/** These, with [action]'s defaults back. Its default chords are taken from whatever has them meanwhile. */
 	fun reset(action: Bindable): Rebinding =
 		action.defaults
-			.foldIndexed(bound(bindings.with(action, emptyList()))) { index, rebinding, chord ->
-				rebinding.awaiting(Slot(action, index)).pressed(chord)
-			}.copy(took = null)
+			.fold(bound(bindings.with(action, emptyList()))) { rebinding, chord ->
+				rebinding.given(Slot.New(action), chord)
+			}.let { it.bound(it.bindings) }
 
 	/** Every default back. */
 	fun resetAll(): Rebinding = bound(bindings.defaults())
@@ -305,8 +360,8 @@ data class Settings(
 			keys = keys,
 		).let {
 			it.copy(
-				rebinding = it.rebinding.copy(finding = rebinding.finding),
-				picking = it.picking?.copy(finding = picking?.finding ?: Finding.ALL),
+				rebinding = it.rebinding.finding(rebinding.finding),
+				picking = it.picking?.finding(picking?.finding ?: Finding.ALL),
 			)
 		}
 

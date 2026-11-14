@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import prism.browser.Action
+import prism.browser.Bindable
 import prism.browser.Bindings
 import prism.browser.Chord
 import prism.desktop.Place
@@ -27,6 +28,9 @@ import prism.preferences.WindowKind
  * then.
  */
 class SettingsTest {
+	/** The place of the first of [action]'s chords as they come. */
+	private fun first(action: Bindable) = Slot.Bound(action, action.defaults.first())
+
 	private fun chord(text: String) = Chord.parse(text) ?: error(text)
 
 	private val home = Path.of("/home/avery")
@@ -46,15 +50,15 @@ class SettingsTest {
 		assertEquals(start, start.pressed(chord("F5")))
 
 		// Showing hidden files given F5, which reading again had.
-		val given = start.awaiting(Slot(Action.ToggleHidden, 0)).pressed(chord("F5"))
+		val given = start.awaiting(first(Action.ToggleHidden)).pressed(chord("F5"))
 
 		assertEquals(listOf(chord("F5")), given.bindings.of(Action.ToggleHidden))
 		assertEquals(listOf(chord("Ctrl+R")), given.bindings.of(Action.Refresh))
 		assertEquals(Took(chord("F5"), listOf(Action.Refresh)), given.took)
 		assertNull(given.awaited)
 
-		// A slot past the last adds a chord; a slot removed is gone.
-		val added = given.awaiting(Slot(Action.ToggleHidden, 1)).pressed(chord("Mouse Middle"))
+		// The place after the last adds a chord; a chord removed is gone.
+		val added = given.awaiting(Slot.New(Action.ToggleHidden)).pressed(chord("Mouse Middle"))
 
 		assertEquals(
 			listOf(chord("F5"), chord("Mouse Middle")),
@@ -63,16 +67,69 @@ class SettingsTest {
 		assertNull(added.took)
 		assertEquals(
 			listOf(chord("Mouse Middle")),
-			added.removed(Slot(Action.ToggleHidden, 0)).bindings.of(Action.ToggleHidden),
+			added
+				.removed(Slot.Bound(Action.ToggleHidden, chord("F5")))
+				.bindings
+				.of(Action.ToggleHidden),
 		)
 
+		// A place is the chord in it: one that is there no longer is no place, and a chord pressed for it is not
+		// bound anywhere, nor is anything removed.
+		val gone = Slot.Bound(Action.ToggleHidden, chord("F9"))
+
+		assertEquals(added.bindings, added.awaiting(gone).pressed(chord("F6")).bindings)
+		assertNull(added.awaiting(gone).pressed(chord("F6")).awaited)
+		assertEquals(added.bindings, added.removed(gone).bindings)
+
 		// A move is bound to its key alone, and takes the key, whatever is held with it, from what had it.
-		val moved = start.awaiting(Slot(Action.MoveDown, 0)).pressed(chord("Shift+J"))
+		val moved = start.awaiting(first(Action.MoveDown)).pressed(chord("Shift+J"))
 
 		assertEquals(listOf(chord("J")), moved.bindings.of(Action.MoveDown))
 
 		// Escape stops waiting, and changes nothing.
-		assertEquals(start, start.awaiting(Slot(Action.Rename, 0)).cancelled())
+		assertEquals(start, start.awaiting(first(Action.Rename)).cancelled())
+	}
+
+	@Test
+	fun thePageListensForAChordToBindOrAShortcutToFindAndNeverBoth() {
+		val start = Rebinding(Bindings.DEFAULT)
+
+		assertFalse(start.listening)
+
+		// The window that finds a shortcut, opened: every action shown, until a chord is pressed, which is found.
+		val seeking = start.finding(Finding.Changed).seeking()
+
+		assertTrue(seeking.listening)
+		assertEquals(Finding.ALL, seeking.finding)
+		assertEquals(Finding.Shortcut(chord("F5")), seeking.pressed(chord("F5")).finding)
+		assertEquals(start.bindings, seeking.pressed(chord("F5")).bindings)
+
+		// Closed, what it found is still what is shown; every action, where it found nothing.
+		assertEquals(
+			Hearing.Idle(Finding.Shortcut(chord("F5"))),
+			seeking.pressed(chord("F5")).cancelled().hearing,
+		)
+		assertEquals(Hearing.Idle(), seeking.cancelled().hearing)
+
+		// A chord awaited is what is listened for instead: the next pressed is bound, and found by nothing.
+		val awaiting = seeking.pressed(chord("F5")).awaiting(first(Action.Rename))
+
+		assertEquals(
+			Hearing.Awaiting(first(Action.Rename), Finding.Shortcut(chord("F5"))),
+			awaiting.hearing,
+		)
+		assertEquals(
+			Hearing.Idle(Finding.Shortcut(chord("F5"))),
+			awaiting.pressed(chord("F9")).hearing,
+		)
+		assertEquals(
+			listOf(chord("F9")),
+			awaiting.pressed(chord("F9")).bindings.of(Action.Rename),
+		)
+
+		// Finding otherwise stops whatever was listened for.
+		assertEquals(Hearing.Idle(Finding.Changed), awaiting.finding(Finding.Changed).hearing)
+		assertEquals(Hearing.Idle(Finding.Changed), seeking.finding(Finding.Changed).hearing)
 	}
 
 	@Test
@@ -80,7 +137,7 @@ class SettingsTest {
 		val swapped =
 			Rebinding(
 				Bindings.DEFAULT,
-			).awaiting(Slot(Action.ToggleHidden, 0)).pressed(chord("F5"))
+			).awaiting(first(Action.ToggleHidden)).pressed(chord("F5"))
 
 		val reset = swapped.reset(Action.Refresh)
 
@@ -105,7 +162,7 @@ class SettingsTest {
 
 		val rebound =
 			opened.copy(
-				rebinding = opened.rebinding.awaiting(Slot(Action.Refresh, 0)).pressed(chord("F6")),
+				rebinding = opened.rebinding.awaiting(first(Action.Refresh)).pressed(chord("F6")),
 			)
 
 		assertTrue(rebound.changed)

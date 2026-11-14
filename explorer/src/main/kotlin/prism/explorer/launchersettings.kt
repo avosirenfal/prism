@@ -106,7 +106,7 @@ data class LauncherSettings(
 	/** These, applied: the preferences as they now are ([now]) what the window edits from, and where it is, kept. */
 	fun applied(now: Preferences): LauncherSettings =
 		LauncherSettings(now, page = page, finding = finding).let {
-			it.copy(rebinding = it.rebinding.copy(finding = rebinding.finding))
+			it.copy(rebinding = it.rebinding.finding(rebinding.finding))
 		}
 
 	/** These, with the launcher's own settings changed by [change], each number kept within what it can be. */

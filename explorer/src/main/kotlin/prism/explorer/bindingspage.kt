@@ -120,6 +120,7 @@ private fun ColumnScope.Bindings(
 	val type = LocalType.current
 	val list = rememberLazyListState()
 	val finding = rebinding.finding
+	val seeking = rebinding.hearing as? Hearing.Seeking
 
 	// Those shown, in their groups, in the order the actions are in: a group with none shown is not there.
 	val groups =
@@ -140,12 +141,12 @@ private fun ColumnScope.Bindings(
 			focus = filter,
 		)
 		// What the window that finds a shortcut found, while it is what is shown: let go of by its ×.
-		(finding as? Finding.Shortcut)?.chord?.let { chord ->
+		(finding as? Finding.Shortcut)?.let { found ->
 			Chip(
-				chord.toString(),
+				found.chord.toString(),
 				removeTag = "found:remove",
 				onRemove = { onChange(rebinding.finding(Finding.ALL)) },
-			) { onChange(rebinding.finding(Finding.OPENED)) }
+			) { onChange(rebinding.seeking()) }
 		}
 		// How many are not as they came, where any is: clicked, only those are shown; clicked again, all.
 		if (rebinding.changed > 0 || finding == Finding.Changed)
@@ -169,20 +170,18 @@ private fun ColumnScope.Bindings(
 				"Find a shortcut by pressing it",
 				enabled = true,
 				Modifier.testTag("find-by-key"),
-				selected = finding is Finding.Shortcut,
+				selected = seeking != null || finding is Finding.Shortcut,
 			) {
 				// Opened afresh, every action is shown until a shortcut is pressed; pressed again, it closes.
 				onChange(
-					rebinding.finding(
-						if ((finding as? Finding.Shortcut)?.open == true)
-							Finding.ALL
-						else
-							Finding.OPENED,
-					),
+					if (seeking != null)
+						rebinding.finding(Finding.ALL)
+					else
+						rebinding.seeking(),
 				)
 			}
-			if ((finding as? Finding.Shortcut)?.open == true)
-				FindShortcut(finding.chord, onPressed = { onChange(rebinding.pressed(it)) }) {
+			if (seeking != null)
+				FindShortcut(seeking.found, onPressed = { onChange(rebinding.pressed(it)) }) {
 					onChange(rebinding.cancelled())
 				}
 		}
@@ -219,7 +218,7 @@ private fun ColumnScope.Bindings(
 				item(key = "none") {
 					Text(
 						when (finding) {
-							is Finding.Shortcut -> finding.chord?.let { "$it does nothing." }
+							is Finding.Shortcut -> "${finding.chord} does nothing."
 							Finding.Changed -> "Every key is as it came."
 							is Finding.Words -> null
 						} ?: "No action matches.",
@@ -422,8 +421,8 @@ private fun BindingRow(
 			horizontalArrangement = Arrangement.spacedBy(Space.xs),
 			verticalArrangement = Arrangement.spacedBy(Space.xs),
 		) {
-			chords.forEachIndexed { index, chord ->
-				val slot = Slot(action, index)
+			chords.forEach { chord ->
+				val slot = Slot.Bound(action, chord)
 				val awaited = rebinding.awaited == slot
 
 				Chip(
@@ -435,7 +434,7 @@ private fun BindingRow(
 				) { onChange(rebinding.awaiting(slot)) }
 			}
 
-			val added = Slot(action, chords.size)
+			val added = Slot.New(action)
 			val adding = rebinding.awaited == added
 
 			Chip(

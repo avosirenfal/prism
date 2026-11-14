@@ -151,10 +151,8 @@ class SettingsViewTest {
 			}
 			waitForIdle()
 
-			assertEquals(
-				Finding.Shortcut(chord("Ctrl+H"), open = true),
-				settings.rebinding.finding,
-			)
+			assertEquals(Hearing.Seeking(chord("Ctrl+H")), settings.rebinding.hearing)
+			assertEquals(Finding.Shortcut(chord("Ctrl+H")), settings.rebinding.finding)
 			onNodeWithText(Action.ToggleHidden.label).assertExists()
 			onNodeWithText(Action.OpenTerminal.label).assertDoesNotExist()
 			assertEquals(Preferences.DEFAULT.bindings, settings.over(Preferences.DEFAULT).bindings)
@@ -164,8 +162,8 @@ class SettingsViewTest {
 			waitForIdle()
 			onNodeWithTag("find-shortcut").assertDoesNotExist()
 			assertEquals(
-				Finding.Shortcut(chord("Ctrl+H"), open = false),
-				settings.rebinding.finding,
+				Hearing.Idle(Finding.Shortcut(chord("Ctrl+H"))),
+				settings.rebinding.hearing,
 			)
 			assertEquals(false, settings.rebinding.listening)
 			onNodeWithTag("find-by-key").performClick()
