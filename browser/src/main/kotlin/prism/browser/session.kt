@@ -78,10 +78,11 @@ class Session(
 	private val ending = CompletableDeferred<Outcome>()
 
 	// The latest search asked for the window, waiting while one runs: a newer one takes its place, and the same one
-	// asked for again (the window opened again) is searched again.
+	// asked for again (the window opened again) is searched again. Kept for whoever runs them to find when it
+	// starts: one asked for before then (a session's first event) would otherwise be asked of nobody.
 	private val previews =
 		MutableSharedFlow<Effect.Search>(
-			extraBufferCapacity = 1,
+			replay = 1,
 			onBufferOverflow = DROP_OLDEST,
 		)
 
