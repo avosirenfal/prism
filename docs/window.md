@@ -33,6 +33,13 @@ SDL wants its windows and events on one thread (on macOS, the process's first), 
 composition, input and drawing on one thread. Work from other threads comes through `Ui`, a coroutine dispatcher that
 queues it and wakes the loop out of its wait for events with an event of its own.
 
+Compose for the desktop takes AWT's event thread for that one thread, and leaves work there for its scenes: what a
+layout moved is told to whoever asked, and the scene's list of where every node is gets tidied, by a timer of AWT's a
+frame's time later (`RectManager`, through skiko's `MainUIDispatcher`), unless the layout's own end got to it first.
+A scene on any other thread would have that run beside it. So prism makes AWT's event queue one of its own
+(`AwtEvents`, in `ui.kt`), which gives each event to the windows' thread, to run between its own events, and waits for
+it; with no windows' thread, AWT's runs them as it would. See "When a frame fails" for what it did before.
+
 **A frame.** Each window has a Compose scene (`CanvasLayersComposeScene`) and its recomposer (`FrameRecomposer`, as
 Compose 1.12 has platforms drive frames). When the scene says something changed, the window asks for a frame; the
 loop then runs the recomposer's frame, lays the scene out and draws it. A window with nothing to change draws nothing,
@@ -105,8 +112,9 @@ Linux's are looked for yet, and the others say so. Loading is `dlopen` on Linux 
 
 **Keys.** Compose for the desktop knows a key by AWT's key code and where on the keyboard it is (`Key.ShiftLeft` is
 AWT's Shift on the left), reads text typed from AWT's "typed" events, and asks an event for its modifiers as AWT keeps
-them. So SDL's keys are made into AWT's key events, which are only values: nothing of AWT's toolkit runs, and the app
-runs with `java.awt.headless=true` to be sure of it. Every key handler, text field shortcut and binding of prism's then
+them. So SDL's keys are made into AWT's key events, which are only values: no window or display of AWT's is ever
+opened, and the app runs with `java.awt.headless=true` to be sure of it (its event queue still runs, headless or not,
+and is prism's: "The thread", above). Every key handler, text field shortcut and binding of prism's then
 works as it did. A key is known by what it types on the user's layout where that is a Latin letter, digit or mark, so
 Ctrl+Z is the key marked Z on AZERTY too; on a layout of other letters (Cyrillic, Greek), by where it is, as browsers
 do. Text typed comes from the platform's input method.
@@ -224,6 +232,16 @@ This came of a crash opening the preferences window's Layout page, in Compose 1.
 prism is on 1.13.0-beta02 for that, and its window's platform context is Compose's own (`PlatformContext.Empty`) for
 what prism's does not do itself.
 
+The same words came once more, opening a file picker on a folder, and were prism's own doing. That bookkeeping (a
+`RectList`: every placed node's rectangle, in two arrays) is tidied a frame's time (16 ms) after a layout moves
+anything, on AWT's event thread, unless the layout's end tidies it first; tidying copies the list from one array to
+the other, leaving out what was removed, and swaps them. A window's first layout of a whole listing takes longer than
+a frame, so the timer came due in the middle of it, and on AWT's thread the tidying ran beside the layout on the
+windows' thread: a row the layout put in the list while it was being copied was in the array thrown away, and the
+row's first cell, placed next and looking its parent up, did not find it. Whether it happened was a matter of
+microseconds, so it was rare, and most likely in a window's first frames, which are its slowest. AWT's events run on
+the windows' thread now ("The thread", above), where nothing runs beside a layout.
+
 ## Not yet
 
 - **Dragging out to other programs on X11, Windows and macOS**: XDND, OLE's `DoDragDrop` and an `NSDraggingSession`,
@@ -244,6 +262,10 @@ what prism's does not do itself.
 ## Tested
 
 - `KeysTest`: keys by layout and by place, modifiers, typed text, and which OpenGL renderers are the CPU's.
+- `AwtEventsTest`: what is left for AWT's thread (an `invokeLater`, a Swing timer) runs on the windows' thread, and on
+  AWT's own when there is none; a scene whose layout takes several frames' time is told of what it moved on the
+  windows' thread, after the layout, not on AWT's in the middle of it (which, with AWT's queue left alone, it is); a
+  caller waiting on the windows' thread as it goes is answered.
 - `WindowTest` (`-Pwindow.display`): a real window clicked, typed in, dropped on from another program, and copied
   from, through SDL's own events; six windows failing in six ways, each told of alone, beside one that goes on working;
   and a window with nobody to tell ending the application. It passes under Xvfb and under weston's headless Wayland, drawn by the GPU, by the

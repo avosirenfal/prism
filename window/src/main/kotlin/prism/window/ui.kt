@@ -1,8 +1,10 @@
 package prism.window
 
-import java.util.concurrent.CompletableFuture
+import java.awt.AWTEvent
+import java.awt.EventQueue
+import java.awt.Toolkit
 import java.util.concurrent.ConcurrentLinkedQueue
-import java.util.concurrent.ExecutionException
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.CoroutineContext
 import kotlinx.coroutines.CoroutineDispatcher
@@ -40,31 +42,47 @@ object Ui : CoroutineDispatcher() {
 		wake()
 	}
 
-	/** [block] run on the windows' thread, and its answer: at once where this is that thread. */
+	/**
+	 * [block] run on the windows' thread, and its answer: at once where this is that thread, or there is none. A
+	 * caller left waiting when the thread goes is answered still ([release]).
+	 */
 	fun <T> call(block: () -> T): T {
 		if (isCurrent || thread == null)
 			return block()
 
-		val answer = CompletableFuture<T>()
+		val asked = Asked(block)
 
-		dispatch(kotlin.coroutines.EmptyCoroutineContext) {
-			try {
-				answer.complete(block())
-			} catch (failed: Throwable) {
-				answer.completeExceptionally(failed)
-			}
+		dispatch(kotlin.coroutines.EmptyCoroutineContext, asked)
+		// The thread gone since it was looked for: what it was left is run by nobody, so it is run here.
+		if (thread == null)
+			asked.run()
+
+		return asked.answer()
+	}
+
+	/** What a caller waits for the windows' thread to run: run once, whoever runs it, and its answer kept. */
+	private class Asked<T>(
+		block: () -> T,
+	) : Runnable {
+		private val answered = CountDownLatch(1)
+		private val result by lazy { runCatching(block) }
+
+		override fun run() {
+			result
+			answered.countDown()
 		}
 
-		return try {
-			answer.get()
-		} catch (wrapped: ExecutionException) {
-			throw wrapped.cause ?: wrapped
+		fun answer(): T {
+			answered.await()
+
+			return result.getOrThrow()
 		}
 	}
 
 	/** The thread taken as the windows' own, from here until [release]. */
 	internal fun claim() {
 		check(thread == null) { "the windows' thread is already running" }
+		AwtEvents.take()
 		thread = Thread.currentThread()
 		wakeType = SDL_RegisterEvents(1)
 	}
@@ -72,8 +90,9 @@ object Ui : CoroutineDispatcher() {
 	internal fun release() {
 		thread = null
 		wakeType = 0
-		// What was left for a thread that is gone is run by nobody, and not by the next.
-		queue.clear()
+		// What was left for a thread that is gone is run by nobody, and not by the next; but for what a caller
+		// waits on, which is run now, as the thread's last, rather than leave the caller waiting for ever.
+		generateSequence(queue::poll).filterIsInstance<Asked<*>>().forEach(Asked<*>::run)
 	}
 
 	/** The thread woken out of its wait for events, if it waits: an event of its own is pushed, once. */
@@ -97,4 +116,29 @@ object Ui : CoroutineDispatcher() {
 	}
 
 	internal val hasWork: Boolean get() = queue.isNotEmpty()
+}
+
+/**
+ * AWT's events, run on the windows' thread while there is one.
+ *
+ * Compose for the desktop takes AWT's event thread for the one its scenes live on, and leaves work for it there. One
+ * such piece reaches a scene in a window of SDL's: a frame's time after a layout has moved anything, whoever asked
+ * to hear of it is told and the list of where every node is gets tidied (`RectManager.dispatchCallbacks`), through
+ * a timer of AWT's (`postDelayed`, on skiko's `MainUIDispatcher`), unless the end of the layout got there first.
+ * A layout that takes longer than a frame (a window's first, of a folder's whole listing) is still running when the
+ * timer fires. On AWT's thread that ran beside it, both writing the one list with nothing between them: a node the
+ * layout had just put in the list was gone from it, and the next node placed under that one failed the frame
+ * ("LayoutNode 5664 not found in RectList").
+ *
+ * So AWT's queue is made this one, which gives each event to the windows' thread to run, between its own events as
+ * anything from another thread is ([Ui]), and waits for it: what Compose leaves for "the UI thread" is run on the
+ * thread its scenes do live on. With no windows' thread, events run on AWT's own, as they would have.
+ */
+internal object AwtEvents : EventQueue() {
+	private val taken by lazy { Toolkit.getDefaultToolkit().systemEventQueue.push(this) }
+
+	/** AWT's queue made this one, the first time; nothing after. */
+	fun take() = taken
+
+	override fun dispatchEvent(event: AWTEvent) = Ui.call { super.dispatchEvent(event) }
 }

@@ -82,6 +82,9 @@ close_window() {
 	xdotool windowfocus "$window" 2> /dev/null
 	sleep 0.3
 	xdotool key --window "$window" ctrl+w 2> /dev/null
+	# xdotool presses a focused window's keys for real, and lets each go only while that window still has the keyboard:
+	# a window that closes at the press leaves W held down, typing into the next window and never pressed again.
+	xdotool keyup w keyup ctrl 2> /dev/null
 }
 
 cd "$work" || exit 2
