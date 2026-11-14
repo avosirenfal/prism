@@ -262,9 +262,9 @@ private fun GeneralPage(
 				SettingRow(
 					"Over every window",
 					description =
-						"Shown over everything, a fullscreen window included, in the middle of the screen, " +
-							"where the desktop has such a surface (Wayland's layer shell). Off, it is a " +
-							"floating window, placed by the window manager.",
+						"Shown over everything, a fullscreen window included, in the middle of the " +
+							"screen, where the desktop has such a surface (Wayland's layer shell). " +
+							"Off, it is a floating window, placed by the window manager.",
 				) {
 					Switch(set.overlay, Modifier.testTag("launcher-overlay")) { on ->
 						changed { copy(overlay = on) }
