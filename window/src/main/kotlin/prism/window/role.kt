@@ -131,11 +131,10 @@ internal data class LayerSpec(
 		const val ANCHOR_LEFT = 4
 		const val ANCHOR_RIGHT = 8
 
-		/** `zwlr_layer_surface_v1.keyboard_interactivity`: the keyboard is the surface's alone; or its when it is clicked. */
-		const val EXCLUSIVE = 1
-		const val ON_DEMAND = 2
-
-		/** The first version of layer-shell with [ON_DEMAND]; before it, a surface has the keyboard wholly or not at all. */
+		/**
+		 * The first version of layer-shell with [Interactivity.OnDemand]; before it, a surface has the keyboard wholly
+		 * or not at all.
+		 */
 		const val ON_DEMAND_SINCE = 4
 
 		/**

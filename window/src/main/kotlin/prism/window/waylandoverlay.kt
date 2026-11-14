@@ -38,10 +38,11 @@ import java.util.concurrent.TimeoutException
  *   that had it exclusively and now asks on demand.
  *
  * So an overlay that shares the keyboard asks on demand as it is made. Not given the keyboard a moment after it is
- * on the screen, it asks exclusively, to be given it ([LayerSurface.hold]), and once it has it asks on demand again
- * ([LayerSurface.share]); and where that costs it the keyboard at once, it asks exclusively for good. On either
- * compositor it ends typed into, and, where the compositor has a way to it, with a click elsewhere taking the
- * keyboard (window.kt drives this, from what SDL says of the keyboard).
+ * on the screen, it asks exclusively, to be given it, and once it has it asks on demand again; and where that costs
+ * it the keyboard at once, it asks exclusively for good. On either compositor it ends typed into, and, where the
+ * compositor has a way to it, with a click elsewhere taking the keyboard. How a surface stands in this, and what
+ * follows from each thing that happens, is one state with nothing else to it ([Grip], grip.kt); the surface keeps
+ * it ([LayerSurface.told]), and window.kt tells it what SDL says of the keyboard.
  */
 
 /** The layer surfaces of this process, and what hears their events: one, made with the seat, where there is layer-shell. */
@@ -98,13 +99,15 @@ internal class Layers(
 				) as MemorySegment
 			}
 
+		val first = Grip.of(spec.shares)
+
 		val made =
 			LayerSurface(
 				this,
 				proxy,
 				surface,
 				shell.version,
-				spec.shares,
+				first,
 				onSized,
 				onClosed,
 			)
@@ -125,14 +128,7 @@ internal class Layers(
 			spec.margins.bottom,
 			spec.margins.left,
 		) as MemorySegment
-		made.send(
-			Wl.marshalInt,
-			SURFACE_SET_KEYBOARD,
-			if (spec.shares)
-				LayerSpec.ON_DEMAND
-			else
-				LayerSpec.EXCLUSIVE,
-		)
+		made.send(Wl.marshalInt, SURFACE_SET_KEYBOARD, first.asks.wire)
 		// Committed with nothing in it: what asks the compositor to say how it is to be.
 		commit(surface)
 
@@ -229,48 +225,31 @@ internal class LayerSurface(
 	/** The `wl_surface` this is the role of. */
 	private val surface: MemorySegment,
 	private val version: Int,
-	/** Whether it shares the keyboard, where the compositor has a way for it to. */
-	shares: Boolean,
+	/** How it stands with the keyboard as it is made: what the compositor is asked for it first. */
+	first: Grip.Live,
 	private val onSized: (Int, Int) -> Unit,
 	private val onClosed: () -> Unit,
 ) : AutoCloseable {
-	/** Whether the keyboard is to be shared still: false once a compositor has taken it from this for sharing it. */
+	/**
+	 * How it stands with the keyboard (grip.kt), and whether it still is at all: the one thing about it that changes,
+	 * written on the windows' thread alone.
+	 */
 	@Volatile
-	var shares: Boolean = shares
+	var grip: Grip = first
 		private set
-
-	/** Whether the keyboard is asked for on demand now, rather than exclusively: as it was made, where it shares. */
-	@Volatile
-	var shared: Boolean = shares
-		private set
-
-	/** The keyboard asked for on demand from here on: whatever is clicked next takes it. */
-	fun share() {
-		if (!shares || shared || closed)
-			return
-
-		shared = true
-		keyboard(LayerSpec.ON_DEMAND)
-	}
 
 	/**
-	 * The keyboard asked for exclusively: to be given it, by a compositor that gives a new surface nothing for the
-	 * asking, after which it is shared again; or [forGood], where sharing it is what cost the surface the keyboard.
+	 * What its window heard of the keyboard: how it stands from then, the compositor asked for whatever that is where
+	 * it is not what it was asked last, and what came of it given.
 	 */
-	fun hold(forGood: Boolean) {
-		if (closed)
-			return
-
-		if (forGood)
-			shares = false
-		shared = false
-		keyboard(LayerSpec.EXCLUSIVE)
-	}
-
-	private fun keyboard(interactivity: Int) {
-		send(Wl.marshalInt, Layers.SURFACE_SET_KEYBOARD, interactivity)
-		layers.commit(surface)
-	}
+	fun told(told: Told): Grip.Step =
+		grip.told(told).also { step ->
+			step.toAsk?.let {
+				send(Wl.marshalInt, Layers.SURFACE_SET_KEYBOARD, it.asks.wire)
+				layers.commit(surface)
+			}
+			grip = step.grip
+		}
 
 	/** Completed by the first `configure`: until then nothing may be drawn. */
 	val first = CompletableFuture<Unit>()
@@ -280,12 +259,9 @@ internal class LayerSurface(
 	var size: Pair<Int, Int>? = null
 		private set
 
-	@Volatile
-	private var closed = false
-
 	/** A request of this surface's sent: [arguments] as [marshal] takes them. */
 	fun send(marshal: java.lang.invoke.MethodHandle, opcode: Int, vararg arguments: Int) {
-		if (closed)
+		if (grip == Grip.Gone)
 			return
 
 		when (arguments.size) {
@@ -325,10 +301,10 @@ internal class LayerSurface(
 
 	/** The role given up: before the surface itself is. */
 	override fun close() {
-		if (closed)
+		if (grip == Grip.Gone)
 			return
 
-		closed = true
+		told(Told.Closed)
 		Wl.marshalNone.invokeExact(
 			proxy,
 			Layers.SURFACE_DESTROY,

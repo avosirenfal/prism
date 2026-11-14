@@ -514,51 +514,24 @@ class NativeWindow internal constructor(
 	}
 
 	/**
-	 * When the keyboard, which the layer surface had exclusively, was asked for on demand instead, by the clock that
-	 * only counts; 0 where it never was. What a keyboard taken at once is told by.
-	 */
-	private var sharedAt = 0L
-
-	/**
 	 * An overlay that shares the keyboard, on the screen for the first time, and what the compositor made of its
-	 * asking for the keyboard on demand (waylandoverlay.kt): not given it a moment on, it asks exclusively, to be.
+	 * asking for the keyboard on demand (waylandoverlay.kt): a moment on, it is told whether it was given it.
 	 */
 	private fun awaitKeyboard(layer: LayerSurface) {
-		if (!layer.shared)
+		if (layer.grip != Grip.Asking)
 			return
 
 		CompletableFuture.delayedExecutor(UNGIVEN_MILLIS, TimeUnit.MILLISECONDS).execute {
-			Ui.dispatch(EmptyCoroutineContext) {
-				if (!closed && !focused && layer.shared) {
-					Log.say { "window $id: not given the keyboard for the asking, so it holds it" }
-					layer.hold(forGood = false)
-				}
-			}
-		}
-	}
-
-	/** A layer surface given the keyboard: one that held it only to be given it shares it, now that it has it. */
-	private fun keyboardGiven(layer: LayerSurface) {
-		if (layer.shares && !layer.shared) {
-			Log.say { "window $id: shares the keyboard, now that it has it" }
-			layer.share()
-			sharedAt = System.nanoTime()
+			Ui.dispatch(EmptyCoroutineContext) { keyboard(layer, Told.Waited(has = focused)) }
 		}
 	}
 
 	/**
-	 * A layer surface's keyboard gone: where that is the compositor's answer to its sharing it a moment ago, rather
-	 * than anything the user did, it is held from here on, and comes back.
+	 * What became of the keyboard [told] to a layer surface, which asks the compositor for whatever follows from it
+	 * ([Grip.told]); said, where that is something it did not ask before.
 	 */
-	private fun keyboardTaken(layer: LayerSurface) {
-		if (layer.shared && sharedAt != 0L &&
-			System.nanoTime() - sharedAt < TAKEN_AT_ONCE_NANOS
-		) {
-			Log.say {
-				"window $id: the keyboard was taken from it for sharing it, so it holds it for good"
-			}
-			layer.hold(forGood = true)
-		}
+	private fun keyboard(layer: LayerSurface, told: Told) {
+		layer.told(told).toAsk?.let { Log.say { "window $id: ${it.said}" } }
 	}
 
 	internal fun invalidate() {
@@ -730,12 +703,12 @@ class NativeWindow internal constructor(
 			SDL_EVENT_WINDOW_FOCUS_GAINED -> {
 				Log.say { "window $id: has the keyboard" }
 				focused = true
-				layer?.let(::keyboardGiven)
+				layer?.let { keyboard(it, Told.Given(System.nanoTime())) }
 			}
 			SDL_EVENT_WINDOW_FOCUS_LOST -> {
 				Log.say { "window $id: has the keyboard no longer" }
 				focused = false
-				layer?.let(::keyboardTaken)
+				layer?.let { keyboard(it, Told.Taken(System.nanoTime())) }
 			}
 			SDL_EVENT_WINDOW_MOUSE_ENTER -> pointerEvent(PointerEventType.Enter)
 			SDL_EVENT_WINDOW_MOUSE_LEAVE ->
@@ -966,12 +939,6 @@ class NativeWindow internal constructor(
 
 		/** How long an overlay that shares the keyboard waits to be given it, once it is on the screen, before it holds it. */
 		const val UNGIVEN_MILLIS = 150L
-
-		/**
-		 * How soon after an overlay shares the keyboard its going is the compositor's doing, and not the user's: a
-		 * compositor that will not have it shared takes it in the same breath; a person takes longer to click.
-		 */
-		const val TAKEN_AT_ONCE_NANOS = 300_000_000L
 
 		/**
 		 * [size], which is in Compose's units, in the platform's points, as [window] is sized: a dp is the display's
