@@ -12,8 +12,6 @@
   gradle_9,
   jdk25,
   llvmPackages,
-  makeDesktopItem,
-  copyDesktopItems,
   addDriverRunpath,
   util-linux,
   libbpf,
@@ -91,7 +89,6 @@ stdenv.mkDerivation (finalAttrs: {
 
   nativeBuildInputs = [
     gradle_9
-    copyDesktopItems
   ];
 
   mitmCache = gradle_9.fetchDeps {
@@ -119,30 +116,6 @@ stdenv.mkDerivation (finalAttrs: {
 
   # prism's tests are Gradle's to run (`./gradlew build`), on a machine with a display server's and a bus's programs.
   doCheck = false;
-
-  desktopItems = [
-    (makeDesktopItem {
-      name = "prism";
-      desktopName = "prism";
-      genericName = "File Manager";
-      comment = "Browse the file system";
-      exec = "prism %U";
-      icon = "system-file-manager";
-      # Wayland's app id and X11's class, which prism's windows have (APP_ID in app/main.kt).
-      startupWMClass = "prism";
-      mimeTypes = [ "inode/directory" ];
-      categories = [
-        "System"
-        "FileTools"
-        "FileManager"
-      ];
-      keywords = [
-        "files"
-        "folders"
-        "explorer"
-      ];
-    })
-  ];
 
   installPhase = ''
     runHook preInstall
@@ -195,6 +168,42 @@ stdenv.mkDerivation (finalAttrs: {
     WRAPPER
     sed -i 's/^    //' $out/bin/prism
     chmod +x $out/bin/prism
+
+    # What a launcher and a desktop know prism by: its name, its icon, what it opens (folders), and what a
+    # right-click on it offers. Its file's name is its windows' app id (APP_ID in app/main.kt), which is how a
+    # compositor finds a window's entry, and so its icon and its name in a task switcher. prism is named by its place
+    # rather than left to the PATH, so that a launcher started before it was installed runs it all the same.
+    mkdir -p $out/share/applications
+    cat > $out/share/applications/prism.desktop <<ENTRY
+    [Desktop Entry]
+    Version=1.5
+    Type=Application
+    Name=Prism
+    GenericName=File Manager
+    Comment=Browse and search your files
+    Icon=prism
+    TryExec=$out/bin/prism
+    Exec=$out/bin/prism %U
+    Terminal=false
+    StartupNotify=true
+    StartupWMClass=prism
+    MimeType=inode/directory;
+    Categories=System;FileTools;FileManager;
+    Keywords=files;folders;explorer;browse;search;directory;
+    Actions=new-window;own-process;
+
+    [Desktop Action new-window]
+    Name=New Window
+    Exec=$out/bin/prism
+
+    [Desktop Action own-process]
+    Name=New Window in Its Own Process
+    Exec=$out/bin/prism --isolated
+    ENTRY
+    sed -i 's/^    //' $out/share/applications/prism.desktop
+
+    # Its icon, where every icon theme falls back to.
+    install -Dm644 ${./prism.svg} $out/share/icons/hicolor/scalable/apps/prism.svg
 
     # The portal's backend: what tells xdg-desktop-portal there is one called prism, and D-Bus how to start it,
     # which is by starting the daemon's unit (it is the daemon that serves it).

@@ -33,7 +33,7 @@ internal object ExploreCommand :
 
 	private val isolated =
 		flag(
-			"--isolated",
+			ISOLATED,
 			help =
 				"open it in a process of its own, whether or not a prism is already running, " +
 					"which no other prism then opens its windows in",
@@ -41,6 +41,9 @@ internal object ExploreCommand :
 	private val indexing = Indexing(this)
 	private val theme = themeOption()
 	private val decorated = decoratedFlag("the window's menu or Ctrl+W closes it")
+
+	/** The word that keeps a prism to a process of its own, which a desktop entry's action gives it. */
+	const val ISOLATED = "--isolated"
 
 	/** What [args] ask to be shown, as [caller] meant them: paths read from the folder they were said in. */
 	private fun shownBy(args: Args, caller: Caller, home: Path): List<Path> =

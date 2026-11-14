@@ -34,7 +34,10 @@ class PackagingTest {
 			flakeFile("package.nix"),
 			"backendName = \"${FileChooser.BACKEND}\";",
 			"chooserInterface = \"${FileChooser.INTERFACE}\";",
-			"startupWMClass = \"$APP_ID\";",
+			"StartupWMClass=$APP_ID",
+			// The entry's file is named for the windows' app id, which is how a compositor finds it.
+			"share/applications/$APP_ID.desktop",
+			"Exec=\$out/bin/prism ${ExploreCommand.ISOLATED}",
 			"Exec=\$out/bin/prism ${DaemonCommand.name} --foreground",
 			// What gives back to a program prism starts what the wrapper changed for prism.
 			"PRISM_RESTORE_LD_LIBRARY_PATH",

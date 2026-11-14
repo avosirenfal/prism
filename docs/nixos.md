@@ -243,7 +243,8 @@ The module adds one more small thing: a D-Bus service file for `org.freedesktop.
 | `bin/prism` | a wrapper: nixpkgs' Java 25, prism's jars, and the libraries prism loads by name on the loader's path |
 | `share/prism/lib/*.jar` | prism and what it runs with |
 | `share/prism/prism.aot` | Java's cache of the classes a start loads, already read and linked, which takes about a third off the time `prism` takes to hand its words to the daemon |
-| `share/applications/prism.desktop` | the desktop entry: `prism %U`, for `inode/directory` |
+| `share/applications/prism.desktop` | the desktop entry, "Prism": what a launcher lists and what opens `inode/directory`, run by its place in the store, with its icon and two actions (a new window; a new window in a process of its own). Its name is its windows' app id, so a compositor shows the icon and the name for prism's windows |
+| `share/icons/hicolor/scalable/apps/prism.svg` | its icon |
 | `share/xdg-desktop-portal/portals/prism.portal` | the portal backend's description |
 | `share/dbus-1/services/org.freedesktop.impl.portal.desktop.prism.service` | what starts `prism.service` when the portal calls the backend and nothing has its name |
 | `share/systemd/user/prism.service` | the daemon's unit, for use without the module |
