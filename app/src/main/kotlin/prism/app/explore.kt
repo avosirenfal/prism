@@ -8,6 +8,12 @@ import prism.cli.Command
 import prism.cli.InputError
 import prism.cli.Outcome
 import prism.cli.ParamType
+import prism.client.Asking
+import prism.client.Caller
+import prism.client.InstancePlace
+import prism.client.Reply
+import prism.client.Request
+import prism.client.ask
 import prism.portal.pathOf
 
 /**
@@ -73,17 +79,17 @@ internal object ExploreCommand :
 		return Outcome("")
 	}
 
+	/** What is said of how its windows are is said of a prism of its own: a running one's are as it was started. */
+	override fun apart(args: Args): Boolean =
+		args[isolated] || indexing.given(args) || args[theme] != Theme.Auto || args[decorated]
+
 	override fun run(args: Args): Outcome {
 		val home = Path(System.getProperty("user.home"))
-
-		// What is said of how its windows are is said of a prism of its own: a running one's are as it was started.
-		val own =
-			args[isolated] || indexing.given(args) || args[theme] != Theme.Auto || args[decorated]
 
 		return opened(
 			this,
 			Request(listOf(name, "--") + args[items], Caller.here()),
-			apart = own,
+			apart = apart(args),
 		) {
 			val (search, finder) = indexing.searchOf(args, home)
 

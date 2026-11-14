@@ -21,6 +21,13 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import org.junit.jupiter.api.io.TempDir
 import prism.cli.Ran
+import prism.client.Asking
+import prism.client.Caller
+import prism.client.InstancePlace
+import prism.client.Reply
+import prism.client.Request
+import prism.client.Wire
+import prism.client.ask
 
 /**
  * One prism for a session's windows: what one prism asks another as it is written and read, who listens where, a

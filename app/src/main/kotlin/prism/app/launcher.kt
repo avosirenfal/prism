@@ -4,6 +4,8 @@ import kotlin.io.path.Path
 import prism.cli.Args
 import prism.cli.Command
 import prism.cli.Outcome
+import prism.client.Caller
+import prism.client.Request
 
 /**
  * `prism launcher`: the launcher, shown by the prism already running (the daemon, which has its index to search and
@@ -35,11 +37,13 @@ internal object LaunchCommand :
 		return Outcome("")
 	}
 
+	override fun apart(args: Args): Boolean =
+		args[isolated] || indexing.given(args) || args[theme] != Theme.Auto
+
 	override fun run(args: Args): Outcome {
 		val home = Path(System.getProperty("user.home"))
-		val own = args[isolated] || indexing.given(args) || args[theme] != Theme.Auto
 
-		return opened(this, Request(listOf(name), Caller.here()), apart = own) {
+		return opened(this, Request(listOf(name), Caller.here()), apart = apart(args)) {
 			val (search, finder) = indexing.searchOf(args, home)
 
 			Hosting(args[theme], decorated = false, search, finder)

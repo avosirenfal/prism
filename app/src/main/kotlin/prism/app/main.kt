@@ -8,6 +8,7 @@ import kotlin.system.exitProcess
 import prism.cli.Category
 import prism.cli.Group
 import prism.cli.execute
+import prism.client.ShellCommand
 
 /**
  * The command line: every command, in its category, in the order `prism --help` lists them. `prism` with no command
@@ -23,7 +24,8 @@ val PRISM =
 				"browsing",
 				listOf(ExploreCommand, LaunchCommand, PickCommand, SnapshotCommand, PortalGroup),
 			),
-			Category("running", listOf(DaemonCommand, StatusCommand)),
+			Category("searching", listOf(PathSearch, ShellCommand)),
+			Category("running", listOf(DaemonCommand, StatusCommand, MatchesCommand)),
 			Category("indexing", listOf(IndexCommand, ScanCommand)),
 			Category("watching", listOf(ProbeGroup)),
 		),

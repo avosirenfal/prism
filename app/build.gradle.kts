@@ -13,6 +13,7 @@ plugins {
 
 dependencies {
 	implementation(project(":cli"))
+	implementation(project(":client"))
 	implementation(project(":browser"))
 	implementation(project(":explorer"))
 	implementation(project(":index"))

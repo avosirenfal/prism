@@ -13,6 +13,8 @@ import prism.cli.InputError
 import prism.cli.Outcome
 import prism.cli.Param
 import prism.cli.ParamType
+import prism.client.Caller
+import prism.client.Request
 import prism.dbus.Connection
 import prism.dbus.Opening
 import prism.desktop.MimeType

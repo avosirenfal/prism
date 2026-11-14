@@ -42,6 +42,11 @@ import prism.cli.Invocation
 import prism.cli.Outcome
 import prism.cli.Ran
 import prism.cli.invocation
+import prism.client.Caller
+import prism.client.InstancePlace
+import prism.client.Reply
+import prism.client.Request
+import prism.client.ask
 import prism.dbus.Connection
 import prism.desktop.Desktop
 import prism.explorer.Explorer
@@ -163,6 +168,9 @@ internal class Windows(
 	/** Why there will be no more windows, once they have failed too often to be started again. */
 	@Volatile
 	private var givenUp: String? = null
+
+	/** What a search of this prism's searches: its index; none, where it keeps none. */
+	val finder: Finder? get() = hosting.finder
 
 	/** The explorer, while the windows run. */
 	@Volatile
@@ -379,6 +387,13 @@ internal class Windows(
 internal interface Served {
 	/** What this prism does for [args], asked for by [caller], with what it has ([instance]). */
 	suspend fun serve(args: Args, caller: Caller, instance: Instance): Outcome
+
+	/**
+	 * Whether [args] ask for a prism of their own: said of how its windows should be (a theme, an index of its own),
+	 * or told to keep to itself. One prism does not do those for another; whoever asked does them itself. What the
+	 * client asks (prism.client, main.kt) is a command line's words as they were typed, these among them.
+	 */
+	fun apart(args: Args): Boolean = false
 }
 
 /** A prism with windows, as other prisms ask it. */
@@ -408,6 +423,8 @@ internal class Instance(
 				try {
 					if (served == null)
 						Reply.Unable("$said is not something one prism does for another")
+					else if (served.apart(asked.args))
+						Reply.Unable("$said was asked to be a prism of its own")
 					else
 						runBlocking { served.serve(asked.args, request.caller, this@Instance) }.let {
 							Reply.Done(Ran(it.text, "", it.status))

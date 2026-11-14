@@ -37,6 +37,7 @@ rootProject.name = "prism"
 
 include(
 	":cli",
+	":client",
 	":linux",
 	":ebpf",
 	":ebpf-loader",
