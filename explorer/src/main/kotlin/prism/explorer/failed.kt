@@ -26,8 +26,7 @@ import prism.browser.Tone
 
 /** What the window says under its title: that one window was closed, and nothing else. */
 internal const val FAILED_DESCRIPTION =
-	"That window was closed. Nothing else was: prism's other windows are as they were, " +
-		"and so is its index. Files are never changed by a window closing."
+	"The window was closed. Other windows, the index and your files are not affected."
 
 /**
  * [window]: what failed, the failure in a line and in full, and its buttons: Copy, Close, and, where the window that
@@ -56,7 +55,7 @@ internal fun FailedView(
 					Tone.Bad,
 					Modifier.testTag("failed-summary"),
 					detail =
-						"It is in prism's log as well: where prism runs as a service, " +
+						"Also in prism's log. When prism runs as a service: " +
 							"journalctl --user -u prism.",
 				)
 			}

@@ -18,9 +18,9 @@ The Display page's row for the listing's font reads, on screen:
 Its code says what is in it, and nothing about how it is spaced:
 
 ```kotlin
-Section("Text", description = "The font and size of each part of a window.") {
+Section("Text", description = "Font and size for each part of a window.") {
 	Card {
-		SettingRow("The listing", description = "A folder's rows and tiles: …") {
+		SettingRow("File list", description = "Rows and gallery tiles") {
 			Select(families, typography.listing.family, { it ?: "Default font" }) { … }
 			Stepper("11 pt", smaller = true, larger = true) { … }
 		}

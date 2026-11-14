@@ -167,7 +167,7 @@ internal fun <P> SettingsFrame(
 			) {
 				Text(
 					if (changed)
-						"Changed, and not yet applied"
+						"Unsaved changes"
 					else
 						"",
 					style = type.muted,

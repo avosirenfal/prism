@@ -341,12 +341,12 @@ private fun Nothing(state: LauncherState) {
 		if (state.searching)
 			"Searching…"
 		else
-			"Nothing found",
+			"No results",
 		(
 			if (state.preferences.files && state.searchable)
-				"Nothing installed, and no file the index holds, fits “${state.query}”."
+				"No applications or files match “${state.query}”."
 			else
-				"Nothing installed fits “${state.query}”."
+				"No applications match “${state.query}”."
 		).takeUnless { state.searching || state.query.isBlank() },
 		Modifier.fillMaxSize(),
 		detailTag = "launcher-nothing",
@@ -455,7 +455,7 @@ private fun Footer(state: LauncherState, bindings: Bindings) {
 		// A search that went wrong is said as what goes wrong with something chosen is.
 		val wrong =
 			state.notice
-				?: "The search for files failed. That is a mistake of prism's, not of what you typed."
+				?: "File search failed. This is a bug in prism; details are in its log."
 					.takeIf { state.files is FilesFound.Failed }
 
 		Text(
@@ -493,7 +493,7 @@ private fun hintsFor(entry: Entry?): List<Pair<LauncherAction, String>> =
 			null -> null
 			is Entry.App, is Entry.Action -> LauncherAction.Open to "Launch"
 			is Entry.File -> LauncherAction.Open to "Open"
-			is Entry.Command, is Entry.Prism -> LauncherAction.Open to "Go"
+			is Entry.Command, is Entry.Prism -> LauncherAction.Open to "Open"
 		},
 		(LauncherAction.Reveal to "Show in folder").takeIf {
 			entry is Entry.App || entry is Entry.Action || entry is Entry.File

@@ -38,7 +38,7 @@ enum class DateFormat(
 	Dotted("Day.month.year"),
 
 	/** As the system's language and country write a date. */
-	System("The system's own"),
+	System("System default"),
 	;
 
 	/** How it is written: the date's pattern, the time's, what is between them, and the language of their words. */

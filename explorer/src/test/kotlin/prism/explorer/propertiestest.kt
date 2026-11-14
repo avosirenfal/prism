@@ -49,7 +49,7 @@ class PropertiesTest {
 				"Type" to "PNG image (image/png)",
 				"Location" to "/home/avery/Pictures",
 				"Size" to "1.1 MB (1,200,000 bytes)",
-				"Created" to "Not known",
+				"Created" to "Unknown",
 				"Modified" to "Sunday 8 November 2026, 09:41:00",
 				"Accessed" to "Sunday 8 November 2026, 09:41:00",
 			),
@@ -65,8 +65,8 @@ class PropertiesTest {
 
 		assertEquals(Contents(120, 9, 4_400_000), counted)
 		assertEquals("Folder", lines(listOf(pictures), null)["Type"])
-		assertEquals("Counting…", lines(listOf(pictures), null)["Holds"])
-		assertEquals("120 files and 8 folders", lines(listOf(pictures), counted)["Holds"])
+		assertEquals("Calculating…", lines(listOf(pictures), null)["Contents"])
+		assertEquals("120 files and 8 folders", lines(listOf(pictures), counted)["Contents"])
 		assertEquals("4.2 MB (4,400,000 bytes)", lines(listOf(pictures), counted)["Size"])
 	}
 
@@ -82,9 +82,9 @@ class PropertiesTest {
 		val said = lines(chosen, tallyOf(chosen) { Contents(1, 0, 1_000) })
 
 		assertEquals("3 items, 2 files and 1 folder", said["Selected"])
-		assertEquals("Several types", said["Type"])
+		assertEquals("Multiple types", said["Type"])
 		assertEquals("/home/avery", said["Location"])
-		assertEquals("3 files and 1 folder", said["Holds"])
+		assertEquals("3 files and 1 folder", said["Contents"])
 		assertEquals("1.1 KB (1,150 bytes)", said["Size"])
 		assertFalse("Modified" in said)
 	}

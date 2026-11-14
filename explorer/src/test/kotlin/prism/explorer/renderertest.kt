@@ -41,14 +41,14 @@ class RendererTest {
 	fun whyTheGpuIsNotUsedIsSaidFirst_WithWhatToDo() {
 		val explained = explained(missingLibrary())
 
-		assertEquals("Drawn on the CPU", explained.title)
+		assertEquals("Rendering on the CPU", explained.title)
 		assertEquals(Tone.Bad, explained.tone)
 		assertTrue(
-			explained.why.startsWith("The NVIDIA GeForce RTX 4070 isn't used."),
+			explained.why.startsWith("The NVIDIA GeForce RTX 4070 isn't in use."),
 			explained.why,
 		)
 		assertTrue(
-			explained.why.endsWith("The system's loader says: “$NOT_FOUND”"),
+			explained.why.endsWith("The system loader reports: “$NOT_FOUND”"),
 			explained.why,
 		)
 		assertTrue(
@@ -57,7 +57,7 @@ class RendererTest {
 		)
 		assertEquals(Tone.Good, explained(drawing()).tone)
 		assertEquals(
-			"OpenGL draws prism's windows on the NVIDIA GeForce RTX 4070.",
+			"OpenGL renders prism's windows on the NVIDIA GeForce RTX 4070.",
 			explained(drawing()).why,
 		)
 	}
@@ -67,10 +67,10 @@ class RendererTest {
 		val report = fellBack()
 		val explained = explained(report)
 
-		assertEquals("Drawn on the CPU", explained.title)
+		assertEquals("Rendering on the CPU", explained.title)
 		assertTrue(
 			explained.why.startsWith(
-				"The NVIDIA GeForce RTX 4070 isn't used. OpenGL runs on it, but couldn't draw this window",
+				"The NVIDIA GeForce RTX 4070 isn't in use. OpenGL is available on it but couldn't render",
 			),
 			explained.why,
 		)
@@ -79,7 +79,7 @@ class RendererTest {
 			reportText(
 				report,
 			).lines().contains(
-				"This window: Drawn on the CPU, since OpenGL couldn't draw it: $REFUSED",
+				"This window: Rendered on the CPU because OpenGL failed: $REFUSED",
 			),
 			reportText(report),
 		)
@@ -91,19 +91,19 @@ class RendererTest {
 
 		assertTrue(
 			text.startsWith(
-				"prism's windows: Drawn on the CPU\nThe NVIDIA GeForce RTX 4070 isn't used.",
+				"prism's windows: Rendering on the CPU\nThe NVIDIA GeForce RTX 4070 isn't in use.",
 			),
 			text,
 		)
 		for (line in listOf(
 			"OpenGL: llvmpipe (LLVM 20.1.8, 256 bits), by Mesa",
-			"Display: Wayland, through EGL",
+			"Display: Wayland, using EGL",
 			"Loader: libEGL.so.1, from /usr/lib/libEGL.so.1.1.0",
 			"Search path: LD_LIBRARY_PATH isn't set",
-			"NVIDIA GeForce RTX 4070: Its OpenGL library can't be loaded",
-			"Where: PCI 0000:01:00.0",
+			"NVIDIA GeForce RTX 4070: OpenGL library can't be loaded",
+			"Location: PCI 0000:01:00.0",
 			"Driver: nvidia 550.78",
-			"Nodes: /dev/dri/card1, /dev/dri/renderD128, /dev/nvidiactl, /dev/nvidia0",
+			"Device nodes: /dev/dri/card1, /dev/dri/renderD128, /dev/nvidiactl, /dev/nvidia0",
 			"OpenGL library: libEGL_nvidia.so.0 can't be loaded: $NOT_FOUND",
 		))
 			assertTrue(text.lines().contains(line), "no “$line” in:\n$text")
@@ -129,10 +129,11 @@ class RendererTest {
 			}
 
 			// The headline, and the window's own line among the facts.
-			assertEquals(2, onAllNodesWithText("Drawn on the CPU").fetchSemanticsNodes().size)
+			onNodeWithText("Rendering on the CPU").assertExists()
+			onNodeWithText("Rendered on the CPU").assertExists()
 			onNodeWithTag("device:0000:01:00.0").assertExists()
 			// Why is said once, at the top; the device's card says what it is, and the loader's words in its facts.
-			onNodeWithText("Its OpenGL library can't be loaded.").assertExists()
+			onNodeWithText("OpenGL library can't be loaded.").assertExists()
 			assertEquals(
 				2,
 				onAllNodesWithText(
@@ -156,7 +157,7 @@ class RendererTest {
 				}
 			}
 
-			onNodeWithText("Looking at the graphics devices…").assertExists()
+			onNodeWithText("Detecting graphics devices…").assertExists()
 		}
 
 	/**

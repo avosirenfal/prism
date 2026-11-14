@@ -253,7 +253,7 @@ class SettingsTest {
 		val empty = TerminalForm().picked(TerminalPick.Custom).choice()
 		val noFolder = TerminalForm().typed(open = "ghostty --font-size=14").choice()
 
-		assertTrue(empty is TerminalChoice.Unreadable && "none is written" in empty.why)
+		assertTrue(empty is TerminalChoice.Unreadable && "enter a command line" in empty.why)
 		assertTrue(noFolder is TerminalChoice.Unreadable && "{folder}" in noFolder.why)
 		// A choice the file holds that cannot be read is kept while nothing is changed.
 		assertEquals(noFolder, TerminalForm.of(noFolder).choice())

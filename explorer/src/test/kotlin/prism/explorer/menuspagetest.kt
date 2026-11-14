@@ -507,7 +507,7 @@ class MenusPageTest {
 			wheelTo("entry:builtin.cut")
 			onNodeWithTag("entry:builtin.cut").performMouseInput { rightClick() }
 			waitForIdle()
-			onNodeWithTag("menu:Insert line after").performClick()
+			onNodeWithTag("menu:Insert separator after").performClick()
 			waitForIdle()
 
 			val placed = settings.menus.arrangementOf(fileMenu).orEmpty()

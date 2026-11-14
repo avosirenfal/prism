@@ -145,7 +145,7 @@ fun headingOf(choice: Choice, types: FileTypes): String =
 		is Choice.Open ->
 			choice.paths.singleOrNull()?.let { "Open “${it.fileName}” with:" }
 				?: "Open ${choice.paths.size} files with:"
-		is Choice.Default -> "What opens ${describedType(choice.type, types)}:"
+		is Choice.Default -> "Default application for ${describedType(choice.type, types)}:"
 	}
 
 /**
@@ -167,7 +167,7 @@ fun OpenWithView(choice: Choice, explorer: Explorer, onClose: () -> Unit) {
 	var edited by remember { mutableStateOf<Chooser?>(null) }
 	var failure by remember { mutableStateOf<String?>(null) }
 	val filter = remember { FocusRequester() }
-	val chooser = edited ?: loaded ?: return Message("Finding the applications…")
+	val chooser = edited ?: loaded ?: return Message("Loading applications…")
 
 	fun confirm() {
 		val application = chooser.chosen ?: return
@@ -207,7 +207,7 @@ fun OpenWithView(choice: Choice, explorer: Explorer, onClose: () -> Unit) {
 				chooser.filter,
 				{ edited = chooser.filtered(it) },
 				Modifier.fillMaxWidth(),
-				hint = "Search the applications",
+				hint = "Search applications",
 				leading = Glyph.Search,
 				focus = filter,
 				onKey = {
@@ -245,12 +245,12 @@ fun OpenWithView(choice: Choice, explorer: Explorer, onClose: () -> Unit) {
 						}
 					}
 					if (chooser.shown.isEmpty())
-						item { ListHeading("No application is called that") }
+						item { ListHeading("No matching applications") }
 				}
 			}
 			chooser.defaultable?.let {
 				CheckBox(
-					"Always open ${describedType(it, desktop.types)} with it",
+					"Always use for ${describedType(it, desktop.types)}",
 					chooser.always,
 				) { always ->
 					edited = chooser.copy(always = always)
@@ -263,7 +263,7 @@ fun OpenWithView(choice: Choice, explorer: Explorer, onClose: () -> Unit) {
 				Act(
 					when (choice) {
 						is Choice.Open -> "Open"
-						is Choice.Default -> "Use it"
+						is Choice.Default -> "Set as default"
 					},
 					"open",
 					chooser.chosen != null,

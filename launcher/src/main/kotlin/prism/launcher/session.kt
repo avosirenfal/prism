@@ -208,12 +208,14 @@ class LauncherSession(
 
 					services.finder?.picked(listOf(entry.path), services.clock.instant())
 					opening.failures.firstOrNull()?.let(::failureOf)
-						?: "No application opens ${entry.title}".takeIf { opening.unopened.isNotEmpty() }
+						?: "No application can open “${entry.title}”".takeIf {
+							opening.unopened.isNotEmpty()
+						}
 				}
 			is Entry.Command, is Entry.Prism -> null
 		}
 	}
 
 	private fun failureOf(launched: Launched): String? =
-		(launched as? Launched.Failed)?.let { "${it.what} could not be started: ${it.why}" }
+		(launched as? Launched.Failed)?.let { "Couldn't start ${it.what}: ${it.why}" }
 }

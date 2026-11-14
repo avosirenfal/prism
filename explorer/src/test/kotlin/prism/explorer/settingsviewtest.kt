@@ -221,7 +221,7 @@ class SettingsViewTest {
 				scroll(-40f)
 			}
 			waitForIdle()
-			onNodeWithTag("align:Size:Centre").performClick()
+			onNodeWithTag("align:Size:Center").performClick()
 			waitForIdle()
 			assertEquals(
 				Align.Center,
@@ -297,6 +297,6 @@ class SettingsViewTest {
 			assertEquals(TerminalPick.Custom, settings.terminal.pick)
 			onNodeWithTag("terminal-missing").assertDoesNotExist()
 			onNodeWithTag("terminal-open").assertExists()
-			onNodeWithText("What runs").assertExists()
+			onNodeWithText("Preview").assertExists()
 		}
 }

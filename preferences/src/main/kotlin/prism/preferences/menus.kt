@@ -85,9 +85,9 @@ enum class MenuOf(
 	val key: String,
 	val label: String,
 ) {
-	File("file", "A file"),
-	Folder("folder", "A folder"),
-	Several("several", "Several"),
+	File("file", "File"),
+	Folder("folder", "Folder"),
+	Several("several", "Multiple items"),
 	Space("space", "Empty space"),
 }
 

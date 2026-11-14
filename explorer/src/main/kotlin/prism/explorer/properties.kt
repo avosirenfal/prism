@@ -99,7 +99,7 @@ fun generalOf(
 			.distinct()
 			.singleOrNull()
 			?.let { describedType(it, types) }
-			?: "Several types"
+			?: "Multiple types"
 
 	val location =
 		facts
@@ -107,7 +107,7 @@ fun generalOf(
 			.distinct()
 			.singleOrNull()
 			?.toString()
-			?: "Several folders"
+			?: "Multiple locations"
 
 	// A folder alone holds what is counted; several things are what is counted.
 	val held =
@@ -118,7 +118,7 @@ fun generalOf(
 				else
 					it.copy(folders = it.folders - 1)
 			}?.let { holding(it) }
-			?: "Counting…"
+			?: "Calculating…"
 
 	val anyFolder = facts.any { it.kind == FileKind.Folder }
 
@@ -132,10 +132,10 @@ fun generalOf(
 			),
 		Line("Type", type),
 		Line("Location", location),
-		one?.target?.let { Line("Link to", it.toString()) },
-		Line("Size", counted?.let { sizeLineOf(it.bytes) } ?: "Counting…"),
+		one?.target?.let { Line("Link target", it.toString()) },
+		Line("Size", counted?.let { sizeLineOf(it.bytes) } ?: "Calculating…"),
 		Line(
-			"Holds",
+			"Contents",
 			held,
 		).takeIf { one?.kind == FileKind.Folder || (one == null && anyFolder) },
 		one?.let { Line("Created", dateLineOf(it.created, zone)) },
@@ -160,12 +160,12 @@ fun sizeLineOf(bytes: Long): String =
 			"$it (${"%,d".format(bytes)} bytes)"
 	}
 
-/** "120 files and 8 folders", "1 file", "nothing". */
+/** "120 files and 8 folders", "1 file", "Empty". */
 private fun holding(contents: Contents): String =
 	listOfNotNull(
 		counting(contents.files, "file").takeIf { contents.files > 0 },
 		counting(contents.folders, "folder").takeIf { contents.folders > 0 },
-	).joinToString(" and ").ifEmpty { "nothing" }
+	).joinToString(" and ").ifEmpty { "Empty" }
 
 private fun counting(count: Long, thing: String): String =
 	"%,d $thing${if (count == 1L) "" else "s"}".format(count)
@@ -173,7 +173,7 @@ private fun counting(count: Long, thing: String): String =
 private val WHEN = DateTimeFormatter.ofPattern("EEEE d MMMM yyyy, HH:mm:ss")
 
 private fun dateLineOf(instant: Instant?, zone: ZoneId): String =
-	instant?.let { WHEN.format(it.atZone(zone)) } ?: "Not known"
+	instant?.let { WHEN.format(it.atZone(zone)) } ?: "Unknown"
 
 /** Whom a permission is for. */
 enum class Who(
@@ -276,10 +276,17 @@ fun PropertiesView(paths: List<Path>, explorer: Explorer, onClose: () -> Unit) {
 	val facts by produceState<List<Facts>?>(null, paths, readings) {
 		value = withContext(Dispatchers.IO) { paths.mapNotNull(desktop.facts::of) }
 	}
-	val read = facts ?: return Message("Reading…")
+	val read = facts ?: return Message("Loading…")
 
 	if (read.isEmpty())
-		return Message("${if (paths.size == 1) "It is" else "They are"} no longer there.")
+		return Message(
+			if (paths.size ==
+				1
+			)
+				"This item no longer exists."
+			else
+				"These items no longer exist.",
+		)
 
 	// Counted once, however often the facts are read again for their permissions.
 	val counted by produceState<Contents?>(null, paths) {
@@ -299,7 +306,7 @@ fun PropertiesView(paths: List<Path>, explorer: Explorer, onClose: () -> Unit) {
 			common?.let {
 				withContext(Dispatchers.IO) {
 					desktop.applications.defaultFor(it)?.name
-						?: "Nothing yet"
+						?: "No default application"
 				}
 			}
 	}
@@ -336,7 +343,7 @@ fun PropertiesView(paths: List<Path>, explorer: Explorer, onClose: () -> Unit) {
 					Card {
 						lines.take(3).forEach { FactRow(it) }
 						if (common != null)
-							FactRow("Opens with") {
+							FactRow("Open with") {
 								Text(opener ?: "…", style = type.body, modifier = Modifier.weight(1f))
 								PushButton("Change…", Emphasis.Secondary, enabled = true) {
 									explorer.chooseDefault(common)
@@ -353,8 +360,8 @@ fun PropertiesView(paths: List<Path>, explorer: Explorer, onClose: () -> Unit) {
 
 					Column(verticalArrangement = Arrangement.spacedBy(Space.l)) {
 						Card {
-							FactRow(Line("Owner", facts.owner ?: "Not known"))
-							FactRow(Line("Group", facts.group ?: "Not known"))
+							FactRow(Line("Owner", facts.owner ?: "Unknown"))
+							FactRow(Line("Group", facts.group ?: "Unknown"))
 						}
 						Card {
 							CardItem {
@@ -368,10 +375,13 @@ fun PropertiesView(paths: List<Path>, explorer: Explorer, onClose: () -> Unit) {
 							}
 						}
 						if (!mine)
-							Text("Only ${facts.owner ?: "its owner"} can change these.", style = type.muted)
+							Text(
+								"Only ${facts.owner ?: "the owner"} can change permissions.",
+								style = type.muted,
+							)
 						refused?.let {
 							Text(
-								"Couldn't change them: $it",
+								"Couldn't change permissions: $it",
 								style = type.body.copy(color = palette.dangerText),
 							)
 						}
@@ -398,12 +408,11 @@ private fun PermissionGrid(
 		Spacer(Modifier.width(LABEL))
 		Right.entries.forEach {
 			Text(
-				if (it == Right.Run &&
-					folder
-				)
-					"Go into"
-				else
-					it.name,
+				when {
+					it != Right.Run -> it.name
+					folder -> "Access"
+					else -> "Execute"
+				},
 				style = type.heading,
 				modifier = column,
 			)

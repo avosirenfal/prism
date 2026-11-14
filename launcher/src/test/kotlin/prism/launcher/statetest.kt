@@ -605,7 +605,7 @@ class LauncherStateTest {
 		assertNull(defaults.action(chord("Ctrl+Q")))
 		// Each is in a group, in the order the page that binds them lists them.
 		assertEquals(
-			listOf("The result chosen", "Moving through the results", "The launcher"),
+			listOf("Result", "Navigation", "Launcher"),
 			LauncherAction.entries.map { it.group.label }.distinct(),
 		)
 

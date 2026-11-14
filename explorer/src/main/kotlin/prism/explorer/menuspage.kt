@@ -111,9 +111,7 @@ internal fun MenusPage(settings: Settings, world: World, onChange: (Settings) ->
 
 	PageLayout(
 		"Context menus",
-		"What each context menu offers, in what order, and when: always, " +
-			"only with a key held as it opens, or never. Applied, a change " +
-			"reaches every window.",
+		"Choose the items each context menu shows, their order, and any modifier key they need.",
 		scrolls = false,
 	) {
 		Row(
@@ -122,16 +120,16 @@ internal fun MenusPage(settings: Settings, world: World, onChange: (Settings) ->
 		) {
 			ChoiceList(
 				listOf(
-					"Prism's own" to own.map(MenuPlace::Of),
+					"Built-in" to own.map(MenuPlace::Of),
 					"Places" to places.map(MenuPlace::Of),
-					"Elsewhere" to listOf(MenuPlace.Sidebar),
+					"Other" to listOf(MenuPlace.Sidebar),
 				),
 				place,
 				::labelOf,
 				::glyphOf,
 				marked = ::arrangesItself,
 				tag = "menus",
-				hint = "Find a menu",
+				hint = "Filter menus",
 				Modifier.width(240.dp).fillMaxHeight(),
 			) { onChange(settings.copy(menuing = keyOf(it, of), seenFor = null)) }
 			// Another menu chosen is seen from its top.
@@ -163,7 +161,7 @@ internal fun MenusPage(settings: Settings, world: World, onChange: (Settings) ->
 								verticalArrangement = Arrangement.spacedBy(Space.s),
 								itemVerticalAlignment = Alignment.CenterVertically,
 							) {
-								Text("Opened on", style = type.muted)
+								Text("Clicked on", style = type.muted)
 								Segmented(MenuOf.entries, of, { it.label }, tag = "menu-of") {
 									onChange(settings.copy(menuing = keyOf(place, it), seenFor = null))
 								}
@@ -189,10 +187,10 @@ private fun Resets(settings: Settings, onChange: (Settings) -> Unit) {
 	val follows = key is MenuKey.Listing && key.kind != ListingKind.Folder
 
 	Tip(
-		"Undo every change to the context menus not yet applied: each menu as it was when last applied.",
+		"Discard unsaved changes to all context menus.",
 	) {
 		PushButton(
-			"Cancel",
+			"Discard changes",
 			Emphasis.Secondary,
 			enabled = menus != settings.base.menu,
 			Modifier.testTag("cancel-menus"),
@@ -204,11 +202,10 @@ private fun Resets(settings: Settings, onChange: (Settings) -> Unit) {
 	Tip(
 		when {
 			itself ->
-				"Forget this menu's own arrangement, and arrange it as prism does: its " +
-					"order, its lines, and when each entry shows."
+				"Restore this menu's default order, separators and visibility."
 			follows ->
-				"This menu is arranged as a folder's: it has nothing of its own to forget."
-			else -> "This menu is arranged as prism arranges it already."
+				"This menu uses the folder menu's layout."
+			else -> "This menu already uses the default layout."
 		},
 	) {
 		PushButton(
@@ -221,8 +218,7 @@ private fun Resets(settings: Settings, onChange: (Settings) -> Unit) {
 		}
 	}
 	Tip(
-		"Forget how every context menu is arranged, and every entry hidden: each as " +
-			"prism arranges it.",
+		"Restore the default layout of every context menu, and show all hidden items.",
 	) {
 		PushButton(
 			"Reset all menus",
@@ -272,7 +268,7 @@ private fun MenuSection(settings: Settings, world: World, onChange: (Settings) -
 		if (follows != null &&
 			!itself
 		)
-			" Until it has its own arrangement, it is arranged as a folder's."
+			" It uses the folder menu's layout until you customize it."
 		else
 			""
 	val editing = rememberContextMenus<Edit>()
@@ -299,14 +295,12 @@ private fun MenuSection(settings: Settings, world: World, onChange: (Settings) -
 		)
 
 	Section(
-		"Entries",
+		"Items",
 		description =
-			"Drag an entry to move it, anywhere on it but its keys and switch; a click " +
-				"chooses one, and Shift and a click more, to move together. Right-click one " +
-				"to put a line before or after it. A lit " +
-				"key keeps an entry for when that key is held as the menu opens; switched " +
-				"off, it never shows. Faint entries wait for keys not held here; tinted " +
-				"ones differ from prism's own arrangement." + following,
+			"Drag items to reorder them; Shift+click selects several. Right-click an item to " +
+				"add a separator. Turn on a key to show an item only while that key is held, or " +
+				"turn off its switch to hide it. Faded items need a key that isn't held in this " +
+				"preview; tinted items differ from the default." + following,
 		trailing =
 			follows?.let {
 				{
@@ -314,7 +308,7 @@ private fun MenuSection(settings: Settings, world: World, onChange: (Settings) -
 						verticalAlignment = Alignment.CenterVertically,
 						horizontalArrangement = Arrangement.spacedBy(Space.s),
 					) {
-						Text("Own arrangement", style = type.muted, maxLines = 1, softWrap = false)
+						Text("Custom layout", style = type.muted, maxLines = 1, softWrap = false)
 						Switch(itself, Modifier.testTag("own-menu")) { own ->
 							onChange(
 								settings.copy(menus = menus.arranging(key, if (own) placedOf(menu) else null)),
@@ -350,10 +344,10 @@ private fun MenuSection(settings: Settings, world: World, onChange: (Settings) -
 			if (menu.unshown > 0)
 				Text(
 					if (settings.seenFor == null)
-						"${menu.unshown} more are only for particular kinds of file: " +
-							"choose one in Seen for to arrange them."
+						"${menu.unshown} more apply only to certain file types. " +
+							"Pick one under “Preview for” to arrange them."
 					else
-						"${menu.unshown} more are for other kinds of file.",
+						"${menu.unshown} more apply to other file types.",
 					style = type.muted,
 					modifier = Modifier.widthIn(max = MENU_WIDTH).testTag("unshown"),
 				)
@@ -395,21 +389,21 @@ private fun Seeing(
 				verticalAlignment = Alignment.CenterVertically,
 				horizontalArrangement = Arrangement.spacedBy(Space.s),
 			) {
-				Text("Seen for", style = type.muted)
+				Text("Preview for", style = type.muted)
 				ComboBox(
 					listOf(OptionGroup(listOf<Sample?>(null)), OptionGroup(samples)),
 					settings.seenFor,
 					{ it?.label ?: "All files" },
 					Modifier.width(200.dp),
 					tag = "seen-for",
-					hint = "An extension or a type",
+					hint = "Extension or type",
 				) { onChange(settings.copy(seenFor = it)) }
 			}
 		Row(
 			verticalAlignment = Alignment.CenterVertically,
 			horizontalArrangement = Arrangement.spacedBy(Space.s),
 		) {
-			Text("Keys held", style = type.muted)
+			Text("Held keys", style = type.muted)
 			Toggles(Held.entries, settings.holding, { it.label }, tag = "holding") { held ->
 				onChange(
 					settings.copy(
@@ -459,15 +453,15 @@ private fun MenuEditor(
 	fun offered(line: MenuLine): Menu<Edit> =
 		menu {
 			when (line) {
-				is MenuLine.Line -> item("Remove line", Edit.Unline(line.at))
+				is MenuLine.Line -> item("Remove separator", Edit.Unline(line.at))
 				is MenuLine.Entry -> {
 					item(
-						"Insert line before",
+						"Insert separator before",
 						Edit.Line(line.key, Side.Before),
 						enabled = linable(seen, line.key, Side.Before),
 					)
 					item(
-						"Insert line after",
+						"Insert separator after",
 						Edit.Line(line.key, Side.After),
 						enabled = linable(seen, line.key, Side.After),
 					)
@@ -606,7 +600,7 @@ private fun LineRow(
 		Box(Modifier.weight(1f).height(1.dp).background(palette.borderStrong))
 		ToolButton(
 			Glyph.Close,
-			"Take this line away",
+			"Remove separator",
 			enabled = true,
 			Modifier.testTag("unline:${line.at}"),
 			size = type.control * 0.8f,
@@ -704,9 +698,9 @@ private fun Arrow(entry: MenuLine.Entry, fold: Fold, shown: Boolean) {
 	val menu = LocalTypes.current.menus
 	val label =
 		if (fold.open)
-			"Fold its items away"
+			"Collapse submenu"
 		else
-			"Show its items"
+			"Expand submenu"
 
 	Tip(label) {
 		Box(

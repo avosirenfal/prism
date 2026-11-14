@@ -344,7 +344,7 @@ enum class Change(
 	Moved("Moved"),
 
 	/** Shown with other keys, or never, or now always. */
-	Shown("Shown differently"),
+	Shown("Visibility changed"),
 }
 
 /**

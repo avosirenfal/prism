@@ -88,8 +88,8 @@ sealed interface Entry {
 		override val detail: String
 			get() =
 				when (own) {
-					Own.Settings -> "How the launcher looks, what it finds, and its keys"
-					Own.Bindings -> "What each of the launcher's keys does"
+					Own.Settings -> "Launcher appearance, results and shortcuts"
+					Own.Bindings -> "Change the launcher's keyboard shortcuts"
 					Own.System, Own.Help -> own.does
 				}
 		override val kind: String get() = PRISM
@@ -116,7 +116,7 @@ enum class LauncherCommand(
 ) {
 	Files(
 		"Files",
-		"Open a window on your home folder",
+		"Open your home folder",
 		listOf("explorer", "file manager", "browse", "folders", "home", "prism"),
 	),
 }

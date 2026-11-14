@@ -209,9 +209,8 @@ private fun ExplorerBindingsPage(
 		empty = {
 			EmptyState(
 				Glyph.Keyboard,
-				"Pickers use the explorer's keys",
-				"A file picker's keys are the explorer's, as they are on its tab. " +
-					"Give pickers their own to bind them apart.",
+				"Pickers use the explorer's shortcuts",
+				"Turn on separate shortcuts to change them for file pickers only.",
 				Modifier.fillMaxSize(),
 			)
 		},
@@ -225,10 +224,8 @@ private fun ExplorerBindingsPage(
 		if (settings.keys == KeyTab.Picker)
 			Card {
 				SettingRow(
-					"Keys of their own",
-					description =
-						"Off, a picker's keys are the explorer's. On, they start as the explorer's are " +
-							"now, and are bound here apart from them.",
+					"Separate shortcuts for pickers",
+					description = "When off, file pickers use the explorer's shortcuts.",
 				) {
 					Switch(settings.picking != null, Modifier.testTag("picker-keys-own")) { own ->
 						onChange(settings.pickersOwn(own))
@@ -253,9 +250,9 @@ private fun glyphOf(page: Page): Glyph =
 /** What each part's text is, as the Display page says it. */
 private fun descriptionOf(part: TextPart): String =
 	when (part) {
-		TextPart.General -> "The toolbar, the sidebar, and every window's own text"
-		TextPart.Listing -> "A folder's rows and tiles: Ctrl and the wheel zoom them from here"
-		TextPart.Menus -> "Context menus, and the window's menu"
+		TextPart.General -> "Toolbar, sidebar and dialogs"
+		TextPart.Listing -> "Rows and gallery tiles"
+		TextPart.Menus -> "Context menus and the window menu"
 	}
 
 /**
@@ -273,13 +270,11 @@ private fun DisplayPage(settings: Settings, onChange: (Settings) -> Unit) {
 
 	PageLayout(
 		"Display",
-		"How prism's windows look. Changes reach every window once they are applied.",
+		"Fonts, sizes and date format.",
 	) {
 		Section(
 			"Text",
-			description =
-				"The font and size of each part of a window. Rows, menus and buttons grow with " +
-					"their text.",
+			description = "Font and size for each part of a window.",
 		) {
 			Card {
 				TextPart.entries.forEach { part ->
@@ -302,29 +297,27 @@ private fun DisplayPage(settings: Settings, onChange: (Settings) -> Unit) {
 				}
 			}
 		}
-		Section("Listing") {
+		Section("File list") {
 			Card {
-				SettingRow(
-					"Row size",
-					description =
-						"Larger rows draw each file's icon large enough to tell it at a glance.",
-				) {
-					Segmented(Rows.entries, settings.rows, { it.name }, tag = "rows") {
+				SettingRow("Row size", description = "Larger rows have larger icons.") {
+					Segmented(Rows.entries, settings.rows, {
+						if (it ==
+							Rows.Larger
+						) "Large" else "Compact"
+					}, tag = "rows") {
 						onChange(settings.copy(rows = it))
 					}
 				}
 			}
 		}
 		Section(
-			"Size",
-			description =
-				"How large a new window's listing is drawn. Ctrl and the wheel zoom any window of " +
-					"prism from there, and it keeps that size.",
+			"Zoom",
+			description = "Default zoom for new windows. Ctrl+scroll changes it in any window.",
 		) {
 			Card {
 				ZoomRow(
 					"Explorer windows",
-					"The listing of a window opened to explore",
+					"File list in explorer windows",
 					scales.explorer,
 					LISTING_STEPS,
 				) {
@@ -332,7 +325,7 @@ private fun DisplayPage(settings: Settings, onChange: (Settings) -> Unit) {
 				}
 				ZoomRow(
 					"File pickers",
-					"The listing of a picker another program opens",
+					"File list in file pickers",
 					scales.picker,
 					LISTING_STEPS,
 				) {
@@ -340,7 +333,7 @@ private fun DisplayPage(settings: Settings, onChange: (Settings) -> Unit) {
 				}
 				ZoomRow(
 					"Sidebar",
-					"Quick access and the drives, and the window that arranges them",
+					"Quick access and drives",
 					scales.sidebar,
 					SIDEBAR_STEPS,
 				) {
@@ -350,9 +343,7 @@ private fun DisplayPage(settings: Settings, onChange: (Settings) -> Unit) {
 		}
 		Section(
 			"Dates",
-			description =
-				"How a date and its time are written in the listing. A file's properties write " +
-					"them in full.",
+			description = "Date and time format in the file list.",
 		) {
 			val now = remember { java.time.Instant.now() }
 
@@ -457,9 +448,7 @@ private fun LayoutPage(settings: Settings, onChange: (Settings) -> Unit) {
 
 	PageLayout(
 		"Layout",
-		"How each kind of listing is ordered, which columns it shows, and what it leaves " +
-			"out. Applied, a change reaches every window, new and open; a window changed from " +
-			"its own menus keeps that until the same kind is changed here.",
+		"Default sorting, columns and filters for each kind of view.",
 		scrolls = false,
 	) {
 		Row(
@@ -469,7 +458,7 @@ private fun LayoutPage(settings: Settings, onChange: (Settings) -> Unit) {
 			val (own, places) = kinds.partition { it !is ListingKind.Place }
 
 			ChoiceList(
-				listOf("Prism's own" to own, "Places" to places),
+				listOf("Built-in" to own, "Places" to places),
 				kind,
 				::labelOf,
 				::glyphOf,
@@ -478,7 +467,7 @@ private fun LayoutPage(settings: Settings, onChange: (Settings) -> Unit) {
 						Layout.entries.any { layout -> listings.ownFilters(role, it, layout) }
 				},
 				tag = "listing",
-				hint = "Find a listing",
+				hint = "Filter views",
 				Modifier.width(240.dp).fillMaxHeight(),
 			) {
 				onChange(settings.copy(looking = settings.looking.copy(kind = it)))
@@ -490,7 +479,7 @@ private fun LayoutPage(settings: Settings, onChange: (Settings) -> Unit) {
 						horizontalArrangement = Arrangement.spacedBy(Space.m),
 					) {
 						Text(labelOf(kind), style = type.title, modifier = Modifier.weight(1f))
-						Text("In", style = type.muted)
+						Text("For", style = type.muted)
 						Segmented(
 							Role.entries,
 							role,
@@ -573,7 +562,7 @@ internal fun <T> ChoiceList(
 					}
 				}
 				if (shown.all { it.second.isEmpty() })
-					item(key = "none") { ListHeading("Nothing is called that") }
+					item(key = "none") { ListHeading("No matches") }
 			}
 		}
 	}
@@ -590,7 +579,7 @@ private fun OwnSwitch(role: Role, own: Boolean, onOwn: (Boolean) -> Unit) {
 			verticalAlignment = Alignment.CenterVertically,
 			horizontalArrangement = Arrangement.spacedBy(Space.s),
 		) {
-			Text(if (own) "Its own" else "The explorer's", style = LocalType.current.muted)
+			Text(if (own) "Custom" else "Same as explorer", style = LocalType.current.muted)
 			Switch(own, Modifier.testTag("own"), onChange = onOwn)
 		}
 }
@@ -610,12 +599,11 @@ private fun LookSection(settings: Settings, onChange: (Settings) -> Unit) {
 		onChange(settings.copy(listings = listings.looking(role, kind, look)))
 
 	Section(
-		"Order and columns",
+		"Sorting and columns",
 		description =
-			"Drag a column to move it, or several chosen together: a click, and Shift and a " +
-				"click. The name is always first, and always shown." +
+			"Drag columns to reorder them. Shift+click selects several. Name is always first." +
 				(
-					" Changing anything gives the file picker its own.".takeIf {
+					" Any change here applies to file pickers only.".takeIf {
 						role == Role.Picker &&
 							!listings.ownLook(role, kind)
 					}
@@ -630,7 +618,7 @@ private fun LookSection(settings: Settings, onChange: (Settings) -> Unit) {
 		},
 	) {
 		Card {
-			SettingRow("Ordered by") {
+			SettingRow("Sort by") {
 				Select(
 					(
 						if (kind == ListingKind.Results)
@@ -640,7 +628,7 @@ private fun LookSection(settings: Settings, onChange: (Settings) -> Unit) {
 					) +
 						kind.offered,
 					sort?.by,
-					{ it?.let(kind::labelOf) ?: "Best match" },
+					{ it?.let(kind::labelOf) ?: "Relevance" },
 					Modifier.width(200.dp).testTag("order"),
 				) { column ->
 					looked(
@@ -711,7 +699,7 @@ private fun LookSection(settings: Settings, onChange: (Settings) -> Unit) {
 private fun alignedOf(align: Align): String =
 	when (align) {
 		Align.Start -> "Left"
-		Align.Center -> "Centre"
+		Align.Center -> "Center"
 		Align.End -> "Right"
 	}
 
@@ -741,10 +729,9 @@ private fun FiltersSection(settings: Settings, onChange: (Settings) -> Unit) {
 	Section(
 		"Filters",
 		description =
-			"What is left out, drawn as a list and as a gallery: a gallery can leave out hidden " +
-				"files that a list shows." +
+			"What each view hides. List and gallery have separate filters." +
 				(
-					" Changing anything gives the file picker its own.".takeIf {
+					" Any change here applies to file pickers only.".takeIf {
 						role == Role.Picker &&
 							!listings.ownFilters(role, kind, layout)
 					}
@@ -754,7 +741,7 @@ private fun FiltersSection(settings: Settings, onChange: (Settings) -> Unit) {
 			Segmented(Layout.entries, layout, {
 				if (it ==
 					Layout.List
-				) "Details" else "Gallery"
+				) "List" else "Gallery"
 			}, tag = "View") {
 				onChange(settings.copy(filteringIn = it))
 			}
@@ -762,7 +749,10 @@ private fun FiltersSection(settings: Settings, onChange: (Settings) -> Unit) {
 	) {
 		Card {
 			if (role == Role.Picker)
-				SettingRow("The file picker's own", description = "Or as the explorer's, where not") {
+				SettingRow(
+					"Custom filters for pickers",
+					description = "When off, uses the explorer's.",
+				) {
 					Switch(
 						listings.ownFilters(role, kind, layout),
 						Modifier.testTag("own-filters"),
@@ -774,19 +764,22 @@ private fun FiltersSection(settings: Settings, onChange: (Settings) -> Unit) {
 						)
 					}
 				}
-			SettingRow("Hidden files", description = "Files whose names start with a dot") {
+			SettingRow("Show hidden files", description = "Files whose names start with a dot.") {
 				Switch(filters.hidden.files, Modifier.testTag("hidden-files")) {
 					filtered(filters.copy(hidden = filters.hidden.copy(files = it)))
 				}
 			}
-			SettingRow("Hidden folders", description = "Where programs keep their own things") {
+			SettingRow(
+				"Show hidden folders",
+				description = "Folders whose names start with a dot.",
+			) {
 				Switch(filters.hidden.folders, Modifier.testTag("hidden-folders")) {
 					filtered(filters.copy(hidden = filters.hidden.copy(folders = it)))
 				}
 			}
 			CardItem {
-				Text("Kinds of file shown", style = type.body)
-				Text("Every kind, where none is ticked", style = type.muted)
+				Text("File types shown", style = type.body)
+				Text("All types are shown when none is checked.", style = type.muted)
 				FlowRow(
 					horizontalArrangement = Arrangement.spacedBy(Space.l),
 					verticalArrangement = Arrangement.spacedBy(Space.xs),
@@ -827,19 +820,20 @@ private fun ActionsPage(actions: Actions) {
 
 	PageLayout(
 		"Actions",
-		"What a context menu offers beyond prism's own, and the places a window shows that " +
-			"are not folders. Both are written in the preferences file, under “actions” and " +
-			"“places”.",
+		"Custom context menu actions and places, defined under “actions” and “places” in the " +
+			"preferences file.",
 	) {
 		if (actions.broken.isNotEmpty())
 			Section(
-				"Not read",
-				description = "Written in the preferences, but left out of the menus, and why",
+				"Errors",
+				description = "These entries in the preferences file are invalid and were skipped.",
 			) {
 				Card {
 					actions.broken.forEach { broken ->
 						Notice(
-							"The ${broken.what} ${broken.id?.let { "“$it”" } ?: "with no id"}",
+							"${broken.what.replaceFirstChar {
+								it.uppercase()
+							}} ${broken.id?.let { "“$it”" } ?: "with no id"}",
 							Tone.Bad,
 							Modifier.testTag("broken:${broken.id}"),
 							detail = broken.why,
@@ -928,22 +922,20 @@ private fun TerminalPage(
 			),
 			OptionGroup(
 				missing.map<TerminalOption, TerminalPick> { TerminalPick.Named(it.name) },
-				heading = "Not found on your PATH",
+				heading = "Not installed",
 				faint = true,
 			),
 		).filter { it.options.isNotEmpty() }
 
 	PageLayout(
 		"Terminal",
-		"The terminal “Open terminal here” opens, and the one that actions and applications " +
-			"which run in a terminal open in.",
+		"Used by “Open terminal here” and by actions and applications that run in a terminal.",
 	) {
 		Section(
-			"Which terminal",
+			"Terminal application",
 			description =
-				"Automatic is the one your desktop names, in \$TERMINAL or its own settings. prism " +
-					"knows how to tell each terminal listed which folder to open in, and what to run " +
-					"there; for one it doesn't, choose Custom.",
+				"Automatic uses \$TERMINAL or your desktop's default. Choose Custom for a " +
+					"terminal that isn't listed.",
 		) {
 			Card {
 				CardItem {
@@ -953,14 +945,14 @@ private fun TerminalPage(
 						::labelOf,
 						Modifier.fillMaxWidth(),
 						tag = "terminal",
-						hint = "Type a terminal's name",
+						hint = "Terminal name",
 					) { edit(form.picked(it)) }
 					// Chosen, though it is not installed: said under the box, in red.
 					(pick as? TerminalPick.Named)
 						?.takeIf { chosen -> missing.any { it.name == chosen.name } }
 						?.let {
 							Text(
-								"${labelOf(it)} wasn't found on your PATH. Install it, or choose another.",
+								"${labelOf(it)} isn't installed. Install it or choose another terminal.",
 								style = type.muted.copy(color = palette.dangerText),
 								modifier = Modifier.testTag("terminal-missing"),
 							)
@@ -972,13 +964,12 @@ private fun TerminalPage(
 			Section(
 				"Custom",
 				description =
-					"The terminal's command lines, each in full. {folder} stands for the folder, and " +
-						"{command} for the words of the command to run, as a word of its own. A line " +
-						"left empty turns off what it is for.",
+					"{folder} is replaced by the folder and {command} by the command to run. " +
+						"Leave a line empty to turn that feature off.",
 			) {
 				Card {
 					CardItem {
-						Labelled("Opening in a folder") {
+						Labelled("Open in a folder") {
 							Field(
 								form.open,
 								{ edit(form.typed(open = it)) },
@@ -989,7 +980,7 @@ private fun TerminalPage(
 						}
 					}
 					CardItem {
-						Labelled("Running a command in a folder") {
+						Labelled("Run a command in a folder") {
 							Field(
 								form.run,
 								{ edit(form.typed(run = it)) },
@@ -1002,15 +993,15 @@ private fun TerminalPage(
 				}
 			}
 		Section(
-			"What runs",
-			description = "The commands prism would run, opening in your home folder.",
+			"Preview",
+			description = "The commands prism would run in your home folder.",
 		) {
 			Card {
 				Preview("Open terminal here", opens, palette.dangerText) {
-					"“Open terminal here” is off: $it"
+					"“Open terminal here” is unavailable: $it"
 				}
-				Preview("Running ${EXAMPLE.joinToString(" ")}", runs, palette.dangerText) {
-					"Actions that run in a terminal are off: $it"
+				Preview("Run ${EXAMPLE.joinToString(" ")}", runs, palette.dangerText) {
+					"Actions that run in a terminal are unavailable: $it"
 				}
 			}
 		}

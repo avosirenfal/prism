@@ -220,7 +220,7 @@ class LauncherViewTest {
 			// Said as prism's mistake, with nothing of the exception's own words; and reported in full, once.
 			onNodeWithTag(
 				"launcher-status",
-			).assertTextContains("mistake of prism's", substring = true)
+			).assertTextContains("bug in prism", substring = true)
 			assertEquals(listOf("searching for “fire”"), reported.map { it.first })
 			assertInstanceOf(IndexOutOfBoundsException::class.java, reported.single().second)
 			// The launcher is as it was otherwise: what is installed is found, and nothing is being waited for.
@@ -376,7 +376,7 @@ class LauncherViewTest {
 			onNodeWithTag("entry:app:foot.desktop").performClick()
 			until { session.state.value.notice != null }
 			assertEquals(
-				"Foot could not be started: it is not installed",
+				"Couldn't start Foot: it is not installed",
 				session.state.value.notice,
 			)
 			assertEquals(emptyList<String>(), host.asked.toList())
@@ -521,7 +521,7 @@ class LauncherViewTest {
 				LauncherEvent.Started(
 					typed.entries.first(),
 					now,
-					"Firefox could not be started: no such file",
+					"Couldn't start Firefox: no such file",
 				),
 			).state
 

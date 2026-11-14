@@ -97,8 +97,7 @@ internal fun BindingsPage(
 ) {
 	PageLayout(
 		"Key bindings",
-		"Click a key to change it, then press the new one: a key, with Ctrl, Alt or Shift " +
-			"if you like, or the mouse's middle, back or forward button. Escape stops waiting.",
+		"Click a shortcut to change it, then press the new key or mouse button. Escape cancels.",
 		scrolls = false,
 	) {
 		above()
@@ -136,7 +135,7 @@ private fun ColumnScope.Bindings(
 			(finding as? Finding.Words)?.text.orEmpty(),
 			{ onChange(rebinding.finding(Finding.Words(it))) },
 			Modifier.weight(1f).testTag("bindings-filter"),
-			hint = "Find an action, a group, or a key (Ctrl+F)",
+			hint = "Search actions, groups and keys (Ctrl+F)",
 			leading = Glyph.Search,
 			focus = filter,
 		)
@@ -167,7 +166,7 @@ private fun ColumnScope.Bindings(
 		Box {
 			ToolButton(
 				Glyph.FindKey,
-				"Find a shortcut by pressing it",
+				"Find by shortcut",
 				enabled = true,
 				Modifier.testTag("find-by-key"),
 				selected = seeking != null || finding is Finding.Shortcut,
@@ -188,14 +187,14 @@ private fun ColumnScope.Bindings(
 	}
 	rebinding.took?.let { took ->
 		Text(
-			"${took.chord} was taken from ${namesOf(took.from)}: a key does one thing.",
+			"${took.chord} was removed from ${namesOf(took.from)}.",
 			style = type.body.copy(color = palette.accentText),
 			modifier = Modifier.testTag("bindings-took"),
 		)
 	}
 	rebinding.refused?.let { chord ->
 		Text(
-			"$chord types into the field, which would have it first: hold Ctrl or Alt with it.",
+			"$chord types text, so it needs Ctrl or Alt.",
 			style = type.body.copy(color = palette.dangerText),
 			modifier = Modifier.testTag("bindings-refused"),
 		)
@@ -218,10 +217,10 @@ private fun ColumnScope.Bindings(
 				item(key = "none") {
 					Text(
 						when (finding) {
-							is Finding.Shortcut -> "${finding.chord} does nothing."
-							Finding.Changed -> "Every key is as it came."
+							is Finding.Shortcut -> "${finding.chord} isn't assigned to anything."
+							Finding.Changed -> "No shortcuts have been changed."
 							is Finding.Words -> null
-						} ?: "No action matches.",
+						} ?: "No matching actions.",
 						style = type.muted,
 						modifier = Modifier.padding(Space.m),
 					)
@@ -263,7 +262,7 @@ private fun GroupHeading(group: KeyGroup, first: Boolean) {
 }
 
 /**
- * The window that finds a shortcut, as JetBrains' "Find Shortcut": below its button, over the page, taking the keys
+ * The window that finds a shortcut, as JetBrains' "Find by shortcut": below its button, over the page, taking the keys
  * while it is open. The shortcut pressed ([chord], none yet where null) is shown, and the bindings with it are what the
  * page shows, as it is pressed; another pressed takes its place. A mouse's middle, back or forward button pressed over
  * its lower part is a shortcut too. Escape, or a click elsewhere, closes it ([onClose]), what it found still shown.
@@ -295,7 +294,7 @@ private fun FindShortcut(chord: Chord?, onPressed: (Chord) -> Unit, onClose: () 
 					verticalArrangement = Arrangement.spacedBy(Space.m),
 				) {
 					Text(
-						"Find Shortcut",
+						"Find by shortcut",
 						style = type.title,
 						textAlign = TextAlign.Center,
 						modifier = Modifier.fillMaxWidth(),
@@ -346,7 +345,7 @@ private fun FindShortcut(chord: Chord?, onPressed: (Chord) -> Unit, onClose: () 
 					verticalAlignment = Alignment.CenterVertically,
 				) {
 					Text(
-						"Mouse shortcut: press the middle, back or forward button here",
+						"For a mouse shortcut, press the middle, back or forward button here.",
 						style = type.muted,
 					)
 				}

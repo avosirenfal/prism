@@ -228,7 +228,7 @@ by plain functions (`generalOf`, `tallyOf`) that the tests call directly:
 
 - the name, the type as the desktop names it ("PDF document (application/pdf)"), and the folder it is in;
 - what opens it, with "Change…", which opens the application chooser to set the type's default;
-- the size: for a folder, what it holds is added up on a background thread while the rest is shown ("Counting…",
+- the size: for a folder, what it holds is added up on a background thread while the rest is shown ("Calculating…",
   then "4.2 MB (4,400,000 bytes)" and "120 files and 8 folders");
 - when it was made (statx's birth time, where the file system keeps one), modified, and last read;
 - where a link leads.
@@ -249,7 +249,7 @@ confirms. For files that are all of one type, a box offers to make the one chose
 
 A default is set as every desktop's settings set it: in the user's `mimeapps.list`, as the `[Default Applications]`
 entry for the type, with the application added to `[Added Associations]` too, so other file managers and `xdg-open`
-see the same choice. The explorer counts the defaults it has set, and the properties window reads "Opens with" again
+see the same choice. The explorer counts the defaults it has set, and the properties window reads "Open with" again
 when that count changes.
 
 ## Applications, as they are listed, and their icons
@@ -303,7 +303,7 @@ time a window opens costs a few hundred lookups in a map; `icons.reread()` forge
 
 ## The bindings window
 
-Every key the browser answers is an `Action` (`browser/bindings.kt`) with default chords: "Search everything" is
+Every key the browser answers is an `Action` (`browser/bindings.kt`) with default chords: "Search everywhere" is
 F2, "Back" is Alt+Left and the mouse's back button. The view never names a key; it looks up the chord it
 was given. So any action can be bound to any chord, and the preferences window's "Key bindings" page is where that is
 done, the way a game's controls are set.
@@ -318,12 +318,12 @@ the page, under its group, with nothing else to change. Where an action does not
 where under its name ("from the list").
 
 The filter narrows the list by what is typed (an action's name, a group's name, or a chord), keeping each action
-under its group and leaving out any group with nothing in it; "Find Shortcut" narrows it to what a chord pressed does;
+under its group and leaving out any group with nothing in it; "Find by shortcut" narrows it to what a chord pressed does;
 and once any key is not as it came, a chip says how many are ("2 changed") and narrows it to those. A row whose keys
 are changed has a dot before its name and a "Reset" at its end.
 
 **A picker's keys.** The page has two tabs, "Explorer" and "Pickers". A file picker's keys are the explorer's until
-"Keys of their own" is switched on, on the pickers' tab: then they start as the explorer's are there, for everything
+"Separate shortcuts for pickers" is switched on, on the pickers' tab: then they start as the explorer's are there, for everything
 a picker does (it has no "New window", no "Preferences"), and are bound apart from them from then on, written to
 `pickerBindings` beside `bindings`. Switched off again, pickers have the explorer's once more.
 
@@ -339,7 +339,7 @@ key…"). The next chord pressed is taken: a key with whatever of Ctrl, Alt, Shi
 × removes the chord, and "Reset" puts an action's defaults back.
 
 A chord does one thing, so a chord given to one action is taken from any other that had it, and the page says so
-("Mouse Back was taken from “Back”"). For the actions that move the cursor through the list, Shift and Ctrl are part of
+("Mouse Back was removed from “Back”."). For the actions that move the cursor through the list, Shift and Ctrl are part of
 the move (Shift extends what is chosen, Ctrl moves without choosing), so a move is bound to its key alone and claims
 that key with any modifiers. This rule lives in one place (`Bindings.bound`, using the same test as `Bindings.clashes`),
 and the page only shows its result.
@@ -348,12 +348,12 @@ Where an action acts depends on its scope:
 
 | scope | acts | examples |
 |---|---|---|
-| Window | anywhere, for a chord no text field types (one with Ctrl, Alt or Meta, a function key, a mouse button); from the listing, for any chord | Back, Search everything, Read again, New window |
+| Window | anywhere, for a chord no text field types (one with Ctrl, Alt or Meta, a function key, a mouse button); from the listing, for any chord | Back, Search everywhere, Refresh, New window |
 | Listing | from the listing only, since a text field uses the same keys for its own text | Copy (Ctrl+C), Rename, Move to trash |
 | Movement | from the listing | the arrows, Page Up, Home |
 | Leftover | wherever the focused control does not use the key itself | Escape, Undo |
 
-So binding "Folder above" to plain Backspace makes it act from the listing alone, since in the address field
+So binding "Parent folder" to plain Backspace makes it act from the listing alone, since in the address field
 Backspace must delete a character.
 
 Nothing is written while the window is open. Saving writes only what was changed there, over the preferences as they
@@ -550,11 +550,11 @@ how many entries that is; or for a file of each group of extensions, names or ty
 what is not offered for it is left out. What is left out stays where it is, whatever is moved around it; a line
 with only that between it and the one before sets nothing apart, and is left out too. And it is seen with keys held:
 what the menu would not show then is faint. A listing's menus other than a folder's are arranged as a folder's until
-one is given its own (its switch, or any change to it). Beside the menu's name, "Cancel" takes back every change to the
+one is given its own (its switch, or any change to it). Beside the menu's name, "Discard changes" takes back every change to the
 context menus not yet applied, "Reset menu" forgets the menu's own arrangement, and "Reset all menus" every menu's and
 every entry hidden; each says so as the pointer rests on it, none is kept until applied, and each is undone as any
 change is. Of two entries that changed places, the one dragged is the one said to have moved. Key bindings: a filter (Ctrl+F goes to it) that finds an action by its name, as shown or as the file
-writes it, or by its chords; and, as JetBrains' keymap has it, a button that opens "Find Shortcut", which takes the
+writes it, or by its chords; and, as JetBrains' keymap has it, a button that opens "Find by shortcut", which takes the
 next shortcut pressed (a key with its modifiers, or the mouse's middle, back or forward button over its lower part) for
 as long as it is open, and shows what it does, binding nothing. Closed, the keys are the page's again, and what it
 found stays shown, beside the filter, until its × or the button again. The list's scrollbar is drawn while there is

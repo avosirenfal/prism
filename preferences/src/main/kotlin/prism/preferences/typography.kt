@@ -13,8 +13,8 @@ enum class TextPart(
 	val label: String,
 	val points: Float,
 ) {
-	General("Everything else", 11f),
-	Listing("The listing", 11f),
+	General("Interface", 11f),
+	Listing("File list", 11f),
 	Menus("Menus", 12f),
 }
 

@@ -100,7 +100,7 @@ say from then on.
 
 | page | what is on it |
 |---|---|
-| Launcher | whether its corners are round ("Round corners", below; on as it starts), how wide it is, how many results are in sight before it scrolls, and how large it is drawn; whether files and folders are found at all, and how many are listed (30); whether what else an application can be started to do is found; whether it is shown over every window (a layer surface, where the compositor has them), or as a floating window of the window manager's; whether clicking another window puts it away |
+| Launcher | whether its corners are round ("Rounded corners", below; on as it starts), how wide it is, how many results are in sight before it scrolls, and how large it is drawn; whether files and folders are found at all, and how many are listed (30); whether what else an application can be started to do is found; whether it is shown over every window (a layer surface, where the compositor has them), or as a floating window of the window manager's; whether clicking another window puts it away |
 | Key bindings | every key above, on the page that binds the explorer's: in groups, found by name or by pressing a key, a chord clicked and the next one pressed taking its place, the × taking it away, the + adding one, Reset for the defaults. A chord another of the launcher's actions has is taken from it. A key that types (a letter alone) is refused, since it would never get past the field |
 | Applications | each application installed, switched off to leave it out of the launcher (it is still installed, and still opens files) |
 
@@ -129,7 +129,7 @@ in the middle of the screen, wherever the window manager would have put a window
 It is no window to the compositor: it is in no workspace, has no place in a row of tiles, and is not in a window
 switcher.
 
-What it has of the keyboard follows "Close when it loses the keyboard":
+What it has of the keyboard follows "Close when focus is lost":
 
 | the setting | the keyboard | so |
 |---|---|---|
@@ -151,7 +151,7 @@ surface that shares the keyboard is its own to say, and prism finds its way to t
 
 `PRISM_WINDOW_LOG=1` has the daemon say which of these happened, for each launcher shown.
 
-Where there is no such surface (GNOME's Wayland, X11), or with "Over every window" switched off in the preferences
+Where there is no such surface (GNOME's Wayland, X11), or with "Show above all windows" switched off in the preferences
 (`launcher.overlay`), the launcher is an ordinary window with no title bar, whose size cannot be changed. A window
 manager that tiles takes such a window for a dialog and leaves it floating, in the middle of the screen, at the size
 it asked for; niri, sway and Hyprland all do. Its title is "Prism Launcher" (every window of prism's has the app id
@@ -187,7 +187,7 @@ it is shown (switched off, it is square at once).
 
 What a compositor draws round the launcher is drawn round a rectangle unless it is told the shape, so it is worth
 telling it. As a layer surface the launcher has no border, focus ring or title bar of the compositor's at all (they
-are for windows), on niri, sway or any other; only a shadow, if one is asked for. As a window ("Over every window"
+are for windows), on niri, sway or any other; only a shadow, if one is asked for. As a window ("Show above all windows"
 off) it has whatever the compositor gives a floating window.
 
 ### niri
@@ -211,7 +211,7 @@ layer-rule {
 
 The radius is 12 times the launcher's size in its settings (12 at 100%, 15 at 125%). niri rounds nothing of a layer
 surface itself (`geometry-corner-radius` in a layer rule shapes the shadow only), which is why prism draws the
-corners. With "Over every window" off, the launcher is a window, and a window rule finds it:
+corners. With "Show above all windows" off, the launcher is a window, and a window rule finds it:
 
 ```kdl
 window-rule {
@@ -244,7 +244,7 @@ so the bind is all there is to add.
 
 - sway: `bindsym $mod+space exec prism launcher`. sway draws nothing round a layer surface and has no shadows or
   round corners of its own, so there is nothing to tell it. Should it draw a border round the launcher as a window
-  ("Over every window" off), `for_window [app_id="^prism$" title="^Prism Launcher$"] border none` takes it off.
+  ("Show above all windows" off), `for_window [app_id="^prism$" title="^Prism Launcher$"] border none` takes it off.
 - Hyprland: `bind = SUPER, space, exec, prism launcher`
 - GNOME, KDE: a custom shortcut whose command is `prism launcher`
 

@@ -258,19 +258,19 @@ class KeysTest {
 				BrowserTheme { SettingsView(settings, { settings = it }, onApply = {}, onClose = {}) }
 			}
 			waitForIdle()
-			onNodeWithTag("key-group:Getting around").assertExists()
-			onNodeWithTag("key-group:Finding").assertExists()
+			onNodeWithTag("key-group:Navigation").assertExists()
+			onNodeWithTag("key-group:Search").assertExists()
 			assertEquals(0, onAllNodesWithTag("bindings-changed").fetchSemanticsNodes().size)
 
 			// Typed into the filter: the actions that fit, under their groups, and no group with none.
 			onNode(hasSetTextAction() and hasAnyAncestor(hasTestTag("bindings-filter")))
 				.performTextReplacement("search")
 			waitForIdle()
-			onNodeWithTag("key-group:Finding").assertExists()
+			onNodeWithTag("key-group:Search").assertExists()
 			onNodeWithTag("binding:SearchIndex").assertExists()
 			assertEquals(
 				0,
-				onAllNodesWithTag("key-group:Getting around").fetchSemanticsNodes().size,
+				onAllNodesWithTag("key-group:Navigation").fetchSemanticsNodes().size,
 			)
 			assertEquals(0, onAllNodesWithTag("binding:Back").fetchSemanticsNodes().size)
 
@@ -321,7 +321,7 @@ class KeysTest {
 			onNodeWithText("Pickers").performClick()
 			waitForIdle()
 			// Until they have their own there is nothing to bind, and the page says whose keys a picker has.
-			onNodeWithText("Pickers use the explorer's keys").assertExists()
+			onNodeWithText("Pickers use the explorer's shortcuts").assertExists()
 			assertEquals(0, onAllNodesWithTag("bindings-filter").fetchSemanticsNodes().size)
 
 			onNodeWithTag("picker-keys-own").performClick()
@@ -379,7 +379,7 @@ class KeysTest {
 			// Its keys, on the page an explorer's are rebound on: in their groups, and none that types.
 			onNodeWithTag("page:Key bindings").performClick()
 			waitForIdle()
-			onNodeWithTag("key-group:The result chosen").assertExists()
+			onNodeWithTag("key-group:Result").assertExists()
 			onNodeWithTag("chord:Ctrl+Enter").performClick()
 			onNode(isFocused()).performKeyInput { pressKey(Key.K) }
 			waitForIdle()

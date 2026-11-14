@@ -189,12 +189,11 @@ private fun GeneralPage(
 
 	PageLayout(
 		"Launcher",
-		"Shown by “prism launcher”: bind that to a key in your window manager, and the key " +
-			"shows it and puts it away. Changes reach it once they are applied.",
+		"Bind “prism launcher” to a key in your window manager to show and hide the launcher.",
 	) {
 		Section("Appearance") {
 			Card {
-				SettingRow("Width", description = "How wide the launcher is.") {
+				SettingRow("Width") {
 					Stepper(
 						"${set.width}",
 						!set.width.least,
@@ -203,8 +202,8 @@ private fun GeneralPage(
 					) { step -> changed { copy(width = width + 40 * step) } }
 				}
 				SettingRow(
-					"Results in sight",
-					description = "How many rows it shows before it scrolls.",
+					"Visible results",
+					description = "Rows shown before the list scrolls.",
 				) {
 					Stepper(
 						"${set.rows}",
@@ -215,15 +214,13 @@ private fun GeneralPage(
 				}
 				SettingRow(
 					"Rounded corners",
-					description =
-						"Round, where what is behind the launcher can show at them: on Wayland, and on " +
-							"X11 where something composites the screen. Square everywhere else.",
+					description = "Needs Wayland, or a compositor on X11.",
 				) {
 					Switch(set.rounded, Modifier.testTag("launcher-rounded")) { on ->
 						changed { copy(rounded = on) }
 					}
 				}
-				SettingRow("Size", description = "How large its text and pictures are drawn.") {
+				SettingRow("Scale", description = "Size of text and icons.") {
 					Stepper(
 						"${(set.scale.times * 100).roundToInt()} %",
 						!set.scale.least,
@@ -233,13 +230,11 @@ private fun GeneralPage(
 				}
 			}
 		}
-		Section("What it finds") {
+		Section("Results") {
 			Card {
 				SettingRow(
 					"Files and folders",
-					description =
-						"After the applications, what the index holds that fits what is typed, read in " +
-							"the search's own language.",
+					description = "Show matching files from the index after applications.",
 				) {
 					Switch(set.files, Modifier.testTag("launcher-files")) { on ->
 						changed {
@@ -248,8 +243,7 @@ private fun GeneralPage(
 					}
 				}
 				SettingRow(
-					"Most files listed",
-					description = "How many of the files found are shown.",
+					"Maximum file results",
 					enabled = set.files,
 				) {
 					Stepper(
@@ -262,7 +256,7 @@ private fun GeneralPage(
 				SettingRow(
 					"Application actions",
 					description =
-						"What else an application can be started to do: a browser's new private window.",
+						"Show an application's extra actions, such as a browser's private window.",
 				) {
 					Switch(set.actions, Modifier.testTag("launcher-actions")) { on ->
 						changed { copy(actions = on) }
@@ -273,19 +267,17 @@ private fun GeneralPage(
 		Section("Behaviour") {
 			Card {
 				SettingRow(
-					"Over every window",
+					"Show above all windows",
 					description =
-						"Shown over everything, a fullscreen window included, in the middle of the " +
-							"screen, where the desktop has such a surface (Wayland's layer shell). " +
-							"Off, it is a floating window, placed by the window manager.",
+						"Uses Wayland's layer shell to show the launcher centered above everything, " +
+							"including fullscreen windows. When off, it is a floating window.",
 				) {
 					Switch(set.overlay, Modifier.testTag("launcher-overlay")) { on ->
 						changed { copy(overlay = on) }
 					}
 				}
 				SettingRow(
-					"Close when it loses the keyboard",
-					description = "Put away when another window is clicked or switched to.",
+					"Close when focus is lost",
 				) {
 					Switch(set.closeUnfocused, Modifier.testTag("launcher-close-unfocused")) { on ->
 						changed { copy(closeUnfocused = on) }
@@ -316,14 +308,14 @@ private fun ApplicationsPage(
 
 	PageLayout(
 		"Applications",
-		"Those switched off are left out of the launcher. They are still installed, and still open files.",
+		"Applications that are turned off are hidden from the launcher.",
 		scrolls = false,
 	) {
 		Field(
 			settings.finding,
 			{ onChange(settings.copy(finding = it)) },
 			Modifier.fillMaxWidth().testTag("launcher-applications-filter"),
-			hint = "Find an application",
+			hint = "Filter applications",
 			leading = Glyph.Search,
 		)
 		Card(Modifier.weight(1f)) {
@@ -377,7 +369,7 @@ private fun ApplicationsPage(
 				if (listed.isEmpty())
 					item(key = "none") {
 						Text(
-							"No application's name holds “${settings.finding.trim()}”.",
+							"No applications match “${settings.finding.trim()}”.",
 							style = type.muted,
 							modifier = Modifier.padding(Space.m),
 						)

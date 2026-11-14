@@ -51,21 +51,21 @@ data class Explained(
 internal fun RendererPage(report: GraphicsReport?, onCopy: (String) -> Unit) {
 	PageLayout(
 		"Renderer",
-		"What draws prism's windows, the graphics devices this computer has, and why each is used or not.",
+		"How prism's windows are rendered, and the graphics devices on this computer.",
 	) {
 		if (report == null) {
-			Section("Drawing") {
+			Section("Rendering") {
 				Card {
-					Notice("Looking", Tone.Plain, detail = "Looking at the graphics devices…")
+					Notice("Detecting", Tone.Plain, detail = "Detecting graphics devices…")
 				}
 			}
 		} else {
 			Section(
-				"Drawing",
+				"Rendering",
 				description =
 					said(
-						"Prism draws on the GPU where OpenGL runs on one.",
-						"PRISM_DRAWING=gpu or cpu, set before it starts, chooses instead.",
+						"Prism renders on the GPU when OpenGL is available on one.",
+						"Set PRISM_DRAWING=gpu or cpu before starting prism to override this.",
 					),
 				trailing = { CopyButton { onCopy(reportText(report)) } },
 			) {
@@ -77,14 +77,14 @@ internal fun RendererPage(report: GraphicsReport?, onCopy: (String) -> Unit) {
 			Section("Graphics devices") {
 				when (val devices = report.devices) {
 					is DevicesFound.Unknown ->
-						Card { Notice("Not looked for", Tone.Plain, detail = devices.why) }
+						Card { Notice("Not detected", Tone.Plain, detail = devices.why) }
 					is DevicesFound.Found ->
 						if (devices.devices.isEmpty())
 							Card {
 								Notice(
 									"None found",
 									Tone.Plain,
-									detail = "The system lists no graphics device.",
+									detail = "The system reports no graphics devices.",
 								)
 							}
 						else
@@ -170,40 +170,37 @@ private fun CopyButton(onCopy: () -> Unit) {
 
 /** Why prism's windows are drawn as [report] says, and what would change it. */
 fun explained(report: GraphicsReport): Explained {
-	val onCpu = "Drawn on the CPU"
+	val onCpu = "Rendering on the CPU"
 	val running = report.rendering.openGl as? OpenGl.Running
 
 	return when (val summary = report.summary) {
 		is Summary.OnGpu ->
 			Explained(
-				"Drawn on the GPU",
+				"Rendering on the GPU",
 				Tone.Good,
-				"OpenGL draws prism's windows on the " +
+				"OpenGL renders prism's windows on the " +
 					(summary.device?.name ?: summary.renderer) + ".",
 			)
 		Summary.CpuAsked ->
 			Explained(
-				"$onCpu, as asked",
+				"$onCpu, as requested",
 				Tone.Plain,
-				said(
-					"PRISM_DRAWING=cpu (or -Dprism.window.drawing=cpu)",
-					"asks prism to draw on the CPU.",
-				),
-				"Unset it and start prism again to draw on the GPU where one can.",
+				"PRISM_DRAWING=cpu (or -Dprism.window.drawing=cpu) is set.",
+				"Unset it and restart prism to render on the GPU.",
 			)
 		is Summary.NoLoader ->
 			Explained(
 				onCpu,
 				Tone.Bad,
 				said(
-					"OpenGL's own library, ${summary.library}, can't be loaded,",
-					"so no GPU can be drawn with.",
-					"The system's loader says: “${summary.why}”",
+					"The OpenGL library ${summary.library} can't be loaded,",
+					"so no GPU can be used.",
+					"The system loader reports: “${summary.why}”",
 				),
 				said(
-					"Install your system's OpenGL libraries (libglvnd), or, if they're",
+					"Install your system's OpenGL libraries (libglvnd). If they're",
 					"installed in a folder the system doesn't search, add that folder",
-					"to ${report.searchPath.variable}. Then start prism again.",
+					"to ${report.searchPath.variable}. Then restart prism.",
 				),
 			)
 		is Summary.HeldBack -> {
@@ -212,7 +209,7 @@ fun explained(report: GraphicsReport): Explained {
 			Explained(
 				onCpu,
 				Tone.Bad,
-				said("The ${summary.examined.device.name} isn't used.", device.why),
+				said("The ${summary.examined.device.name} isn't in use.", device.why),
 				device.fix,
 			)
 		}
@@ -220,15 +217,15 @@ fun explained(report: GraphicsReport): Explained {
 			Explained(
 				onCpu,
 				Tone.Bad,
-				"OpenGL couldn't be started. It says: “${summary.why}”",
+				"OpenGL couldn't start: “${summary.why}”",
 			)
 		is Summary.FellBack ->
 			Explained(
 				onCpu,
 				Tone.Bad,
 				said(
-					"OpenGL runs on the GPU here, as ${summary.renderer}, but couldn't draw this window,",
-					"so it's drawn on the CPU. The reason given: “${summary.why}”",
+					"OpenGL is available on the GPU (${summary.renderer}) but couldn't render this",
+					"window, so the CPU is used instead. Reason: “${summary.why}”",
 				),
 				FELL_BACK_FIX,
 			)
@@ -238,11 +235,11 @@ fun explained(report: GraphicsReport): Explained {
 				Tone.Bad,
 				said(
 					if (report.rendering.asked == Drawing.Gpu)
-						"OpenGL draws them, as PRISM_DRAWING=gpu asks, but it runs"
+						"OpenGL is used because PRISM_DRAWING=gpu is set, but it runs"
 					else
 						"OpenGL runs",
-					"on the CPU here, as ${summary.renderer},",
-					"which is slower than prism's own drawing on the CPU.",
+					"on the CPU here (${summary.renderer}),",
+					"which is slower than prism's own CPU renderer.",
 					softwareCause(report.devices),
 				),
 			)
@@ -255,10 +252,10 @@ private fun softwareCause(devices: DevicesFound): String? =
 		is DevicesFound.Unknown -> null
 		is DevicesFound.Found ->
 			if (devices.devices.isEmpty())
-				"No graphics device was found."
+				"No graphics devices were found."
 			else
 				said(
-					"Each graphics device found has its driver and libraries,",
+					"Every graphics device has its driver and libraries,",
 					"but OpenGL didn't start on any of them.",
 				)
 	}
@@ -272,86 +269,85 @@ fun explained(examined: Examined, report: GraphicsReport): Explained {
 	return when (val verdict = examined.verdict) {
 		Verdict.Drawing ->
 			Explained(
-				"Draws prism's windows",
+				"In use",
 				Tone.Good,
-				"OpenGL draws with it, as ${running?.renderer}.",
+				"OpenGL renders with it (${running?.renderer}).",
 			)
 		Verdict.CpuAsked ->
 			Explained(
-				"Not asked",
+				"Not used",
 				Tone.Plain,
-				"The CPU was asked for, so OpenGL wasn't started.",
+				"CPU rendering was requested, so OpenGL wasn't started.",
 			)
 		Verdict.NoDriver ->
 			Explained(
 				"No driver",
 				Tone.Bad,
-				"The kernel has no driver bound to it, so nothing can draw with it.",
+				"No kernel driver is bound to this device, so it can't be used.",
 				said(
-					"Install its driver, or load it if it's installed.",
-					"A restart may be needed after installing one.",
+					"Install its driver, or load it if it's already installed.",
+					"You may need to restart afterwards.",
 				),
 			)
 		is Verdict.SetAside ->
 			Explained(
-				"Set aside",
+				"Reserved",
 				Tone.Plain,
 				said(
-					"Its driver, ${verdict.driver}, sets it aside,",
-					"usually for a virtual machine to use.",
+					"Its driver, ${verdict.driver}, reserves the device,",
+					"usually for a virtual machine.",
 				),
 			)
 		is Verdict.NoAccess -> {
 			val group = (verdict.node.access as? Access.Denied)?.group
 
 			Explained(
-				"Can't be opened",
+				"Permission denied",
 				Tone.Bad,
 				said(
-					"Drawing with it opens ${verdict.node.path},",
-					"which you aren't allowed to open.",
+					"You don't have permission to open ${verdict.node.path}.",
 					group?.let { "It belongs to the $it group." },
 				),
 				group?.let { "Add yourself to the $it group, then sign out and back in." }
-					?: "Ask whoever runs this computer for access to it.",
+					?: "Ask your administrator for access.",
 			)
 		}
 		is Verdict.NoLibrary ->
 			Explained(
-				"Its OpenGL library can't be loaded",
+				"OpenGL library can't be loaded",
 				Tone.Bad,
 				said(
-					"Its driver, $driver, is loaded, but ${verdict.library},",
-					"through which OpenGL reaches that driver, can't be.",
-					"The system's loader says: “${verdict.why}”",
+					"The driver $driver is loaded, but its OpenGL library",
+					"${verdict.library} can't be.",
+					"The system loader reports: “${verdict.why}”",
 				),
 				said(
-					"Install the OpenGL part of its driver, of the driver's version.",
-					"If it's installed in a folder the system doesn't search,",
-					"add that folder to $search. Then start prism again.",
+					"Install the driver's OpenGL libraries, in the same version as the driver.",
+					"If they're installed in a folder the system doesn't search,",
+					"add that folder to $search. Then restart prism.",
 				),
 			)
 		is Verdict.Mismatched ->
 			Explained(
-				"Its driver and libraries don't match",
+				"Driver and library versions don't match",
 				Tone.Bad,
 				said(
-					"The kernel's driver is version ${verdict.driver},",
+					"The kernel driver is version ${verdict.driver},",
 					"but ${verdict.library} is version ${verdict.version}.",
-					"They only work together at the same version.",
+					"They must be the same version.",
 				),
 				said(
 					"If the driver was just updated, restart the computer.",
-					"Otherwise, install its libraries of version ${verdict.driver}.",
+					"Otherwise, install version ${verdict.driver} of its libraries.",
 				),
 			)
 		is Verdict.Refused ->
 			Explained(
-				"Couldn't draw this window",
+				"Couldn't render this window",
 				Tone.Bad,
 				said(
-					"OpenGL runs on it, but couldn't draw this window,",
-					"so it's drawn on the CPU. The reason given: “${verdict.why}”",
+					"OpenGL is available on it but couldn't render this window,",
+					"so the CPU is used instead. Reason: “${verdict.why}”",
 				),
 				FELL_BACK_FIX,
 			)
@@ -360,20 +356,20 @@ fun explained(examined: Examined, report: GraphicsReport): Explained {
 				"OpenGL couldn't start",
 				Tone.Bad,
 				said(
-					"Its driver, nodes and library are all here,",
-					"but OpenGL couldn't be started. It says: “${verdict.why}”",
+					"Its driver, device nodes and library are all present,",
+					"but OpenGL couldn't start: “${verdict.why}”",
 				),
 			)
 		is Verdict.Passed ->
 			Explained(
-				"Not chosen",
+				"Not selected",
 				Tone.Plain,
 				said(
-					"Its driver, nodes and library are all here, but OpenGL",
+					"Its driver, device nodes and library are all present, but OpenGL",
 					if (running?.software == true)
-						"started on the CPU instead, as ${verdict.renderer}."
+						"started on the CPU instead (${verdict.renderer})."
 					else
-						"chose another device: ${verdict.renderer}.",
+						"selected another device: ${verdict.renderer}.",
 				),
 			)
 	}
@@ -388,11 +384,11 @@ fun factsOf(report: GraphicsReport): List<Line> {
 
 	return listOfNotNull(
 		when (val opengl = rendering.openGl) {
-			OpenGl.NotAsked -> Line("OpenGL", "Not started, since the CPU was asked for")
+			OpenGl.NotAsked -> Line("OpenGL", "Not started (CPU rendering requested)")
 			is OpenGl.Unavailable ->
 				Line(
 					"OpenGL",
-					"Couldn't be started: ${opengl.why}",
+					"Couldn't start: ${opengl.why}",
 					wrong = true,
 				)
 			is OpenGl.Running ->
@@ -403,14 +399,14 @@ fun factsOf(report: GraphicsReport): List<Line> {
 				)
 		},
 		(rendering.openGl as? OpenGl.Running)?.let { Line("Version", it.version) },
-		Line("Display", "${videoName(rendering.video)}, through ${rendering.api}"),
+		Line("Display", "${videoName(rendering.video)}, using ${rendering.api}"),
 		when (val drawn = report.drawn) {
-			Drawn.ByOpenGl -> Line("This window", "Drawn by OpenGL")
-			Drawn.OnCpu -> Line("This window", "Drawn on the CPU")
+			Drawn.ByOpenGl -> Line("This window", "Rendered by OpenGL")
+			Drawn.OnCpu -> Line("This window", "Rendered on the CPU")
 			is Drawn.FellBack ->
 				Line(
 					"This window",
-					"Drawn on the CPU, since OpenGL couldn't draw it: ${drawn.why}",
+					"Rendered on the CPU because OpenGL failed: ${drawn.why}",
 					wrong = true,
 				)
 		},
@@ -424,11 +420,11 @@ fun factsOf(report: GraphicsReport): List<Line> {
 			},
 		),
 		Line(
-			"Asked for",
+			"Requested",
 			when (rendering.asked) {
-				Drawing.Auto -> "Automatic: the GPU, where one can draw"
-				Drawing.Gpu -> "The GPU"
-				Drawing.Cpu -> "The CPU"
+				Drawing.Auto -> "Automatic (GPU when available)"
+				Drawing.Gpu -> "GPU"
+				Drawing.Cpu -> "CPU"
 			},
 		),
 	)
@@ -441,7 +437,7 @@ fun factsOf(examined: Examined): List<Line> {
 
 	return listOf(
 		Line(
-			"Where",
+			"Location",
 			if (PCI.matches(device.slot))
 				"PCI ${device.slot}"
 			else
@@ -456,11 +452,11 @@ fun factsOf(examined: Examined): List<Line> {
 		listOfNotNull(
 			device.nodes.takeIf { it.isNotEmpty() }?.let { nodes ->
 				Line(
-					"Nodes",
+					"Device nodes",
 					nodes.joinToString(", ") { node ->
 						node.path.toString() +
 							if (node.access is Access.Denied)
-								" (you can't open it)"
+								" (permission denied)"
 							else
 								""
 					},
@@ -530,14 +526,14 @@ private fun videoName(video: Video): String =
 		Video.X11 -> "X11"
 		Video.Windows -> "Windows"
 		Video.Cocoa -> "macOS"
-		Video.Other -> "Another display"
+		Video.Other -> "Other"
 	}
 
 /** What to do where OpenGL runs, but couldn't draw a window: nothing the user can mend, but much that can be told. */
 private val FELL_BACK_FIX =
 	said(
-		"This is likely a fault in prism or in the driver: copy this report, with what",
-		"PRISM_WINDOW_LOG=1 prints, into an issue. PRISM_DRAWING=cpu skips trying.",
+		"This is likely a bug in prism or in the driver. Please report it with this report and",
+		"the output of PRISM_WINDOW_LOG=1. Set PRISM_DRAWING=cpu to skip OpenGL.",
 	)
 
 /** A PCI address, as Linux writes one: domain, bus, device and function. */

@@ -439,7 +439,7 @@ data class TerminalForm(
 			is TerminalPick.Named -> TerminalChoice.Named(pick.name)
 			TerminalPick.Custom ->
 				if (wordsOf(open).isEmpty() && wordsOf(run).isEmpty())
-					wrongly("a custom terminal is its command lines, and none is written")
+					wrongly("enter a command line for the custom terminal")
 				else
 					TerminalChoiceSerializer.choiceOf(json())
 		}
@@ -467,7 +467,7 @@ data class TerminalForm(
 	private fun wrongly(why: String) =
 		TerminalChoice.Unreadable(
 			json().toString(),
-			"the terminal in the preferences can't be read: $why",
+			"the terminal setting is invalid: $why",
 		)
 
 	companion object {

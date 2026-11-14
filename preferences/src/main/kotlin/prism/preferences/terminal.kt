@@ -44,14 +44,15 @@ object TerminalChoiceSerializer : KSerializer<TerminalChoice> {
 	override fun serialize(encoder: Encoder, value: TerminalChoice) =
 		(encoder as JsonEncoder).encodeJsonElement(jsonOf(value))
 
-	private const val SHAPE = "it is a terminal's name, or its command lines: {\"open\": [...], \"run\": [...]}"
+	private const val SHAPE =
+		"expected a terminal name, or command lines: {\"open\": [...], \"run\": [...]}"
 
 	/** [json] as the user's choice of terminal. */
 	fun choiceOf(json: JsonElement): TerminalChoice {
 		fun wrong(why: String) =
 			TerminalChoice.Unreadable(
 				json.toString(),
-				"the terminal in the preferences can't be read: $why",
+				"the terminal setting is invalid: $why",
 			)
 
 		return when (json) {
@@ -68,7 +69,7 @@ object TerminalChoiceSerializer : KSerializer<TerminalChoice> {
 
 				if (unknown.isNotEmpty())
 					return wrong(
-						"it says ${unknown.joinToString { "“$it”" }}, which is neither “open” nor “run”",
+						"unknown key ${unknown.joinToString { "“$it”" }}; expected “open” or “run”",
 					)
 
 				val open =
@@ -76,10 +77,10 @@ object TerminalChoiceSerializer : KSerializer<TerminalChoice> {
 						when (
 							val read =
 								wordsOf(line)?.let(FolderLine::of)
-									?: return wrong("its “open” is not a list of words")
+									?: return wrong("“open” must be a list of words")
 						) {
 							is Read.Right -> read.value
-							is Read.Wrong -> return wrong("its “open” line: ${read.why}")
+							is Read.Wrong -> return wrong("“open”: ${read.why}")
 						}
 					}
 
@@ -88,15 +89,15 @@ object TerminalChoiceSerializer : KSerializer<TerminalChoice> {
 						when (
 							val read =
 								wordsOf(line)?.let(CommandLine::of)
-									?: return wrong("its “run” is not a list of words")
+									?: return wrong("“run” must be a list of words")
 						) {
 							is Read.Right -> read.value
-							is Read.Wrong -> return wrong("its “run” line: ${read.why}")
+							is Read.Wrong -> return wrong("“run”: ${read.why}")
 						}
 					}
 
 				TerminalChoice.CommandLines.of(open, run)
-					?: wrong("it has neither an “open” line nor a “run” line")
+					?: wrong("it needs an “open” or a “run” command line")
 			}
 		}
 	}

@@ -14,9 +14,9 @@ import prism.preferences.LauncherPreferences
 
 /** The groups the launcher's actions are listed in. */
 object LauncherGroups {
-	val Result = KeyGroup("The result chosen")
-	val Moving = KeyGroup("Moving through the results")
-	val Launcher = KeyGroup("The launcher")
+	val Result = KeyGroup("Result")
+	val Moving = KeyGroup("Navigation")
+	val Launcher = KeyGroup("Launcher")
 }
 
 /** Something the launcher does from the keyboard, with the chords that do it until the user says otherwise. */
@@ -25,17 +25,17 @@ enum class LauncherAction(
 	override val group: KeyGroup,
 	vararg defaults: String,
 ) : Bindable {
-	Open("Open it", LauncherGroups.Result, "Enter"),
-	Reveal("Show it in its folder", LauncherGroups.Result, "Ctrl+Enter"),
-	CopyPath("Copy its path", LauncherGroups.Result, "Ctrl+Shift+C"),
-	Down("Down a result", LauncherGroups.Moving, "Down", "Ctrl+J", "Tab"),
-	Up("Up a result", LauncherGroups.Moving, "Up", "Ctrl+K", "Shift+Tab"),
-	PageDown("Down a page", LauncherGroups.Moving, "PageDown"),
-	PageUp("Up a page", LauncherGroups.Moving, "PageUp"),
-	First("The first result", LauncherGroups.Moving, "Ctrl+Home"),
-	Last("The last result", LauncherGroups.Moving, "Ctrl+End"),
-	Settings("Its settings", LauncherGroups.Launcher, "Ctrl+P"),
-	Dismiss("Clear what is typed, or close", LauncherGroups.Launcher, "Escape"),
+	Open("Open", LauncherGroups.Result, "Enter"),
+	Reveal("Show in folder", LauncherGroups.Result, "Ctrl+Enter"),
+	CopyPath("Copy path", LauncherGroups.Result, "Ctrl+Shift+C"),
+	Down("Move down", LauncherGroups.Moving, "Down", "Ctrl+J", "Tab"),
+	Up("Move up", LauncherGroups.Moving, "Up", "Ctrl+K", "Shift+Tab"),
+	PageDown("Page down", LauncherGroups.Moving, "PageDown"),
+	PageUp("Page up", LauncherGroups.Moving, "PageUp"),
+	First("Go to first", LauncherGroups.Moving, "Ctrl+Home"),
+	Last("Go to last", LauncherGroups.Moving, "Ctrl+End"),
+	Settings("Settings", LauncherGroups.Launcher, "Ctrl+P"),
+	Dismiss("Clear or close", LauncherGroups.Launcher, "Escape"),
 	;
 
 	override val key: String get() = name
