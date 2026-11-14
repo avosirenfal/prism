@@ -31,7 +31,7 @@ class FailedTest {
 
 	private val browsing =
 		ExplorerWindow.Failed(
-			7,
+			WindowId(7),
 			"Documents",
 			failure,
 			Start.Folder(Path.of("/home/a/Documents")),

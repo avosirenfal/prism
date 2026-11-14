@@ -1,8 +1,8 @@
 package prism.explorer
 
 import java.nio.file.Path
-import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineExceptionHandler
@@ -70,9 +70,15 @@ import prism.preferences.Role
  * (the daemon's index) go on.
  */
 
+/** What tells one of the explorer's windows from the others: a number no other window has had, and nothing else's. */
+@JvmInline
+value class WindowId(
+	val number: Int,
+)
+
 /** A window the explorer has open, told apart from the others by [id]. */
 sealed interface ExplorerWindow {
-	val id: Int
+	val id: WindowId
 
 	/**
 	 * Files browsed: a browser's [session], whose work is done in [scope], which ends with the window. [activation]
@@ -80,7 +86,7 @@ sealed interface ExplorerWindow {
 	 * window is given the keyboard as it opens.
 	 */
 	class Browsing internal constructor(
-		override val id: Int,
+		override val id: WindowId,
 		val session: Session,
 		internal val scope: CoroutineScope,
 		val activation: String? = null,
@@ -91,7 +97,7 @@ sealed interface ExplorerWindow {
 	 * answer, given to the window that asked.
 	 */
 	class Picking internal constructor(
-		override val id: Int,
+		override val id: WindowId,
 		val title: String,
 		val session: Session,
 		internal val scope: CoroutineScope,
@@ -101,19 +107,19 @@ sealed interface ExplorerWindow {
 
 	/** What can be known of [paths], and their permissions to change. */
 	data class Properties(
-		override val id: Int,
+		override val id: WindowId,
 		val paths: List<Path>,
 	) : ExplorerWindow
 
 	/** An application chosen, for [choice]. */
 	data class OpenWith(
-		override val id: Int,
+		override val id: WindowId,
 		val choice: Choice,
 	) : ExplorerWindow
 
 	/** The preferences, of which there is one window; [raised] counts the times it was asked for again while open. */
 	data class Settings(
-		override val id: Int,
+		override val id: WindowId,
 		val raised: Int = 0,
 	) : ExplorerWindow
 
@@ -122,7 +128,7 @@ sealed interface ExplorerWindow {
 	 * window. [activation] is the desktop's token for whoever asked for it, with which it is given the keyboard.
 	 */
 	class Launching internal constructor(
-		override val id: Int,
+		override val id: WindowId,
 		val session: LauncherSession,
 		internal val scope: CoroutineScope,
 		val activation: String? = null,
@@ -130,7 +136,7 @@ sealed interface ExplorerWindow {
 
 	/** The launcher's settings, of which there is one window; [raised] as the preferences' is. */
 	data class LauncherSettings(
-		override val id: Int,
+		override val id: WindowId,
 		val raised: Int = 0,
 	) : ExplorerWindow
 
@@ -139,7 +145,7 @@ sealed interface ExplorerWindow {
 	 * [failure], and where a browser can be opened [again], for a window that was browsing.
 	 */
 	data class Failed(
-		override val id: Int,
+		override val id: WindowId,
 		val what: String,
 		val failure: Failure,
 		val again: Start?,
@@ -263,15 +269,6 @@ class Explorer(
 	private val open = MutableStateFlow<List<ExplorerWindow>>(emptyList())
 	private val defaultsSet = MutableStateFlow(0)
 
-	/** What each picker's window that failed failed with, until whoever waits for the picker's answer has read it. */
-	private val failures = ConcurrentHashMap<Int, Throwable>()
-
-	/**
-	 * The windows being made, by id, each with what its work has already failed with, if it has: a window's scope is
-	 * made before the window, and what fails in it meanwhile is the window's failure once it is in the list.
-	 */
-	private val unborn = HashMap<Int, Throwable?>()
-
 	/** The windows open, in the order they opened. */
 	val windows: StateFlow<List<ExplorerWindow>> = open.asStateFlow()
 
@@ -287,7 +284,8 @@ class Explorer(
 	 * [activation], the desktop's token for whoever asked, the window is given the keyboard as it opens.
 	 */
 	fun browse(start: Start, chosen: String? = null, activation: String? = null) {
-		val (id, window) = making()
+		val making = Making()
+		val (id, window) = making
 		val sidebar = sidebarOf(desktop.places, home, preferences.preferences.value)
 
 		val first =
@@ -334,7 +332,7 @@ class Explorer(
 
 		asking.complete(browsing.session)
 
-		opened(browsing)
+		making.opened(browsing)
 		// A browser ends as a picker is cancelled: closed (Ctrl+W, or its menu), it is closed here.
 		window.launch {
 			browsing.session.outcome.await()
@@ -376,7 +374,8 @@ class Explorer(
 			return close(it)
 		}
 
-		val (id, window) = making()
+		val making = Making()
+		val (id, window) = making
 
 		val host =
 			object : LauncherHost {
@@ -410,15 +409,15 @@ class Explorer(
 					finder,
 					launches,
 					home,
-					report = report,
 					terminal = { preferences.preferences.value.terminal },
+					report = report,
 				),
 				host,
 				window,
 				preferences.preferences.value.launcher,
 			)
 
-		opened(ExplorerWindow.Launching(id, session, window, activation))
+		making.opened(ExplorerWindow.Launching(id, session, window, activation))
 		// Its settings changed while it is shown (their window is another), it is as they now say. What they are as
 		// this begins is said too: they may have changed since the session was made with them.
 		window.launch {
@@ -435,20 +434,21 @@ class Explorer(
 
 	/** The one window of its kind there is, opened by [make], or, where it is open, changed by [raise] to be raised. */
 	private inline fun <reified W : ExplorerWindow> raising(
-		crossinline make: (Int) -> W,
+		crossinline make: (WindowId) -> W,
 		crossinline raise: (W) -> W,
 	) = open.update { windows ->
 		val held = windows.filterIsInstance<W>().firstOrNull()
 
 		if (held == null)
-			windows.plusElement(make(ids.incrementAndGet()))
+			windows.plusElement(make(WindowId(ids.incrementAndGet())))
 		else
 			windows.map { if (it == held) raise(held) else it }
 	}
 
 	/** A picker of folders opened for [request]: what it chooses, or that it was cancelled, is the answer. */
 	private fun pick(request: Request.PickFolder, reply: (BrowserEvent) -> Unit) {
-		val (id, window) = making()
+		val making = Making()
+		val (id, window) = making
 
 		val picking =
 			ExplorerWindow.Picking(
@@ -471,7 +471,7 @@ class Explorer(
 				window,
 			)
 
-		opened(picking)
+		making.opened(picking)
 		window.launch {
 			// Answered however the picker ends: one whose window failed chose nothing, and whoever asked is told so
 			// rather than left waiting.
@@ -493,7 +493,8 @@ class Explorer(
 	 * window is closed as it is. Where its window fails before it ends, there is no answer: [PickerFailed] says why.
 	 */
 	suspend fun choose(asking: Asking): Answered {
-		val (id, window) = making()
+		val making = Making()
+		val (id, window) = making
 
 		val first =
 			opened(
@@ -526,7 +527,7 @@ class Explorer(
 				asking.parent,
 			)
 
-		opened(picking)
+		making.opened(picking)
 
 		// Waited for in the window's own scope, which ends with the window: a picker whose window failed never ends,
 		// and its answer is not waited for for ever.
@@ -535,12 +536,15 @@ class Explorer(
 		return try {
 			Answered(ending.await(), picking.session.state.value.typeFilter)
 		} catch (stopped: CancellationException) {
-			// Cancelled from outside, as it is; otherwise it was the window that stopped.
+			// Cancelled from outside, as it is; otherwise it was the window that stopped, and what it failed with,
+			// where it failed, is what its work was stopped for ([failed]).
 			currentCoroutineContext().ensureActive()
 
-			throw PickerFailed(failures.remove(id))
+			throw PickerFailed(
+				generateSequence<Throwable>(stopped) { it.cause }
+					.firstOrNull { it !is CancellationException },
+			)
 		} finally {
-			failures.remove(id)
 			close(picking)
 		}
 	}
@@ -574,16 +578,7 @@ class Explorer(
 	 */
 	fun failed(window: ExplorerWindow, failure: Throwable) = failed(window.id, failure)
 
-	private fun failed(id: Int, failure: Throwable) {
-		// A window's work can fail before the window is in the list (a session starts as it is made): kept for it.
-		synchronized(unborn) {
-			if (id in unborn) {
-				unborn[id] = unborn[id] ?: failure
-
-				return
-			}
-		}
-
+	private fun failed(id: WindowId, failure: Throwable) {
 		val window = open.value.firstOrNull { it.id == id }
 		val what = window?.let(::describe) ?: "a window that had closed"
 
@@ -591,8 +586,9 @@ class Explorer(
 		if (window == null)
 			return
 
+		// A picker's work is stopped for the failure, which is how whoever waits for its answer comes to know of it.
 		if (window is ExplorerWindow.Picking)
-			failures[id] = failure
+			window.scope.cancel(CancellationException("the picker's window failed", failure))
 		close(window)
 		// The window that says so failing in its turn is said on standard error alone.
 		if (window !is ExplorerWindow.Failed)
@@ -607,32 +603,59 @@ class Explorer(
 			Start.Folder(it.session.state.value.folder ?: home)
 		}
 
-	private fun opening(window: (Int) -> ExplorerWindow) =
+	private fun opening(window: (WindowId) -> ExplorerWindow) =
 		open.update {
-			it.plusElement(window(ids.incrementAndGet()))
+			it.plusElement(window(WindowId(ids.incrementAndGet())))
 		}
 
-	/**
-	 * A window about to be made: its id, and the scope its work is done in. The work stops with the window, one part
-	 * of it failing stops no other, and what fails in it with nobody waiting for it is the window's failure, kept
-	 * until the window is in the list ([opened]).
-	 */
-	private fun making(): Pair<Int, CoroutineScope> {
-		val id = ids.incrementAndGet()
+	/** Whether a window being made is in the list of those open yet. */
+	private sealed interface Birth {
+		/** Not yet: and what its work has already failed with, if it has. */
+		data class Unborn(
+			val failure: Throwable?,
+		) : Birth
 
-		synchronized(unborn) { unborn[id] = null }
-
-		return id to
-			CoroutineScope(
-				scope.coroutineContext + SupervisorJob(scope.coroutineContext[Job]) +
-					CoroutineExceptionHandler { _, failure -> failed(id, failure) },
-			)
+		data object Born : Birth
 	}
 
-	/** [window], made, in the list of those open; and failed at once, where its work already has. */
-	private fun opened(window: ExplorerWindow) {
-		open.update { it.plusElement(window) }
-		synchronized(unborn) { unborn.remove(window.id) }?.let { failed(window.id, it) }
+	/**
+	 * A window about to be made: its [id], and the [scope] its work is done in. The work stops with the window, one
+	 * part of it failing stops no other, and what fails in it with nobody waiting for it is the window's failure. A
+	 * window's work can fail before the window is in the list (a session starts as it is made): the failure is kept
+	 * here, with the window being made and nowhere else, until the window is in the list ([opened]), and is its
+	 * failure then.
+	 */
+	private inner class Making {
+		val id = WindowId(ids.incrementAndGet())
+		private val birth = AtomicReference<Birth>(Birth.Unborn(null))
+
+		val scope =
+			CoroutineScope(
+				this@Explorer.scope.coroutineContext +
+					SupervisorJob(this@Explorer.scope.coroutineContext[Job]) +
+					CoroutineExceptionHandler { _, failure ->
+						val was =
+							birth.getAndUpdate {
+								if (it is Birth.Unborn)
+									Birth.Unborn(it.failure ?: failure)
+								else
+									it
+							}
+
+						if (was is Birth.Born)
+							failed(id, failure)
+					},
+			)
+
+		operator fun component1(): WindowId = id
+
+		operator fun component2(): CoroutineScope = scope
+
+		/** [window], made, in the list of those open; and failed at once, where its work already has. */
+		fun opened(window: ExplorerWindow) {
+			open.update { it.plusElement(window) }
+			(birth.getAndSet(Birth.Born) as? Birth.Unborn)?.failure?.let { failed(id, it) }
+		}
 	}
 
 	companion object {

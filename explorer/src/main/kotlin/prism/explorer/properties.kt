@@ -234,6 +234,25 @@ private enum class Tab(
 	Permissions("Permissions"),
 }
 
+/**
+ * What a tab shows, with what it shows it of: the permissions' with the one file they are of and what they are, so
+ * that the tab cannot be shown where there is no such file (it was chosen, and the file read again has none).
+ */
+private sealed interface PropertyPage {
+	val tab: Tab
+
+	data object General : PropertyPage {
+		override val tab: Tab get() = Tab.General
+	}
+
+	data class Permitting(
+		val facts: Facts,
+		val permissions: Permissions,
+	) : PropertyPage {
+		override val tab: Tab get() = Tab.Permissions
+	}
+}
+
 /** The window's title for the properties of [paths]. */
 fun propertiesTitleOf(paths: List<Path>): String =
 	paths.singleOrNull()?.let { "Properties of “${it.fileName ?: it}”" }
@@ -250,7 +269,7 @@ fun PropertiesView(paths: List<Path>, explorer: Explorer, onClose: () -> Unit) {
 	val type = LocalType.current
 	val scope = rememberCoroutineScope()
 	var readings by remember { mutableStateOf(0) }
-	var tab by remember { mutableStateOf(Tab.General) }
+	var wanted by remember { mutableStateOf(Tab.General) }
 	var refused by remember { mutableStateOf<String?>(null) }
 	val defaults by explorer.defaults.collectAsState()
 
@@ -285,8 +304,16 @@ fun PropertiesView(paths: List<Path>, explorer: Explorer, onClose: () -> Unit) {
 			}
 	}
 
+	val permitting =
+		one?.let { facts ->
+			facts.permissions?.let {
+				PropertyPage.Permitting(facts, it)
+			}
+		}
+	// The tab asked for, where there is what it shows: the general one otherwise.
+	val page = permitting?.takeIf { wanted == Tab.Permissions } ?: PropertyPage.General
 	val tabs =
-		if (one?.permissions != null)
+		if (permitting != null)
 			Tab.entries
 		else
 			listOf(Tab.General)
@@ -295,16 +322,15 @@ fun PropertiesView(paths: List<Path>, explorer: Explorer, onClose: () -> Unit) {
 		if (tabs.size > 1)
 			Tabs(
 				tabs,
-				tab,
+				page.tab,
 				Tab::label,
 				Modifier.padding(start = Space.xl, end = Space.xl, top = Space.s),
 			) {
-				tab =
-					it
+				wanted = it
 			}
 		ScrollArea(Modifier.weight(1f).fillMaxWidth(), padding = PaddingValues(Space.xl)) {
-			when (tab) {
-				Tab.General -> {
+			when (page) {
+				PropertyPage.General -> {
 					val lines = generalOf(read, counted, desktop.types, ZoneId.systemDefault())
 
 					Card {
@@ -319,9 +345,9 @@ fun PropertiesView(paths: List<Path>, explorer: Explorer, onClose: () -> Unit) {
 						lines.drop(3).forEach { FactRow(it) }
 					}
 				}
-				Tab.Permissions -> {
-					val facts = one!!
-					val permissions = facts.permissions!!
+				is PropertyPage.Permitting -> {
+					val facts = page.facts
+					val permissions = page.permissions
 					val user = System.getProperty("user.name")
 					val mine = user == facts.owner || user == "root"
 

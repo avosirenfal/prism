@@ -103,9 +103,12 @@ class ExplorerTest {
 
 			val opened = explorer.windows.first { it.size == 4 }
 
-			assertEquals(ExplorerWindow.Properties(2, listOf(root)), opened[1])
+			assertEquals(ExplorerWindow.Properties(WindowId(2), listOf(root)), opened[1])
 			assertEquals(
-				ExplorerWindow.OpenWith(3, Choice.Open(listOf(root.resolve("a.txt")), MimeType.TEXT)),
+				ExplorerWindow.OpenWith(
+					WindowId(3),
+					Choice.Open(listOf(root.resolve("a.txt")), MimeType.TEXT),
+				),
 				opened[2],
 			)
 			assertInstanceOf(ExplorerWindow.Browsing::class.java, opened[3])
@@ -117,7 +120,10 @@ class ExplorerTest {
 				),
 			)
 			assertEquals(
-				ExplorerWindow.OpenWith(5, Choice.Open(listOf(root.resolve("a.txt")), null)),
+				ExplorerWindow.OpenWith(
+					WindowId(5),
+					Choice.Open(listOf(root.resolve("a.txt")), null),
+				),
 				explorer.windows.first { it.size == 5 }.last(),
 			)
 			explorer.close(explorer.windows.value.last())
@@ -127,7 +133,7 @@ class ExplorerTest {
 			explorer.windows.first { windows -> windows.none { it.id == browsing.id } }
 
 			explorer.close(opened[1])
-			assertEquals(listOf(3, 4), explorer.windows.value.map { it.id })
+			assertEquals(listOf(3, 4), explorer.windows.value.map { it.id.number })
 		}
 
 	@Test
@@ -136,13 +142,16 @@ class ExplorerTest {
 			explorer.ask(Request.Preferences)
 			explorer.ask(Request.Preferences)
 
-			assertEquals(listOf(ExplorerWindow.Settings(1, raised = 1)), explorer.windows.value)
+			assertEquals(
+				listOf(ExplorerWindow.Settings(WindowId(1), raised = 1)),
+				explorer.windows.value,
+			)
 
 			explorer.chooseDefault(MimeType.TEXT)
 			explorer.setDefault(MimeType.TEXT, desktop.editor)
 
 			assertEquals(
-				ExplorerWindow.OpenWith(2, Choice.Default(MimeType.TEXT)),
+				ExplorerWindow.OpenWith(WindowId(2), Choice.Default(MimeType.TEXT)),
 				explorer.windows.value.last(),
 			)
 			assertEquals(listOf(MimeType.TEXT to desktop.editor), desktop.defaultsSet)
