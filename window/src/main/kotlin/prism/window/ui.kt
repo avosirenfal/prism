@@ -26,16 +26,27 @@ object Ui : CoroutineDispatcher() {
 	/** Whether a wake is already on its way: one is enough, however many tasks come before it is read. */
 	private val woken = AtomicBoolean(false)
 
-	@Volatile
-	private var thread: Thread? = null
+	/**
+	 * A thread taken as the windows' own, and the type of the event that wakes it out of its wait ([wakes]; none
+	 * where SDL had no type left to give, when nothing wakes it but its own events).
+	 */
+	private class Claimed(
+		val thread: Thread,
+		val wakes: Int?,
+	)
 
-	/** The event type that wakes the thread; 0 until SDL is running. */
+	/**
+	 * The windows' thread and what wakes it, while there is one: the two as one value, so that no other thread sees
+	 * a thread that is there with nothing yet to wake it by, or the other way about.
+	 */
 	@Volatile
-	internal var wakeType: Int = 0
-		private set
+	private var claimed: Claimed? = null
+
+	/** The event type that wakes the thread; none until one is the windows' own. */
+	internal val wakeType: Int? get() = claimed?.wakes
 
 	/** Whether this is the windows' thread. */
-	val isCurrent: Boolean get() = Thread.currentThread() === thread
+	val isCurrent: Boolean get() = Thread.currentThread() === claimed?.thread
 
 	override fun dispatch(context: CoroutineContext, block: Runnable) {
 		queue.add(block)
@@ -47,14 +58,14 @@ object Ui : CoroutineDispatcher() {
 	 * caller left waiting when the thread goes is answered still ([release]).
 	 */
 	fun <T> call(block: () -> T): T {
-		if (isCurrent || thread == null)
+		if (isCurrent || claimed == null)
 			return block()
 
 		val asked = Asked(block)
 
 		dispatch(kotlin.coroutines.EmptyCoroutineContext, asked)
 		// The thread gone since it was looked for: what it was left is run by nobody, so it is run here.
-		if (thread == null)
+		if (claimed == null)
 			asked.run()
 
 		return asked.answer()
@@ -81,15 +92,13 @@ object Ui : CoroutineDispatcher() {
 
 	/** The thread taken as the windows' own, from here until [release]. */
 	internal fun claim() {
-		check(thread == null) { "the windows' thread is already running" }
+		check(claimed == null) { "the windows' thread is already running" }
 		AwtEvents.take()
-		thread = Thread.currentThread()
-		wakeType = SDL_RegisterEvents(1)
+		claimed = Claimed(Thread.currentThread(), SDL_RegisterEvents(1).takeIf { it != 0 })
 	}
 
 	internal fun release() {
-		thread = null
-		wakeType = 0
+		claimed = null
 		// What was left for a thread that is gone is run by nobody, and not by the next; but for what a caller
 		// waits on, which is run now, as the thread's last, rather than leave the caller waiting for ever.
 		generateSequence(queue::poll).filterIsInstance<Asked<*>>().forEach(Asked<*>::run)
@@ -97,9 +106,9 @@ object Ui : CoroutineDispatcher() {
 
 	/** The thread woken out of its wait for events, if it waits: an event of its own is pushed, once. */
 	internal fun wake() {
-		val type = wakeType
+		val type = wakeType ?: return
 
-		if (type != 0 && woken.compareAndSet(false, true))
+		if (woken.compareAndSet(false, true))
 			SDL_Event.calloc().use { event ->
 				event.type(type)
 				SDL_PushEvent(event)
