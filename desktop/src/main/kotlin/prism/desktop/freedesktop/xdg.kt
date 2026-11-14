@@ -31,7 +31,19 @@ class Xdg(
 	/** The data folders, the user's first: where MIME types and applications are looked for. */
 	val data: List<Path> get() =
 		listOf(dataHome) +
-			list("XDG_DATA_DIRS", listOf("/usr/local/share", "/usr/share"))
+			list("XDG_DATA_DIRS", profiles() + listOf("/usr/local/share", "/usr/share"))
+
+	/**
+	 * Where Nix keeps what is installed, the user's own first, where those folders are there: what a session on NixOS
+	 * names in `XDG_DATA_DIRS`, and all there is to find where a service was started without the session's
+	 * environment, since NixOS has nothing in `/usr/share`.
+	 */
+	private fun profiles(): List<String> =
+		listOfNotNull(
+			home.resolve(".nix-profile/share").toString(),
+			environment["USER"]?.let { "/etc/profiles/per-user/$it/share" },
+			"/run/current-system/sw/share",
+		).filter { Files.isDirectory(Path.of(it)) }
 
 	/** The settings folders, the user's first. */
 	val config: List<Path> get() =
