@@ -12,6 +12,10 @@ self:
 let
   cfg = config.programs.prism;
 
+  # The Java prism of the package: what stays (the daemon, the watcher's loader) is run directly, where `bin/prism`
+  # is the client, which would only start this and wait for it.
+  javaPrism = "${cfg.package}/${cfg.package.javaPrism}";
+
   inherit (lib)
     mkEnableOption
     mkIf
@@ -28,7 +32,7 @@ let
   fileManagerService = pkgs.writeTextDir "share/dbus-1/services/org.freedesktop.FileManager1.service" ''
     [D-BUS Service]
     Name=org.freedesktop.FileManager1
-    Exec=${lib.escapeShellArgs ([ (lib.getExe cfg.package) ] ++ command)}
+    Exec=${lib.escapeShellArgs ([ javaPrism ] ++ command)}
     SystemdService=prism.service
   '';
 
@@ -220,7 +224,7 @@ in
         enableDefaultPath = false;
 
         serviceConfig = {
-          ExecStart = lib.escapeShellArgs ([ (lib.getExe cfg.package) ] ++ command);
+          ExecStart = lib.escapeShellArgs ([ javaPrism ] ++ command);
           # Started again where it ended by failing, a moment later; not where it was stopped. Java, told to stop,
           # ends with the status 143, which is its having been stopped, and no failure.
           Restart = "on-failure";
@@ -246,14 +250,14 @@ in
           Type = "oneshot";
           RemainAfterExit = true;
           ExecStart = lib.escapeShellArgs [
-            (lib.getExe cfg.package)
+            javaPrism
             "probe"
             "load"
             "--group"
             cfg.watcher.group
           ];
           ExecStop = lib.escapeShellArgs [
-            (lib.getExe cfg.package)
+            javaPrism
             "probe"
             "unload"
           ];

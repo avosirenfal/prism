@@ -1,6 +1,8 @@
-# prism, built from this checkout: its jars (Gradle's `:app:installJars`), run by a wrapper with nixpkgs' Java, and
-# what makes a desktop know of it (a desktop entry, the portal backend's file, a D-Bus service file, a systemd user
-# unit). docs/nixos.md says how it is used; nix/module.nix is the NixOS module that sets it up.
+# prism, built from this checkout: its jars (Gradle's `:app:installJars`), run by a wrapper with nixpkgs' Java; the
+# client that asks the prism already running, compiled ahead of time by GraalVM (`:client:nativeImage`), which is the
+# `prism` a shell starts; and what makes a desktop know of it (a desktop entry, the portal backend's file, a D-Bus
+# service file, a systemd user unit). docs/nixos.md says how it is used; nix/module.nix is the NixOS module that sets
+# it up.
 #
 # Gradle fetches nothing while it builds: every artifact it needs is in deps.json, by hash (nixpkgs' way of building
 # with Gradle). After a change to a dependency, or to the Gradle or Kotlin version, write it again:
@@ -11,6 +13,7 @@
   stdenv,
   gradle_9,
   jdk25,
+  graalvmPackages,
   llvmPackages,
   addDriverRunpath,
   util-linux,
@@ -60,6 +63,11 @@ let
   # test of prism's (PackagingTest) reads this file, and fails where the two differ.
   backendName = "org.freedesktop.impl.portal.desktop.prism";
   chooserInterface = "org.freedesktop.impl.portal.FileChooser";
+
+  # Where in the package the Java prism is: the one that does everything, which the client hands its words to where
+  # the prism running cannot do them. It is where the client looks for it, from where it is itself (prism.client,
+  # main.kt: javaPrism), and what whatever is to stay runs directly: a daemon needs no client waiting on it.
+  javaPrism = "libexec/prism/prism";
 in
 stdenv.mkDerivation (finalAttrs: {
   pname = "prism";
@@ -110,9 +118,12 @@ stdenv.mkDerivation (finalAttrs: {
   # The watcher is compiled by clang's BPF target; the wrapped clang adds hardening flags that target refuses.
   env.PRISM_CLANG = "${llvmPackages.clang-unwrapped}/bin/clang";
 
-  gradleBuildTask = ":app:installJars";
-  # What is fetched for the lock is what the build fetches: the same task, run against the network.
-  gradleUpdateTask = finalAttrs.gradleBuildTask;
+  # The client is compiled ahead of time by GraalVM's native-image, which Gradle is told the place of.
+  env.GRAALVM_HOME = "${graalvmPackages.graalvm-ce}";
+
+  gradleBuildTask = ":app:installJars :client:nativeImage";
+  # What is fetched for the lock is what the jars are built from: compiling the client fetches nothing more.
+  gradleUpdateTask = ":app:installJars";
 
   # prism's tests are Gradle's to run (`./gradlew build`), on a machine with a display server's and a bus's programs.
   doCheck = false;
@@ -121,8 +132,13 @@ stdenv.mkDerivation (finalAttrs: {
     runHook preInstall
 
     lib=$out/share/prism/lib
-    mkdir -p $lib $out/bin
+    java=$out/${javaPrism}
+    mkdir -p $lib $out/bin $(dirname $java)
     cp app/build/install/lib/*.jar $lib/
+
+    # The prism a shell starts: the client, which asks the prism already running and is done in a few milliseconds,
+    # and hands its words to the Java prism (below) where nobody answers.
+    install -m755 client/build/native/prism $out/bin/prism
 
     # The jars in an order of their own: those every start reads from first (a prism that only hands its words to
     # the one already running reads little else), then the rest, by name. Written out in full rather than left to
@@ -134,7 +150,7 @@ stdenv.mkDerivation (finalAttrs: {
     cat > $out/share/prism/java.args <<ARGS
     --enable-native-access=ALL-UNNAMED
     -Djava.awt.headless=true
-    -Dprism.launcher=$out/bin/prism
+    -Dprism.launcher=$java
     -XX:G1PeriodicGCInterval=300000
     -XX:MinHeapFreeRatio=10
     -XX:MaxHeapFreeRatio=30
@@ -154,7 +170,7 @@ stdenv.mkDerivation (finalAttrs: {
       @$out/share/prism/java.args prism.app.MainKt status > /dev/null 2>&1 || true
     test -s $out/share/prism/prism.aot
 
-    cat > $out/bin/prism <<WRAPPER
+    cat > $java <<WRAPPER
     #!${stdenv.shell}
     # The libraries prism loads by name, found; and what the path was kept, to be given back to whatever prism
     # starts, which is the user's program and not prism's (desktop/environment.kt).
@@ -166,8 +182,8 @@ stdenv.mkDerivation (finalAttrs: {
     exec ${jdk25}/bin/java -XX:AOTCache=$out/share/prism/prism.aot -Xlog:aot=off -Xlog:cds=off \\
       @$out/share/prism/java.args prism.app.MainKt "\$@"
     WRAPPER
-    sed -i 's/^    //' $out/bin/prism
-    chmod +x $out/bin/prism
+    sed -i 's/^    //' $java
+    chmod +x $java
 
     # What a launcher and a desktop know prism by: its name, its icon, what it opens (folders), and what a
     # right-click on it offers. Its file's name is its windows' app id (APP_ID in app/main.kt), which is how a
@@ -216,7 +232,7 @@ stdenv.mkDerivation (finalAttrs: {
     cat > $out/share/dbus-1/services/${backendName}.service <<SERVICE
     [D-BUS Service]
     Name=${backendName}
-    Exec=$out/bin/prism daemon --foreground
+    Exec=$java daemon --foreground
     SystemdService=prism.service
     SERVICE
 
@@ -229,7 +245,7 @@ stdenv.mkDerivation (finalAttrs: {
     After=graphical-session.target
 
     [Service]
-    ExecStart=$out/bin/prism daemon --foreground
+    ExecStart=$java daemon --foreground
     Restart=on-failure
     RestartSec=2
     SuccessExitStatus=143
@@ -249,8 +265,8 @@ stdenv.mkDerivation (finalAttrs: {
     [Service]
     Type=oneshot
     RemainAfterExit=yes
-    ExecStart=$out/bin/prism probe load --group prism
-    ExecStop=$out/bin/prism probe unload
+    ExecStart=$java probe load --group prism
+    ExecStop=$java probe unload
     CapabilityBoundingSet=CAP_BPF CAP_PERFMON CAP_SYS_ADMIN CAP_CHOWN CAP_FOWNER CAP_DAC_OVERRIDE
     NoNewPrivileges=yes
 
@@ -270,8 +286,9 @@ stdenv.mkDerivation (finalAttrs: {
   '';
 
   passthru = {
-    inherit backendName libraryPath;
+    inherit backendName libraryPath javaPrism;
     jdk = jdk25;
+    graalvm = graalvmPackages.graalvm-ce;
   };
 
   meta = {

@@ -64,6 +64,8 @@
 
             JAVA_HOME = pkgs.jdk25.home;
             PRISM_CLANG = prism.PRISM_CLANG;
+            # What `./gradlew :client:nativeImage` compiles the client with; nothing else in the build needs it.
+            GRAALVM_HOME = prism.graalvm;
             # What the JVM loads at run time, as the package's wrapper gives it (nix/package.nix says what and why).
             LD_LIBRARY_PATH = prism.libraryPath;
           };
@@ -167,7 +169,7 @@
               !(withoutPortal.environment.etc ? "xdg/xdg-desktop-portal/portals.conf")
             ) "with the portal off, no portal configuration is written";
             assert said
-              (lib.hasSuffix "/bin/prism daemon --foreground" asDefault.systemd.user.services.prism.serviceConfig.ExecStart)
+              (lib.hasSuffix "/libexec/prism/prism daemon --foreground" asDefault.systemd.user.services.prism.serviceConfig.ExecStart)
               "the daemon is run in the foreground, with nothing turned off, by default";
             assert said (
               asDefault.xdg.mime.defaultApplications."inode/directory" == "prism.desktop"
@@ -179,7 +181,7 @@
               !(asDefault.systemd.services ? prism-watcher)
             ) "the watcher is not loaded unless asked for";
             assert said
-              (lib.hasSuffix "/bin/prism probe load --group prism" withoutPortal.systemd.services.prism-watcher.serviceConfig.ExecStart)
+              (lib.hasSuffix "/libexec/prism/prism probe load --group prism" withoutPortal.systemd.services.prism-watcher.serviceConfig.ExecStart)
               "with the watcher on, a system service loads it for the group";
             assert said (withoutPortal.users.groups ? prism) "with the watcher on, its group is made";
             assert said (
@@ -192,7 +194,7 @@
               withoutDaemon.systemd.user.services.prism.wantedBy == [ ]
             ) "with the daemon off, nothing starts prism with the session";
             assert said
-              (lib.hasSuffix "/bin/prism portal serve --no-file-manager" withoutDaemon.systemd.user.services.prism.serviceConfig.ExecStart)
+              (lib.hasSuffix "/libexec/prism/prism portal serve --no-file-manager" withoutDaemon.systemd.user.services.prism.serviceConfig.ExecStart)
               "with the daemon off, what D-Bus starts for the portal keeps no index";
             assert said (
               !(withoutDaemon.xdg.mime.defaultApplications ? "inode/directory")
