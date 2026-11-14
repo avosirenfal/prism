@@ -20,7 +20,7 @@ class LauncherStateTest {
 	private val now = Instant.parse("2026-11-14T10:00:00Z")
 
 	private fun state(query: String = "", launches: Launches = Launches.NONE) =
-		LauncherState(applications = Programs.all, launches = launches, now = now)
+		LauncherState(installed = Installed.of(Programs.all), launches = launches, now = now)
 			.let {
 				if (query.isEmpty())
 					it
@@ -161,7 +161,7 @@ class LauncherStateTest {
 		val search = typed.effects.single() as LauncherEffect.Search
 
 		assertEquals("report", search.text)
-		assertEquals(LauncherPreferences().fileResults, search.most)
+		assertEquals(LauncherPreferences().fileResults.number, search.most)
 		assertTrue(typed.state.searching)
 
 		val found =
@@ -245,7 +245,7 @@ class LauncherStateTest {
 			0,
 			shown.after(LauncherEvent.Moved(3), LauncherEvent.Typed("f")).state.highlighted,
 		)
-		// Fewer results than where the arrows were: on the last of them.
+		// Fewer results than there were: the arrows are on the entry they were on, wherever it now is.
 		assertEquals(
 			1,
 			shown
@@ -255,6 +255,69 @@ class LauncherStateTest {
 					LauncherEvent.Moved(-1),
 				).state.highlighted,
 		)
+	}
+
+	@Test
+	fun theArrowsStayOnAnEntryWhenWhatIsShownChangesAroundItAndGoToTheFirstWhenItIsGone() {
+		val shown = state()
+		val on = shown.after(LauncherEvent.Moved(2)).state
+		val entry = on.current!!
+
+		// What is installed read again, in another order and with one fewer before it: the same entry.
+		val fewer =
+			step(
+				on,
+				LauncherEvent.ApplicationsRead(
+					Programs.all.filterNot { Entry.App(it) == shown.entries.first() }.reversed(),
+				),
+			).state
+
+		assertEquals(entry, fewer.current)
+		assertEquals(fewer.entries.indexOf(entry), fewer.highlighted)
+
+		// The entry itself gone: the first.
+		val gone =
+			step(
+				on,
+				LauncherEvent.ApplicationsRead(Programs.all.filterNot { Entry.App(it) == entry }),
+			).state
+
+		assertEquals(0, gone.highlighted)
+		assertEquals(gone.entries.first(), gone.current)
+
+		// Nothing shown at all: nothing the arrows are on, and nowhere past the end to be.
+		val nothing = step(on, LauncherEvent.Typed("zzzz no such thing")).state
+
+		assertTrue(nothing.entries.isEmpty())
+		assertNull(nothing.current)
+		assertEquals(0, nothing.after(LauncherEvent.Moved(5)).state.highlighted)
+	}
+
+	@Test
+	fun aSearchThatWentWrongIsAnAnswerForWhatWasTypedAndOnlyForThat() {
+		val typed = state("report")
+
+		assertTrue(typed.searching)
+
+		val failed = typed.after(LauncherEvent.SearchFailed("report")).state
+
+		assertEquals(FilesFound.Failed("report"), failed.files)
+		assertFalse(failed.searching)
+		// One for what was typed before is dropped, as an answer for it is.
+		assertEquals(typed.files, typed.after(LauncherEvent.SearchFailed("repo")).state.files)
+		// And typing on asks again.
+		assertTrue(failed.after(LauncherEvent.Typed("reports")).state.searching)
+	}
+
+	@Test
+	fun whatAnApplicationSaysOfItselfIsMadeReadyOnceAndFoundAsItWas() {
+		val said = Said("Visual Studio Code", 100)
+
+		assertEquals("visual studio code", said.lower)
+		assertEquals("vsc", said.initials)
+		// Read again, the same applications are the same thing installed: nothing is shown anew for it.
+		assertEquals(Installed.of(Programs.all), Installed.of(Programs.all))
+		assertEquals(Programs.all, Installed.of(Programs.all).applications)
 	}
 
 	@Test

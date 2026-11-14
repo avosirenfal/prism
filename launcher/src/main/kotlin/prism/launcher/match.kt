@@ -26,15 +26,33 @@ private enum class Place(
 	Inside(35),
 }
 
-/** Something an application says of itself, and how much being found there counts, of a hundred. */
-private class Said(
+/**
+ * Something an application says of itself, and how much being found there counts, of a hundred. What a word is
+ * looked for in (the text in lower case, and its words' first letters) is worked out as this is made, once, and not
+ * for every word of every key typed.
+ */
+internal class Said(
 	val text: String,
 	val worth: Int,
-)
+) {
+	val lower: String = text.lowercase()
 
-/** Where [word] is found in [text]: the best place; null where it is not there at all. */
-private fun placeOf(word: String, text: String): Place? {
-	val lower = text.lowercase()
+	/** The first letter of each word of the text, in lower case: `vsc`, of Visual Studio Code. */
+	val initials: String =
+		text
+			.split(BETWEEN_WORDS)
+			.filter { it.isNotEmpty() }
+			.joinToString("") { it.take(1).lowercase() }
+
+	private companion object {
+		val BETWEEN_WORDS = Regex("[^\\p{L}\\p{N}]+")
+	}
+}
+
+/** Where [word] is found in what is [said]: the best place; null where it is not there at all. */
+private fun placeOf(word: String, said: Said): Place? {
+	val text = said.text
+	val lower = said.lower
 	val at = lower.indexOf(word)
 
 	fun startsWord(index: Int) =
@@ -47,20 +65,13 @@ private fun placeOf(word: String, text: String): Place? {
 			.any(::startsWord)
 
 	return when {
-		at < 0 -> Place.Initials.takeIf { word.length > 1 && initialsOf(text).startsWith(word) }
+		at < 0 -> Place.Initials.takeIf { word.length > 1 && said.initials.startsWith(word) }
 		lower == word -> Place.Whole
 		at == 0 -> Place.Start
 		atWordStart -> Place.WordStart
 		else -> Place.Inside
 	}
 }
-
-/** The first letter of each word of [text], in lower case: `vsc`, of Visual Studio Code. */
-private fun initialsOf(text: String): String =
-	text
-		.split(Regex("[^\\p{L}\\p{N}]+"))
-		.filter { it.isNotEmpty() }
-		.joinToString("") { it.take(1).lowercase() }
 
 /** How well [words] fit what is [said]: each word's best, added; null where a word is found nowhere. */
 private fun scoreOf(words: List<String>, said: List<Said>): Int? {
@@ -71,7 +82,7 @@ private fun scoreOf(words: List<String>, said: List<Said>): Int? {
 		words.map { word ->
 			said
 				.mapNotNull {
-					placeOf(word, it.text)?.let { place ->
+					placeOf(word, it)?.let { place ->
 						place.points * it.worth / 100
 					}
 				}.maxOrNull()
@@ -96,31 +107,64 @@ private fun saidBy(application: Application): List<Said> =
 		application.comment?.let { Said(it, 25) },
 	) + application.keywords.map { Said(it, 50) }
 
-/** How well [words] fit [application]; null where they do not. */
-internal fun scoreOf(words: List<String>, application: Application): Int? =
-	scoreOf(words, saidBy(application))
+/**
+ * An application as the launcher looks through it: what it says of itself, and each thing it can be started to do,
+ * made ready to be looked through when it is read, and not again for every key typed.
+ */
+class Listed internal constructor(
+	val application: Application,
+) {
+	internal val entry = Entry.App(application)
+	internal val said: List<Said> = saidBy(application)
+
+	/** Its name, as what one of its actions is told by. */
+	internal val owning = Said(application.name, 70)
+
+	/** Its name in lower case: what applications are in the order of, with nothing typed. */
+	internal val sortName: String = application.name.lowercase()
+	internal val actions: List<Doing> = application.actions.map { Doing(application, it) }
+
+	/** Something else the application can be started to do, and its name as it is looked through. */
+	internal class Doing(
+		application: Application,
+		action: ApplicationAction,
+	) {
+		val entry = Entry.Action(application, action)
+		val name = Said(action.name, 90)
+	}
+
+	override fun equals(other: Any?): Boolean =
+		other is Listed && application == other.application
+
+	override fun hashCode(): Int = application.hashCode()
+
+	override fun toString(): String = application.name
+}
+
+/** How well [words] fit [listed]; null where they do not. */
+internal fun scoreOf(words: List<String>, listed: Listed): Int? =
+	scoreOf(words, listed.said)
 
 /**
- * How well [words] fit [action] of [application]: found by the action's own name, with the application's to tell whose
+ * How well [words] fit [action] of [listed]: found by the action's own name, with the application's to tell whose
  * it is, and a little behind the application itself, so that `firefox` is Firefox before it is its private window.
  * An action is found only where a word is in its own name, or what is typed is its application's whole name: `libre`
  * finds the five programs of LibreOffice, and not, after them, everything each of them can be started to do.
  */
-internal fun scoreOf(
-	words: List<String>,
-	application: Application,
-	action: ApplicationAction,
-): Int? =
-	scoreOf(words, listOf(Said(action.name, 90), Said(application.name, 70)))
+internal fun scoreOf(words: List<String>, listed: Listed, action: Listed.Doing): Int? =
+	scoreOf(words, listOf(action.name, listed.owning))
 		?.takeIf {
 			words.any { placeOf(it, action.name) != null } ||
-				placeOf(words.joinToString(" "), application.name) == Place.Whole
+				placeOf(words.joinToString(" "), listed.owning) == Place.Whole
 		}?.let { it - 5 }
+
+/** What each thing prism does says of itself. */
+private val SAID_BY_COMMAND: Map<LauncherCommand, List<Said>> =
+	LauncherCommand.entries.associateWith { command ->
+		listOf(Said(command.label, 100), Said(command.detail, 25)) +
+			command.keywords.map { Said(it, 50) }
+	}
 
 /** How well [words] fit [command]; null where they do not. */
 internal fun scoreOf(words: List<String>, command: LauncherCommand): Int? =
-	scoreOf(
-		words,
-		listOf(Said(command.label, 100), Said(command.detail, 25)) +
-			command.keywords.map { Said(it, 50) },
-	)
+	scoreOf(words, SAID_BY_COMMAND.getValue(command))

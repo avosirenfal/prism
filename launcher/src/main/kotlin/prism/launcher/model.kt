@@ -103,15 +103,39 @@ data class Section(
 /** What a search of the index found for the launcher. */
 @Immutable
 sealed interface FilesFound {
+	/** What was typed that this is the answer for; none, where nothing has been answered. */
+	val query: String?
+
 	/** Nothing asked for, or nothing back yet. */
-	data object None : FilesFound
+	data object None : FilesFound {
+		override val query: String? get() = null
+	}
 
 	/** The first [files] of [total], found for [query]. */
 	data class Found(
-		val query: String,
+		override val query: String,
 		val files: List<Entry.File>,
 		val total: Int,
 	) : FilesFound
+
+	/** The search for [query] went wrong: a mistake of prism's, reported where it happened, and said here. */
+	data class Failed(
+		override val query: String,
+	) : FilesFound
+}
+
+/** The applications installed that a person chooses from, each made ready to be looked through ([Listed]). */
+data class Installed private constructor(
+	internal val listed: List<Listed>,
+) {
+	val applications: List<Application> get() = listed.map { it.application }
+
+	companion object {
+		val NONE = Installed(emptyList())
+
+		fun of(applications: List<Application>): Installed =
+			Installed(applications.map(::Listed))
+	}
 }
 
 /** The launcher. */
@@ -119,8 +143,7 @@ sealed interface FilesFound {
 data class LauncherState(
 	/** What is typed into its field. */
 	val query: String = "",
-	/** The applications installed that a person chooses from. */
-	val applications: List<Application> = emptyList(),
+	val installed: Installed = Installed.NONE,
 	/** What has been started from here, and how lately. */
 	val launches: Launches = Launches.NONE,
 	val preferences: LauncherPreferences = LauncherPreferences(),
@@ -128,8 +151,12 @@ data class LauncherState(
 	val files: FilesFound = FilesFound.None,
 	/** Whether there is an index to search for files. */
 	val searchable: Boolean = true,
-	/** Which of [entries] the arrows are on. */
-	val highlighted: Int = 0,
+	/**
+	 * The entry the arrows are on, by its key; none for the first. Kept by what it is and not by where it is, so that
+	 * it stays on the same entry when what is shown changes around it (files arrive, what is installed is read
+	 * again), and can never be past the end of what is shown.
+	 */
+	val arrowsOn: String? = null,
 	/** What went wrong with the last thing chosen, said until something else is typed or chosen. */
 	val notice: String? = null,
 	/** When this is, for how lately something was used. */
@@ -141,35 +168,32 @@ data class LauncherState(
 	 * most lately first, and what prism does.
 	 */
 	val sections: List<Section> by lazy {
-		val shown = applications.filterNot { it.id in preferences.hidden }
+		val shown = installed.listed.filterNot { it.application.id in preferences.hidden }
 		val words = wordsOf(query)
 
 		val programs =
 			if (words.isEmpty())
 				shown
 					.sortedWith(
-						compareByDescending<Application> { launches.weightOf(Entry.App(it).key, now) }
-							.thenBy { it.name.lowercase() },
-					).map(Entry::App)
+						compareByDescending<Listed> { launches.weightOf(it.entry.key, now) }
+							.thenBy { it.sortName },
+					).map { it.entry }
 			else
 				ranked(
-					shown.flatMap { application ->
-						listOf(Matched(Entry.App(application), scoreOf(words, application))) +
-							application.actions
+					shown.flatMap { listed ->
+						listOfNotNull(scored(listed.entry, scoreOf(words, listed))) +
+							listed.actions
 								.takeIf { preferences.actions }
 								.orEmpty()
-								.map { action ->
-									Matched(
-										Entry.Action(application, action),
-										scoreOf(words, application, action),
-									)
-								}
+								.mapNotNull { scored(it.entry, scoreOf(words, listed, it)) }
 					},
 				)
 
 		val commands =
 			ranked(
-				LauncherCommand.entries.map { Matched(Entry.Command(it), scoreOf(words, it)) },
+				LauncherCommand.entries.mapNotNull {
+					scored(Entry.Command(it), scoreOf(words, it))
+				},
 			)
 
 		val found = (files as? FilesFound.Found)?.takeIf { words.isNotEmpty() }?.files.orEmpty()
@@ -184,35 +208,53 @@ data class LauncherState(
 	/** Everything shown, in order: what the arrows move through. */
 	val entries: List<Entry> by lazy { sections.flatMap { it.entries } }
 
+	/** Which of [entries] the arrows are on: the first, where the one they were on is no longer shown. */
+	val highlighted: Int by lazy {
+		entries.indexOfFirst { it.key == arrowsOn }.coerceAtLeast(0)
+	}
+
 	/** The entry the arrows are on; none where nothing is shown. */
 	val current: Entry? get() = entries.getOrNull(highlighted)
 
-	/** The title over the entry at [at], where it is the first of its section. */
-	fun headingAt(at: Int): String? =
+	/** This, with the arrows on the entry at [at], or on the nearest to it there is. */
+	fun arrowsAt(at: Int): LauncherState =
+		copy(
+			arrowsOn = entries.getOrNull(at.coerceIn(0, (entries.size - 1).coerceAtLeast(0)))?.key,
+		)
+
+	/** Each section's title, by where its first entry is among [entries]. */
+	private val headings: Map<Int, String> by lazy {
 		sections
 			.runningFold(0) { before, section -> before + section.entries.size }
-			.zip(sections)
-			.firstOrNull { (start, _) -> start == at }
-			?.second
-			?.title
+			.zip(sections) { start, section -> start to section.title }
+			.toMap()
+	}
+
+	/** The title over the entry at [at], where it is the first of its section. */
+	fun headingAt(at: Int): String? = headings[at]
 
 	/** Whether files are being looked for: the search for [query] is not back. */
 	val searching: Boolean
 		get() =
-			preferences.files && searchable && wordsOf(query).isNotEmpty() &&
-				(files as? FilesFound.Found)?.query != query
+			preferences.files && searchable && wordsOf(query).isNotEmpty() && files.query != query
 
-	/** Those of [matched] that matched, the best first, and by name among equals; used ones before the rest of theirs. */
-	private fun ranked(matched: List<Matched>): List<Entry> =
-		matched
-			.filter { it.score != null }
+	/** [scored], the best first, and by name among equals; used ones before the rest of theirs. */
+	private fun ranked(scored: List<Scored>): List<Entry> =
+		scored
 			.sortedWith(
-				compareByDescending<Matched> { it.score!! + launches.pointsOf(it.entry.key, now) }
-					.thenBy { it.entry.title.lowercase() },
+				compareByDescending<Scored> { it.score + launches.pointsOf(it.entry.key, now) }
+					.thenBy { it.title },
 			).map { it.entry }
 
-	private class Matched(
+	/** An entry that fits what is typed, and how well. */
+	private class Scored(
 		val entry: Entry,
-		val score: Int?,
-	)
+		val score: Int,
+	) {
+		/** What equals are in the order of. */
+		val title: String = entry.title.lowercase()
+	}
+
+	/** [entry] with its [score], where it has one: where it fits what is typed at all. */
+	private fun scored(entry: Entry, score: Int?): Scored? = score?.let { Scored(entry, it) }
 }

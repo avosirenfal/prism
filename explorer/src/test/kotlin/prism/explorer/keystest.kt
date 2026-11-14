@@ -40,8 +40,11 @@ import prism.desktop.Application
 import prism.launcher.LauncherAction
 import prism.launcher.launcherBindings
 import prism.preferences.LauncherPreferences
+import prism.preferences.LauncherRows
+import prism.preferences.LauncherWidth
 import prism.preferences.Preferences
 import prism.preferences.Role
+import prism.preferences.plus
 
 /**
  * Keys, in the groups they belong to; a picker's own, apart from an explorer's once pickers are given theirs; and the
@@ -193,7 +196,7 @@ class KeysTest {
 
 	@Test
 	fun theLaunchersSettingsAreWrittenOnlyOnceAppliedAndOnlyWhatWasChanged() {
-		val base = Preferences(launcher = LauncherPreferences(rows = 12))
+		val base = Preferences(launcher = LauncherPreferences(rows = LauncherRows.of(12)))
 		val opened = LauncherSettings(base)
 
 		assertFalse(opened.changed)
@@ -219,8 +222,8 @@ class KeysTest {
 		assertEquals(mapOf("Back" to listOf("Ctrl+B")), written.bindings)
 		assertEquals(
 			LauncherPreferences(
-				width = 800,
-				rows = 12,
+				width = LauncherWidth.of(800),
+				rows = LauncherRows.of(12),
 				files = false,
 				bindings = mapOf("Reveal" to listOf("Alt+Enter")),
 			),
@@ -239,8 +242,10 @@ class KeysTest {
 		assertEquals(LauncherPage.Bindings, applied.page)
 		// A number stops at what the launcher can be drawn with.
 		assertEquals(
-			LauncherPreferences.ROWS.last,
-			opened.set { copy(rows = 999) }.launcher.rows,
+			LauncherRows.range.last,
+			opened
+				.set { copy(rows = rows + 999) }
+				.launcher.rows.number,
 		)
 	}
 
@@ -403,8 +408,8 @@ class KeysTest {
 			waitForIdle()
 			assertEquals(
 				LauncherPreferences(
-					width = 800,
-					rows = 8,
+					width = LauncherWidth.of(800),
+					rows = LauncherRows.of(8),
 					files = false,
 					hidden = setOf("firefox.desktop"),
 					bindings = mapOf("Reveal" to listOf("Alt+Enter")),

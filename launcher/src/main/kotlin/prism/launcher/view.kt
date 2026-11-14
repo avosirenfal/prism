@@ -100,8 +100,8 @@ object LauncherDims {
 
 	/** How wide and tall its window is, as [preferences] have it, in the units a window is sized in. */
 	fun sizeOf(preferences: LauncherPreferences): Pair<Dp, Dp> =
-		preferences.bounded.let {
-			(it.width * it.scale).dp to heightOf(it.rows) * it.scale
+		preferences.let {
+			(it.width.number * it.scale.times).dp to heightOf(it.rows.number) * it.scale.times
 		}
 
 	private val heading = 36.dp
@@ -160,7 +160,7 @@ fun LauncherView(session: LauncherSession, bindings: Bindings) {
 	// What is behind the window, as it turned out: its corners are round only where they can be seen through.
 	val backdrop = LocalNativeWindow.current?.backdrop ?: Backdrop.Opaque
 
-	Scaled(state.preferences.scale) {
+	Scaled(state.preferences.scale.times) {
 		LauncherPane(
 			state,
 			bindings,
@@ -220,7 +220,7 @@ fun LauncherPane(
 					(Chord.of(key)?.let(bindings::action) as? LauncherAction)
 						?.takeIf { key.type == KeyEventType.KeyDown }
 
-				action?.let { onEvent(eventOf(it, state.preferences.rows - 1)) }
+				action?.let { onEvent(eventOf(it, state.preferences.rows.number - 1)) }
 
 				action != null
 			}.testTag("launcher"),
@@ -419,8 +419,14 @@ private fun Footer(state: LauncherState, bindings: Bindings) {
 			.padding(horizontal = Space.l),
 		verticalAlignment = Alignment.CenterVertically,
 	) {
-		Text(
+		// A search that went wrong is said as what goes wrong with something chosen is.
+		val wrong =
 			state.notice
+				?: "The search for files failed. That is a mistake of prism's, not of what you typed."
+					.takeIf { state.files is FilesFound.Failed }
+
+		Text(
+			wrong
 				?: when {
 					state.entries.isEmpty() -> ""
 					files != null && files.total > files.files.size ->
@@ -429,9 +435,7 @@ private fun Footer(state: LauncherState, bindings: Bindings) {
 					else -> "${"%,d".format(state.entries.size)} results"
 				},
 			style =
-				if (state.notice !=
-					null
-				)
+				if (wrong != null)
 					type.muted.copy(color = palette.dangerText)
 				else
 					type.muted,

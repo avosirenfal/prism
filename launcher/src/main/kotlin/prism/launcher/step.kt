@@ -60,6 +60,11 @@ sealed interface LauncherEvent {
 		val total: Int,
 	) : LauncherEvent
 
+	/** The index's search for [query] went wrong, which is prism's mistake and has been reported. */
+	data class SearchFailed(
+		val query: String,
+	) : LauncherEvent
+
 	/** What is installed read again. */
 	data class ApplicationsRead(
 		val applications: List<Application>,
@@ -128,15 +133,17 @@ data class LauncherStep(
 fun step(state: LauncherState, event: LauncherEvent): LauncherStep =
 	when (event) {
 		is LauncherEvent.Typed ->
-			state.copy(query = event.query, highlighted = 0, notice = null).searching()
-		is LauncherEvent.Moved ->
+			state.copy(query = event.query, arrowsOn = null, notice = null).searching()
+		is LauncherEvent.Moved -> LauncherStep(state.arrowsAt(state.highlighted + event.by))
+		is LauncherEvent.MovedTo ->
 			LauncherStep(
-				state.copy(
-					highlighted = (state.highlighted + event.by).coerceIn(0, state.last),
+				state.arrowsAt(
+					if (event.last)
+						state.entries.size - 1
+					else
+						0,
 				),
 			)
-		is LauncherEvent.MovedTo ->
-			LauncherStep(state.copy(highlighted = if (event.last) state.last else 0))
 		LauncherEvent.Entered -> state.chosen(state.highlighted)
 		is LauncherEvent.Chosen -> state.chosen(event.at)
 		LauncherEvent.Revealed ->
@@ -163,7 +170,7 @@ fun step(state: LauncherState, event: LauncherEvent): LauncherStep =
 			if (state.query.isEmpty())
 				LauncherStep(state, listOf(LauncherEffect.Close))
 			else
-				state.copy(query = "", highlighted = 0, notice = null).searching()
+				state.copy(query = "", arrowsOn = null, notice = null).searching()
 		LauncherEvent.Closed -> LauncherStep(state, listOf(LauncherEffect.Close))
 		is LauncherEvent.FilesArrived ->
 			// An answer for what was typed before is dropped: the one for what is typed now is on its way.
@@ -171,25 +178,24 @@ fun step(state: LauncherState, event: LauncherEvent): LauncherStep =
 				LauncherStep(state)
 			else
 				LauncherStep(
-					state
-						.copy(files = FilesFound.Found(event.query, event.files, event.total))
-						.let { it.copy(highlighted = it.highlighted.coerceIn(0, it.last)) },
+					state.copy(files = FilesFound.Found(event.query, event.files, event.total)),
 				)
+		is LauncherEvent.SearchFailed ->
+			if (event.query != state.query)
+				LauncherStep(state)
+			else
+				LauncherStep(state.copy(files = FilesFound.Failed(event.query)))
 		is LauncherEvent.ApplicationsRead ->
-			LauncherStep(
-				state
-					.copy(applications = event.applications)
-					.let { it.copy(highlighted = it.highlighted.coerceIn(0, it.last)) },
-			)
+			LauncherStep(state.copy(installed = Installed.of(event.applications)))
 		is LauncherEvent.PreferencesChanged ->
-			state.copy(preferences = event.preferences.bounded).let {
+			state.copy(preferences = event.preferences).let {
 				// Files newly asked for are looked for; those no longer asked for are let go.
 				if (it.preferences.files != state.preferences.files ||
 					it.preferences.fileResults != state.preferences.fileResults
 				)
 					it.copy(files = FilesFound.None).searching()
 				else
-					LauncherStep(it.copy(highlighted = it.highlighted.coerceIn(0, it.last)))
+					LauncherStep(it)
 			}
 		is LauncherEvent.Started ->
 			if (event.failed == null)
@@ -200,9 +206,6 @@ fun step(state: LauncherState, event: LauncherEvent): LauncherStep =
 			else
 				LauncherStep(state.copy(notice = event.failed))
 	}
-
-/** The place of the last result; 0 where there is none. */
-private val LauncherState.last: Int get() = (entries.size - 1).coerceAtLeast(0)
 
 /** This state with the index asked for the files that fit what is typed, where files are found at all. */
 private fun LauncherState.searching(): LauncherStep {
@@ -217,7 +220,7 @@ private fun LauncherState.searching(): LauncherStep {
 	else
 		LauncherStep(
 			this,
-			listOf(LauncherEffect.Search(query, read.query, preferences.fileResults)),
+			listOf(LauncherEffect.Search(query, read.query, preferences.fileResults.number)),
 		)
 }
 
@@ -238,7 +241,7 @@ private fun LauncherState.chosen(at: Int): LauncherStep =
 			)
 		else ->
 			LauncherStep(
-				copy(highlighted = at, notice = null),
+				copy(arrowsOn = entry.key, notice = null),
 				listOf(LauncherEffect.Start(entry)),
 			)
 	}

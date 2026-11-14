@@ -41,6 +41,7 @@ import prism.desktop.MimeType
 import prism.launcher.Entry
 import prism.launcher.LauncherEvent
 import prism.preferences.ActionsFile
+import prism.preferences.LauncherRows
 import prism.preferences.MemoryPreferences
 import prism.preferences.QuickAccess
 
@@ -181,9 +182,12 @@ class ExplorerTest {
 
 			// Its settings changed while it is shown, it is as they now say.
 			preferences.update {
-				it.copy(launcher = it.launcher.copy(rows = 12, hidden = setOf("editor.desktop")))
+				it.copy(
+					launcher =
+						it.launcher.copy(rows = LauncherRows.of(12), hidden = setOf("editor.desktop")),
+				)
 			}
-			settled { again.session.state.value.preferences.rows == 12 }
+			settled { again.session.state.value.preferences.rows.number == 12 }
 			assertEquals(
 				emptyList<Entry>(),
 				again.session.state.value.entries

@@ -2,6 +2,7 @@ package prism.launcher
 
 import java.nio.file.Path
 import java.time.Clock
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -58,6 +59,13 @@ class LauncherServices(
 	val clock: Clock = Clock.systemUTC(),
 	/** Where what blocks is done: starting programs, searching, reading what is installed. */
 	val io: CoroutineDispatcher = Dispatchers.IO,
+	/**
+	 * Where what goes wrong that is prism's own mistake is said in full, with what was being done: standard error,
+	 * unless told otherwise. What the launcher shows of it is a line.
+	 */
+	val report: (String, Throwable) -> Unit = { doing, failure ->
+		System.err.println("prism: $doing failed: ${failure.stackTraceToString().trimEnd()}")
+	},
 )
 
 /** A launcher open: its [state], changed by what is [send]t to it, its work done in [scope]. */
@@ -70,9 +78,9 @@ class LauncherSession(
 	private val held =
 		MutableStateFlow(
 			LauncherState(
-				applications = services.desktop.applications.all(),
+				installed = Installed.of(services.desktop.applications.all()),
 				launches = services.launches.launches,
-				preferences = preferences.bounded,
+				preferences = preferences,
 				searchable = services.finder != null,
 				now = services.clock.instant(),
 			),
@@ -131,18 +139,28 @@ class LauncherSession(
 			searching?.cancel()
 			searching =
 				scope.launch(Dispatchers.Default) {
-					val found =
-						when (val searched = finder.find(query)) {
-							is Searched.Found -> searched.results
-							is Searched.Refused -> Results.NONE
-						}
-
+					// A search that throws is a mistake of prism's: reported, and said in the launcher, which goes
+					// on finding applications; it is not the launcher's window's to fail for.
 					send(
-						LauncherEvent.FilesArrived(
-							text,
-							List(minOf(most, found.size)) { fileOf(found, it) },
-							found.size,
-						),
+						try {
+							val found =
+								when (val searched = finder.find(query)) {
+									is Searched.Found -> searched.results
+									is Searched.Refused -> Results.NONE
+								}
+
+							LauncherEvent.FilesArrived(
+								text,
+								List(minOf(most, found.size)) { fileOf(found, it) },
+								found.size,
+							)
+						} catch (stopped: CancellationException) {
+							throw stopped
+						} catch (failed: RuntimeException) {
+							services.report("searching for “$text”", failed)
+
+							LauncherEvent.SearchFailed(text)
+						},
 					)
 				}
 		}

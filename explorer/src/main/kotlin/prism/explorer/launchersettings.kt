@@ -46,6 +46,9 @@ import prism.launcher.launcherBindings
 import prism.preferences.LauncherPreferences
 import prism.preferences.Preferences
 import prism.preferences.Scales
+import prism.preferences.least
+import prism.preferences.most
+import prism.preferences.plus
 import prism.browser.Page as PageLayout
 
 /*
@@ -109,9 +112,9 @@ data class LauncherSettings(
 			it.copy(rebinding = it.rebinding.finding(rebinding.finding))
 		}
 
-	/** These, with the launcher's own settings changed by [change], each number kept within what it can be. */
+	/** These, with the launcher's own settings changed by [change]. */
 	fun set(change: LauncherPreferences.() -> LauncherPreferences): LauncherSettings =
-		copy(launcher = launcher.bounded.change().bounded)
+		copy(launcher = launcher.change())
 }
 
 /**
@@ -179,7 +182,7 @@ private fun GeneralPage(
 	settings: LauncherSettings,
 	onChange: (LauncherSettings) -> Unit,
 ) {
-	val set = settings.launcher.bounded
+	val set = settings.launcher
 
 	fun changed(change: LauncherPreferences.() -> LauncherPreferences) =
 		onChange(settings.set(change))
@@ -194,8 +197,8 @@ private fun GeneralPage(
 				SettingRow("Width", description = "How wide the launcher is.") {
 					Stepper(
 						"${set.width}",
-						set.width > LauncherPreferences.WIDTHS.first,
-						set.width < LauncherPreferences.WIDTHS.last,
+						!set.width.least,
+						!set.width.most,
 						tag = "launcher-width",
 					) { step -> changed { copy(width = width + 40 * step) } }
 				}
@@ -205,8 +208,8 @@ private fun GeneralPage(
 				) {
 					Stepper(
 						"${set.rows}",
-						set.rows > LauncherPreferences.ROWS.first,
-						set.rows < LauncherPreferences.ROWS.last,
+						!set.rows.least,
+						!set.rows.most,
 						tag = "launcher-rows",
 					) { step -> changed { copy(rows = rows + step) } }
 				}
@@ -222,11 +225,11 @@ private fun GeneralPage(
 				}
 				SettingRow("Size", description = "How large its text and pictures are drawn.") {
 					Stepper(
-						"${(set.scale * 100).roundToInt()} %",
-						set.scale > Scales.SMALLEST,
-						set.scale < Scales.LARGEST,
+						"${(set.scale.times * 100).roundToInt()} %",
+						!set.scale.least,
+						!set.scale.most,
 						tag = "launcher-scale",
-					) { step -> changed { copy(scale = ((scale * 10).roundToInt() + step) / 10f) } }
+					) { step -> changed { copy(scale = scale.stepped(step)) } }
 				}
 			}
 		}
@@ -251,8 +254,8 @@ private fun GeneralPage(
 				) {
 					Stepper(
 						"${set.fileResults}",
-						set.files && set.fileResults > LauncherPreferences.FILE_RESULTS.first,
-						set.files && set.fileResults < LauncherPreferences.FILE_RESULTS.last,
+						set.files && !set.fileResults.least,
+						set.files && !set.fileResults.most,
 						tag = "launcher-file-results",
 					) { step -> changed { copy(fileResults = fileResults + 5 * step) } }
 				}

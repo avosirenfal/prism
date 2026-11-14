@@ -7,6 +7,7 @@ import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.test.ComposeUiTest
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsSelected
+import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
@@ -20,12 +21,15 @@ import java.nio.file.Path
 import java.time.Clock
 import java.time.Instant
 import java.time.ZoneOffset
+import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.io.path.createDirectories
 import kotlin.io.path.writeText
 import kotlinx.coroutines.runBlocking
 import org.jetbrains.skia.EncodedImageFormat
 import org.jetbrains.skia.Surface
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertInstanceOf
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -33,6 +37,7 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import prism.browser.BrowserTheme
 import prism.browser.Category
+import prism.browser.Finder
 import prism.browser.Palette
 import prism.browser.StaticFinder
 import prism.browser.renderedPng
@@ -41,6 +46,8 @@ import prism.desktop.Icons
 import prism.desktop.freedesktop.Freedesktop
 import prism.index.Index
 import prism.index.Indexer
+import prism.index.Searched
+import prism.index.query.Query
 
 /**
  * The launcher drawn and worked as a user works it: typed into, moved through with the arrows, and what is chosen
@@ -60,13 +67,24 @@ class LauncherViewTest {
 
 	/** A launcher over the tests' desktop and an index of [home], drawn; what it started and asked for kept. */
 	private fun launching(
+		searching: Finder? = null,
+		report: (
+			String,
+			Throwable,
+		) -> Unit = { doing, failure -> throw AssertionError(doing, failure) },
 		check: ComposeUiTest.(LauncherSession, FakeDesktop, FakeHost, MemoryLaunches) -> Unit,
 	) = runComposeUiTest {
 		val desktop = FakeDesktop(home)
 		val host = FakeHost()
 		val launches = MemoryLaunches()
+
 		val finder =
-			StaticFinder(Index.EMPTY.with(Indexer(mounts = emptyList()).index(home)), home = home)
+			searching
+				?: StaticFinder(
+					Index.EMPTY.with(Indexer(mounts = emptyList()).index(home)),
+					home = home,
+				)
+
 		val running = arrayOfNulls<LauncherSession>(1)
 
 		setContent {
@@ -81,6 +99,7 @@ class LauncherViewTest {
 							launches,
 							home,
 							clock = Clock.fixed(now, ZoneOffset.UTC),
+							report = report,
 						),
 						host,
 						scope,
@@ -174,6 +193,41 @@ class LauncherViewTest {
 				host.asked.toList(),
 			)
 			assertEquals(emptyList<Any>(), desktop.started.toList())
+		}
+	}
+
+	@Test
+	fun aSearchThatGoesWrongIsReportedAndSaidAndTheLauncherGoesOnFindingApplications() {
+		val reported = CopyOnWriteArrayList<Pair<String, Throwable>>()
+
+		val broken =
+			object : Finder {
+				override fun find(query: Query): Searched =
+					throw IndexOutOfBoundsException("Index -1")
+
+				override fun picked(paths: List<Path>, at: Instant) = Unit
+			}
+
+		launching(
+			broken,
+			report = { doing, failure -> reported += doing to failure },
+		) { session, _, _, _ ->
+			onNodeWithTag("launcher-query").performTextInput("fire")
+			until { session.state.value.files is FilesFound.Failed }
+
+			// Said as prism's mistake, with nothing of the exception's own words; and reported in full, once.
+			onNodeWithTag(
+				"launcher-status",
+			).assertTextContains("mistake of prism's", substring = true)
+			assertEquals(listOf("searching for “fire”"), reported.map { it.first })
+			assertInstanceOf(IndexOutOfBoundsException::class.java, reported.single().second)
+			// The launcher is as it was otherwise: what is installed is found, and nothing is being waited for.
+			assertEquals(
+				"Firefox",
+				session.state.value.current
+					?.title,
+			)
+			assertFalse(session.state.value.searching)
 		}
 	}
 
@@ -319,7 +373,7 @@ class LauncherViewTest {
 
 		val first =
 			LauncherState(
-				applications = applications,
+				installed = Installed.of(applications),
 				launches =
 					Launches.NONE
 						.used(Entry.App(Programs.firefox).key, now)

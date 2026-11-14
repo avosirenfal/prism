@@ -95,6 +95,50 @@ class PreferencesTest {
 	}
 
 	@Test
+	fun theLaunchersNumbersAreWithinWhatItCanBeDrawnWithWhateverAFileOrAStepSays() {
+		Files.createDirectories(file.parent)
+		// As a file from before the numbers had bounds of their own may have them: plain numbers, any at all.
+		file.writeText(
+			"{ \"launcher\": { \"width\": 99999, \"rows\": -3, \"scale\": 40.0, \"fileResults\": 0 } }",
+		)
+
+		val read = PreferenceFile.read(file)
+
+		assertInstanceOf(PreferencesRead.Read::class.java, read)
+		assertEquals(
+			LauncherPreferences(
+				width = LauncherWidth.of(LauncherWidth.range.last),
+				rows = LauncherRows.of(LauncherRows.range.first),
+				scale = LauncherScale.of(Scales.LARGEST),
+				fileResults = FileResults.of(1),
+			),
+			read.preferences.launcher,
+		)
+		// One within them is as it was written, and is written as the plain number it is.
+		file.writeText("{ \"launcher\": { \"width\": 800, \"rows\": 12 } }")
+		assertEquals(
+			800,
+			PreferenceFile
+				.read(file)
+				.preferences.launcher.width.number,
+		)
+		PreferenceFile.open(file).use { store ->
+			store.update { it.binding("Back", listOf("Alt+Left")) }
+		}
+		assertTrue("\"width\": 800" in file.readText())
+
+		// A step past the last stops at it, and says it is there.
+		val rows = LauncherRows.of(19) + 5
+
+		assertEquals(20, rows.number)
+		assertTrue(rows.most)
+		assertFalse(rows.least)
+		assertTrue((rows + -100).least)
+		assertTrue(LauncherScale.of(Scales.SMALLEST).stepped(-1).least)
+		assertEquals(1.1f, LauncherScale.of(1f).stepped(1).times)
+	}
+
+	@Test
 	fun theDefaultLookAndTheTypographyAreWrittenAndReadBack() {
 		Files.createDirectories(file.parent)
 		file.writeText(

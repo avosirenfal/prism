@@ -410,6 +410,7 @@ class Explorer(
 					finder,
 					launches,
 					home,
+					report = report,
 					terminal = { preferences.preferences.value.terminal },
 				),
 				host,

@@ -36,7 +36,7 @@ class CornersTest {
 	): BufferedImage {
 		val png =
 			renderedPng(width, height, palette, scale) {
-				LauncherPane(LauncherState(applications = Programs.all), corners = corners)
+				LauncherPane(LauncherState(installed = Installed.of(Programs.all)), corners = corners)
 			}
 
 		System.getProperty("launcher.screenshots")?.takeIf { it.isNotBlank() }?.let { dir ->
