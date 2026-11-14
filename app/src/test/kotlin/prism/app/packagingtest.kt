@@ -38,6 +38,8 @@ class PackagingTest {
 			"Exec=\$out/bin/prism ${DaemonCommand.name} --foreground",
 			// What gives back to a program prism starts what the wrapper changed for prism.
 			"PRISM_RESTORE_LD_LIBRARY_PATH",
+			"bin/prism ${ProbeGroup.name} ${ProbeLoad.name} --group prism",
+			"bin/prism ${ProbeGroup.name} ${ProbeUnload.name}",
 			"-Dprism.launcher=",
 		)
 	}
@@ -53,17 +55,26 @@ class PackagingTest {
 			"\"$FOLDER_MIME\" = \"prism.desktop\";",
 		)
 
-		// Every word the module gives the daemon is one the daemon reads.
+		// Every word the module gives the daemon, or the watcher's loader, is one they read.
 		val words = Regex("\"(--[a-z-]+)\"").findAll(module).map { it.groupValues[1] }.toSet()
 		val read =
-			DaemonCommand.params
+			listOf(DaemonCommand, ProbeLoad)
+				.flatMap { it.params }
 				.filterIsInstance<prism.cli.Opt<*>>()
-				.flatMap {
-					it.names
-				}.toSet()
+				.flatMap { it.names }
+				.toSet()
 
 		assertTrue(words.isNotEmpty())
-		assertTrue(read.containsAll(words), "the daemon does not read ${words - read}")
+		assertTrue(
+			read.containsAll(words),
+			"neither the daemon nor the loader reads ${words - read}",
+		)
+		assertNames(
+			module,
+			"\"${ProbeGroup.name}\"",
+			"\"${ProbeLoad.name}\"",
+			"\"${ProbeUnload.name}\"",
+		)
 	}
 
 	private companion object {

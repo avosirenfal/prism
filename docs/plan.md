@@ -154,12 +154,13 @@ which matters for the floods a `git checkout` or `npm install` makes.
 
 ### Privileges
 
-Loading a tracing program needs `CAP_BPF` and `CAP_PERFMON`. A user's daemon has neither. The plan is a small
-system service that holds those capabilities, loads the watcher at boot, and hands the ring buffer's descriptor to the
-user's daemon over a Unix socket (`SCM_RIGHTS`), so the daemon itself runs unprivileged and only reads. Where that is
-not set up, the daemon runs without the watcher and keeps the index current by reading folders as the picker shows
-them, which is slower to notice changes but never wrong. BPF tokens (Linux 6.9) are the other way to delegate the
-capability, and will be looked at when distributions enable them.
+Loading a tracing program needs `CAP_BPF` and `CAP_PERFMON`. A user's daemon has neither, and is not to: it starts
+the user's applications, which would have them too. So a loader, run as root once at boot, loads the watcher and
+leaves it in the kernel under names in a BPF file system (pins), and ends; the user's daemon opens the ring by its
+name, which takes leave to open a file and no privilege, and only reads (docs/running.md). Where that is not set up,
+the daemon runs without the watcher and keeps the index current by reading its roots again now and then, which is
+slower to notice changes but never wrong. BPF tokens (Linux 6.9) are another way to delegate the capability, and
+will be looked at when distributions enable them.
 
 ## The picker
 

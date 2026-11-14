@@ -93,8 +93,26 @@ The folder picker is not a fourth thing: choosing a folder is the file chooser a
 | `programs.prism.portal.enable` | `true` | prism is the file chooser |
 | `programs.prism.portal.desktops` | `[ "common" ]` | which of `xdg.portal.config`'s configurations prefer prism (see below) |
 | `programs.prism.fileManager.enable` | `true` | prism opens folders, and answers `org.freedesktop.FileManager1` |
+| `programs.prism.watcher.enable` | `false` | loads the eBPF watcher into the kernel at boot (a system service, `prism-watcher.service`) for the daemon to read, so the index follows every change as it is made |
+| `programs.prism.watcher.group` | `"prism"` | the group whose members may read it; made where it is not there |
 
-Each can be turned off without the others. The one you described:
+Each can be turned off without the others.
+
+The watcher is off unless asked for, since what it tells its readers is the name of every file anyone makes on the
+machine. To have it, turn it on and put yourself in its group, then rebuild and log in again:
+
+```nix
+{
+  programs.prism.watcher.enable = true;
+  users.users.you.extraGroups = [ "prism" ];
+}
+```
+
+`prism status` then says `changes: watched through the watcher pinned at /run/prism-watcher/...`. How it works, and
+why the daemon is not simply given the privileges, is in docs/running.md ("The watcher, loaded by root and read by
+the daemon").
+
+The case of prism as the explorer with another backend for the picker:
 
 ```nix
 {
@@ -228,6 +246,7 @@ The module adds one more small thing: a D-Bus service file for `org.freedesktop.
 | `share/xdg-desktop-portal/portals/prism.portal` | the portal backend's description |
 | `share/dbus-1/services/org.freedesktop.impl.portal.desktop.prism.service` | what starts `prism.service` when the portal calls the backend and nothing has its name |
 | `share/systemd/user/prism.service` | the daemon's unit, for use without the module |
+| `lib/systemd/system/prism-watcher.service`, `lib/sysusers.d/prism.conf` | the watcher's loader as a system service, and the group it gives the watcher to, for use without the module: on another distribution, enable the one and put a user in the other |
 
 Two things about the wrapper are worth knowing.
 
@@ -284,7 +303,7 @@ fetched. Where its sandbox cannot be made (inside a container), `USE_BWRAP=0` be
 | files open in the wrong application, or in none | the daemon's `PATH`: `systemctl --user show-environment` |
 | a window closed and one saying "ran into a problem" opened | that is prism reporting a mistake of its own (docs/running.md): Copy gives the text to report, and it is in `journalctl --user -u prism` |
 | after an upgrade, the old prism is still running | `systemctl --user restart prism`; NixOS does not restart user services when it switches |
-| `prism status` says changes are not watched | expected for now: a user's service cannot load the watcher (docs/running.md, "The watcher") |
+| `prism status` says changes are not watched | without `programs.prism.watcher.enable`, expected: a user's service cannot load the watcher (docs/running.md). With it: `systemctl status prism-watcher` (did it load?), `ls -l /run/prism-watcher/*/` (who may read it?), and `id` (are you in the group, in this login?) |
 
 To watch the daemon directly, stop the service and run it in a terminal:
 

@@ -115,6 +115,21 @@ internal class LibBpf private constructor(
 			"libbpf_num_possible_cpus",
 			FunctionDescriptor.of(JAVA_INT),
 		)
+	private val pinLink =
+		library.capturing(
+			"bpf_link__pin",
+			FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS),
+		)
+	private val pinObject =
+		library.capturing(
+			"bpf_obj_pin",
+			FunctionDescriptor.of(JAVA_INT, JAVA_INT, ADDRESS),
+		)
+	private val getObject =
+		library.capturing(
+			"bpf_obj_get",
+			FunctionDescriptor.of(JAVA_INT, ADDRESS),
+		)
 
 	/** An object read from [bytes], not yet loaded: its maps are not created and its programs not verified. */
 	fun open(bytes: MemorySegment): Sys<ObjectHandle> {
@@ -198,6 +213,47 @@ internal class LibBpf private constructor(
 
 		return CallState.outcome("bpf_map_delete_elem", result.toLong()) { }
 	}
+
+	/**
+	 * [link] given the name [path] in a BPF file system: the hook stays attached for as long as the name is there,
+	 * whatever becomes of the process that attached it.
+	 */
+	fun pin(link: LinkHandle, path: String): Sys<Unit> =
+		Arena.ofConfined().use { arena ->
+			val result =
+				pinLink.invokeExact(
+					CallState.segment(),
+					link.pointer,
+					arena.allocateFrom(path),
+				) as Int
+
+			CallState.outcome("bpf_link__pin", result.toLong()) { }
+		}
+
+	/** What [fd] is (a map) given the name [path] in a BPF file system, which another process opens it by. */
+	fun pin(fd: Int, path: String): Sys<Unit> =
+		Arena.ofConfined().use { arena ->
+			val result =
+				pinObject.invokeExact(
+					CallState.segment(),
+					fd,
+					arena.allocateFrom(path),
+				) as Int
+
+			CallState.outcome("bpf_obj_pin", result.toLong()) { }
+		}
+
+	/** What is pinned at [path], opened: a descriptor of it, which is the caller's to close. */
+	fun pinned(path: String): Sys<Int> =
+		Arena.ofConfined().use { arena ->
+			val result =
+				getObject.invokeExact(
+					CallState.segment(),
+					arena.allocateFrom(path),
+				) as Int
+
+			CallState.outcome("bpf_obj_get", result.toLong()) { it.toInt() }
+		}
 
 	/** The CPUs the kernel could ever bring up: how many values a per-CPU map holds under each key. */
 	fun possibleCpus(): Int = possibleCpus.invokeExact() as Int

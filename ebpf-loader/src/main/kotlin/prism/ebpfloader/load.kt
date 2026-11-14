@@ -4,6 +4,8 @@ import java.lang.foreign.Arena
 import java.lang.foreign.MemorySegment
 import java.lang.foreign.ValueLayout.JAVA_INT
 import java.lang.foreign.ValueLayout.JAVA_LONG
+import java.nio.file.Files
+import java.nio.file.Path
 import prism.ebpf.Btf
 import prism.ebpf.Counters
 import prism.ebpf.Hook
@@ -13,8 +15,10 @@ import prism.ebpf.Record
 import prism.ebpf.RingBuffer
 import prism.ebpf.Table
 import prism.ebpf.kernelMismatches
+import prism.linux.Errno
 import prism.linux.Fd
 import prism.linux.Sys
+import prism.linux.close
 
 /*
  * A program declared in the DSL, loaded from the object clang compiled of it. The Kotlin declaration is the one
@@ -96,24 +100,17 @@ sealed interface Attachment {
 }
 
 /**
- * A loaded program: its maps, reached by their declarations, and its hooks, each attached or not as [attachments]
- * says. Closing it detaches every hook and frees the maps; nothing of it may be used after.
+ * A program's maps as the host reaches them, by their declarations: of a program this process loaded
+ * ([LoadedObject]), or of one another process loaded and left pinned ([PinnedObject]). Reading a map needs only its
+ * descriptor, whoever made it.
  */
-class LoadedObject internal constructor(
+abstract class ProgramMaps internal constructor(
 	val program: Program,
-	private val libbpf: LibBpf,
-	private val handle: ObjectHandle,
-	private val arena: Arena,
-	val attachments: Map<Hook, Attachment>,
-	private val links: List<LinkHandle>,
+	internal val libbpf: LibBpf,
+	internal val arena: Arena,
 ) : AutoCloseable {
-	/** The hooks that are attached: what the program will see. */
-	val attached: List<Hook> get() =
-		attachments
-			.filterValues {
-				it == Attachment.Attached
-			}.keys
-			.toList()
+	/** The descriptor of the map [name], one of the program's own. */
+	protected abstract fun descriptor(name: String): Int
 
 	/** A reader of [ring], one of this program's own. */
 	fun <R : Record<R>> reader(ring: RingBuffer<R>): Sys<RingReader<R>> =
@@ -165,21 +162,146 @@ class LoadedObject internal constructor(
 			Sys.Ok(sums.toMap())
 		}
 
-	private fun fd(name: String): Int {
+	internal fun fd(name: String): Int {
 		require(
 			program.maps.any { it.cName == name },
 		) { "$name is not a map of ${program.name}" }
 
+		return descriptor(name)
+	}
+}
+
+/**
+ * A loaded program: its maps, reached by their declarations, and its hooks, each attached or not as [attachments]
+ * says. Closing it detaches every hook and frees the maps, unless they were [pinned]; nothing of it may be used after.
+ */
+class LoadedObject internal constructor(
+	program: Program,
+	libbpf: LibBpf,
+	private val handle: ObjectHandle,
+	arena: Arena,
+	val attachments: Map<Hook, Attachment>,
+	private val links: Map<Hook, LinkHandle>,
+) : ProgramMaps(program, libbpf, arena) {
+	/** The hooks that are attached: what the program will see. */
+	val attached: List<Hook> get() =
+		attachments
+			.filterValues {
+				it == Attachment.Attached
+			}.keys
+			.toList()
+
+	override fun descriptor(name: String): Int {
 		val map =
 			libbpf.map(handle, name, arena) ?: error("${program.name}'s object has no map $name")
 
 		return libbpf.descriptor(map)
 	}
 
+	/**
+	 * Every attached hook and every map given a name in [folder], which is in a BPF file system: the hooks stay
+	 * attached and the maps stay, for as long as the names do, after this is closed and after this process ends,
+	 * for another process to read ([PinnedObject.open]). All of them, or the first that could not be, with what
+	 * was named before it taken away again.
+	 */
+	fun pinned(folder: Path): Sys<Unit> {
+		val named = ArrayList<Path>()
+
+		fun pin(name: String, pin: (String) -> Sys<Unit>): Sys<Unit> {
+			val path = folder.resolve(name)
+
+			return pin(path.toString()).also {
+				if (it is Sys.Ok)
+					named.add(path)
+			}
+		}
+
+		val failed =
+			(
+				program.maps.asSequence().map { map ->
+					pin(map.cName) { libbpf.pin(fd(map.cName), it) }
+				} +
+					links.asSequence().map { (hook, link) ->
+						pin(PinnedObject.HOOK_PREFIX + hook.cName) { libbpf.pin(link, it) }
+					}
+			).firstOrNull { it is Sys.Failed }
+
+		if (failed != null)
+			named.forEach(Files::deleteIfExists)
+
+		return failed ?: Sys.Ok(Unit)
+	}
+
 	override fun close() {
-		links.forEach(libbpf::detach)
+		links.values.forEach(libbpf::detach)
 		libbpf.close(handle)
 		arena.close()
+	}
+}
+
+/**
+ * A program another process loaded and left pinned in [folder] ([LoadedObject.pinned]): its maps, opened by their
+ * names there, which needs no privilege but leave to open the files. The program itself is the kernel's and the
+ * names': closing this closes this process's descriptors, and nothing else.
+ */
+class PinnedObject private constructor(
+	program: Program,
+	libbpf: LibBpf,
+	arena: Arena,
+	private val descriptors: Map<String, Int>,
+	/** The hooks that are pinned there, by what their sections are: what the program sees. */
+	val attached: List<Hook>,
+) : ProgramMaps(program, libbpf, arena) {
+	override fun descriptor(name: String): Int = descriptors.getValue(name)
+
+	override fun close() {
+		descriptors.values.forEach { close(Fd(it)) }
+		arena.close()
+	}
+
+	companion object {
+		/** What a hook's name in the folder starts with, before the hook's own. */
+		const val HOOK_PREFIX = "hook_"
+
+		/**
+		 * [program]'s maps as they are pinned in [folder]; or why they cannot be had: no libbpf, no such name (nothing
+		 * is pinned there), or no leave to open it.
+		 */
+		fun open(program: Program, folder: Path): Sys<PinnedObject> {
+			val libbpf = LibBpf.installed ?: return Sys.Failed("libbpf.so.1", Errno.ENOENT)
+			val opened = LinkedHashMap<String, Int>()
+
+			for (map in program.maps)
+				when (val fd = libbpf.pinned(folder.resolve(map.cName).toString())) {
+					is Sys.Ok -> opened[map.cName] = fd.value
+					is Sys.Failed -> {
+						opened.values.forEach { close(Fd(it)) }
+
+						return fd
+					}
+				}
+
+			return Sys.Ok(
+				PinnedObject(
+					program,
+					libbpf,
+					Arena.ofShared(),
+					opened,
+					program.hooks.filter { Files.exists(folder.resolve(HOOK_PREFIX + it.cName)) },
+				),
+			)
+		}
+
+		/**
+		 * Every name [program] was given in [folder] taken away: its hooks detached and its maps freed, once nothing
+		 * has them open. Only its own names: a BPF file system has files of the kernel's at its top (`maps.debug`),
+		 * which are nobody's to remove.
+		 */
+		fun unpin(program: Program, folder: Path) {
+			for (name in program.maps.map { it.cName } +
+				program.hooks.map { HOOK_PREFIX + it.cName })
+				Files.deleteIfExists(folder.resolve(name))
+		}
 	}
 }
 
@@ -272,14 +394,14 @@ fun load(
 		is Sys.Ok -> Unit
 	}
 
-	val links = ArrayList<LinkHandle>()
+	val links = LinkedHashMap<Hook, LinkHandle>()
 
 	val attachments =
 		program.hooks.associateWith { hook ->
 			mismatched[hook]?.let { Attachment.Mismatched(it) }
 				?: when (val linked = libbpf.attach(programs.getValue(hook)!!)) {
 					is Sys.Ok -> {
-						links += linked.value
+						links[hook] = linked.value
 
 						Attachment.Attached
 					}
@@ -288,6 +410,6 @@ fun load(
 		}
 
 	return Loading.Loaded(
-		LoadedObject(program, libbpf, handle, arena, attachments, links.toList()),
+		LoadedObject(program, libbpf, handle, arena, attachments, links.toMap()),
 	)
 }

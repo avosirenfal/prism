@@ -2,8 +2,8 @@ package prism.watcher
 
 import prism.ebpf.Hook
 import prism.ebpfloader.Attachment
-import prism.ebpfloader.LoadedObject
 import prism.ebpfloader.Loading
+import prism.ebpfloader.ProgramMaps
 import prism.ebpfloader.RecordView
 import prism.ebpfloader.Refusal
 import prism.ebpfloader.RingReader
@@ -85,14 +85,17 @@ sealed interface Watching {
 	) : Watching
 }
 
-/** The watcher, running: its hooks as the kernel took them, and its changes as they come. */
+/**
+ * The watcher, running: its hooks as the kernel took them, and its changes as they come. Loaded by this process, or
+ * by another and left pinned for this one to read (pinned.kt): closing it takes the first out of the kernel, and
+ * leaves the second there.
+ */
 class Watch internal constructor(
-	private val loaded: LoadedObject,
+	private val loaded: ProgramMaps,
+	/** Each hook, attached or not and why. */
+	val hooks: Map<Hook, Attachment>,
 	private val reader: RingReader<FsChange>,
 ) : AutoCloseable {
-	/** Each hook, attached or not and why. */
-	val hooks: Map<Hook, Attachment> get() = loaded.attachments
-
 	/**
 	 * The changes the kernel has made since the last read, after waiting as [wait] says for there to be any, each
 	 * given to [seen]. How many records were read, including any [seen] was not given because they named nothing.
@@ -148,7 +151,8 @@ fun startWatching(): Watching {
 		is Loading.Refused -> Watching.Refused(loading.why)
 		is Loading.Loaded ->
 			when (val reader = loading.loaded.reader(FsWatch.maps.changes)) {
-				is Sys.Ok -> Watching.Started(Watch(loading.loaded, reader.value))
+				is Sys.Ok ->
+					Watching.Started(Watch(loading.loaded, loading.loaded.attachments, reader.value))
 				is Sys.Failed -> {
 					loading.loaded.close()
 

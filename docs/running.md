@@ -135,12 +135,82 @@ they go, so they run in the foreground whether or not you say so.
 leaves `org.freedesktop.FileManager1`, `--replace` takes a name another has, `--no-windows` is the index and nothing
 else, and `--theme` and `--decorated` are how every window it opens is drawn.
 
-**The watcher.** The daemon tries to load the eBPF watcher as it starts. Loading it needs `CAP_BPF` and
-`CAP_PERFMON`, which a user's service has not got, so run as a user service the daemon says the watcher was refused,
-and reads its roots again every half hour instead. Nothing else changes: the index is never wrong for long, and a
-folder you are looking at is watched by the window showing it. The plan for the watcher's privileges (a small system
-service that loads it and hands its ring to the user's daemon) is in docs/plan.md, and is the next thing to build.
-`prism status` says which it is doing.
+**The watcher.** As it starts, the daemon looks for a watcher left in the kernel for it (the next section), and
+reads that. Where there is none it tries to load one itself, which only root may; and where it may not, it says so and
+reads its roots again every half hour instead. Nothing else changes: the index is never wrong for long, and a folder
+you are looking at is watched by the window showing it. `prism status` says which of the three it is doing.
+
+## The watcher, loaded by root and read by the daemon
+
+Loading the watcher needs `CAP_BPF` and `CAP_PERFMON`. The daemon must not have them: it starts your applications,
+and whatever it had they would have too (a capability is each thread's own, and a Java program has dozens of threads
+before its first line runs, so there is no dropping them for the whole process). So loading and reading are done by
+two processes.
+
+An example. As root, once:
+
+```bash
+sudo prism probe load --user "$USER"
+```
+
+```
+  watching fexit/vfs_mkdir (since 6.19)
+  ...
+9 hooks left watching, pinned in /run/prism-watcher/ea0285c31f2ed2a0. prism probe unload takes them out; a daemon started from now reads them.
+```
+
+That command has ended, and the watcher has not. Then, as yourself, with no privileges:
+
+```bash
+prism probe watch --pinned
+```
+
+prints every change as `sudo prism probe watch` does. A daemon started from now on reads the same ring, and
+`prism status` says `changes: watched through the watcher pinned at /run/prism-watcher/...`.
+
+What happened is this.
+
+1. **The loader loads and attaches the watcher**, exactly as `probe watch` does.
+2. **It gives each hook and each map a name in a BPF file system**: a "pin". The kernel keeps a program for as long
+   as something refers to it. Ordinarily that is the process that loaded it, through its open descriptors, which is
+   why `probe watch` leaves nothing behind. A name in a BPF file system is such a reference too, so what is named
+   stays, with no process behind it, until the name is removed or the machine is shut down.
+3. **It says who may read.** The file system is one the loader mounts for the purpose, at `/run/prism-watcher` (the
+   system's own, `/sys/fs/bpf`, is root's alone to look in). The watcher is in a folder of it named for the
+   watcher's own text, so that a daemon of another version, whose records may be laid out differently, finds nothing
+   rather than something to misread. The folder and the two maps are given to the user (`--user`) or the group
+   (`--group`) named; the hooks stay root's.
+4. **The daemon opens the ring by its name.** That takes leave to open the file and nothing else: the kernel keeps
+   map creation and program loading from an unprivileged process, and nothing of reading a map it can open. From
+   there it reads the ring as it would one it had loaded.
+
+`sudo prism probe unload` removes the names and the mount, and the kernel takes the watcher out.
+
+Three things follow from how it works.
+
+- **Who is given it is trusted with every file name on the machine**: the ring tells of each file anyone makes. That
+  is why it is given to one user or one group, and not to everyone.
+- **A ring has one reader**: its place in the ring is the ring's own, so two daemons reading it would each see part
+  of what happened. One user's daemon, on one machine, is what it is for; and `probe watch --pinned` is not to be run
+  while a daemon reads.
+- **Between the loading and the daemon starting, nobody reads.** The ring fills, and what cannot be put in it is
+  counted as lost. The daemon reads its roots again as it starts in any case, so nothing is missed by it.
+
+**For a service**, the loader is a system service that runs it once at boot for a group (the package's
+`prism-watcher.service`, which gives it to the group `prism`; on NixOS, `programs.prism.watcher.enable`,
+docs/nixos.md), and the daemon's user is put in the group.
+
+**For working on prism**, load it once by hand for yourself, as above, and then run the daemon however you like,
+from Gradle or from an IDE's debugger, as yourself:
+
+```bash
+./gradlew :app:run --args="daemon --foreground"
+```
+
+The name the watcher is pinned under is made from its emitted text, not from the build, so a daemon built by Gradle
+reads a watcher loaded from a Nix build of the same sources, and the other way about. After a change to the watcher
+itself, load it again: the loader replaces what was there. To debug the loader itself is to run that one command as
+root.
 
 ### `prism status`
 
@@ -260,7 +330,10 @@ own mark, reads no configuration and fails.
 
 ## Not yet
 
-- **The watcher under systemd**: the privileged loader the daemon would be handed the ring by (docs/plan.md).
+- **The watcher for more than one reader**: a ring each, for a machine with two users' daemons.
+- **The loader's service on a real machine**: the reading of a pinned program by an unprivileged user has been done
+  on a real kernel with a program that loads in the development container, and the watcher itself has been loaded on
+  a real one by root; the two together, under systemd, have not.
 - **A client that is not Java**, for the 0.14 s of Java starting that is left in every window asked for.
 - **Restarting the daemon after an upgrade.** A daemon started before prism was upgraded goes on running the old
   prism until it is restarted or you log in again; a new `prism` asks it all the same, and the two understand each

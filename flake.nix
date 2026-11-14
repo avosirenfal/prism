@@ -102,6 +102,7 @@
           withoutPortal = evaluated {
             portal.enable = false;
             daemon.roots = [ "/home" ];
+            watcher.enable = true;
           };
 
           withoutDaemon = evaluated {
@@ -128,6 +129,13 @@
             assert said (
               !(asDefault.systemd.user.services.prism.environment ? PATH)
             ) "the daemon's unit sets no PATH of its own";
+            assert said (
+              !(asDefault.systemd.services ? prism-watcher)
+            ) "the watcher is not loaded unless asked for";
+            assert said
+              (lib.hasSuffix "/bin/prism probe load --group prism" withoutPortal.systemd.services.prism-watcher.serviceConfig.ExecStart)
+              "with the watcher on, a system service loads it for the group";
+            assert said (withoutPortal.users.groups ? prism) "with the watcher on, its group is made";
             assert said (
               !withoutPortal.xdg.portal.enable
             ) "with the portal off, the portal is not turned on for prism";

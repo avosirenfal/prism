@@ -1,5 +1,6 @@
 package prism.ebpfloader
 
+import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.io.path.readBytes
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -13,9 +14,12 @@ import prism.ebpf.Clang
 import prism.ebpf.HookKind
 import prism.linux.Errno
 import prism.linux.Fd
+import prism.linux.Sys
 import prism.linux.Wait
 import prism.linux.close
+import prism.linux.mount
 import prism.linux.orThrow
+import prism.linux.unmount
 
 /**
  * A program from the DSL, through clang and libbpf, into the kernel this test runs on and back: the host writes a
@@ -98,6 +102,88 @@ class LoadTest {
 			}
 
 			assertEquals(mapOf(Lost.RingFull to 0L), loaded.counted(maps.lost).orThrow())
+		}
+	}
+
+	/**
+	 * A program left in the kernel by the process that loaded it, and read by another way in: its hooks and maps
+	 * given names in a BPF file system, the object that loaded them closed, and the maps opened again by their names
+	 * alone, which is all a process without the privileges to load one has. What the program sends after its loader
+	 * is gone is read through them; and with the names taken away, there is nothing to open.
+	 */
+	@Test
+	fun aProgramLeftPinnedGoesOnAfterItsLoaderAndIsReadByItsNames() {
+		assumeTrue(
+			System.getProperty("os.arch") in setOf("amd64", "x86_64"),
+			"x86-64's system call numbering",
+		)
+
+		val entered = entered()
+		val compiled = Clang.compiled(entered.program, work)
+		val maps = entered.maps
+		val tgid = ProcessHandle.current().pid()
+		val pins = Files.createDirectory(work.resolve("pins"))
+
+		assumeTrue(
+			mount("prism-test", pins, "bpf", "mode=0755") is Sys.Ok,
+			"this process may not mount a BPF file system",
+		)
+
+		try {
+			loadedOrSkip(load(entered.program, compiled.readBytes())).use { loaded ->
+				loaded.pinned(pins).orThrow()
+			}
+
+			// The loader is closed: what is left is the kernel's, by its names.
+			assertEquals(
+				(
+					entered.program.maps.map { it.cName } +
+						entered.program.hooks.map { PinnedObject.HOOK_PREFIX + it.cName }
+				).toSet(),
+				Files
+					.list(pins)
+					.use { names -> names.map { it.fileName.toString() }.toList() }
+					.filterNot { it.endsWith(".debug") }
+					.toSet(),
+			)
+
+			PinnedObject.open(entered.program, pins).orThrow().use { pinned ->
+				assertEquals(entered.program.hooks, pinned.attached)
+				pinned
+					.put(
+						maps.watched,
+						key = { it[Watched.tgid] = tgid },
+						value = { it[Watching.since] = System.nanoTime() },
+					).orThrow()
+
+				pinned.reader(maps.entries).orThrow().use { reader ->
+					val seen = ArrayList<Pair<Long, Int>>()
+					val deadline = System.nanoTime() + 5_000_000_000L
+
+					repeat(3) { close(Fd(-77)) }
+					while (seen.none { it == CLOSE to -77 } && System.nanoTime() < deadline)
+						reader
+							.await(Wait.AtMost(100)) { record ->
+								seen += record.number(Entered.call) to record.number(Entered.first).toInt()
+							}.orThrow()
+
+					assertTrue(
+						CLOSE to -77 in seen,
+						"no close(-77) among what the pinned program sent: $seen",
+					)
+				}
+				assertEquals(mapOf(Lost.RingFull to 0L), pinned.counted(maps.lost).orThrow())
+			}
+
+			PinnedObject.unpin(entered.program, pins)
+			assertEquals(
+				Errno.ENOENT,
+				(PinnedObject.open(entered.program, pins) as Sys.Failed).errno,
+			)
+		} finally {
+			// Unmounted whatever became of the names: nothing of a test's is left mounted.
+			runCatching { PinnedObject.unpin(entered.program, pins) }
+			unmount(pins)
 		}
 	}
 

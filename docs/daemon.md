@@ -139,8 +139,8 @@ writes the usage file as things are picked.
 
 ## Not yet
 
-- A system service that holds `CAP_BPF` and `CAP_PERFMON`, loads the watcher at boot and hands its ring to the user's
-  daemon (`SCM_RIGHTS`), so the daemon runs unprivileged; or BPF tokens, where distributions enable them.
+- A ring for each reader of a watcher that root loaded and left pinned for an unprivileged daemon to read
+  (docs/running.md): there is one, so one daemon.
 - Telling a running daemon to read places again from outside it: the API is `LiveIndex.rescan`; a command asked
   through the socket other prisms ask it by (docs/running.md) is where it belongs.
 - Dropping changes in left-out folders in the kernel, before they reach the ring: a bounded loop in the DSL, to walk a

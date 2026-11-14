@@ -142,6 +142,33 @@ in
       };
     };
 
+    watcher = {
+      enable = mkOption {
+        type = types.bool;
+        default = false;
+        description = ''
+          Whether to load prism's watcher into the kernel at boot (a system service, `prism-watcher.service`), for the
+          daemon to read: an eBPF program that sees every file and folder made, removed or renamed, as it happens, so
+          the index is never out of date. Without it, the daemon reads its folders again every half hour.
+
+          Loading it is root's, and is done apart from the daemon so that the daemon, and the applications it
+          starts, have no privileges: the loader leaves the watcher in the kernel and ends, and the daemon reads it
+          by a file only the members of {option}`programs.prism.watcher.group` may open. What it tells is the name
+          of every file anyone makes on the machine, so put in that group only users trusted with that:
+
+              users.users.you.extraGroups = [ "prism" ];
+
+          (and log in again, for the daemon to be in it).
+        '';
+      };
+
+      group = mkOption {
+        type = types.str;
+        default = "prism";
+        description = "The group whose members may read the watcher. Made, where it is not there.";
+      };
+    };
+
     fileManager.enable = mkOption {
       type = types.bool;
       default = true;
@@ -189,6 +216,39 @@ in
           # Stopping it stops the daemon and what it was waiting on (an archive being listed). The applications files
           # were opened with are not among them: each was started in a scope of its own (desktop/freedesktop/launcher.kt).
           TimeoutStopSec = 15;
+        };
+      };
+    })
+
+    (mkIf cfg.watcher.enable {
+      users.groups.${cfg.watcher.group} = { };
+
+      systemd.services.prism-watcher = {
+        description = "prism: the watcher loaded into the kernel, for prism's daemon to read";
+        documentation = [ "https://github.com/avosirenfal/prism" ];
+        wantedBy = [ "multi-user.target" ];
+
+        serviceConfig = {
+          # Loaded, pinned, and done: what stays is in the kernel, with no process of root's behind it.
+          Type = "oneshot";
+          RemainAfterExit = true;
+          ExecStart = lib.escapeShellArgs [
+            (lib.getExe cfg.package)
+            "probe"
+            "load"
+            "--group"
+            cfg.watcher.group
+          ];
+          ExecStop = lib.escapeShellArgs [
+            (lib.getExe cfg.package)
+            "probe"
+            "unload"
+          ];
+          # What loading, mounting the file system it is pinned in, and giving it to the group take, and no more.
+          # Nothing that gives the service mounts of its own (PrivateTmp, ProtectSystem): what it mounts is for
+          # the daemon to see.
+          CapabilityBoundingSet = "CAP_BPF CAP_PERFMON CAP_SYS_ADMIN CAP_CHOWN CAP_FOWNER CAP_DAC_OVERRIDE";
+          NoNewPrivileges = true;
         };
       };
     })

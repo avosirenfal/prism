@@ -59,7 +59,8 @@ how it is meant to work; docs/inprogress.md says where it stands.
 | `scan [PATH]` | a tree read by each scanner backend, several times, with what each found and how fast |
 | `probe c` | the watcher's C, as emitted from its Kotlin declaration |
 | `probe check` | every hook of the watcher against the running kernel's own description of its types |
-| `probe watch` | the watcher loaded, and the changes it sees printed (needs `CAP_BPF` and `CAP_PERFMON`) |
+| `probe watch` | the watcher loaded, and the changes it sees printed (needs `CAP_BPF` and `CAP_PERFMON`); `--pinned` reads the one `probe load` left in the kernel instead, which needs nothing |
+| `probe load`, `probe unload` | as root: the watcher loaded and left in the kernel, pinned, for the daemon to read with no privileges (`--user NAME` or `--group NAME` says who may); and taken out again (docs/running.md) |
 
 `prism --help` and `prism COMMAND --help` say more.
 

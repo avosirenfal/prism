@@ -89,12 +89,13 @@ In the order they unblock each other:
 1. **Run the watcher on a real machine**, with the privileges it needs, and read what it sends for a `mkdir`, a
    `touch`, a `mv`, an `rm -r`, a `git checkout` and an `npm install`. Fix what the verifier says about any hook.
    Then `sudo prism daemon --foreground --no-windows` there, and the same changes seen made in its index.
-2. **The watcher for a user's daemon.** The daemon is a user's service now, which cannot load the watcher, so it
-   reads its roots again every half hour instead. What is wanted is the privileged loader (docs/plan.md,
-   "Privileges"): a small system service that holds `CAP_BPF` and `CAP_PERFMON`, loads the watcher, and gives the
-   user's daemon its ring (a pinned map the daemon may open, or a descriptor passed over a socket), with a NixOS
-   option beside the module's others. Giving the daemon the capabilities itself would hand them on to every
-   application it starts, a thread's capabilities being its own and a JVM having many threads.
+2. **The watcher's loader, on a real machine.** `prism probe load` loads the watcher as root and leaves it pinned
+   for an unprivileged daemon to read, and there is a system unit and a NixOS option for it (docs/running.md). An
+   unprivileged user reading what root pinned has been done on a real kernel, with the tests' own program; the
+   watcher has been loaded on a real kernel (7.0) by `sudo prism probe watch`. What has not been done is the two
+   together: `sudo prism probe load --user you`, then `prism probe watch --pinned` as yourself, then the daemon; and
+   then the service. After that, what the watcher costs a machine that is opening files hard (a large build, with
+   it loaded and without) is to be measured: its hook on every open is the one on a hot path.
 3. **The picker reading its folders from the index** (an index-backed `Disk`), with the picker's kinds and `type:`
    from one table of extensions; and a window telling the index what it saw change.
 4. **A client that is not Java**, a few dozen lines of C or a Graal native image, that speaks the socket: of the

@@ -35,6 +35,7 @@ fun interface Feed {
 							stop = started.watcher,
 							lost = started.watcher::lost,
 							stopped = { started.watcher.stopped },
+							through = started.through,
 						)
 				}
 			}
@@ -51,6 +52,8 @@ sealed interface Feeding {
 		val stop: AutoCloseable,
 		val lost: () -> Long?,
 		val stopped: () -> String?,
+		/** What the changes come through, as it is said of a daemon: "the watcher pinned at ...". */
+		val through: String = "a feed",
 	) : Feeding
 
 	/** Not feeding, and [why]. */
@@ -134,6 +137,9 @@ class Daemon private constructor(
 
 	@Volatile
 	private var feeding: Feeding = feeding
+
+	/** What the changes come through, while they are watched. */
+	val through: String? get() = (feeding as? Feeding.On)?.through
 
 	/** Whether changes are being watched, and where they are not, why. */
 	val watching: Watching

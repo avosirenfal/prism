@@ -228,6 +228,32 @@ stdenv.mkDerivation (finalAttrs: {
     [Install]
     WantedBy=graphical-session.target
     UNIT
+    # The watcher's loader, as the system's systemd runs it where nothing else says how (NixOS's module says it
+    # itself): root's, once, at boot, leaving the watcher in the kernel for the members of a group to read
+    # (docs/running.md). No sandboxing that gives it mounts of its own: the file system it mounts is for others.
+    mkdir -p $out/lib/systemd/system $out/lib/sysusers.d
+    cat > $out/lib/systemd/system/prism-watcher.service <<UNIT
+    [Unit]
+    Description=prism: the watcher loaded into the kernel, for prism's daemon to read
+    Documentation=https://github.com/avosirenfal/prism
+
+    [Service]
+    Type=oneshot
+    RemainAfterExit=yes
+    ExecStart=$out/bin/prism probe load --group prism
+    ExecStop=$out/bin/prism probe unload
+    CapabilityBoundingSet=CAP_BPF CAP_PERFMON CAP_SYS_ADMIN CAP_CHOWN CAP_FOWNER CAP_DAC_OVERRIDE
+    NoNewPrivileges=yes
+
+    [Install]
+    WantedBy=multi-user.target
+    UNIT
+    cat > $out/lib/sysusers.d/prism.conf <<GROUP
+    # Whoever is in it may read the names of the files made on this machine, as prism's watcher sees them.
+    g prism -
+    GROUP
+    sed -i 's/^    //' $out/lib/systemd/system/prism-watcher.service $out/lib/sysusers.d/prism.conf
+
     sed -i 's/^    //' $out/share/xdg-desktop-portal/portals/prism.portal \
       $out/share/dbus-1/services/${backendName}.service $out/share/systemd/user/prism.service
 

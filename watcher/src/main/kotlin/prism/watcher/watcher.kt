@@ -73,6 +73,8 @@ class Watcher private constructor(
 	sealed interface Start {
 		data class Running(
 			val watcher: Watcher,
+			/** Which watcher it is: one a loader left pinned, or this process's own. */
+			val through: String,
 		) : Start
 
 		/** No watcher: the build has none, or the kernel would not take it, and why in words. */
@@ -85,22 +87,44 @@ class Watcher private constructor(
 		/** How long the thread waits for the ring at a time, between looks at whether it has been closed. */
 		private const val READ_EVERY_MILLIS = 100
 
-		/** The watcher loaded, attached, and read on a thread of its own, every batch of changes it sees given to [seen]. */
-		fun start(seen: (List<Observed>) -> Unit): Start =
-			when (val started = startWatching()) {
-				is Watching.Started -> Start.Running(Watcher(started.watch, seen))
+		/**
+		 * The watcher read on a thread of its own, every batch of changes it sees given to [seen]: the one a loader
+		 * left pinned at [pins], where there is one this user may read; otherwise one this process loads itself, where
+		 * it may (it is root's to).
+		 */
+		fun start(
+			pins: WatcherPins = WatcherPins.default(),
+			seen: (List<Observed>) -> Unit,
+		): Start {
+			val pinned = openPinnedWatcher(pins)
+
+			if (pinned is Sys.Ok)
+				return Start.Running(
+					Watcher(pinned.value, seen),
+					"the watcher pinned at ${pins.folder}",
+				)
+
+			val unpinned = "none this user may read is pinned at ${pins.mount} ($pinned)"
+
+			return when (val started = startWatching()) {
+				is Watching.Started ->
+					Start.Running(
+						Watcher(started.watch, seen),
+						"a watcher of this process's own",
+					)
 				Watching.NotBuilt ->
 					Start.NotRunning(
 						"this build has no compiled watcher (it was built without clang's BPF target)",
 					)
 				is Watching.Refused ->
 					Start.NotRunning(
-						"the kernel would not load the watcher: ${started.why.message}",
+						"$unpinned, and the kernel would not load one for this process: ${started.why.message}",
 					)
 				is Watching.RingUnreadable ->
 					Start.NotRunning(
 						"the watcher's ring could not be mapped: ${started.failure}",
 					)
 			}
+		}
 	}
 }

@@ -321,7 +321,8 @@ object DaemonCommand : Command(
 
 	private fun watchingLine(daemon: Daemon, settings: DaemonSettings): String =
 		when (val now = daemon.watching) {
-			Daemon.Watching.On -> "changes: watched, each made in the index as the kernel makes it"
+			Daemon.Watching.On ->
+				"changes: watched through ${daemon.through}, each made in the index as the kernel makes it"
 			is Daemon.Watching.Off ->
 				"changes: not watched (${now.why}); in its place, the roots are read again every " +
 					"${settings.rescanWithoutWatcher.inWholeMinutes} minutes"

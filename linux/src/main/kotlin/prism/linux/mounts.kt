@@ -1,5 +1,10 @@
 package prism.linux
 
+import java.lang.foreign.Arena
+import java.lang.foreign.FunctionDescriptor
+import java.lang.foreign.ValueLayout.ADDRESS
+import java.lang.foreign.ValueLayout.JAVA_INT
+import java.lang.foreign.ValueLayout.JAVA_LONG
 import java.nio.file.Path
 import kotlin.io.path.Path
 import kotlin.io.path.exists
@@ -77,3 +82,49 @@ object Mounts {
 				.toString()
 		}
 }
+
+private val mountHandle =
+	Libc.capturing(
+		"mount",
+		FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS, ADDRESS, JAVA_LONG, ADDRESS),
+	)
+private val umountHandle =
+	Libc.capturing(
+		"umount2",
+		FunctionDescriptor.of(JAVA_INT, ADDRESS, JAVA_INT),
+	)
+
+/**
+ * `mount(2)`: a file system of [type] mounted at [target], with [options] as that file system reads them
+ * (`mode=0750`). For the kernel's own file systems, which have nothing behind them to name, [source] is only what
+ * the mount is called. It needs `CAP_SYS_ADMIN`.
+ */
+fun mount(source: String, target: Path, type: String, options: String = ""): Sys<Unit> =
+	Arena.ofConfined().use { arena ->
+		val result =
+			mountHandle.invokeExact(
+				CallState.segment(),
+				arena.allocateFrom(source),
+				arena.allocateFrom(target.toString()),
+				arena.allocateFrom(type),
+				0L,
+				arena.allocateFrom(options),
+			) as Int
+
+		CallState.outcome("mount", result.toLong()) { }
+	}
+
+/** `umount2(2)`: what is mounted at [target] taken away, once nothing is using it (`MNT_DETACH`). */
+fun unmount(target: Path): Sys<Unit> =
+	Arena.ofConfined().use { arena ->
+		val result =
+			umountHandle.invokeExact(
+				CallState.segment(),
+				arena.allocateFrom(target.toString()),
+				MNT_DETACH,
+			) as Int
+
+		CallState.outcome("umount2", result.toLong()) { }
+	}
+
+private const val MNT_DETACH = 2

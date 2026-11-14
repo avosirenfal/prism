@@ -78,6 +78,32 @@ It needs a process allowed to load BPF: root, or one with `CAP_BPF` and `CAP_PER
 sudo -E ./gradlew :ebpf-loader:test
 ```
 
+One of its tests leaves the program pinned in a BPF file system it mounts, closes what loaded it, and reads it back
+by its names alone, which is how the daemon reads a watcher root loaded for it (docs/running.md).
+
+What a test cannot do as one process is read it as another user. That is checked by hand, with the same program:
+root pins it and gives its maps to a user, that user reads it with no privileges, and a third user is refused.
+
+```bash
+./gradlew :ebpf-loader:pinnedCheckClasspath
+```
+
+```bash
+cd ebpf-loader/build/pinned-check && sudo java --enable-native-access=ALL-UNNAMED -cp 'classes:lib/*' prism.ebpfloader.PinnedcheckKt pin /run/prism-pinned-check nobody
+```
+
+```bash
+sudo setpriv --reuid nobody --regid nogroup --clear-groups java --enable-native-access=ALL-UNNAMED -cp 'classes:lib/*' prism.ebpfloader.PinnedcheckKt read /run/prism-pinned-check
+```
+
+```bash
+sudo java --enable-native-access=ALL-UNNAMED -cp 'classes:lib/*' prism.ebpfloader.PinnedcheckKt unpin /run/prism-pinned-check
+```
+
+The second says `as user 65534: read 3 of this process's calls from the pinned ring`. It needs a Java 25 and a clang
+that `nobody` can run, and the folder somewhere `nobody` can read. It passed in the development container (Linux
+6.18, with `kernel.unprivileged_bpf_disabled` at 2).
+
 ## The watcher on a real machine
 
 The watcher's hooks are on function exits (fexit), which need the kernel's BPF trampolines and a process allowed to
