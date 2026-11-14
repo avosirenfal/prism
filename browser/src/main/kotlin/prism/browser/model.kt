@@ -32,8 +32,9 @@ import prism.preferences.Sort
  *
  * What the picker is choosing decides what can be chosen, and that is in the types: a picker for one file holds at
  * most one, a picker that saves always has a name, and the button that accepts is worked out from those, never set
- * beside them. What the types cannot hold (that a chosen row is a row the listing shows) is checked when a state is
- * made, so no state the view is given can name a row it does not show.
+ * beside them. That a row chosen, or under the cursor, or being renamed, is a row the listing shows is how a state is
+ * read: it is given what was asked to be marked, and what it says is marked is what of that its listing shows
+ * ([Marks]). So no state can name a row it does not show, whatever it was made from, and making one never fails.
  */
 
 /** A row of the listing, by an identity that survives sorting and filtering. */
@@ -1002,11 +1003,130 @@ data class Sidebar(
 	)
 }
 
+/**
+ * What is marked among a listing's rows: what is chosen, where the cursor is, and which row's name is being typed
+ * over. Made only by keeping, of what was asked to be marked, what [rows] show ([of]): so each of them is a row
+ * shown, and none can be a row of another folder, or one a filter has since taken away.
+ */
+internal class Marks private constructor(
+	val choosing: Choosing,
+	val cursor: Cursor?,
+	val renaming: Renaming?,
+) {
+	companion object {
+		fun of(rows: Rows, choosing: Choosing, cursor: Cursor?, renaming: Renaming?): Marks =
+			Marks(
+				choosing.within(rows),
+				cursor.within(rows),
+				renaming?.takeIf {
+					it.row in
+						rows
+				},
+			)
+	}
+}
+
+/**
+ * The marks a state last read of what it was given, kept for the states copied from it: most steps change neither
+ * what is marked nor what is shown, and such a copy is given the same marks without a look at any row. The keeping
+ * is the only thing about it that changes, and it says nothing of the state: every one is equal to every other.
+ */
+class Marked {
+	private class Read(
+		val rows: Rows,
+		val choosing: Choosing,
+		val cursor: Cursor?,
+		val renaming: Renaming?,
+		val marks: Marks,
+	)
+
+	private val last = AtomicReference<Read?>(null)
+
+	internal fun of(
+		rows: Rows,
+		choosing: Choosing,
+		cursor: Cursor?,
+		renaming: Renaming?,
+	): Marks =
+		last
+			.get()
+			?.takeIf {
+				it.rows === rows && it.choosing === choosing && it.cursor === cursor &&
+					it.renaming === renaming
+			}?.marks
+			?: Marks.of(rows, choosing, cursor, renaming).also {
+				last.set(Read(rows, choosing, cursor, renaming, it))
+			}
+
+	override fun equals(other: Any?): Boolean = other is Marked
+
+	override fun hashCode(): Int = 0
+
+	override fun toString(): String = "Marked"
+}
+
+/** What is chosen, kept where it is in [rows]: this itself, where all of it is. */
+internal fun Choosing.within(rows: Rows): Choosing {
+	fun one(chosen: RowId?) = chosen == null || chosen in rows
+
+	fun all(chosen: Set<RowId>) = chosen.all { it in rows }
+
+	return when (this) {
+		is Choosing.OneFile -> takeIf { one(chosen) } ?: copy(chosen = null)
+		is Choosing.Files ->
+			takeIf { all(chosen) }
+				?: copy(chosen = chosen.filterTo(LinkedHashSet()) { it in rows })
+		is Choosing.SaveAs -> takeIf { one(chosen) } ?: copy(chosen = null)
+		is Choosing.Folder -> takeIf { one(chosen) } ?: copy(chosen = null)
+		is Choosing.Exploring ->
+			takeIf { all(chosen) }
+				?: copy(chosen = chosen.filterTo(LinkedHashSet()) { it in rows })
+	}
+}
+
+/** The cursor, where the row it is on is in [rows]; reaching from that row alone, where its anchor is not. */
+internal fun Cursor?.within(rows: Rows): Cursor? =
+	this?.takeIf { it.at in rows }?.let {
+		if (it.anchor in rows)
+			it
+		else
+			Cursor(it.at, it.at)
+	}
+
+/**
+ * The filters of names the asking application offers, and the one in use, which is one of them: made only from the
+ * filters ([of]), and changed only to another of them ([using]), so the one in use is never one that was not offered,
+ * and there is always one.
+ */
+@Immutable
+@ConsistentCopyVisibility
+data class Offered private constructor(
+	val filters: List<TypeFilter>,
+	val using: TypeFilter,
+) {
+	/** These, with [filter] in use, where it is one of them; as they are, where it is not. */
+	fun using(filter: TypeFilter): Offered =
+		if (filter in filters)
+			Offered(filters, filter)
+		else
+			this
+
+	companion object {
+		/** Every file, which is what is offered where nothing is. */
+		val ALL = Offered(listOf(TypeFilter.ALL_FILES), TypeFilter.ALL_FILES)
+
+		/** [filters] offered, the first in use, or [using] where it is one of them; [ALL], where none is offered. */
+		fun of(filters: List<TypeFilter>, using: TypeFilter? = null): Offered =
+			filters.firstOrNull()?.let { Offered(filters, it).using(using ?: it) } ?: ALL
+	}
+}
+
 /** Everything the picker shows. */
 @Immutable
 data class BrowserState(
 	val title: String,
-	val choosing: Choosing,
+	/** What is to be chosen, and what was asked to be chosen so far: [choosing] is what of that the listing shows. */
+	private val chose: Choosing,
 	/** Where the picker is: a folder (absolute and normalized), or a search's results. */
 	val at: Location,
 	/** The user's home, which the path across the top starts from where it can, and `~` names. */
@@ -1016,13 +1136,12 @@ data class BrowserState(
 	val listing: Listing,
 	/** How each kind of listing looks in this window, and what each leaves out: what [arrangement] is worked out from. */
 	val looks: Looks,
-	/** The type filters the asking application offers; [typeFilter] is one of them. */
-	val filters: List<TypeFilter>,
-	/** The asking application's filter of names in use. */
-	val typeFilter: TypeFilter,
+	/** The filters of names the asking application offers, and the one in use ([filters], [typeFilter]). */
+	val offered: Offered,
 	/** Words a row's name must contain to be shown, without case; blank for every row. */
 	val query: String,
-	val cursor: Cursor?,
+	/** Where the cursor was asked to be: [cursor] is there, where the listing shows that row. */
+	private val pointed: Cursor?,
 	val address: Address,
 	val notice: Notice?,
 	/** A name being looked up on disk, whose answer is waited for; an answer for anything else is too late. */
@@ -1038,7 +1157,8 @@ data class BrowserState(
 	val changes: Changes = Changes(),
 	/** Where the cursor goes when the next read of the folder arrives; nowhere in particular when null. */
 	val landing: Landing? = null,
-	val renaming: Renaming? = null,
+	/** The row whose name was asked to be typed over: [renaming] is that, where the listing shows the row. */
+	private val naming: Renaming? = null,
 	/** The search of the index, as Ctrl+Shift+F opens it; unavailable where there is no index. */
 	val search: Search = Search.Unavailable(NO_INDEX),
 	/** The rows in sight, by their places in [rows], as the view last said; null before it has. */
@@ -1062,7 +1182,37 @@ data class BrowserState(
 	val acceptLabel: String? = null,
 	/** Whether the window that arranges quick access is open over the browser. */
 	val arrangingQuick: Boolean = false,
+	/** What was last read of the marks given, for a copy that changes none of them to be given again. */
+	private val marked: Marked = Marked(),
 ) {
+	/**
+	 * What is marked among the rows shown: of what was asked to be, what they show. Read as the state is made, from
+	 * what it was made of alone (what kind of thing is chosen is as it was asked, whatever rows are shown), and for a
+	 * copy that changed none of it, not read again.
+	 */
+	private val marks: Marks =
+		marked.of(
+			rowsOf(listing, arrangement),
+			chose,
+			pointed,
+			naming,
+		)
+
+	/** What is to be chosen, and what has been chosen so far: rows the listing shows, every one. */
+	val choosing: Choosing = marks.choosing
+
+	/** Where the keyboard is in the listing: on a row it shows, or nowhere. */
+	val cursor: Cursor? = marks.cursor
+
+	/** The row whose name is being typed over: one the listing shows, or none. */
+	val renaming: Renaming? = marks.renaming
+
+	/** The type filters the asking application offers; [typeFilter] is one of them. */
+	val filters: List<TypeFilter> get() = offered.filters
+
+	/** The asking application's filter of names in use. */
+	val typeFilter: TypeFilter get() = offered.using
+
 	/** The folder shown; none among a search's results. */
 	val folder: Path? get() = (at as? Location.Folder)?.path
 
@@ -1092,7 +1242,7 @@ data class BrowserState(
 
 	/** What the window is for, as how its listings look goes. */
 	val role: Role get() =
-		if (choosing is Choosing.Exploring)
+		if (chose is Choosing.Exploring)
 			Role.Explorer
 		else
 			Role.Picker
@@ -1138,24 +1288,6 @@ data class BrowserState(
 
 	/** The rows the listing shows, its arrangement applied; none while it is read, or when it could not be. */
 	val rows: Rows get() = rowsOf(listing, arrangement)
-
-	init {
-		val rows = rows
-
-		require(typeFilter in filters) {
-			"the filter shown is not one of the filters offered"
-		}
-
-		val strays = choosing.rows.filterNot { it in rows }
-
-		require(strays.isEmpty()) { "chosen, but not a row the listing shows: $strays" }
-		require(cursor == null || (cursor.at in rows && cursor.anchor in rows)) {
-			"the cursor is on a row the listing does not show: $cursor"
-		}
-		require(renaming == null || renaming.row in rows) {
-			"the row being renamed is not a row the listing shows: $renaming"
-		}
-	}
 
 	/** The path to [folder], as steps from the home folder where it is under it and from the root otherwise. */
 	val crumbs: List<Crumb> by lazy { folder?.let { crumbsOf(it, home) }.orEmpty() }

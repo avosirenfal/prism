@@ -62,25 +62,24 @@ fun opened(
 	search: Search = Search.Unavailable(BrowserState.NO_INDEX),
 	listings: Listings = Listings(),
 	zoom: Float = 1f,
+	/** The filter in use as it opens, where it is one of [filters]; their first, otherwise. */
+	filter: TypeFilter? = null,
 ): Step {
-	require(filters.isNotEmpty()) { "a picker offers at least one filter" }
-
 	val shown = folder.toAbsolutePath().normalize()
 
 	val state =
 		BrowserState(
 			title = title,
-			choosing = choosing.unchosen(),
+			chose = choosing.unchosen(),
 			at = Location.Folder(shown),
 			home = home.toAbsolutePath().normalize(),
 			history = History(),
 			sidebar = sidebar,
 			listing = Listing.Reading,
 			looks = Looks(listings),
-			filters = filters,
-			typeFilter = filters.first(),
+			offered = Offered.of(filters, filter),
 			query = "",
-			cursor = null,
+			pointed = null,
 			address = Address.Crumbs,
 			notice = null,
 			waiting = null,
@@ -152,11 +151,11 @@ private fun did(state: BrowserState, event: BrowserEvent): Step =
 		BrowserEvent.Up -> state.folder?.parent?.let { state.went(it) } ?: state.upWithin()
 		BrowserEvent.Refreshed -> state.reread()
 		is BrowserEvent.Clicked -> Step(state.clicked(event.row, event.click))
-		BrowserEvent.ClickedNowhere -> Step(state.copy(choosing = state.choosing.unchosen()))
+		BrowserEvent.ClickedNowhere -> Step(state.copy(chose = state.choosing.unchosen()))
 		is BrowserEvent.Activated -> state.activated(event.row)
 		is BrowserEvent.Picked ->
 			if (event.row in state.rows)
-				state.copy(choosing = state.choosing.chose(setOf(event.row), state.rows)).accepted()
+				state.copy(chose = state.choosing.chose(setOf(event.row), state.rows)).accepted()
 			else
 				Step(state)
 		is BrowserEvent.Moved -> Step(state.moved(event.move, event.carry))
@@ -242,10 +241,10 @@ private fun did(state: BrowserState, event: BrowserEvent): Step =
 		is BrowserEvent.StartedRenaming -> Step(state.renaming(event.row))
 		is BrowserEvent.RenameTyped ->
 			Step(
-				state.copy(renaming = state.renaming?.copy(text = event.text)),
+				state.copy(naming = state.renaming?.copy(text = event.text)),
 			)
 		BrowserEvent.Renamed -> state.renamed()
-		BrowserEvent.RenameCancelled -> Step(state.copy(renaming = null))
+		BrowserEvent.RenameCancelled -> Step(state.copy(naming = null))
 		// In the trash, what is trashed already can only be deleted for good, which is asked first.
 		is BrowserEvent.Trashed ->
 			if (state.inTrash)
@@ -309,13 +308,10 @@ private fun did(state: BrowserState, event: BrowserEvent): Step =
 			)
 		is BrowserEvent.Searched -> Step(state.rearranged(query = event.query))
 		is BrowserEvent.Filtered ->
-			if (event.filter in state.filters)
-				Step(state.rearranged(typeFilter = event.filter))
-			else
-				Step(state)
+			Step(state.rearranged(offered = state.offered.using(event.filter)))
 		is BrowserEvent.Named ->
 			Step(
-				state.copy(choosing = state.choosing.named(event.text, state.rows)),
+				state.copy(chose = state.choosing.named(event.text, state.rows)),
 			)
 		BrowserEvent.EditedAddress ->
 			Step(
@@ -408,8 +404,8 @@ private fun did(state: BrowserState, event: BrowserEvent): Step =
 					val taken = event.rows.filterTo(LinkedHashSet()) { it in state.rows }
 
 					state.copy(
-						choosing = state.choosing.chose(taken, state.rows),
-						cursor = taken.lastOrNull()?.let { Cursor(it, it) } ?: state.cursor,
+						chose = state.choosing.chose(taken, state.rows),
+						pointed = taken.lastOrNull()?.let { Cursor(it, it) } ?: state.cursor,
 					)
 				} else {
 					state
@@ -556,10 +552,10 @@ internal fun BrowserState.shown(to: Location, history: History, landing: Landing
 			history = history,
 			listing = Listing.Reading,
 			landing = landing,
-			renaming = null,
+			naming = null,
 			query = "",
-			choosing = choosing.unchosen(),
-			cursor = null,
+			chose = choosing.unchosen(),
+			pointed = null,
 			address = Address.Crumbs,
 			waiting = null,
 		)
@@ -674,8 +670,8 @@ internal fun BrowserState.landed(landing: Landing): BrowserState =
 		when (landing) {
 			is Landing.On ->
 				copy(
-					cursor = Cursor(landing.row, landing.row),
-					choosing =
+					pointed = Cursor(landing.row, landing.row),
+					chose =
 						if (landing.choose)
 							choosing.chose(setOf(landing.row), rows)
 						else
@@ -702,13 +698,15 @@ private fun BrowserState.orders(column: ColumnId): Boolean =
 	(listing as? Listing.Found)?.orders(column) ?: true
 
 /**
- * [listing] shown, arranged as [looks], [layout], [typeFilter] and [query] say, in place of what was and how it was
- * arranged: what was chosen kept where it is still shown, in one step, so that no state names a row it does not show.
+ * [listing] shown, arranged as [looks], [layout], the filter [offered] has in use and [query] say, in place of what
+ * was and how it was arranged. What was chosen is kept where it is still shown, and let go where it is not: a state
+ * says nothing is marked that it does not show whatever it is given ([Marks]), and what is let go here is not marked
+ * again when the row comes back (a query cleared, a filter lifted).
  */
 private fun BrowserState.rearranged(
 	looks: Looks = this.looks,
 	layout: Layout = this.layout,
-	typeFilter: TypeFilter = this.typeFilter,
+	offered: Offered = this.offered,
 	query: String = this.query,
 	listing: Listing = this.listing,
 ): BrowserState {
@@ -718,7 +716,7 @@ private fun BrowserState.rearranged(
 			Arrangement(
 				looks.look(role, kind).order,
 				looks.filters(role, kind, layout),
-				typeFilter,
+				offered.using,
 				query,
 			),
 		)
@@ -727,11 +725,11 @@ private fun BrowserState.rearranged(
 		listing = listing,
 		looks = looks,
 		layout = layout,
-		typeFilter = typeFilter,
+		offered = offered,
 		query = query,
-		choosing = choosing.within(rows),
-		cursor = cursor.within(rows),
-		renaming = renaming?.takeIf { it.row in rows },
+		chose = choosing.within(rows),
+		pointed = cursor.within(rows),
+		naming = renaming?.takeIf { it.row in rows },
 	)
 }
 
@@ -747,16 +745,16 @@ private fun BrowserState.clicked(row: RowId, click: Click): BrowserState {
 
 	return when {
 		!choosing.many || click == Click.Only ->
-			copy(choosing = choosing.chose(setOf(row), rows), cursor = Cursor(row, row))
+			copy(chose = choosing.chose(setOf(row), rows), pointed = Cursor(row, row))
 		click == Click.Toggle ->
 			copy(
-				choosing = choosing.toggled(row, rows),
-				cursor = Cursor(row, row),
+				chose = choosing.toggled(row, rows),
+				pointed = Cursor(row, row),
 			)
 		else ->
 			copy(
-				choosing = choosing.chose(rows.between(anchor, row), rows),
-				cursor = Cursor(row, anchor),
+				chose = choosing.chose(rows.between(anchor, row), rows),
+				pointed = Cursor(row, anchor),
 			)
 	}
 }
@@ -779,28 +777,28 @@ private fun BrowserState.moved(move: Move, carry: Carry): BrowserState {
 	return when {
 		carry == Carry.Extend && choosing.many ->
 			copy(
-				choosing = choosing.chose(rows.between(anchor, target), rows),
-				cursor = Cursor(target, anchor),
+				chose = choosing.chose(rows.between(anchor, target), rows),
+				pointed = Cursor(target, anchor),
 			)
-		carry == Carry.Stay && choosing.many -> copy(cursor = Cursor(target, anchor))
+		carry == Carry.Stay && choosing.many -> copy(pointed = Cursor(target, anchor))
 		else ->
 			copy(
-				choosing = choosing.chose(setOf(target), rows),
-				cursor = Cursor(target, target),
+				chose = choosing.chose(setOf(target), rows),
+				pointed = Cursor(target, target),
 			)
 	}
 }
 
 private fun BrowserState.toggled(): BrowserState =
 	cursor?.let {
-		copy(choosing = choosing.toggled(it.at, rows), cursor = Cursor(it.at, it.at))
+		copy(chose = choosing.toggled(it.at, rows), pointed = Cursor(it.at, it.at))
 	}
 		?: moved(Move.First, Carry.Choose)
 
 private fun BrowserState.choseAll(): BrowserState =
 	if (choosing.many)
 		copy(
-			choosing =
+			chose =
 				choosing.chose(
 					(0 until rows.size).mapTo(LinkedHashSet(), rows::idAt),
 					rows,
@@ -841,8 +839,8 @@ private fun BrowserState.jumped(prefix: String): BrowserState {
 			?: return this
 
 	return copy(
-		choosing = choosing.chose(setOf(found), rows),
-		cursor = Cursor(found, found),
+		chose = choosing.chose(setOf(found), rows),
+		pointed = Cursor(found, found),
 	)
 }
 
@@ -856,7 +854,7 @@ internal fun BrowserState.activated(id: RowId): Step {
 		choosing is Choosing.Exploring -> Step(this, listOf(Effect.Open(listOf(path))))
 		choosing is Choosing.SaveAs ->
 			copy(
-				choosing = choosing.chose(setOf(id), rows),
+				chose = choosing.chose(setOf(id), rows),
 			).accepted()
 		else -> finished(listOf(path))
 	}
@@ -1362,7 +1360,7 @@ private fun BrowserState.accepting(
 		is Choosing.SaveAs ->
 			when (val what = one?.second) {
 				// A folder named is gone into, to save in, with the name to save under still to give.
-				Found.Folder -> copy(choosing = Choosing.SaveAs(name = "")).went(one.first)
+				Found.Folder -> copy(chose = Choosing.SaveAs(name = "")).went(one.first)
 				Found.File -> notice(Notice.Replace(one.first))
 				is Found.Nothing ->
 					if (what.inFolder)
@@ -1592,26 +1590,26 @@ private fun BrowserState.renaming(id: RowId): BrowserState {
 	val row = rows[id] ?: return this
 
 	return copy(
-		renaming = Renaming(id, row.name),
-		choosing = choosing.chose(setOf(id), rows),
-		cursor = Cursor(id, id),
+		naming = Renaming(id, row.name),
+		chose = choosing.chose(setOf(id), rows),
+		pointed = Cursor(id, id),
 	)
 }
 
 /** The name typed given: refused here if it cannot be a name, left alone if it is the same, asked of the disk. */
 private fun BrowserState.renamed(): Step {
-	val renaming = renaming ?: return Step(this)
-	val row = rows[renaming.row] ?: return Step(copy(renaming = null))
+	val naming = renaming ?: return Step(this)
+	val row = rows[renaming.row] ?: return Step(copy(naming = null))
 	val name = renaming.text.trim()
 	val old = row.name
 	val refusal = refusalOf(name)
 
 	return when {
-		name == old || name.isEmpty() -> Step(copy(renaming = null))
+		name == old || name.isEmpty() -> Step(copy(naming = null))
 		refusal != null -> notice(Notice.Failed("Couldn't rename “$old”", refusal))
 		else ->
 			copy(
-				renaming = null,
+				naming = null,
 			).let { state ->
 				row.path?.let { state.making(Change.Rename(it, it.resolveSibling(name))) }
 					?: Step(state)
@@ -1879,16 +1877,6 @@ internal fun Choosing.unchosen(): Choosing =
 		is Choosing.Exploring -> copy(chosen = emptySet())
 	}
 
-/** What is chosen, kept where it is in [rows]. */
-private fun Choosing.within(rows: Rows): Choosing =
-	when (this) {
-		is Choosing.OneFile -> copy(chosen = chosen?.takeIf { it in rows })
-		is Choosing.Files -> copy(chosen = chosen.filterTo(LinkedHashSet()) { it in rows })
-		is Choosing.SaveAs -> copy(chosen = chosen?.takeIf { it in rows })
-		is Choosing.Folder -> copy(chosen = chosen?.takeIf { it in rows })
-		is Choosing.Exploring -> copy(chosen = chosen.filterTo(LinkedHashSet()) { it in rows })
-	}
-
 /** [text] typed into the name field. Saving, a folder chosen is let go, so the button saves again. */
 private fun Choosing.named(text: String, rows: Rows): Choosing =
 	when (this) {
@@ -1906,14 +1894,6 @@ private fun Choosing.named(text: String, rows: Rows): Choosing =
 		is Choosing.Folder -> copy(typed = text)
 		// Nothing is typed into a name field while exploring: there is none.
 		is Choosing.Exploring -> this
-	}
-
-private fun Cursor?.within(rows: Rows): Cursor? =
-	this?.takeIf { it.at in rows }?.let {
-		if (it.anchor in rows)
-			it
-		else
-			Cursor(it.at, it.at)
 	}
 
 // ---- what is typed ------------------------------------------------------------------------------------------------

@@ -507,16 +507,8 @@ class Explorer(
 				listings = preferences.preferences.value.listings,
 				zoom = zoomOf(preferences.preferences.value, Role.Picker),
 				search = search,
-			).let { step ->
-				Step(
-					step.state.copy(
-						acceptLabel = asking.acceptLabel,
-						typeFilter =
-							asking.filter?.takeIf { it in asking.filters } ?: asking.filters.first(),
-					),
-					step.effects,
-				)
-			}
+				filter = asking.filter,
+			).let { step -> Step(step.state.copy(acceptLabel = asking.acceptLabel), step.effects) }
 
 		val picking =
 			ExplorerWindow.Picking(

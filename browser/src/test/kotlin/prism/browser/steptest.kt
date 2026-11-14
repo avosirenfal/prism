@@ -1600,20 +1600,76 @@ class StepTest {
 	}
 
 	@Test
-	fun aStateCannotChooseOrPointAtARowItDoesNotShow() {
+	fun aStateMarksOnlyRowsItShowsWhateverItIsAskedToMark() {
+		val state = picker()
+		val shown = id("notes.md")
+		val stray = id("not there.txt")
+
+		// Asked to choose, point at, or rename a row it does not show, it does none of them: and making it does not fail.
+		val asked =
+			state.copy(
+				chose = Choosing.OneFile(stray),
+				pointed = Cursor(stray, stray),
+				naming = Renaming(stray, "new name"),
+			)
+
+		assertEquals(Choosing.OneFile(), asked.choosing)
+		assertNull(asked.cursor)
+		assertNull(asked.renaming)
+		assertEquals(emptyList<Row>(), asked.chosenRows)
+
+		// Of several, those it shows; a cursor whose anchor is not shown reaches from its own row.
+		val some =
+			state.copy(
+				chose = Choosing.Files(linkedSetOf(shown, stray)),
+				pointed = Cursor(shown, stray),
+				naming = Renaming(shown, "new name"),
+			)
+
+		assertEquals(Choosing.Files(setOf(shown)), some.choosing)
+		assertEquals(Cursor(shown, shown), some.cursor)
+		assertEquals(Renaming(shown, "new name"), some.renaming)
+
+		// What kind of thing is chosen, and what was typed, are as asked: only rows are let go.
+		assertEquals(
+			Choosing.Folder(typed = "elsewhere"),
+			state.copy(chose = Choosing.Folder(stray, "elsewhere")).choosing,
+		)
+
+		// What a filter takes out of the listing is not marked while it is out, however the state came by it.
+		val chosen = after(state, BrowserEvent.Clicked(shown, Click.Only))
+
+		assertEquals(Choosing.OneFile(shown), chosen.choosing)
+		assertEquals(Choosing.OneFile(), chosen.copy(query = "no such name").choosing)
+		assertNull(chosen.copy(query = "no such name").cursor)
+
+		// A copy that changes nothing marked and nothing shown is given the same marks, not read again.
+		val copied = chosen.copy(notice = Notice.NotFound("x"))
+
+		assertTrue(copied.choosing === chosen.choosing)
+		assertTrue(copied.cursor === chosen.cursor)
+	}
+
+	@Test
+	fun theFilterInUseIsOneOfThoseOfferedAndThereIsAlwaysOne() {
+		val images = Fixtures.filters[1]
+		val other = TypeFilter("Spreadsheets", listOf("*.ods"))
+		val offered = Offered.of(Fixtures.filters)
+
+		assertEquals(Fixtures.filters.first(), offered.using)
+		assertEquals(images, offered.using(images).using)
+		assertEquals(images, Offered.of(Fixtures.filters, images).using)
+		// One that is not offered is not taken up, to begin with or after.
+		assertEquals(offered, offered.using(other))
+		assertEquals(offered, Offered.of(Fixtures.filters, other))
+		// Nothing offered is every file offered.
+		assertEquals(Offered.ALL, Offered.of(emptyList()))
+		assertEquals(listOf(TypeFilter.ALL_FILES), Offered.of(emptyList(), other).filters)
+
 		val state = picker()
 
-		assertInstanceOf(
-			IllegalArgumentException::class.java,
-			runCatching {
-				state.copy(choosing = Choosing.OneFile(id("not there.txt")))
-			}.exceptionOrNull(),
-		)
-		assertInstanceOf(
-			IllegalArgumentException::class.java,
-			runCatching {
-				state.copy(cursor = Cursor(id("not there.txt"), id("not there.txt")))
-			}.exceptionOrNull(),
-		)
+		assertEquals(state.filters, after(state, BrowserEvent.Filtered(other)).filters)
+		assertEquals(state.typeFilter, after(state, BrowserEvent.Filtered(other)).typeFilter)
+		assertEquals(images, after(state, BrowserEvent.Filtered(images)).typeFilter)
 	}
 }
