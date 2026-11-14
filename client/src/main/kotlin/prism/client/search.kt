@@ -320,18 +320,27 @@ class SearchCommand(
 				is Sifted.NoIndex -> throw InputError(sifted.why)
 			}
 
-		return when {
-			found.paths.isEmpty() -> Came.Nothing
-			wanted is Wanted.Listed -> Came.Paths(found.paths)
-			found.total == 1 && (wanted is Wanted.Only || (wanted as Wanted.Chosen).alone) ->
-				Came.Paths(found.paths.take(1))
-			wanted is Wanted.Only -> Came.Several(found.total, found.paths)
-			else ->
-				try {
-					choose(found.paths)?.let { Came.Paths(listOf(it)) } ?: Came.Cancelled
-				} catch (none: NoTerminal) {
-					throw InputError(none.why)
-				}
+		if (found.paths.isEmpty())
+			return Came.Nothing
+
+		val alone = found.total == 1
+
+		return when (wanted) {
+			is Wanted.Listed -> Came.Paths(found.paths)
+			Wanted.Only ->
+				if (alone)
+					Came.Paths(found.paths.take(1))
+				else
+					Came.Several(found.total, found.paths)
+			is Wanted.Chosen ->
+				if (alone && wanted.alone)
+					Came.Paths(found.paths.take(1))
+				else
+					try {
+						choose(found.paths)?.let { Came.Paths(listOf(it)) } ?: Came.Cancelled
+					} catch (none: NoTerminal) {
+						throw InputError(none.why)
+					}
 		}
 	}
 
