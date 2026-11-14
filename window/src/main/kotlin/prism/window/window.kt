@@ -37,7 +37,10 @@ import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import java.awt.Cursor
+import java.lang.foreign.MemorySegment
 import java.nio.file.Path
+import java.util.concurrent.CompletableFuture
+import java.util.concurrent.TimeUnit
 import kotlin.coroutines.EmptyCoroutineContext
 import kotlinx.coroutines.CoroutineExceptionHandler
 import org.lwjgl.sdl.SDLEvents.SDL_EVENT_DROP_BEGIN
@@ -95,20 +98,40 @@ import org.lwjgl.sdl.SDLMouse.SDL_SYSTEM_CURSOR_TEXT
 import org.lwjgl.sdl.SDLMouse.SDL_SYSTEM_CURSOR_WAIT
 import org.lwjgl.sdl.SDLMouse.SDL_SYSTEM_CURSOR_W_RESIZE
 import org.lwjgl.sdl.SDLMouse.SDL_SetCursor
+import org.lwjgl.sdl.SDLProperties.SDL_CreateProperties
+import org.lwjgl.sdl.SDLProperties.SDL_DestroyProperties
+import org.lwjgl.sdl.SDLProperties.SDL_GetPointerProperty
+import org.lwjgl.sdl.SDLProperties.SDL_SetBooleanProperty
+import org.lwjgl.sdl.SDLProperties.SDL_SetNumberProperty
+import org.lwjgl.sdl.SDLProperties.SDL_SetStringProperty
 import org.lwjgl.sdl.SDLStdinc.SDL_GetEnvironment
 import org.lwjgl.sdl.SDLStdinc.SDL_SetEnvironmentVariable
 import org.lwjgl.sdl.SDLStdinc.SDL_UnsetEnvironmentVariable
 import org.lwjgl.sdl.SDLVideo.SDL_CreateWindow
+import org.lwjgl.sdl.SDLVideo.SDL_CreateWindowWithProperties
 import org.lwjgl.sdl.SDLVideo.SDL_DestroyWindow
+import org.lwjgl.sdl.SDLVideo.SDL_GetDisplayName
+import org.lwjgl.sdl.SDLVideo.SDL_GetDisplayProperties
+import org.lwjgl.sdl.SDLVideo.SDL_GetDisplays
 import org.lwjgl.sdl.SDLVideo.SDL_GetWindowDisplayScale
 import org.lwjgl.sdl.SDLVideo.SDL_GetWindowID
 import org.lwjgl.sdl.SDLVideo.SDL_GetWindowPixelDensity
+import org.lwjgl.sdl.SDLVideo.SDL_GetWindowProperties
 import org.lwjgl.sdl.SDLVideo.SDL_GetWindowSizeInPixels
+import org.lwjgl.sdl.SDLVideo.SDL_PROP_DISPLAY_WAYLAND_WL_OUTPUT_POINTER
+import org.lwjgl.sdl.SDLVideo.SDL_PROP_WINDOW_CREATE_HEIGHT_NUMBER
+import org.lwjgl.sdl.SDLVideo.SDL_PROP_WINDOW_CREATE_HIGH_PIXEL_DENSITY_BOOLEAN
+import org.lwjgl.sdl.SDLVideo.SDL_PROP_WINDOW_CREATE_OPENGL_BOOLEAN
+import org.lwjgl.sdl.SDLVideo.SDL_PROP_WINDOW_CREATE_TITLE_STRING
+import org.lwjgl.sdl.SDLVideo.SDL_PROP_WINDOW_CREATE_WAYLAND_SURFACE_ROLE_CUSTOM_BOOLEAN
+import org.lwjgl.sdl.SDLVideo.SDL_PROP_WINDOW_CREATE_WIDTH_NUMBER
+import org.lwjgl.sdl.SDLVideo.SDL_PROP_WINDOW_WAYLAND_SURFACE_POINTER
 import org.lwjgl.sdl.SDLVideo.SDL_RaiseWindow
 import org.lwjgl.sdl.SDLVideo.SDL_SetWindowPosition
 import org.lwjgl.sdl.SDLVideo.SDL_SetWindowSize
 import org.lwjgl.sdl.SDLVideo.SDL_SetWindowTitle
 import org.lwjgl.sdl.SDLVideo.SDL_ShowWindow
+import org.lwjgl.sdl.SDLVideo.SDL_WINDOW_ALWAYS_ON_TOP
 import org.lwjgl.sdl.SDLVideo.SDL_WINDOW_BORDERLESS
 import org.lwjgl.sdl.SDLVideo.SDL_WINDOW_HIDDEN
 import org.lwjgl.sdl.SDLVideo.SDL_WINDOW_HIGH_PIXEL_DENSITY
@@ -140,6 +163,8 @@ class NativeWindow internal constructor(
 	 * floating at the size it asked for, over the windows it tiles, rather than made a tile among them.
 	 */
 	resizable: Boolean = true,
+	/** What it is among the others on the screen: a window as the platform has them, or over them all (role.kt). */
+	role: WindowRole = WindowRole.Normal,
 ) {
 	private val place = at
 	private val sdl: Long
@@ -147,6 +172,15 @@ class NativeWindow internal constructor(
 
 	/** What the window is to its platform. */
 	val handle: NativeHandle
+
+	/** The layer surface the window is, where it is an overlay and the compositor has layers; closed before it. */
+	private val layer: LayerSurface?
+
+	/**
+	 * Whether the window is over every other, as an overlay asks to be: false for a window of the usual kind, and for
+	 * an overlay where the platform has none, which is then a window in front as far as the platform keeps one there.
+	 */
+	val overlaid: Boolean get() = layer != null
 
 	/** The platform this window is on. */
 	val video: Video get() = app.sdl.video
@@ -249,33 +283,72 @@ class NativeWindow internal constructor(
 
 	init {
 		val gpu = app.sdl.rendering.onGpu
-		val flags =
-			SDL_WINDOW_HIGH_PIXEL_DENSITY or SDL_WINDOW_HIDDEN or
-				(if (resizable) SDL_WINDOW_RESIZABLE else 0L) or
-				(if (gpu) SDL_WINDOW_OPENGL else 0L) or
-				(if (decorated) 0L else SDL_WINDOW_BORDERLESS)
+		val layers = app.seat()?.layers
+		val surfacing = surfaceFor(role, video, layers?.version, decorated, resizable)
+
+		// An overlay in the compositor's overlay layer, where it has one and will have this; and a window of the
+		// platform's own otherwise, as an overlay is where there are no layers at all.
+		val layered =
+			(surfacing as? Surfacing.Layer)?.let { asked ->
+				layers?.let { layered(it, asked, title, size, gpu) }
+			}
+
+		val looks =
+			surfacing as? Surfacing.Toplevel
+				?: surfaceFor(role, video, null, decorated, resizable) as Surfacing.Toplevel
 
 		sdl =
-			SDL_CreateWindow(title, size.width.value.toInt(), size.height.value.toInt(), flags)
+			layered?.first
+				?: SDL_CreateWindow(
+					title,
+					size.width.value.toInt(),
+					size.height.value.toInt(),
+					SDL_WINDOW_HIGH_PIXEL_DENSITY or SDL_WINDOW_HIDDEN or
+						(if (looks.resizable) SDL_WINDOW_RESIZABLE else 0L) or
+						(if (gpu) SDL_WINDOW_OPENGL else 0L) or
+						(
+							if (looks.decorated)
+								0L
+							else
+								SDL_WINDOW_BORDERLESS
+						) or
+						(
+							if (looks.inFront)
+								SDL_WINDOW_ALWAYS_ON_TOP
+							else
+								0L
+						),
+				)
 		check(sdl != 0L) {
 			org.lwjgl.sdl.SDLError
 				.SDL_GetError() ?: "SDL made no window"
 		}
+		layer = layered?.second
 		id = SDL_GetWindowID(sdl)
 		handle = NativeHandle.of(sdl, video)
+		if (role is WindowRole.Overlay)
+			Log.say {
+				"window $id: an overlay, " +
+					when {
+						layer != null ->
+							"in the compositor's overlay layer (layer-shell ${layers?.version})"
+						surfacing is Surfacing.Layer ->
+							"as a window in its place: the compositor would not have it in a layer"
+						video == Video.Wayland ->
+							"as a window in its place: the compositor has no layer-shell"
+						else -> "as a window in its place: $video has no layers"
+					}
+			}
 
 		// Sized in Compose's units: SDL sizes a window in the platform's points, and a dp is the display's scale of a
 		// pixel, which a point may be only part of (Wayland's, macOS's).
 		val scale = SDL_GetWindowDisplayScale(sdl).takeIf { it > 0f } ?: 1f
-		val perPoint = SDL_GetWindowPixelDensity(sdl).takeIf { it > 0f } ?: 1f
 
-		SDL_SetWindowSize(
-			sdl,
-			(size.width.value * scale / perPoint).toInt(),
-			(size.height.value * scale / perPoint).toInt(),
-		)
-
-		at?.let { SDL_SetWindowPosition(sdl, it.x, it.y) }
+		// A layer surface was sized as it was made, since the compositor is told its size before it is shown.
+		if (layer == null) {
+			pointsOf(sdl, size).let { (width, height) -> SDL_SetWindowSize(sdl, width, height) }
+			at?.let { SDL_SetWindowPosition(sdl, it.x, it.y) }
+		}
 
 		// Drawn by the CPU: on Wayland into buffers of prism's own, since SDL has none there but through EGL.
 		fun onCpu(): Pixels =
@@ -321,6 +394,137 @@ class NativeWindow internal constructor(
 
 		// Text typed arrives as text, from the platform's input method, for as long as the window is open.
 		SDL_StartTextInput(sdl)
+	}
+
+	/**
+	 * A window of SDL's with no role, given the role of a layer surface as [asked] says, and configured: the window,
+	 * and what it is. Null where SDL makes no such window, or the compositor does not answer for it, when the window
+	 * is done away with and one of the usual kind is made in its place.
+	 */
+	private fun layered(
+		layers: Layers,
+		asked: Surfacing.Layer,
+		title: String,
+		size: DpSize,
+		gpu: Boolean,
+	): Pair<Long, LayerSurface>? {
+		val properties = SDL_CreateProperties()
+
+		SDL_SetBooleanProperty(
+			properties,
+			SDL_PROP_WINDOW_CREATE_WAYLAND_SURFACE_ROLE_CUSTOM_BOOLEAN,
+			true,
+		)
+		// With this, SDL scales the surface itself, as it does a window's: sizes are in points, drawing in pixels.
+		SDL_SetBooleanProperty(
+			properties,
+			SDL_PROP_WINDOW_CREATE_HIGH_PIXEL_DENSITY_BOOLEAN,
+			true,
+		)
+		SDL_SetBooleanProperty(properties, SDL_PROP_WINDOW_CREATE_OPENGL_BOOLEAN, gpu)
+		SDL_SetStringProperty(properties, SDL_PROP_WINDOW_CREATE_TITLE_STRING, title)
+		SDL_SetNumberProperty(
+			properties,
+			SDL_PROP_WINDOW_CREATE_WIDTH_NUMBER,
+			size.width.value.toLong(),
+		)
+		SDL_SetNumberProperty(
+			properties,
+			SDL_PROP_WINDOW_CREATE_HEIGHT_NUMBER,
+			size.height.value.toLong(),
+		)
+
+		val window = SDL_CreateWindowWithProperties(properties)
+
+		SDL_DestroyProperties(properties)
+		if (window == 0L)
+			return null
+
+		val surface =
+			SDL_GetPointerProperty(
+				SDL_GetWindowProperties(window),
+				SDL_PROP_WINDOW_WAYLAND_SURFACE_POINTER,
+				0L,
+			)
+
+		val (width, height) = pointsOf(window, size)
+
+		SDL_SetWindowSize(window, width, height)
+
+		val made =
+			layers.surface(
+				MemorySegment.ofAddress(surface),
+				outputOf(asked.screen),
+				asked.layer,
+				width,
+				height,
+				// Told on the seat's thread; done on the windows'. SDL is told the surface's size, which it has no
+				// other way to know, and says in its turn that the window was resized.
+				onSized = { wide, high ->
+					Ui.dispatch(EmptyCoroutineContext) {
+						if (!closed)
+							SDL_SetWindowSize(window, wide, high)
+					}
+				},
+				onClosed = { Ui.dispatch(EmptyCoroutineContext) { onCloseRequest() } },
+			)
+
+		if (made == null) {
+			SDL_DestroyWindow(window)
+
+			return null
+		}
+		made.size?.let { (wide, high) -> SDL_SetWindowSize(window, wide, high) }
+
+		return window to made
+	}
+
+	/**
+	 * When the keyboard, which the layer surface had exclusively, was asked for on demand instead, by the clock that
+	 * only counts; 0 where it never was. What a keyboard taken at once is told by.
+	 */
+	private var sharedAt = 0L
+
+	/**
+	 * An overlay that shares the keyboard, on the screen for the first time, and what the compositor made of its
+	 * asking for the keyboard on demand (waylandoverlay.kt): not given it a moment on, it asks exclusively, to be.
+	 */
+	private fun awaitKeyboard(layer: LayerSurface) {
+		if (!layer.shared)
+			return
+
+		CompletableFuture.delayedExecutor(UNGIVEN_MILLIS, TimeUnit.MILLISECONDS).execute {
+			Ui.dispatch(EmptyCoroutineContext) {
+				if (!closed && !focused && layer.shared) {
+					Log.say { "window $id: not given the keyboard for the asking, so it holds it" }
+					layer.hold(forGood = false)
+				}
+			}
+		}
+	}
+
+	/** A layer surface given the keyboard: one that held it only to be given it shares it, now that it has it. */
+	private fun keyboardGiven(layer: LayerSurface) {
+		if (layer.shares && !layer.shared) {
+			Log.say { "window $id: shares the keyboard, now that it has it" }
+			layer.share()
+			sharedAt = System.nanoTime()
+		}
+	}
+
+	/**
+	 * A layer surface's keyboard gone: where that is the compositor's answer to its sharing it a moment ago, rather
+	 * than anything the user did, it is held from here on, and comes back.
+	 */
+	private fun keyboardTaken(layer: LayerSurface) {
+		if (layer.shared && sharedAt != 0L &&
+			System.nanoTime() - sharedAt < TAKEN_AT_ONCE_NANOS
+		) {
+			Log.say {
+				"window $id: the keyboard was taken from it for sharing it, so it holds it for good"
+			}
+			layer.hold(forGood = true)
+		}
 	}
 
 	internal fun invalidate() {
@@ -420,9 +624,10 @@ class NativeWindow internal constructor(
 				throw error
 			}
 
-		if (drew)
+		if (drew && !drawn) {
 			drawn = true
-		else if (!drawn)
+			layer?.let(::awaitKeyboard)
+		} else if (!drew && !drawn)
 			throw CannotDraw(
 				"window $id cannot be drawn (${pixels.javaClass.simpleName}): " +
 					(
@@ -488,8 +693,16 @@ class NativeWindow internal constructor(
 				wantsFrame = false
 				invalidate()
 			}
-			SDL_EVENT_WINDOW_FOCUS_GAINED -> focused = true
-			SDL_EVENT_WINDOW_FOCUS_LOST -> focused = false
+			SDL_EVENT_WINDOW_FOCUS_GAINED -> {
+				Log.say { "window $id: has the keyboard" }
+				focused = true
+				layer?.let(::keyboardGiven)
+			}
+			SDL_EVENT_WINDOW_FOCUS_LOST -> {
+				Log.say { "window $id: has the keyboard no longer" }
+				focused = false
+				layer?.let(::keyboardTaken)
+			}
 			SDL_EVENT_WINDOW_MOUSE_ENTER -> pointerEvent(PointerEventType.Enter)
 			SDL_EVENT_WINDOW_MOUSE_LEAVE ->
 				if (!app.drags.isDragging)
@@ -700,6 +913,8 @@ class NativeWindow internal constructor(
 				scene::close,
 				recomposer::close,
 				pixels::close,
+				// The role given up before the surface it is the role of.
+				{ layer?.close() ?: Unit },
 			)
 
 		for (close in closing)
@@ -714,6 +929,45 @@ class NativeWindow internal constructor(
 	private companion object {
 		/** The variable a program finds the desktop's activation token in, and SDL reads as it shows a window. */
 		const val ACTIVATION_TOKEN = "XDG_ACTIVATION_TOKEN"
+
+		/** How long an overlay that shares the keyboard waits to be given it, once it is on the screen, before it holds it. */
+		const val UNGIVEN_MILLIS = 150L
+
+		/**
+		 * How soon after an overlay shares the keyboard its going is the compositor's doing, and not the user's: a
+		 * compositor that will not have it shared takes it in the same breath; a person takes longer to click.
+		 */
+		const val TAKEN_AT_ONCE_NANOS = 300_000_000L
+
+		/**
+		 * [size], which is in Compose's units, in the platform's points, as [window] is sized: a dp is the display's
+		 * scale of a pixel, which a point may be only part of (Wayland's, macOS's).
+		 */
+		fun pointsOf(window: Long, size: DpSize): Pair<Int, Int> {
+			val scale = SDL_GetWindowDisplayScale(window).takeIf { it > 0f } ?: 1f
+			val perPoint = SDL_GetWindowPixelDensity(window).takeIf { it > 0f } ?: 1f
+
+			return (size.width.value * scale / perPoint).toInt() to
+				(size.height.value * scale / perPoint).toInt()
+		}
+
+		/** The `wl_output` of [screen], where it names one SDL knows; none, for the compositor to choose. */
+		fun outputOf(screen: Screen): MemorySegment? =
+			(screen as? Screen.Named)?.let { named ->
+				val displays = SDL_GetDisplays() ?: return null
+
+				(0 until displays.remaining())
+					.map(displays::get)
+					.firstOrNull { SDL_GetDisplayName(it) == named.name }
+					?.let {
+						SDL_GetPointerProperty(
+							SDL_GetDisplayProperties(it),
+							SDL_PROP_DISPLAY_WAYLAND_WL_OUTPUT_POINTER,
+							0L,
+						)
+					}?.takeIf { it != 0L }
+					?.let(MemorySegment::ofAddress)
+			}
 	}
 }
 

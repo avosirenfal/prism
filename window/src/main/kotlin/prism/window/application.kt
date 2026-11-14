@@ -24,6 +24,9 @@ import kotlin.coroutines.EmptyCoroutineContext
 import kotlinx.coroutines.CoroutineExceptionHandler
 import org.lwjgl.sdl.SDLEvents.SDL_EVENT_QUIT
 import org.lwjgl.sdl.SDLMouse.SDL_DestroyCursor
+import org.lwjgl.sdl.SDLProperties.SDL_GetGlobalProperties
+import org.lwjgl.sdl.SDLProperties.SDL_GetPointerProperty
+import org.lwjgl.sdl.SDLVideo.SDL_PROP_GLOBAL_VIDEO_WAYLAND_WL_DISPLAY_POINTER
 import org.lwjgl.sdl.SDL_Event
 
 /*
@@ -89,8 +92,38 @@ internal class Application(
 		val drags: NativeDrags?,
 	)
 
-	/** Made with the first window, whose connection it is on: null until then. */
+	/** Made before the first window, on SDL's connection: null until then. */
 	private var beside: Beside? = null
+
+	/**
+	 * prism's own connection to the compositor, where the platform is Wayland: made the first time it is asked for,
+	 * which is before the first window is, since what kind of surface a window is can depend on what the compositor
+	 * has ([NativeWindow]).
+	 */
+	internal fun seat(): WaylandSeat? = spoken().seat
+
+	private fun spoken(): Beside {
+		beside?.let { return it }
+
+		val display =
+			if (sdl.video == Video.Wayland)
+				SDL_GetPointerProperty(
+					SDL_GetGlobalProperties(),
+					SDL_PROP_GLOBAL_VIDEO_WAYLAND_WL_DISPLAY_POINTER,
+					0L,
+				)
+			else
+				0L
+
+		val seat =
+			display.takeIf { it != 0L }?.let { WaylandSeat.of(MemorySegment.ofAddress(it)) }
+		val made = Beside(seat, NativeDrags.of(seat))
+
+		beside = made
+		Log.say { "drags: ${made.drags?.javaClass?.simpleName ?: "this process's own alone"}" }
+
+		return made
+	}
 
 	/** The platform's drags, where its protocol is spoken: begun with the first window, which they need to be. */
 	val nativeDrags: NativeDrags? get() = beside?.drags
@@ -128,17 +161,7 @@ internal class Application(
 	fun opened(window: NativeWindow) {
 		open[window.id] = window
 		// Heard from before any drag: a drag is begun from a press of the pointer's, which must be heard as it happens.
-		if (beside == null) {
-			val seat =
-				(window.handle as? NativeHandle.Wayland)?.let {
-					WaylandSeat.of(MemorySegment.ofAddress(it.display))
-				}
-
-			beside = Beside(seat, NativeDrags.of(seat))
-			Log.say {
-				"drags: ${nativeDrags?.javaClass?.simpleName ?: "this process's own alone"}"
-			}
-		}
+		spoken()
 	}
 
 	/**
@@ -300,6 +323,9 @@ private fun CompositionLocalApplication(
  *
  * A window that is not [resizable] keeps the size it opened at, which a window manager that tiles takes for a dialog's:
  * it is left floating over the tiles, where one that can be resized is made a tile.
+ *
+ * [role] is what the window is among the others on the screen (role.kt): a window as the platform has them, or over
+ * them all, as a launcher is, where the platform has a way.
  */
 @Composable
 fun Window(
@@ -311,6 +337,7 @@ fun Window(
 	onFailure: ((Throwable) -> Unit)? = null,
 	activation: String? = null,
 	resizable: Boolean = true,
+	role: WindowRole = WindowRole.Normal,
 	content: @Composable WindowScope.() -> Unit,
 ) {
 	val app =
@@ -325,7 +352,8 @@ fun Window(
 	val made =
 		remember {
 			runCatching {
-				val window = NativeWindow(app, title, size, decorated, at, activation, resizable)
+				val window =
+					NativeWindow(app, title, size, decorated, at, activation, resizable, role)
 
 				val scope =
 					object : WindowScope {

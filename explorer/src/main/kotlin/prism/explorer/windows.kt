@@ -65,9 +65,11 @@ import prism.preferences.Typography
 import prism.preferences.WindowKind
 import prism.window.Graphics
 import prism.window.GraphicsReport
+import prism.window.Keyboard
 import prism.window.LocalNativeWindow
 import prism.window.NativeWindow
 import prism.window.Window
+import prism.window.WindowRole
 
 /*
  * Every window the explorer has open, drawn from its list: a browser's in a window of its own, and each of the rest
@@ -80,6 +82,12 @@ import prism.window.Window
  * corners, since every window of prism's has prism's own name as its application's.
  */
 const val LAUNCHER_TITLE = "Prism Launcher"
+
+/**
+ * What the launcher is named where it is no window but a surface over them all: what a compositor's rule for such
+ * surfaces knows it by (a layer surface's namespace, on Wayland).
+ */
+const val LAUNCHER_NAME = "prism-launcher"
 
 /** Every window [explorer] has open, in [palette]. */
 @Composable
@@ -179,10 +187,29 @@ fun ExplorerWindows(explorer: Explorer, palette: Palette, decorated: Boolean) {
 					) {
 						SettingsWindow(explorer) { explorer.close(window) }
 					}
-				// The launcher: a window with no title bar, of a size that cannot be changed, which a window manager
-				// that tiles leaves floating over its tiles; in front, and with the keyboard, since it was asked for.
+				// The launcher: over every window, in the middle of the screen, with the keyboard for as long as it is
+				// shown, where the platform has such a surface and the user wants it one; and otherwise a window
+				// with no title bar, of a size that cannot be changed, which a window manager that tiles leaves
+				// floating over its tiles. What it is, it is from when it opens.
 				is ExplorerWindow.Launching -> {
 					val size = remember { LauncherDims.sizeOf(preferences.launcher) }
+
+					val role =
+						remember {
+							if (preferences.launcher.overlay)
+								WindowRole.Overlay(
+									LAUNCHER_NAME,
+									// One that closes when the keyboard goes elsewhere must let it go: a click on
+									// another window takes it. One that stays keeps the keyboard until it is put away.
+									keyboard =
+										if (preferences.launcher.closeUnfocused)
+											Keyboard.Shared
+										else
+											Keyboard.Held,
+								)
+							else
+								WindowRole.Normal
+						}
 
 					Window(
 						onCloseRequest = { explorer.close(window) },
@@ -192,6 +219,7 @@ fun ExplorerWindows(explorer: Explorer, palette: Palette, decorated: Boolean) {
 						onFailure = { explorer.failed(window, it) },
 						activation = window.activation,
 						resizable = false,
+						role = role,
 					) {
 						val native = this.window
 

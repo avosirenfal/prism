@@ -19,6 +19,12 @@ data class LauncherPreferences(
 	val actions: Boolean = true,
 	/** Whether it closes when another window is given the keyboard. */
 	val closeUnfocused: Boolean = true,
+	/**
+	 * Whether it is shown over every window, fullscreen ones included, in the middle of the screen, with the keyboard
+	 * its own until it is put away, where the platform has such a surface (Wayland's layer-shell); otherwise, and
+	 * where the platform has none, it is a window that floats, placed and stacked as the window manager does any.
+	 */
+	val overlay: Boolean = true,
 	/** The applications left out of it, by the desktop's names for them. */
 	val hidden: Set<String> = emptySet(),
 	/**

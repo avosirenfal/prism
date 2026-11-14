@@ -22,6 +22,7 @@ import java.util.concurrent.ConcurrentHashMap
  * - Tokens for bringing forward the window of a program prism starts (xdg-activation). A token is made from the
  *   serial of the user's last press of a button or a key, which tells the compositor that the user asked for it.
  * - The pointer's cursor during a drag (cursor-shape), which says what letting go there would do.
+ * - Surfaces over every window (layer-shell, waylandoverlay.kt), which SDL has no windows of.
  *
  * So the seat is bound here too, and its pointer and keyboard heard: the compositor tells every pointer and keyboard
  * a client has of what is done in its windows. Each is asked for once the seat says it has one, as a seat must not be
@@ -70,7 +71,11 @@ internal class WaylandSeat private constructor(
 	val shm: Bound?,
 	private val activation: Bound?,
 	private val cursorShapes: Bound?,
+	layerShell: Bound?,
 ) : AutoCloseable {
+	/** The compositor's layers, where it has layer-shell: what an overlay's window is a surface of. */
+	val layers: Layers? = layerShell?.let { Layers(display, it, arena) }
+
 	@Volatile
 	private var running = true
 
@@ -617,6 +622,7 @@ internal class WaylandSeat private constructor(
 						shm = core("wl_shm", 1),
 						activation = bound("xdg_activation_v1", Protocols.activation, 1),
 						cursorShapes = bound("wp_cursor_shape_manager_v1", Protocols.cursorShapeManager, 2),
+						layerShell = bound("zwlr_layer_shell_v1", Protocols.layerShell, 4),
 					)
 
 				Wl.destroy.invoke(registry)
@@ -626,7 +632,9 @@ internal class WaylandSeat private constructor(
 				made.thread.start()
 				Log.say {
 					"wayland: seat bound; drags ${made.dataDevices != null}, " +
-						"activation ${made.activation != null}, cursor shapes ${made.cursorShapes != null}"
+						"activation ${made.activation != null}, " +
+						"cursor shapes ${made.cursorShapes != null}, " +
+						"layer-shell ${made.layers?.version ?: "none"}"
 				}
 
 				made

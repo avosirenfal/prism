@@ -44,6 +44,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.times
 import kotlin.math.roundToInt
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import prism.browser.Bindings
@@ -70,6 +71,9 @@ import prism.preferences.LauncherPreferences
  * keyboard throughout: the arrows move through the results from it, the list scrolling to keep the one they are on in
  * sight, and every key is one the user can bind again (bindings.kt).
  */
+
+/** How long the launcher's window is without the keyboard before it is taken to have lost it, and put away. */
+private const val UNFOCUSED_MILLIS = 200L
 
 /** The sizes of the launcher's parts, which no other window shares. */
 object LauncherDims {
@@ -107,11 +111,16 @@ fun LauncherView(session: LauncherSession, bindings: Bindings) {
 	val focused = LocalWindowInfo.current.isWindowFocused
 	var wasFocused by remember { mutableStateOf(false) }
 
+	// Put away once the keyboard has gone elsewhere and stayed there a moment: a compositor takes the keyboard from
+	// a surface and gives it straight back when a keyboard is plugged in or its layout changes, which is no reason
+	// to go. The wait ends with the keyboard's return, since this is begun again as it changes.
 	LaunchedEffect(focused) {
-		if (focused)
+		if (focused) {
 			wasFocused = true
-		else if (wasFocused && state.preferences.closeUnfocused)
+		} else if (wasFocused && state.preferences.closeUnfocused) {
+			delay(UNFOCUSED_MILLIS)
 			session.send(LauncherEvent.Closed)
+		}
 	}
 
 	// What is typed is the field's own until the session's differs: cleared by Escape, say.

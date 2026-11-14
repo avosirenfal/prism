@@ -205,7 +205,85 @@ window.
 
 `Window(resizable = false)` makes a window whose size the user cannot change. To a window manager that tiles (niri,
 sway, Hyprland), a window that says its smallest and largest sizes are the same is a dialog: it is left floating
-over the tiles at the size it asked for, rather than made a tile. The launcher's window is one (docs/launcher.md).
+over the tiles at the size it asked for, rather than made a tile.
+
+## A window over the others
+
+A launcher is not a window among the others: it is over all of them, a fullscreen one included, where it says to be
+rather than where a window manager puts it, and typed into for as long as it is shown. Every platform has its own
+way of saying that, or none, so what is asked for is said without any of them (`role.kt`):
+
+```kotlin
+Window(
+    onCloseRequest = ...,
+    title = "Prism Launcher",
+    size = DpSize(760.dp, 574.dp),
+    role = WindowRole.Overlay(
+        name = "prism-launcher",            // what the platform's own rules know it by
+        placement = Placement.Centred,      // or Placement.Against(Edge.Top, 120.dp)
+        keyboard = Keyboard.Shared,         // or Keyboard.Held: its alone until it is closed
+        screen = Screen.Current,            // or Screen.Named("DP-2")
+    ),
+) { ... }
+```
+
+and each platform makes of it what it has:
+
+| platform | an overlay is |
+|---|---|
+| Wayland, where the compositor has layer-shell (niri, sway, Hyprland, KDE, COSMIC) | a surface in the overlay layer (below) |
+| Wayland without it (GNOME), and X11 | a window with no title bar that cannot be resized, kept in front on X11 (Wayland lets no window say so) |
+| macOS, when prism is on it | a panel above the windows' level that does not make prism the active application (`NSPanel`, as Spotlight's is) |
+| Windows, when prism is on it | a topmost tool window, in no taskbar |
+
+`WindowRole.Normal`, the default, is a window as the platform has them. Which a window turned out to be is
+`NativeWindow.overlaid`, and `PRISM_WINDOW_LOG=1` says it as each is made, with why where it is a window after all.
+The decision is one function of the role, the platform and what the compositor has (`surfaceFor`), made before any
+window is, and tested without either (`RoleTest`).
+
+`Keyboard.Held` is the keyboard for as long as the overlay is shown, whatever is clicked. `Keyboard.Shared` is the
+keyboard as it opens, which a click elsewhere takes, as it would from a window. A platform that gives a new overlay
+the keyboard only if it holds it makes a shared one held after all (below).
+
+### On Wayland: a layer surface
+
+A window of SDL's is a surface with the role of a window (an `xdg_toplevel`). SDL can be asked for a window whose
+surface it gives no role (`SDL_PROP_WINDOW_CREATE_WAYLAND_SURFACE_ROLE_CUSTOM_BOOLEAN`), and goes on drawing into it,
+scaling it, and hearing its keys and its pointer all the same. The role is then given by prism, on its own connection
+to the compositor (`waylandoverlay.kt`, beside the seat's in `waylandseat.kt`), in `wlr-layer-shell`'s words, whose
+tables are in `waylandprotocols.kt` with the others SDL does not speak:
+
+1. `zwlr_layer_shell_v1.get_layer_surface`: the surface, the output (none, for the compositor to choose the one the
+   user is on; or the `wl_output` SDL has for a screen named), the overlay layer, and the role's name as its
+   namespace.
+2. `set_size`, `set_anchor` (no edge, for the middle; one edge, for against it), `set_margin`,
+   `set_keyboard_interactivity` (exclusive for held; on demand for shared, where the compositor's layer-shell is
+   version 4, and exclusive before that).
+3. The surface committed with nothing in it, and the compositor's `configure` waited for and acknowledged. This is
+   the protocol's order, and nothing may be drawn before it: the window's first frame is drawn only after. A
+   compositor that does not answer within three seconds is done without: the window is destroyed, and one of the
+   usual kind made in its place.
+4. From then on SDL draws and commits as it does any window's. A later `configure` (the output's size changed) is
+   acknowledged as it arrives, on the seat's thread, and the window is told its new size on the windows' thread, by
+   `SDL_SetWindowSize`, which is how SDL learns the size of a surface it gave no role. `closed` (the output went
+   away) is the window asked to close, as its title bar would ask.
+5. Closed, the layer surface is destroyed before SDL destroys the surface it was the role of.
+
+A keyboard held is asked for exclusively, and that is all. A keyboard shared is asked for on demand, and the two
+compositors it was tried on answer that differently: niri gives a surface that appears asking on demand the keyboard,
+and takes it from one that had it exclusively and then asks on demand; sway gives a surface that appears asking on
+demand nothing until it is clicked, and leaves the keyboard with one that had it exclusively and then asks on demand.
+So an overlay that shares the keyboard asks on demand as it is made; not given the keyboard 150 ms after its first
+frame, it asks exclusively, to be given it, and asks on demand again once it has it; and where that costs it the
+keyboard at once (within 300 ms, which no person's click is), it asks exclusively for good. `NativeWindow` drives
+this from SDL's own account of the keyboard (`keyboardGiven`, `keyboardTaken`), and the log says each step.
+
+SDL scales such a surface itself where it was made high-density, so sizes are in points and drawing in pixels, as
+for a window, and both of prism's ways of drawing a window on Wayland (OpenGL through EGL, and shared memory) draw
+into it unchanged.
+
+Tried for real with `tools/launcher/check-wayland.sh`, on sway 1.9 and niri 26.04, each drawn both ways
+(docs/launcher.md, "Tested").
 
 ## When no window opens
 
@@ -250,6 +328,9 @@ the windows' thread now ("The thread", above), where nothing runs beside a layou
 
 ## Not yet
 
+- **An overlay on macOS and Windows**, and an overlay with an alpha channel (round corners and a shadow of its own,
+  and larger than it looks, to see a click beside it): `WindowRole.Overlay` says what is wanted, and each has its
+  row in the table above to be made of.
 - **Dragging out to other programs on X11, Windows and macOS**: XDND, OLE's `DoDragDrop` and an `NSDraggingSession`,
   each a `NativeDrags` of its own, as Wayland's is. Until then, a drag there goes between prism's own windows, and copy
   and paste is the way to other programs.
