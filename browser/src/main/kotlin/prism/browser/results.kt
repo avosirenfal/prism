@@ -208,6 +208,11 @@ fun RowScope.ResultText(title: String, detail: String, kind: String = "") {
 	)
 	if (kind.isNotEmpty()) {
 		Spacer(Modifier.width(Space.m))
-		Text(kind, style = type.muted, maxLines = 1)
+		// Fainter than what is said of the result: it is the same word down most of a list.
+		Text(
+			kind,
+			style = type.muted.copy(color = LocalPalette.current.textFaint),
+			maxLines = 1,
+		)
 	}
 }

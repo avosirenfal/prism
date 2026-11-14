@@ -268,9 +268,19 @@ private fun EntryIcon(entry: Entry, size: Dp) {
 
 	Box(Modifier.size(size), contentAlignment = Alignment.Center) {
 		when (entry) {
-			is Entry.App -> AppIcon(entry.application.icon, entry.application.name, size)
+			is Entry.App ->
+				AppIcon(
+					listOfNotNull(entry.application.icon),
+					entry.application.name,
+					size,
+				)
+			// An action's own picture, and its application's where the icon theme has none for the action.
 			is Entry.Action ->
-				AppIcon(entry.action.icon ?: entry.application.icon, entry.application.name, size)
+				AppIcon(
+					listOfNotNull(entry.action.icon, entry.application.icon),
+					entry.application.name,
+					size,
+				)
 			is Entry.File ->
 				GlyphIcon(
 					if (entry.isFolder) Glyph.Folder else Glyph.File,
@@ -292,16 +302,22 @@ private fun EntryIcon(entry: Entry, size: Dp) {
 }
 
 /**
- * The icon [name], as the desktop's icon theme has it, [size] across; while it is read, and where an application has
- * none, the first letter of its [label] on a tile, so that every row has something to be known by.
+ * The first of the icons [names] that the desktop's icon theme has, [size] across; while it is read, and where it has
+ * none of them, the first letter of [label] on a tile, so that every row has something to be known by.
  */
 @Composable
-private fun AppIcon(name: String?, label: String, size: Dp) {
+private fun AppIcon(names: List<String>, label: String, size: Dp) {
 	val images = LocalIconImages.current
 	val pixels = with(LocalDensity.current) { size.toPx().roundToInt() }
 
-	val image by produceState(name?.let { images.kept(it, pixels) }, name, pixels) {
-		value = name?.let { images.of(it, pixels) }
+	val image by produceState(
+		names.firstNotNullOfOrNull {
+			images.kept(it, pixels)
+		},
+		names,
+		pixels,
+	) {
+		value = names.firstNotNullOfOrNull { images.of(it, pixels) }
 	}
 
 	image?.let {
