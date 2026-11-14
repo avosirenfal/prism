@@ -146,14 +146,18 @@ stdenv.mkDerivation (finalAttrs: {
     first="$(ls $lib/app-*.jar $lib/cli-*.jar $lib/org.jetbrains.kotlin-kotlin-stdlib-*.jar $lib/index-*.jar)"
     classpath="$( (echo "$first"; ls $lib/*.jar | grep -v -x -F "$first") | paste -sd: )"
 
-    # What Java is given, the same every time: here once, for the wrapper and for the archive made below.
+    # What Java is given, the same every time: here once, for the wrapper and for the archive made below. The three
+    # words about its heap are for a daemon that runs for weeks: garbage collected every five minutes where nothing
+    # has, and the heap kept between a fifth and a half free, so that memory a burst of work took is given back. Kept
+    # tighter (a tenth to three tenths, as it was), a broad search's own garbage filled what was free several times a
+    # key typed, and each time is a stop of the whole process, windows and all. extraJvmArgs come after, and win.
     cat > $out/share/prism/java.args <<ARGS
     --enable-native-access=ALL-UNNAMED
     -Djava.awt.headless=true
     -Dprism.launcher=$java
     -XX:G1PeriodicGCInterval=300000
-    -XX:MinHeapFreeRatio=10
-    -XX:MaxHeapFreeRatio=30
+    -XX:MinHeapFreeRatio=20
+    -XX:MaxHeapFreeRatio=50
     ${lib.concatStringsSep "\n" extraJvmArgs}
     -cp
     $classpath

@@ -285,7 +285,15 @@ It puts NixOS's graphics drivers (`/run/opengl-driver/lib`) and the libraries SD
 store. It also keeps what `LD_LIBRARY_PATH` was, and prism gives that back to every program it starts
 (docs/running.md, "Programs prism starts"), so an application opened from prism does not inherit prism's libraries.
 
-`extraJvmArgs` gives its Java more words:
+The Java prism is given three words about its memory, for a daemon that runs for weeks: garbage is collected every
+five minutes where nothing else has (`-XX:G1PeriodicGCInterval=300000`), and the heap is kept between a fifth and a
+half free (`-XX:MinHeapFreeRatio=20 -XX:MaxHeapFreeRatio=50`), so that what a burst of work took is given back to the
+system. The less is left free, the oftener garbage is collected while prism works, and each collection stops the
+whole process for a few milliseconds, its windows too; the more, the more memory an idle daemon holds.
+
+`extraJvmArgs` gives its Java more words, which come after those and win over them: a bound on the heap, the two
+ratios otherwise, another collector (`-XX:+UseZGC` stops the process for under a millisecond whatever the heap, for
+more memory and work), or `-Xlog:gc` to see when garbage is collected (docs/window.md, "When a window stutters"):
 
 ```nix
 {
