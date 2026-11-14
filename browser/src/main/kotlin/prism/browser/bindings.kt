@@ -416,8 +416,14 @@ object Keys {
  */
 @Immutable
 class Bindings(
-	val chords: Map<Bindable, List<Chord>>,
+	chords: Map<Bindable, List<Chord>>,
 ) {
+	/**
+	 * Each action's chords, none of them twice, however they were given: a chord is one of an action's places, and a
+	 * file written by hand may say one twice.
+	 */
+	val chords: Map<Bindable, List<Chord>> = chords.mapValues { (_, its) -> its.distinct() }
+
 	fun of(action: Bindable): List<Chord> = chords[action].orEmpty()
 
 	/** Everything that can be bound here: the browser's own actions, then the user's. */
@@ -501,7 +507,7 @@ class Bindings(
 			else
 				mine.plusElement(given)
 
-		return Bindings(freed + (action to placed.distinct()))
+		return Bindings(freed + (action to placed))
 	}
 
 	/** These, without [action]'s chord at [index]. */

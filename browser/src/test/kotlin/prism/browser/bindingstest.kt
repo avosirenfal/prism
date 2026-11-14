@@ -89,6 +89,20 @@ class BindingsTest {
 	}
 
 	@Test
+	fun aChordWrittenTwiceForAnActionIsOneOfItsChords() {
+		// A preferences file written by hand: the same chord twice, once in another case.
+		val bindings =
+			Bindings.of(
+				Preferences.DEFAULT.binding(
+					Action.Refresh.name,
+					listOf("F5", "Ctrl+R", "F5", "ctrl+r"),
+				),
+			)
+
+		assertEquals(listOf(chord("F5"), chord("Ctrl+R")), bindings.of(Action.Refresh))
+	}
+
+	@Test
 	fun aChordDoesOneThing() {
 		val bindings = Bindings.DEFAULT
 
