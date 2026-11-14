@@ -18,15 +18,13 @@ import prism.client.Request
 internal object LaunchCommand :
 	Command(
 		"launcher",
-		"show the launcher (applications, then files) in the prism already running, where one is; " +
-			"put it away, where it is shown",
+		"show the launcher, or hide it if it is showing",
 	),
 	Served {
 	private val isolated =
 		flag(
 			ExploreCommand.ISOLATED,
-			help =
-				"show it in a process of its own, whether or not a prism is already running",
+			help = "show it in a separate process, even if a prism is already running",
 		)
 	private val indexing = Indexing(this)
 	private val theme = themeOption()

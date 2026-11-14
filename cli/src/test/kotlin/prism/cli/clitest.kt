@@ -202,13 +202,13 @@ class CliTest {
 		assertEquals(3, counted[Short.count])
 		assertEquals(listOf("x"), counted[Short.words])
 		assertEquals(
-			"-n takes a value, so it is written last of those run together in -nab",
+			"-n takes a value, so it must come last in -nab",
 			wrongly(Short, "-nab", "3"),
 		)
 		// A letter that is no option makes the whole word one that is not there; twice is twice, as written apart.
 		assertEquals("unknown option -abx", wrongly(Short, "-abx"))
-		assertEquals("-a given twice", wrongly(Short, "-aa"))
-		assertEquals("-a given twice", wrongly(Short, "-a", "-ba"))
+		assertEquals("-a given more than once", wrongly(Short, "-aa"))
+		assertEquals("-a given more than once", wrongly(Short, "-a", "-ba"))
 		// A long option is not letters run together, nor is one with a value written into it.
 		assertEquals("unknown option --ab", wrongly(Short, "--ab"))
 		assertEquals("unknown option -ab", wrongly(Short, "-ab=3"))
@@ -244,23 +244,29 @@ class CliTest {
 	fun mistakesAreRefusedNotReadAnotherWay() {
 		assertEquals("unknown option --nope", wrong("probe", "in", "--need", "1", "--nope"))
 		assertEquals(
-			"--json given twice",
+			"--json given more than once",
 			wrong("probe", "in", "--need", "1", "--json", "--json"),
 		)
-		assertEquals("--json takes no value", wrong("probe", "in", "--need", "1", "--json=yes"))
 		assertEquals(
-			"--top needs a value (N)",
+			"--json does not take a value",
+			wrong("probe", "in", "--need", "1", "--json=yes"),
+		)
+		assertEquals(
+			"--top requires a value (N)",
 			wrong("probe", "in", "--need", "1", "--top", "--json"),
 		)
-		assertEquals("--need is needed (N)", wrong("probe", "in"))
-		assertEquals("missing INPUT", wrong("probe", "--need", "1"))
+		assertEquals("--need is required (N)", wrong("probe", "in"))
+		assertEquals("missing argument: INPUT", wrong("probe", "--need", "1"))
 		assertEquals(
 			"--top: 'many' is not a whole number",
 			wrong("probe", "in", "--need", "1", "--top", "many"),
 		)
-		assertEquals("unexpected word 'b'", wrong("maybe", "a", "b"))
-		assertEquals("--size: '3x' is not a size WxH", wrong("maybe", "--size", "3x"))
-		assertEquals("no command 'nope'", wrong("nope"))
+		assertEquals("unexpected argument 'b'", wrong("maybe", "a", "b"))
+		assertEquals(
+			"--size: '3x' is not a size in the form WxH",
+			wrong("maybe", "--size", "3x"),
+		)
+		assertEquals("unknown command 'nope'", wrong("nope"))
 	}
 
 	@Test
@@ -297,7 +303,7 @@ class CliTest {
 		assertInstanceOf(Invocation.Help::class.java, invocation(defaulted, listOf("--help")))
 		// What the default cannot read is its mistake.
 		assertEquals(
-			"unexpected word 'two'",
+			"unexpected argument 'two'",
 			assertInstanceOf(
 				Invocation.Wrong::class.java,
 				invocation(defaulted, listOf("one", "two")),
@@ -307,7 +313,7 @@ class CliTest {
 		val help = execute(defaulted, listOf("--help")).out
 
 		assertTrue("usage: root COMMAND ...\n       root [WHERE] [OPTIONS]" in help, help)
-		assertTrue("Without a COMMAND, root is root maybe." in help, help)
+		assertTrue("With no COMMAND, root runs root maybe." in help, help)
 	}
 
 	@Test

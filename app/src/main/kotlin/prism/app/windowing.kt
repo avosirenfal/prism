@@ -41,9 +41,7 @@ internal fun Command.themeOption(): Param<Theme> =
 		"--theme",
 		type = Theme.TYPE,
 		default = Theme.Auto,
-		help =
-			"the palette: the desktop's colour scheme (light where there is none), " +
-				"or light or dark",
+		help = "colour theme; auto follows the desktop's setting",
 		shown = "auto",
 	)
 
@@ -51,17 +49,14 @@ internal fun Command.themeOption(): Param<Theme> =
 internal fun Command.decoratedFlag(closing: String): Param<Boolean> =
 	flag(
 		"--decorated",
-		help =
-			"give the window the title bar the window manager draws (in the palette " +
-				"where it heeds _GTK_THEME_VARIANT); without it, the window has none, " +
-				"and $closing",
+		help = "use the window manager's title bar; without it, $closing",
 	)
 
 /** A file that is not a folder: what `--index` reads, told apart so from the folder that may follow it. */
 private val INDEX_FILE =
 	ParamType("FILE") { word ->
 		if (Path(word).isDirectory())
-			Parsed.Invalid("$word is a folder, not an index")
+			Parsed.Invalid("$word is a folder, not an index file")
 		else
 			Parsed.Value(Path(word))
 	}
@@ -79,8 +74,8 @@ internal class Indexing(
 			"--index",
 			type = INDEX_FILE,
 			help =
-				"search an index with F2: the one in FILE, or without FILE the usual one " +
-					"(\$XDG_CACHE_HOME/prism/index.prism); read once, and never updated",
+				"enable search (F2) from an index file, read once and not kept up to date; " +
+					"FILE defaults to \$XDG_CACHE_HOME/prism/index.prism",
 		)
 
 	/** Whether [args] ask for an index at all. */
@@ -95,7 +90,7 @@ internal class Indexing(
 		val file =
 			when (val given = args[index]) {
 				null -> return Search.Unavailable(
-					"${BrowserState.NO_INDEX} prism ${command.name} --index searches one.",
+					"${BrowserState.NO_INDEX} Start prism ${command.name} with --index to search one.",
 				) to
 					null
 				Given.Alone -> defaultIndexFile()
@@ -109,7 +104,7 @@ internal class Indexing(
 				if (usage is UsageRead.Unreadable)
 					warn(
 						command,
-						"the usage can't be read (${usage.why}); results are ranked without it",
+						"can't read the usage file (${usage.why}); results are ranked without it",
 					)
 
 				Search.Ready() to StaticFinder(read.index, usage.usage, home)
@@ -117,13 +112,13 @@ internal class Indexing(
 			IndexRead.Missing -> {
 				warn(
 					command,
-					"there is no index at $file, so there is no search; prism index makes one",
+					"no index at $file, so search is unavailable; run prism index to create one",
 				)
-				Search.Unavailable("There is no index at $file. prism index makes one.") to null
+				Search.Unavailable("No index at $file. Run prism index to create one.") to null
 			}
 			is IndexRead.Unreadable -> {
-				warn(command, "the index at $file can't be read (${read.why}), so there is no search")
-				Search.Unavailable("The index at $file can't be read: ${read.why}") to null
+				warn(command, "can't read the index at $file (${read.why}), so search is unavailable")
+				Search.Unavailable("Can't read the index at $file: ${read.why}") to null
 			}
 		}
 	}

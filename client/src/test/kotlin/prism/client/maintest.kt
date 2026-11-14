@@ -87,7 +87,7 @@ class ClientTest {
 	fun whatNobodyAnswersAndHelpAreTheJavaPrisms() {
 		// The prism listening cannot: the Java prism's.
 		listening({
-			Reply.Unable("explore was asked to be a prism of its own")
+			Reply.Unable("explore was asked to run in a separate process")
 		}) { place, asked ->
 			assertNull(answered(listOf("explore", "--isolated"), place, caller))
 			assertEquals(1, asked.size)
@@ -116,7 +116,7 @@ class ClientTest {
 		)
 		// A mistake in its words is said here; a search itself, with no prism to ask, is the Java prism's.
 		assertEquals(
-			"prism search: what to search for is missing",
+			"prism search: missing query",
 			answered(listOf("search"), null, caller)!!.err,
 		)
 	}

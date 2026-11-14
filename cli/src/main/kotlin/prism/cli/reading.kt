@@ -58,7 +58,7 @@ tailrec fun invocation(
 						if (first.startsWith("-"))
 							"unknown option $first"
 						else
-							"no command '$first'",
+							"unknown command '$first'",
 					)
 			}
 		}
@@ -134,7 +134,7 @@ private fun runTogether(
 
 	return each.dropLast(1).firstOrNull { byName[it] !is Flag }?.let {
 		Parsed.Invalid(
-			"$it takes a value, so it is written last of those run together in $word",
+			"$it takes a value, so it must come last in $word",
 		)
 	} ?: Parsed.Value(each)
 }
@@ -188,7 +188,7 @@ private tailrec fun options(
 	val given = read.options[opt].orEmpty()
 
 	if (given.isNotEmpty() && opt !is Repeated<*>)
-		return Parsed.Invalid("$name given twice")
+		return Parsed.Invalid("$name given more than once")
 
 	val taken: Parsed<Pair<Int, Any?>> =
 		when (opt) {
@@ -196,7 +196,7 @@ private tailrec fun options(
 				if (inline !=
 					null
 				)
-					Parsed.Invalid("$name takes no value")
+					Parsed.Invalid("$name does not take a value")
 				else
 					Parsed.Value(0 to true)
 			is ValueOptional<*> -> {
@@ -223,7 +223,7 @@ private tailrec fun options(
 				when {
 					inline != null -> value(opt.type, inline, name).then { Parsed.Value(0 to it) }
 					next != null -> value(opt.type, next, name).then { Parsed.Value(1 to it) }
-					else -> Parsed.Invalid("$name needs a value (${opt.type.metavar})")
+					else -> Parsed.Invalid("$name requires a value (${opt.type.metavar})")
 				}
 			}
 		}
@@ -261,10 +261,10 @@ private fun optionValues(
 			is Defaulted<*> -> Parsed.Value(values.singleOrNull() ?: opt.default)
 			is Required<*> ->
 				values.singleOrNull()?.let { Parsed.Value(it) }
-					?: Parsed.Invalid("${opt.names.last()} is needed (${opt.type.metavar})")
+					?: Parsed.Invalid("${opt.names.last()} is required (${opt.type.metavar})")
 			is Repeated<*> ->
 				if (opt.atLeastOnce && values.isEmpty())
-					Parsed.Invalid("${opt.names.last()} is needed at least once (${opt.type.metavar})")
+					Parsed.Invalid("${opt.names.last()} is required at least once (${opt.type.metavar})")
 				else
 					Parsed.Value(values)
 		}.then { Parsed.Value(opt to it) }
@@ -282,10 +282,10 @@ private fun positionalValues(
 
 	if (words.size < required.size)
 		return Parsed.Invalid(
-			"missing ${required.drop(words.size).joinToString(" ") { it.name }}",
+			"missing argument: ${required.drop(words.size).joinToString(" ") { it.name }}",
 		)
 	if (rest == null && words.size > single.size)
-		return Parsed.Invalid("unexpected word '${words[single.size]}'")
+		return Parsed.Invalid("unexpected argument '${words[single.size]}'")
 
 	val given =
 		parseAll(single.zip(words)) { (param, word) ->

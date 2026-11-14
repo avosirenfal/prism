@@ -21,21 +21,21 @@ import prism.index.Scanner
  */
 object ScanCommand : Command(
 	"scan",
-	"read a directory tree into the index's shape, with each backend, and say how long each took",
+	"benchmark reading a directory tree with each backend",
 ) {
 	private val root =
 		argument(
 			"PATH",
 			ParamType.FOLDER,
 			default = { Path(System.getProperty("user.home")) },
-			shown = "your home",
+			shown = "your home folder",
 		)
 
 	private val backends =
 		repeated(
 			"--backend",
 			type = ParamType.choice(Backend.ALL) { it.name },
-			help = "the backends to compare, each read the same way (all of them unless named)",
+			help = "backends to compare; all of them if none is given",
 		)
 
 	private val threads =
@@ -43,8 +43,8 @@ object ScanCommand : Command(
 			"--threads",
 			type = ParamType.COUNT,
 			default = Runtime.getRuntime().availableProcessors(),
-			help = "how many threads read directories at once",
-			shown = "every core",
+			help = "number of threads reading directories",
+			shown = "all cores",
 		)
 
 	private val runs =
@@ -52,20 +52,20 @@ object ScanCommand : Command(
 			"--runs",
 			type = ParamType.COUNT,
 			default = 3,
-			help = "how many times each backend reads the tree",
+			help = "times each backend reads the tree",
 		)
 
 	private val everything =
 		flag(
 			"--no-ignore",
-			help = "read what the ignore rules would leave out (.git, node_modules, ...)",
+			help = "also read what the ignore rules skip (.git, node_modules, ...)",
 		)
 
 	private val ignoring =
 		repeated(
 			"--ignore",
 			type = ParamType.TEXT.named("RULE"),
-			help = "leave these out too: a name anywhere (.git), or one path (/nix/store)",
+			help = "also skip a name anywhere (.git) or a single path (/nix/store)",
 		)
 
 	override fun run(args: Args): Outcome {
@@ -127,13 +127,13 @@ object ScanCommand : Command(
 		if (getdents != null && jvm != null) {
 			lines += ""
 			lines +=
-				"getdents64 took %.2fx the JVM's time (%s against %s)".format(
+				"getdents64 took %.2fx the JVM's time (%s vs %s)".format(
 					getdents.elapsed / jvm.elapsed,
 					millis(getdents.elapsed),
 					millis(jvm.elapsed),
 				)
 			if (getdents.counts != jvm.counts)
-				lines += "the two read different trees: ${getdents.counts} against ${jvm.counts}"
+				lines += "the backends read different trees: ${getdents.counts} vs ${jvm.counts}"
 		}
 
 		return lines.joinToString("\n")

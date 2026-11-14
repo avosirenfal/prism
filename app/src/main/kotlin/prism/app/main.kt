@@ -16,8 +16,7 @@ import prism.cli.execute
 val PRISM =
 	Group(
 		"prism",
-		"a file picker for Wayland's portals, and a file explorer, over an index of every file on the machine that " +
-			"the kernel keeps current",
+		"a file explorer, file picker and launcher, with a live index of every file on the machine",
 		listOf(
 			Category(
 				"browsing",

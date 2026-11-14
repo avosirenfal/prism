@@ -87,7 +87,7 @@ internal class Listening private constructor(
 					when (val asked = Wire.asked(input)) {
 						is Wire.Asked.Other ->
 							Reply.Unable(
-								"the prism already running is another version (its ${Wire.VERSION} to this one's ${asked.version})",
+								"the running prism is a different version (protocol ${Wire.VERSION}, this one ${asked.version})",
 							)
 						is Wire.Asked.Read ->
 							try {
@@ -97,7 +97,7 @@ internal class Listening private constructor(
 									"answering prism ${asked.request.words.joinToString(" ")} failed",
 									failed,
 								)
-								Reply.Unable("the prism already running failed at it: $failed")
+								Reply.Unable("the running prism failed: $failed")
 							}
 					}
 
@@ -162,7 +162,7 @@ internal class Listening private constructor(
 					)
 					FileChannel.open(place.lock, StandardOpenOption.CREATE, StandardOpenOption.WRITE)
 				} catch (failed: IOException) {
-					return Claim.Cannot("${place.lock} cannot be made (${failed.message ?: failed})")
+					return Claim.Cannot("can't create ${place.lock} (${failed.message ?: failed})")
 				}
 
 			return try {
@@ -184,7 +184,7 @@ internal class Listening private constructor(
 			} catch (failed: IOException) {
 				// Closing the channel lets go of the lock, where it was had.
 				channel.close()
-				Claim.Cannot("${place.socket} cannot be listened at (${failed.message ?: failed})")
+				Claim.Cannot("can't listen on ${place.socket} (${failed.message ?: failed})")
 			}
 		}
 	}
@@ -239,7 +239,7 @@ internal fun stand(
 		when (val claim = Listening.claim(place, serve)) {
 			is Claim.Got -> return Standing.Alone(claim.listening)
 			is Claim.Cannot -> {
-				Report.say("${claim.why}, so this prism is on its own")
+				Report.say("${claim.why}, so this prism runs on its own")
 
 				return Standing.Alone(null)
 			}
@@ -247,7 +247,7 @@ internal fun stand(
 			Claim.Held ->
 				if (System.nanoTime() > until) {
 					Report.say(
-						"the prism at ${place.socket} does not answer, so this prism is on its own",
+						"the prism at ${place.socket} isn't answering, so this prism runs on its own",
 					)
 
 					return Standing.Alone(null)

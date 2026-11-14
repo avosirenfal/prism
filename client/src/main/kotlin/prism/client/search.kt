@@ -186,58 +186,56 @@ class SearchCommand(
 	) -> String? = { paths -> chosenFrom(paths, IN_SIGHT) { it } },
 ) : Command(
 		"search",
-		"print the paths the index holds that fit a query (docs/search.md), the best first: " +
-			"prism search report .pdf -draft",
+		"print paths from the index that match a query, best first (syntax: docs/search.md), " +
+			"e.g. prism search report .pdf -draft",
 	) {
 	private val words =
 		arguments(
 			"QUERY",
 			ParamType.TEXT,
 			help =
-				"the query, in the search's language; its words are joined with spaces, " +
-					"and one with a space in it is a quoted term. A word that starts with " +
-					"a dash is the query's (-draft: not draft) unless it is exactly one " +
-					"of the options below. Where the words have a -- among them, the " +
-					"query is what follows it, and what is before it is options alone, " +
-					"which can then be run together (prism search -si -- report -g)",
+				"the search query; arguments are joined with spaces, and one containing a " +
+					"space is searched as a quoted term. A word starting with a dash is part " +
+					"of the query (-draft excludes draft) unless it is exactly one of the " +
+					"options below. With --, everything after it is the query and everything " +
+					"before it is options, which can then be combined " +
+					"(prism search -si -- report -g)",
 		)
-	private val best = flag("-b", "--best", help = "only the best match")
+	private val best = flag("-b", "--best", help = "print only the best match")
 	private val count =
 		option(
 			"-n",
 			"--count",
 			type = ParamType.COUNT,
 			default = COUNT,
-			help = "how many matches at most",
+			help = "maximum number of matches",
 		)
-	private val all = flag("-a", "--all", help = "every match, however many")
+	private val all = flag("-a", "--all", help = "print every match")
 	private val interactive =
 		flag(
 			"-i",
 			"--interactive",
 			help =
-				"choose one of the matches from a menu on the terminal ($IN_SIGHT in " +
-					"sight; the arrows or j and k move, Enter chooses, Esc cancels), " +
-					"and print it",
+				"pick one match from a menu in the terminal and print it (arrows or " +
+					"j/k move, Enter selects, Esc cancels)",
 		)
 	private val select =
 		flag(
 			"-s",
 			"--select",
 			help =
-				"print the match where there is exactly one; with more than one, say so " +
-					"on standard error, print nothing, and end with status $SEVERAL. " +
-					"With -i, more than one are chosen among from the menu, and one is " +
-					"printed without it: prism search -si -- report is always one path, " +
-					"or none",
+				"print the match if there is exactly one; if there are several, print " +
+					"nothing, list them on standard error and exit with status $SEVERAL. " +
+					"With -i, several open the menu instead, so prism search -si -- report " +
+					"prints one path or none",
 		)
-	private val files = flag("--files", help = "files only: is:file")
-	private val folders = flag("--dirs", help = "folders only: is:dir")
+	private val files = flag("--files", help = "only files (is:file)")
+	private val folders = flag("--dirs", help = "only folders (is:dir)")
 	private val nul =
 		flag(
 			"-0",
 			"--null",
-			help = "a NUL after each path in place of a new line, for xargs -0",
+			help = "end each path with NUL instead of a newline, for xargs -0",
 		)
 
 	override val dashedArguments: Boolean get() = true
@@ -247,7 +245,7 @@ class SearchCommand(
 
 	override fun run(args: Args): Outcome {
 		if (args[words].isEmpty())
-			throw InputError("what to search for is missing")
+			throw InputError("missing query")
 
 		val text =
 			(
@@ -281,14 +279,14 @@ class SearchCommand(
 			Came.Nothing -> {
 				// Said where one path was asked for, and a person or a script is waiting for it.
 				if (wanted !is Wanted.Listed)
-					err("prism search: nothing matches")
+					err("prism search: no matches")
 
 				Outcome("", NOTHING)
 			}
 			is Came.Several -> {
 				err(
-					"prism search: ${"%,d".format(came.total)} matches, and --select takes " +
-						"one: narrow it, take the best (-b), or choose (-i)",
+					"prism search: ${"%,d".format(came.total)} matches, but --select needs " +
+						"exactly one; narrow the query, or use -b for the best or -i to pick",
 				)
 				came.first.forEach(err)
 				if (came.total > came.first.size)

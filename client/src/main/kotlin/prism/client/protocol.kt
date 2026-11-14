@@ -185,7 +185,7 @@ object Wire {
 
 		if (version != VERSION)
 			return Reply.Unable(
-				"the prism already running is another version (its $version to this one's $VERSION)",
+				"the running prism is a different version (protocol $version, this one $VERSION)",
 			)
 
 		return when (val kind = input.readInt()) {
@@ -196,13 +196,13 @@ object Wire {
 				Reply.Done(Ran(out, text(input), status))
 			}
 			UNABLE -> Reply.Unable(text(input))
-			else -> throw IOException("an answer of no kind this reads ($kind)")
+			else -> throw IOException("unknown kind of reply ($kind)")
 		}
 	}
 
 	private fun versionOf(input: DataInputStream): Int {
 		if (input.readInt() != MARK)
-			throw IOException("not a prism's")
+			throw IOException("not a prism reply")
 
 		return input.readInt()
 	}
@@ -210,7 +210,7 @@ object Wire {
 	private fun count(input: DataInputStream): Int =
 		input.readInt().also {
 			if (it !in 0..MOST)
-				throw IOException("a count no command line has ($it)")
+				throw IOException("implausible count ($it)")
 		}
 
 	private fun text(out: DataOutputStream, text: String) {
@@ -224,7 +224,7 @@ object Wire {
 		val length = input.readInt()
 
 		if (length !in 0..LONGEST)
-			throw IOException("text longer than any command line's ($length bytes)")
+			throw IOException("text too long ($length bytes)")
 
 		return ByteArray(length).also(input::readFully).decodeToString()
 	}

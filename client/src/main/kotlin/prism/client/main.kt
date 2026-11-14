@@ -33,7 +33,7 @@ internal class HandedOver : RuntimeException(null, null, false, false)
 internal val OWN =
 	Group(
 		"prism",
-		"what the client does itself",
+		"commands the native client runs itself",
 		listOf(
 			Category(
 				"searching",
@@ -101,8 +101,8 @@ private fun handedOver(words: List<String>): Int {
 		javaPrism(System.getenv(), program())
 			?: run {
 				System.err.println(
-					"prism: nobody answered, and there is no Java prism to do it: " +
-						"name one with $JAVA_PRISM",
+					"prism: no running prism answered and the Java prism wasn't found; " +
+						"set $JAVA_PRISM to its path",
 				)
 
 				return NO_JAVA
@@ -112,7 +112,7 @@ private fun handedOver(words: List<String>): Int {
 		try {
 			ProcessBuilder(listOf(java.toString()) + words).inheritIO().start()
 		} catch (failed: IOException) {
-			System.err.println("prism: $java could not be started (${failed.message ?: failed})")
+			System.err.println("prism: couldn't start $java (${failed.message ?: failed})")
 
 			return NO_JAVA
 		}

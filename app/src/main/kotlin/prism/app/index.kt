@@ -28,13 +28,13 @@ import prism.index.search
  */
 object IndexCommand : Command(
 	"index",
-	"index folders into the index's file, or read the one there is, and say what it holds and how long it took",
+	"build the index file, or load the existing one, and print what it holds and how long it took",
 ) {
 	private val roots =
 		arguments(
 			"PATH",
 			ParamType.FOLDER,
-			help = "the folders to index where there is no file yet (/ unless named)",
+			help = "folders to index if there is no index file yet (default /)",
 		)
 
 	private val file =
@@ -42,14 +42,14 @@ object IndexCommand : Command(
 			"--file",
 			type = ParamType.PATH,
 			default = defaultIndexFile(),
-			help = "the index's file",
+			help = "index file",
 			shown = "\$XDG_CACHE_HOME/prism/index.prism",
 		)
 
 	private val fresh =
 		flag(
 			"--fresh",
-			help = "index anew, even where there is a file already",
+			help = "rebuild the index even if the file exists",
 		)
 
 	private val threads =
@@ -57,15 +57,15 @@ object IndexCommand : Command(
 			"--threads",
 			type = ParamType.COUNT,
 			default = Runtime.getRuntime().availableProcessors(),
-			help = "how many threads read directories at once",
-			shown = "every core",
+			help = "number of threads reading directories",
+			shown = "all cores",
 		)
 
 	private val queries =
 		repeated(
 			"--find",
 			type = ParamType.TEXT.named("QUERY"),
-			help = "a query in the search language: report, \"tax *.pdf\", dir:funny",
+			help = "run a search query, e.g. report, \"tax *.pdf\", dir:funny",
 		)
 
 	override fun run(args: Args): Outcome {
@@ -78,8 +78,8 @@ object IndexCommand : Command(
 			if (writing)
 				IndexLock.take(file)
 					?: throw InputError(
-						"a prism daemon is keeping $file, and would write over what this wrote; " +
-							"stop it first, or index into another file with --file",
+						"a prism daemon is using $file and would overwrite it; " +
+							"stop the daemon first, or use another file with --file",
 					)
 			else
 				null
@@ -148,7 +148,7 @@ object IndexCommand : Command(
 					val count = "%,d".format(results.size)
 
 					listOf(
-						"$count found, the first search in $first, the best of ${runs.size} in $best",
+						"$count found; first search $first, best of ${runs.size} $best",
 					) +
 						results.take(5).map { "  ${it.where}" } +
 						listOfNotNull("  ...".takeIf { results.size > 5 })
@@ -159,12 +159,12 @@ object IndexCommand : Command(
 	private fun how(origin: IndexStore.Origin): String =
 		when (origin) {
 			IndexStore.Origin.Missing, IndexStore.Origin.Memory -> "indexed"
-			is IndexStore.Origin.Unreadable -> "indexed anew (${origin.why})"
+			is IndexStore.Origin.Unreadable -> "re-indexed (${origin.why})"
 			is IndexStore.Origin.Read ->
 				if (origin.torn)
-					"read, its last frame dropped,"
+					"loaded, dropping a truncated last frame,"
 				else
-					"read"
+					"loaded"
 		}
 
 	private fun millis(elapsed: Duration): String =

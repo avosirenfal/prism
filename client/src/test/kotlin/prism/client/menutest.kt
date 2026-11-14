@@ -82,7 +82,7 @@ class MenuTest {
 		assertEquals("  item 12", drawn.first().text)
 		assertEquals(Line("> item 16", highlighted = true), drawn[4])
 		assertEquals(1, drawn.count { it.highlighted })
-		assertEquals(Line("16 of 30 · Enter chooses, Esc cancels", faint = true), drawn.last())
+		assertEquals(Line("16 of 30 · Enter selects, Esc cancels", faint = true), drawn.last())
 		// A line longer than the terminal is wide is cut to it.
 		assertEquals("> item", Menu(items, 8) { it }.lines(0, 6).first().text)
 		// A short list takes as many lines as it has.

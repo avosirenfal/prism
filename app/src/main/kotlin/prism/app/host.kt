@@ -133,7 +133,9 @@ internal class Windows(
 			try {
 				answer.complete(work(explorer))
 			} catch (stopped: CancellationException) {
-				answer.completeExceptionally(NoWindows("prism's windows stopped before it was done"))
+				answer.completeExceptionally(
+					NoWindows("prism's windows closed before the request finished"),
+				)
 
 				throw stopped
 			} catch (failed: Throwable) {
@@ -184,7 +186,7 @@ internal class Windows(
 
 	/** Read from any thread (`prism status`, whoever asks for a window); written from the windows'. */
 	private val standing =
-		AtomicReference<Standing>(Standing.Without("none has been asked for yet"))
+		AtomicReference<Standing>(Standing.Without("none requested yet"))
 
 	/** What a search of this prism's searches: its index; none, where it keeps none. */
 	val finder: Finder? get() = hosting.finder
@@ -239,7 +241,7 @@ internal class Windows(
 
 		PreferenceFile.open().use { preferences ->
 			preferences.problem?.let {
-				Report.say("the preferences can't be read ($it); every default is used meanwhile")
+				Report.say("can't read the preferences ($it); using the defaults")
 			}
 
 			val staying = lasting == Lasting.UntilStopped
@@ -253,17 +255,17 @@ internal class Windows(
 						return
 
 					// Ended by the platform, with nothing asking it to: the display went away.
-					standing.set(Standing.Without("the display went away"))
-					Report.say("the display went away; windows are opened again when one is asked for")
+					standing.set(Standing.Without("the display is gone"))
+					Report.say("the display is gone; windows will open again on the next request")
 				} catch (none: NoDisplay) {
 					if (!staying)
 						throw none
 
-					val why = "there is no display to open windows on (${none.message})"
+					val why = "no display to open windows on (${none.message})"
 
 					// Said once for as long as it stays so, not at every request.
 					if (standing.getAndSet(Standing.Without(why)) != Standing.Without(why))
-						Report.say("$why; windows are opened once there is one, when one is asked for")
+						Report.say("$why; windows will open once there is one")
 					first?.refuse(why)
 					refuseWaiting(why)
 				} catch (failed: WindowsFailed) {
@@ -271,11 +273,11 @@ internal class Windows(
 						throw failed
 
 					Report.problem(
-						"prism's windows failed, every one of them; whatever else prism is doing goes on",
+						"all of prism's windows failed; everything else keeps running",
 						failed.cause ?: failed,
 					)
 					standing.set(
-						Standing.Without("they failed, and are started again when one is asked for"),
+						Standing.Without("the window system failed; it restarts on the next request"),
 					)
 
 					val now = System.nanoTime()
@@ -285,11 +287,11 @@ internal class Windows(
 						failures.removeFirst()
 					if (failures.size >= FAILING_TOO_OFTEN) {
 						val why =
-							"the windows of the prism already running failed ${failures.size} times in " +
-								"${FAILING_WITHIN.inWholeMinutes} minutes, and it has given up opening them"
+							"the running prism's windows failed ${failures.size} times in " +
+								"${FAILING_WITHIN.inWholeMinutes} minutes, so it has stopped opening them"
 
 						standing.set(Standing.GivenUp(why))
-						Report.say("$why; restart it to have them again")
+						Report.say("$why; restart it to get them back")
 
 						return refusing(why)
 					}
@@ -297,7 +299,7 @@ internal class Windows(
 					// Ended with nothing said of why: stopped, or the last window closed.
 					standing.updateAndGet {
 						if (it is Standing.Running)
-							Standing.Without("they have ended")
+							Standing.Without("the window system stopped")
 						else
 							it
 					}
@@ -443,9 +445,9 @@ internal class Instance(
 
 				try {
 					if (served == null)
-						Reply.Unable("$said is not something one prism does for another")
+						Reply.Unable("$said can't be run in another prism")
 					else if (served.apart(asked.args))
-						Reply.Unable("$said was asked to be a prism of its own")
+						Reply.Unable("$said was asked to run in a separate process")
 					else
 						runBlocking { served.serve(asked.args, request.caller, this@Instance) }.let {
 							Reply.Done(Ran(it.text, "", it.status))
@@ -453,15 +455,15 @@ internal class Instance(
 				} catch (wrong: InputError) {
 					Reply.Done(Ran("", "$said: ${wrong.message}", 1))
 				} catch (none: NoWindows) {
-					Reply.Unable(none.message ?: "the prism already running has no windows")
+					Reply.Unable(none.message ?: "the running prism has no windows")
 				}
 			}
 			is Invocation.Help, is Invocation.Wrong ->
 				Reply.Unable(
-					"the prism already running reads “${request.words.joinToString(
+					"the running prism reads “${request.words.joinToString(
 						" ",
-					)}” otherwise than this one " +
-						"(it is another version, most likely)",
+					)}” differently from this one " +
+						"(it is probably another version)",
 				)
 		}
 }
@@ -480,8 +482,9 @@ internal fun opened(
 	val instance by lazy {
 		Instance(
 			Windows(hosting(), Lasting.UntilLastCloses),
-			"prism ${command.name} (process ${ProcessHandle.current().pid()}): the session's " +
-				"windows until its last is closed; no daemon is running, so no index is kept",
+			"prism ${command.name} (process ${ProcessHandle.current().pid()}): opens this " +
+				"session's windows until its last one closes; no daemon is running, so there " +
+				"is no index",
 		)
 	}
 
@@ -498,7 +501,7 @@ internal fun opened(
 				when (val reply = standing.reply) {
 					is Reply.Done -> return printed(reply.ran)
 					is Reply.Unable -> {
-						warn(command, "${reply.why}; opened in a prism of its own instead")
+						warn(command, "${reply.why}; opened in a separate process instead")
 						null
 					}
 				}
@@ -513,7 +516,7 @@ internal fun opened(
 		try {
 			instance.windows.run()
 		} catch (none: NoDisplay) {
-			throw InputError("there is no display to open a window on (${none.message})")
+			throw InputError("no display to open a window on (${none.message})")
 		} catch (failed: WindowsFailed) {
 			Report.problem("prism's windows failed", failed.cause ?: failed)
 
@@ -572,8 +575,8 @@ internal fun serveOnBus(
 		when (runBlocking { bus.own(name, names.replace) }) {
 			Owning.Owned -> true
 			Owning.Taken ->
-				false.also { warn("another has $name; --replace takes it, where it lets it go") }
-			Owning.Failed -> false.also { warn("the bus would not give $name") }
+				false.also { warn("another program owns $name; use --replace to take it over") }
+			Owning.Failed -> false.also { warn("couldn't acquire $name on the session bus") }
 		}
 
 	/** [serving] kept where [name] is this prism's, and closed where it is not. */
@@ -603,7 +606,7 @@ internal fun serveOnBus(
 						try {
 							windows.with { it.show(showing) }
 						} catch (none: NoWindows) {
-							Report.say("asked to show ${showing.paths.joinToString()}, but ${none.message}")
+							Report.say("couldn't show ${showing.paths.joinToString()}: ${none.message}")
 						}
 					}
 				}.named(FileManager.NAME)
@@ -611,11 +614,11 @@ internal fun serveOnBus(
 			null
 
 	instance.says += {
-		"session bus: " +
+		"session bus: serving " +
 			listOfNotNull(
 				"the portal's file chooser".takeIf { chooser != null },
 				"the file manager (${FileManager.NAME})".takeIf { manager != null },
-			).ifEmpty { listOf("nothing") }.joinToString(" and ") + " served"
+			).ifEmpty { listOf("nothing") }.joinToString(" and ")
 	}
 
 	return BusServing(chooser != null, manager != null) {
@@ -685,7 +688,7 @@ internal fun stayed(
 		null ->
 			warn(
 				command,
-				"XDG_RUNTIME_DIR names no folder to listen in, so other prisms open windows of their own",
+				"XDG_RUNTIME_DIR is not set, so other prism commands will open their own windows",
 			)
 		else ->
 			when (val claim = Listening.claim(place, instance::answer)) {
@@ -693,17 +696,17 @@ internal fun stayed(
 				is Claim.Cannot ->
 					warn(
 						command,
-						"${claim.why}, so other prisms open windows of their own",
+						"${claim.why}, so other prism commands will open their own windows",
 					)
 				Claim.Held -> {
 					warn(
 						command,
-						"another prism has the session's windows until its last is closed; this one has them from then",
+						"another prism owns this session's windows until its last one closes; this one takes over then",
 					)
 					Thread.ofPlatform().name("prism-instance-wait").daemon().start {
 						(Listening.await(place, instance::answer) as? Claim.Got)?.let {
 							listening(it.listening)
-							Report.say("the other prism ended: this one has the session's windows now")
+							Report.say("the other prism exited; this one owns the session's windows now")
 						}
 					}
 				}

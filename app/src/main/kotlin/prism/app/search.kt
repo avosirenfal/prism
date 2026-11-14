@@ -42,7 +42,7 @@ internal fun sifted(sought: Sought, find: (Query) -> Searched): Sifted {
 			wrong.map { "${it.message} (“${sought.text.substring(it.span.start, it.span.end)}”)" },
 		)
 	if (read.query.terms.isEmpty())
-		return Sifted.Wrong(listOf("there is nothing in “${sought.text}” to search for yet"))
+		return Sifted.Wrong(listOf("“${sought.text}” has nothing to search for"))
 
 	return when (val searched = find(read.query)) {
 		is Searched.Refused -> Sifted.Wrong(listOf(searched.why))
@@ -87,10 +87,10 @@ internal class IndexFileSeeker(
 				Held.Index(StaticFinder(read.index, UsageFile.read(UsageFile.default()).usage, home))
 			IndexRead.Missing ->
 				Held.None(
-					"there is no index at $at, and no prism running that keeps one: " +
-						"prism daemon keeps one current, and prism index makes one once",
+					"no index at $at and no running prism has one; run prism daemon to keep " +
+						"one up to date, or prism index to build one",
 				)
-			is IndexRead.Unreadable -> Held.None("the index at $at can't be read (${read.why})")
+			is IndexRead.Unreadable -> Held.None("can't read the index at $at (${read.why})")
 		}
 	}
 
@@ -112,24 +112,24 @@ internal val PathSearch = SearchCommand(otherwise = IndexFileSeeker())
 internal object MatchesCommand :
 	Command(
 		Matches.COMMAND,
-		"what prism search asks the prism already running: a query's matches, as one prism says them to another",
+		"print a query's matches in the format prism search reads (used by prism search)",
 	),
 	Served {
 	private val query =
-		argument("QUERY", ParamType.TEXT, help = "the query's text, as one word")
+		argument("QUERY", ParamType.TEXT, help = "the query, as a single argument")
 	private val from =
 		option(
 			Matches.FROM,
 			type = ParamType.INT,
 			default = 0,
-			help = "how many of the best to leave out",
+			help = "number of top matches to skip",
 		)
 	private val limit =
 		option(
 			Matches.LIMIT,
 			type = ParamType.COUNT,
 			default = SearchCommand.COUNT,
-			help = "how many to give",
+			help = "maximum number of matches",
 		)
 
 	private fun soughtBy(args: Args) =
@@ -141,7 +141,7 @@ internal object MatchesCommand :
 	override suspend fun serve(args: Args, caller: Caller, instance: Instance): Outcome =
 		said(
 			instance.windows.finder?.let { sifted(soughtBy(args), it::find) }
-				?: Sifted.NoIndex("the prism already running keeps no index"),
+				?: Sifted.NoIndex("the running prism has no index"),
 		)
 
 	override fun run(args: Args): Outcome =

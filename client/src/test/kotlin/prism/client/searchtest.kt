@@ -154,7 +154,7 @@ class SearchTest {
 
 		assertEquals(1, none.status)
 		assertEquals(listOf("search: there is no index at /i"), none.err)
-		assertEquals(listOf("search: what to search for is missing"), search().err)
+		assertEquals(listOf("search: missing query"), search().err)
 		// The prism running is asked first, and whoever made the command only where it has no answer.
 		assertEquals(1, search("x").asked.size)
 		assertEquals(1, search("x", running = false).asked.size)
@@ -190,7 +190,7 @@ class SearchTest {
 		assertEquals(Matches.WRONG, early.status)
 		assertTrue(
 			early.err.single().startsWith(
-				"search: -n takes a value, so it is written last of those run together in -nb",
+				"search: -n takes a value, so it must come last in -nb",
 			),
 		)
 		assertEquals(emptyList<Sought>(), early.asked)
@@ -230,7 +230,9 @@ class SearchTest {
 		assertEquals(SearchCommand.SEVERAL, several.status)
 		assertEquals("", several.out)
 		assertTrue(
-			several.err.first().startsWith("prism search: 50 matches, and --select takes one"),
+			several.err.first().startsWith(
+				"prism search: 50 matches, but --select needs exactly one",
+			),
 		)
 		assertEquals(
 			held.take(SearchCommand.SHOWN_OF_SEVERAL) + "… and 45 more",
@@ -248,7 +250,7 @@ class SearchTest {
 
 		assertEquals(SearchCommand.NOTHING, nothing.status)
 		assertEquals("", nothing.out)
-		assertEquals(listOf("prism search: nothing matches"), nothing.err)
+		assertEquals(listOf("prism search: no matches"), nothing.err)
 		// The best of several is one match, whatever else is asked.
 		assertEquals("${held[0]}\n", search("report", "-s", "-b").out)
 		assertEquals("${held[0]}\n", search("report", "-s", "-i", "-b").out)
@@ -290,7 +292,7 @@ class SearchTest {
 			search("zzz", "-si", "--", "zzz", answer = { Sifted.Found(0, emptyList()) })
 
 		assertEquals(SearchCommand.NOTHING, nothing.status)
-		assertEquals(listOf("prism search: nothing matches"), nothing.err)
+		assertEquals(listOf("prism search: no matches"), nothing.err)
 		// Without --select, a menu of one is still a menu: what -i alone has always been.
 		search("doc", "-i", answer = {
 			Sifted.Found(
@@ -330,10 +332,10 @@ class SearchTest {
 			search(
 				"report",
 				"-i",
-				chosen = { throw NoTerminal("there is no terminal to choose on") },
+				chosen = { throw NoTerminal("no terminal to show the menu on") },
 			)
 
-		assertEquals(listOf("search: there is no terminal to choose on"), nowhere.err)
+		assertEquals(listOf("search: no terminal to show the menu on"), nowhere.err)
 		assertEquals(1, nowhere.status)
 	}
 
@@ -347,7 +349,7 @@ class SearchTest {
 				Sifted.Found(0, emptyList()),
 				Sifted.Found(7, emptyList()),
 				Sifted.Wrong(listOf("the quote is not closed", "there is no “foo:”")),
-				Sifted.NoIndex("the prism already running keeps no index"),
+				Sifted.NoIndex("the running prism has no index"),
 			)
 
 		for (sifted in each)

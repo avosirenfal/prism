@@ -25,7 +25,7 @@ import prism.portal.pathOf
 internal object ExploreCommand :
 	Command(
 		"explore",
-		"open the file explorer on a folder (your home, unless named): in the prism already running, where one is",
+		"open folders in the file explorer (default your home folder)",
 	),
 	Served {
 	private val items =
@@ -33,20 +33,18 @@ internal object ExploreCommand :
 			"ITEM",
 			ParamType.TEXT.named("FOLDER|FILE|URI"),
 			help =
-				"what to show, each in a window: a folder; or a file, shown in its folder, " +
-					"chosen; or either as a file:// URI",
+				"a folder to open, or a file to show selected in its folder; a path or a " +
+					"file:// URI, one window each",
 		)
 
 	private val isolated =
 		flag(
 			ISOLATED,
-			help =
-				"open it in a process of its own, whether or not a prism is already running, " +
-					"which no other prism then opens its windows in",
+			help = "open in a separate process, even if a prism is already running",
 		)
 	private val indexing = Indexing(this)
 	private val theme = themeOption()
-	private val decorated = decoratedFlag("the window's menu or Ctrl+W closes it")
+	private val decorated = decoratedFlag("close the window from its menu or with Ctrl+W")
 
 	/** The word that keeps a prism to a process of its own, which a desktop entry's action gives it. */
 	const val ISOLATED = "--isolated"
@@ -57,7 +55,7 @@ internal object ExploreCommand :
 			.map { word ->
 				val path =
 					if (word.startsWith("file:"))
-						pathOf(word) ?: throw InputError("$word is not a file:// URI of a path")
+						pathOf(word) ?: throw InputError("$word is not a valid file:// URI")
 					else
 						caller.resolved(Path(word))
 
@@ -105,7 +103,7 @@ internal object ExploreCommand :
 internal object StatusCommand :
 	Command(
 		"status",
-		"say what the prism already running is doing: its index, whether changes are watched, its windows",
+		"show the running prism's index, file watching and windows",
 	),
 	Served {
 	override suspend fun serve(args: Args, caller: Caller, instance: Instance): Outcome =
@@ -115,7 +113,7 @@ internal object StatusCommand :
 		val place =
 			InstancePlace.of()
 				?: return Outcome(
-					"XDG_RUNTIME_DIR names no folder a running prism could be asked in.",
+					"XDG_RUNTIME_DIR is not set, so a running prism can't be reached.",
 					1,
 				)
 
@@ -124,7 +122,11 @@ internal object StatusCommand :
 			is Asking.Answered ->
 				when (val reply = asked.reply) {
 					is Reply.Done -> Outcome(reply.ran.out, reply.ran.status)
-					is Reply.Unable -> Outcome("A prism is running, and cannot say: ${reply.why}.", 1)
+					is Reply.Unable ->
+						Outcome(
+							"A prism is running but couldn't answer: ${reply.why}.",
+							1,
+						)
 				}
 		}
 	}

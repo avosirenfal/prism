@@ -118,11 +118,11 @@ fun help(node: Node, path: List<String>): String =
 						listOfNotNull(
 							"",
 							node.default?.let {
-								"Without a COMMAND, ${path.joinToString(
+								"With no COMMAND, ${path.joinToString(
 									" ",
-								)} is ${path.joinToString(" ")} ${it.name}."
+								)} runs ${path.joinToString(" ")} ${it.name}."
 							},
-							"${path.joinToString(" ")} COMMAND --help: what a command takes",
+							"Run '${path.joinToString(" ")} COMMAND --help' for a command's options.",
 						)
 				}
 				is Command -> {
@@ -135,7 +135,7 @@ fun help(node: Node, path: List<String>): String =
 							listOf("", "arguments:") + rows(positional.map { it.name to it.described() })
 
 					arguments + listOf("", "options:") +
-						rows(opts.map { it.term() to it.described() } + ("-h, --help" to "this help"))
+						rows(opts.map { it.term() to it.described() } + ("-h, --help" to "show this help"))
 				}
 			}
 	).joinToString("\n")
@@ -147,7 +147,7 @@ fun mistake(node: Node, path: List<String>, message: String): String =
 	)}: $message\n${usage(
 		node,
 		path,
-	).lineSequence().first()}; ${path.joinToString(" ")} --help says more"
+	).lineSequence().first()}\nTry '${path.joinToString(" ")} --help' for more information."
 
 /**
  * What [words] run in [root], as the process would show it: the text for stdout, the text for stderr, and the exit

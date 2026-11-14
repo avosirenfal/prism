@@ -33,17 +33,17 @@ import prism.watcher.unpinWatcher
 val ProbeGroup =
 	Group(
 		"probe",
-		"the watcher: the BPF program that sees the kernel make and remove directories' entries",
+		"manage the watcher, the BPF program that reports file changes from the kernel",
 		listOf(
-			Category("looking at it", listOf(ProbeC, ProbeCheck, ProbeWatch)),
-			Category("leaving it in the kernel", listOf(ProbeLoad, ProbeUnload)),
+			Category("inspecting", listOf(ProbeC, ProbeCheck, ProbeWatch)),
+			Category("installing", listOf(ProbeLoad, ProbeUnload)),
 		),
 	)
 
 /** `prism probe c`: the C the build compiles. */
 object ProbeC : Command(
 	"c",
-	"print the watcher's C, as emitted from its Kotlin declaration",
+	"print the watcher's generated C source",
 ) {
 	override fun run(args: Args): Outcome = Outcome(FsWatch.program.emittedOrThrow())
 }
@@ -51,12 +51,12 @@ object ProbeC : Command(
 /** `prism probe check`: each hook's declaration against the running kernel's BTF. */
 object ProbeCheck : Command(
 	"check",
-	"check every hook of the watcher against this kernel's own description of its types",
+	"check the watcher's hooks against this kernel's type information (BTF)",
 ) {
 	override fun run(args: Args): Outcome {
 		val btf =
 			Btf.ofRunningKernel()
-				?: return Outcome("this kernel publishes no BTF at ${Btf.RUNNING_KERNEL}", status = 1)
+				?: return Outcome("this kernel has no BTF at ${Btf.RUNNING_KERNEL}", status = 1)
 
 		// A function is declared in each shape the kernel has had it in, and is watched where one of them is this
 		// kernel's: what is said is which, or what each declared shape and this kernel differ on.
@@ -79,9 +79,9 @@ object ProbeCheck : Command(
 		val allMatch = moved == 0
 		val verdict =
 			if (allMatch)
-				"every hook has a shape that matches this kernel"
+				"every hook matches this kernel"
 			else
-				"$moved of ${coverage.size} hooks would be left out: this kernel's shape of each is not declared yet"
+				"$moved of ${coverage.size} hooks would be skipped: this kernel's signature for each isn't declared yet"
 		val said = listOf("${btf.typeCount} types in this kernel's BTF") + lines + "" + verdict
 
 		return Outcome(said.joinToString("\n"), status = if (allMatch) 0 else 1)
@@ -95,21 +95,21 @@ object ProbeCheck : Command(
  */
 object ProbeWatch : Command(
 	"watch",
-	"load the watcher and print the changes it sees (as root), or print what a pinned one sees (--pinned)",
+	"load the watcher and print the changes it sees (needs root), or read a pinned one (--pinned)",
 ) {
 	private val seconds =
 		option(
 			"--for",
 			type = ParamType.COUNT,
-			help = "stop after this many seconds (run until killed without it)",
+			help = "stop after N seconds; without it, run until killed",
 		)
 	private val pinned =
 		flag(
 			"--pinned",
 			help =
-				"read the watcher prism probe load left pinned, which needs no privileges, rather " +
-					"than load one: what the daemon reads, read here instead (a ring has one reader, " +
-					"so not while the daemon runs)",
+				"read the watcher pinned by prism probe load instead of loading one; needs no " +
+					"privileges, but can't be used while the daemon is running (a ring buffer has " +
+					"one reader)",
 		)
 	private val at = pinsOption()
 
@@ -119,7 +119,7 @@ object ProbeWatch : Command(
 				when (val opened = openPinnedWatcher(args[at])) {
 					is Sys.Ok -> opened.value
 					is Sys.Failed -> return Outcome(
-						"no watcher this user may read is pinned at ${args[at].folder}: $opened",
+						"no watcher readable by this user is pinned at ${args[at].folder}: $opened",
 						1,
 					)
 				}
@@ -131,11 +131,11 @@ object ProbeWatch : Command(
 						1,
 					)
 					is Watching.Refused -> return Outcome(
-						"the watcher could not be loaded: ${started.why.message}",
+						"couldn't load the watcher: ${started.why.message}",
 						1,
 					)
 					is Watching.RingUnreadable -> return Outcome(
-						"the watcher's ring could not be mapped: ${started.failure}",
+						"couldn't map the watcher's ring buffer: ${started.failure}",
 						1,
 					)
 				}
@@ -147,11 +147,13 @@ object ProbeWatch : Command(
 
 			while (until == null || System.nanoTime() < until)
 				when (val read = it.await(Wait.AtMost(250), ::print)) {
-					is Sys.Failed -> return Outcome("reading the ring failed: $read", 1)
+					is Sys.Failed -> return Outcome("reading the ring buffer failed: $read", 1)
 					is Sys.Ok -> System.out.flush()
 				}
 
-			return Outcome("lost to a full ring: ${(it.lost() as? Sys.Ok)?.value ?: "unknown"}")
+			return Outcome(
+				"events lost to a full ring buffer: ${(it.lost() as? Sys.Ok)?.value ?: "unknown"}",
+			)
 		}
 	}
 
@@ -180,7 +182,7 @@ private fun Command.pinsOption(): Param<WatcherPins> =
 				Parsed.Value(WatcherPins(Path(it).toAbsolutePath().normalize()))
 			},
 		default = WatcherPins.default(),
-		help = "where the watcher is pinned, in a BPF file system of its own",
+		help = "directory where the watcher is pinned (its own BPF file system)",
 		shown = "/run/prism-watcher, or \$PRISM_WATCHER",
 	)
 
@@ -200,7 +202,7 @@ private fun said(hooks: Map<Hook, Attachment>): List<String> {
 		when (attachment) {
 			Attachment.Attached -> "  watching $hook"
 			is Attachment.Mismatched ->
-				"  left out $hook: ${attachment.mismatches.joinToString("; ")}".takeIf {
+				"  skipped  $hook: ${attachment.mismatches.joinToString("; ")}".takeIf {
 					hook.callable.place !in watched
 				}
 			is Attachment.Refused -> "  refused  $hook: ${attachment.failure}"
@@ -216,25 +218,25 @@ private fun said(hooks: Map<Hook, Attachment>): List<String> {
  */
 object ProbeLoad : Command(
 	"load",
-	"load the watcher and leave it in the kernel for the daemon to read without privileges (as root)",
+	"load the watcher and pin it in the kernel so the daemon can read it without privileges (needs root)",
 ) {
 	private val user =
 		option(
 			"--user",
 			type = ParamType.TEXT.named("NAME"),
-			help = "a user who may read it: yours, to try it by hand",
+			help = "user allowed to read it",
 		)
 	private val group =
 		option(
 			"--group",
 			type = ParamType.TEXT.named("NAME"),
-			help = "a group whose members may read it: what a service gives it",
+			help = "group allowed to read it",
 		)
 	private val at = pinsOption()
 
 	override fun run(args: Args): Outcome {
 		if (args[user] == null && args[group] == null)
-			warn(this, "neither --user nor --group says who may read it, so only root may")
+			warn(this, "neither --user nor --group given, so only root can read it")
 
 		return when (val pinning = pinWatcher(args[at], Readers(args[user], args[group]))) {
 			is Pinning.Failed -> throw InputError(pinning.why)
@@ -245,8 +247,8 @@ object ProbeLoad : Command(
 					(
 						said(pinning.hooks) +
 							"" +
-							"$watching hooks left watching, pinned in ${pinning.folder}. " +
-							"prism probe unload takes them out; a daemon started from now reads them."
+							"$watching hooks attached and pinned in ${pinning.folder}. " +
+							"A daemon started from now on uses them; prism probe unload removes them."
 					).joinToString("\n"),
 					status = if (watching > 0) 0 else 1,
 				)
@@ -258,13 +260,13 @@ object ProbeLoad : Command(
 /** `prism probe unload`: what `prism probe load` left in the kernel taken out of it. */
 object ProbeUnload : Command(
 	"unload",
-	"take the watcher prism probe load left in the kernel out of it (as root)",
+	"remove the watcher pinned by prism probe load (needs root)",
 ) {
 	private val at = pinsOption()
 
 	override fun run(args: Args): Outcome =
 		when (val unpinned = unpinWatcher(args[at])) {
 			is Sys.Ok -> Outcome("Nothing is pinned at ${args[at].mount} now.")
-			is Sys.Failed -> throw InputError("${args[at].mount} could not be cleared: $unpinned")
+			is Sys.Failed -> throw InputError("couldn't clear ${args[at].mount}: $unpinned")
 		}
 }

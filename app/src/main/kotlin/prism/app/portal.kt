@@ -34,7 +34,7 @@ import prism.portal.showInFileManager
 val PortalGroup =
 	Group(
 		"portal",
-		"be the desktop's file chooser and file manager",
+		"act as the desktop's file chooser and file manager",
 		listOf(
 			Category("portal", listOf(PortalServe, PortalShow, PortalInstall, PortalUninstall)),
 		),
@@ -47,11 +47,11 @@ val PortalGroup =
  */
 object PortalServe : Command(
 	"serve",
-	"serve the file chooser and the file manager on the session bus, a window for each request, until stopped",
+	"serve file chooser and file manager requests on the session bus until stopped",
 ) {
 	private val indexing = Indexing(this)
 	private val theme = themeOption()
-	private val decorated = decoratedFlag("Escape or Cancel closes a picker")
+	private val decorated = decoratedFlag("close a picker with Escape or Cancel")
 	private val replace = replaceFlag()
 	private val noManager = noManagerFlag()
 
@@ -60,7 +60,7 @@ object PortalServe : Command(
 			when (val opening = runBlocking { Connection.session() }) {
 				is Opening.Opened -> opening.connection
 				is Opening.Failed -> throw InputError(
-					"there is no session bus to serve on: ${opening.message}",
+					"no session bus to serve on: ${opening.message}",
 				)
 			}
 
@@ -70,8 +70,8 @@ object PortalServe : Command(
 		val instance =
 			Instance(
 				Windows(Hosting(args[theme], args[decorated], search, finder), Lasting.UntilStopped),
-				"prism portal serve (process ${ProcessHandle.current().pid()}): the session's " +
-					"windows for as long as it runs; it keeps no index (prism daemon does)",
+				"prism portal serve (process ${ProcessHandle.current().pid()}): opens this " +
+					"session's windows while it runs; it has no index (prism daemon keeps one)",
 			)
 
 		bus.use {
@@ -94,15 +94,15 @@ internal fun Command.replaceFlag(): Param<Boolean> =
 	flag(
 		"--replace",
 		help =
-			"take the names from whatever has them (another prism, or another file manager), " +
-				"where it lets them go",
+			"take over the bus names if another program (another prism, or a file manager) " +
+				"holds them and allows it",
 	)
 
 /** `--no-file-manager`: the file manager's name left to another. */
 internal fun Command.noManagerFlag(): Param<Boolean> =
 	flag(
 		"--no-file-manager",
-		help = "leave org.freedesktop.FileManager1 to another, and do not serve it",
+		help = "don't serve org.freedesktop.FileManager1",
 	)
 
 /**
@@ -112,13 +112,13 @@ internal fun Command.noManagerFlag(): Param<Boolean> =
  */
 object PortalShow : Command(
 	"show",
-	"show folders and files in the file manager: the running one, or one started for them",
+	"show files and folders in the file manager, starting one if none is running",
 ) {
 	private val items =
 		arguments(
 			"ITEM",
 			ParamType("PATH|URI") { prism.cli.Parsed.Value(it) },
-			help = "a path or a file:// URI; your home where none is named",
+			help = "a path or a file:// URI (default your home folder)",
 		)
 	private val theme = themeOption()
 
@@ -170,8 +170,8 @@ private fun commandOf(given: Path?): List<String> =
 					Path(it)
 				}
 				?: throw InputError(
-					"say which command runs prism, with --command: the launcher of an app image " +
-						"(./gradlew :app:createDistributable makes one, as build/compose/binaries/main/app/prism/bin/prism)",
+					"can't tell which command runs prism; pass it with --command (for an app image, " +
+						"build/compose/binaries/main/app/prism/bin/prism, from ./gradlew :app:createDistributable)",
 				)
 		).toAbsolutePath().normalize().toString(),
 	)
@@ -179,23 +179,23 @@ private fun commandOf(given: Path?): List<String> =
 /** `prism portal install`: prism made the user's file chooser and file manager. */
 object PortalInstall : Command(
 	"install",
-	"make prism your file chooser (through the desktop portal) and your file manager, for you alone",
+	"make prism your file chooser (via the desktop portal) and file manager, for your user only",
 ) {
 	private val command =
 		option(
 			"--command",
 			type = ParamType.PATH,
-			help = "the command that runs prism (the launcher this was run by, unless said)",
+			help = "command that runs prism (default: the one that ran this)",
 		)
 	private val noChooser =
-		flag("--no-file-chooser", help = "leave the file chooser as it is")
+		flag("--no-file-chooser", help = "leave the file chooser unchanged")
 	private val noManager =
 		flag(
 			"--no-file-manager",
-			help = "leave the file manager, and what opens folders, as they are",
+			help = "leave the file manager and the default app for folders unchanged",
 		)
 	private val dryRun =
-		flag("--dry-run", help = "say what would be written, and write nothing")
+		flag("--dry-run", help = "print what would be written without writing anything")
 
 	override fun run(args: Args): Outcome {
 		val xdg = Xdg()
@@ -211,7 +211,8 @@ object PortalInstall : Command(
 
 		if (others.isNotEmpty())
 			throw InputError(
-				"these are there, and are not prism's, so nothing was written: ${others.joinToString()}",
+				"these files already exist and were not written by prism, so nothing was changed: " +
+					others.joinToString(),
 			)
 
 		for ((path, text) in files) {
@@ -233,7 +234,7 @@ object PortalInstall : Command(
 
 			said +=
 				"set $CHOOSER_KEY=$BACKEND_NAME in $config" +
-				(line.before?.let { " (it was $it)" } ?: "")
+				(line.before?.let { " (was $it)" } ?: "")
 			if (!args[dryRun])
 				Files.createDirectories(config.parent).also { Files.writeString(config, line.text) }
 		}
@@ -250,7 +251,8 @@ object PortalInstall : Command(
 					?.takeIf { it != FOLDER_ENTRY }
 
 			said +=
-				"made $FOLDER_ENTRY what opens folders" + (before?.let { " (it was $it)" } ?: "")
+				"set $FOLDER_ENTRY as the default app for folders" +
+				(before?.let { " (was $it)" } ?: "")
 			if (!args[dryRun]) {
 				applications.all().firstOrNull { it.id == FOLDER_ENTRY }?.let {
 					applications.setDefault(MimeType.FOLDER, it)
@@ -276,10 +278,10 @@ object PortalInstall : Command(
 		said += ""
 		said +=
 			if (args[dryRun])
-				"Nothing was written: that is what prism portal install would write."
+				"Dry run: nothing was written."
 			else
-				"The portal reads its backends as it starts: systemctl --user restart xdg-desktop-portal.service " +
-					"(or log in again). D-Bus starts prism portal serve when it is first called."
+				"To apply, restart the portal: systemctl --user restart xdg-desktop-portal.service " +
+					"(or log in again). D-Bus starts prism portal serve on first use."
 
 		return Outcome(said.joinToString("\n"))
 	}
@@ -288,7 +290,7 @@ object PortalInstall : Command(
 /** `prism portal uninstall`: what install wrote taken away, and what it took the place of put back. */
 object PortalUninstall : Command(
 	"uninstall",
-	"stop prism being your file chooser and file manager: what install wrote is taken away",
+	"stop using prism as your file chooser and file manager, removing what install wrote",
 ) {
 	override fun run(args: Args): Outcome {
 		val xdg = Xdg()
@@ -311,12 +313,12 @@ object PortalUninstall : Command(
 				null ->
 					Files.delete(config).also {
 						said +=
-							"removed $config, which held nothing but prism's line"
+							"removed $config (it only held prism's entry)"
 					}
 				else ->
 					Files.writeString(config, left).also {
 						said +=
-							"took prism's line out of $config"
+							"removed prism's entry from $config"
 					}
 			}
 		}
@@ -330,15 +332,15 @@ object PortalUninstall : Command(
 				?.let { id -> applications.all().firstOrNull { it.id == id } }
 				?.let {
 					applications.setDefault(MimeType.FOLDER, it)
-					said += "made ${it.id} what opens folders again"
+					said += "restored ${it.id} as the default app for folders"
 				}
 		Files.deleteIfExists(file)
 
 		said +=
 			if (said.isEmpty())
-				"There was nothing of prism's to take away."
+				"Nothing to remove."
 			else
-				"systemctl --user restart xdg-desktop-portal.service, for the portal to forget the backend."
+				"To apply, restart the portal: systemctl --user restart xdg-desktop-portal.service"
 
 		return Outcome(said.joinToString("\n"))
 	}

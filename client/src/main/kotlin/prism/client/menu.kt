@@ -106,7 +106,7 @@ internal class Menu<T>(
 			Line((mark + shown(items[index])).take(width), index == at)
 		} +
 			Line(
-				"${at + 1} of ${items.size} · Enter chooses, Esc cancels".take(width),
+				"${at + 1} of ${items.size} · Enter selects, Esc cancels".take(width),
 				faint = true,
 			)
 	}
@@ -170,7 +170,7 @@ fun <T> chosenFrom(items: List<T>, lines: Int = 8, shown: (T) -> String): T? {
 
 	val before =
 		stty(terminal, "-g")?.trim()?.takeIf { it.isNotEmpty() }
-			?: throw NoTerminal("there is no terminal to choose on")
+			?: throw NoTerminal("no terminal to show the menu on")
 
 	// Put back however this ends: by a choice, by Escape, or by the process being ended while the menu is up.
 	val restore =
@@ -182,7 +182,7 @@ fun <T> chosenFrom(items: List<T>, lines: Int = 8, shown: (T) -> String): T? {
 	Runtime.getRuntime().addShutdownHook(restore)
 	try {
 		if (stty(terminal, "raw", "-echo") == null)
-			throw NoTerminal("the terminal cannot be made to read a key at a time")
+			throw NoTerminal("couldn't put the terminal in raw mode")
 
 		// How wide the terminal is, where it says: one that says nothing, or nothing a line fits in, is taken for
 		// the width terminals have had since they were made of glass.
@@ -239,7 +239,7 @@ fun <T> chosenFrom(items: List<T>, lines: Int = 8, shown: (T) -> String): T? {
 			}
 		}
 	} catch (failed: IOException) {
-		throw NoTerminal("the terminal cannot be read (${failed.message ?: failed})")
+		throw NoTerminal("couldn't read from the terminal (${failed.message ?: failed})")
 	} finally {
 		restore.run()
 		Runtime.getRuntime().removeShutdownHook(restore)

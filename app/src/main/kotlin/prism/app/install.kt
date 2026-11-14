@@ -91,7 +91,7 @@ internal fun folderEntry(command: List<String>): String =
 	|Type=Application
 	|Name=prism
 	|GenericName=File Manager
-	|Comment=Browse the file system
+	|Comment=Browse and search your files
 	|Exec=${(command + listOf("explore")).joinToString(" ", transform = ::quoted)} %U
 	|MimeType=inode/directory;
 	|Categories=System;FileTools;FileManager;

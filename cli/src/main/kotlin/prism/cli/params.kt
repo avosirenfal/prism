@@ -56,7 +56,7 @@ class ParamType<T>(
 		val COUNT =
 			ParamType("N") { word ->
 				word.toIntOrNull()?.takeIf { it > 0 }?.let { Parsed.Value(it) }
-					?: Parsed.Invalid("'$word' is not a whole number above zero")
+					?: Parsed.Invalid("'$word' is not a positive whole number")
 			}
 
 		val PATH = ParamType("PATH") { Parsed.Value(Path(it)) }
@@ -101,7 +101,7 @@ data class Size(
 				if (parts.size == 2 && word.count { it == 'x' } == 1)
 					Parsed.Value(Size(parts[0], parts[1]))
 				else
-					Parsed.Invalid("'$word' is not a size WxH")
+					Parsed.Invalid("'$word' is not a size in the form WxH")
 			}
 	}
 }

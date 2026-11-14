@@ -29,7 +29,7 @@ internal object Report {
 	fun problem(what: String, failure: Throwable) {
 		System.err.println("prism: $what: ${failure.stackTraceToString().trimEnd()}")
 		if (isFatal(failure))
-			ended("it cannot go on after that")
+			ended("it can't continue after that")
 	}
 
 	/** What a daemon reports ([prism.daemon.DaemonSettings.report]): what it was doing as it failed. */

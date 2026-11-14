@@ -66,16 +66,16 @@ private class Picking(
 			"FOLDER",
 			ParamType.FOLDER,
 			default = { Path(System.getProperty("user.home")) },
-			shown = "your home",
+			shown = "your home folder",
 		)
 	private val save =
 		command.option(
 			"--save",
 			type = ParamType.TEXT.named("NAME"),
-			help = "a picker that saves, under NAME",
+			help = "pick where to save a file, suggesting NAME",
 		)
-	private val many = command.flag("--multiple", help = "a picker that opens several files")
-	private val folders = command.flag("--folder", help = "a picker that chooses a folder")
+	private val many = command.flag("--multiple", help = "allow selecting several files")
+	private val folders = command.flag("--folder", help = "pick a folder")
 	private val theme = command.themeOption()
 
 	fun choosing(args: Args): Choosing {
@@ -88,7 +88,7 @@ private class Picking(
 
 		if (asked.size > 1)
 			throw InputError(
-				"${asked.joinToString(" and ")} ask for different pickers; ask for one",
+				"${asked.joinToString(" and ")} can't be used together",
 			)
 
 		return when {
@@ -114,12 +114,12 @@ private class Picking(
  */
 object PickCommand : Command(
 	"pick",
-	"open the picker in a window over a folder, and print what is chosen",
+	"open the file picker on a folder and print the selected paths",
 ) {
 	private val picking = Picking(this)
 
 	private val indexing = Indexing(this)
-	private val decorated = decoratedFlag("Escape or Cancel closes it")
+	private val decorated = decoratedFlag("close it with Escape or Cancel")
 
 	override fun run(args: Args): Outcome {
 		val home = Path(System.getProperty("user.home"))
@@ -128,7 +128,7 @@ object PickCommand : Command(
 		val preferences = PreferenceFile.open()
 
 		preferences.problem?.let {
-			warn(this, "the preferences can't be read ($it); every default is used meanwhile")
+			warn(this, "can't read the preferences ($it); using the defaults")
 		}
 
 		val first =
@@ -234,21 +234,21 @@ object PickCommand : Command(
 /** `prism snapshot`: the picker drawn headless into a PNG. */
 object SnapshotCommand : Command(
 	"snapshot",
-	"draw the picker over a folder into a PNG, with no display",
+	"render the file picker to a PNG, without a display",
 ) {
 	private val picking = Picking(this)
 	private val out =
-		required("--out", type = ParamType.PATH.named("FILE"), help = "where the PNG goes")
+		required("--out", type = ParamType.PATH.named("FILE"), help = "PNG file to write")
 	private val size =
 		option(
 			"--size",
 			type = Size.TYPE,
 			default = Size(1100, 680),
-			help = "the window's size",
+			help = "window size",
 			shown = "1100x680",
 		)
 	private val scale =
-		option("--scale", type = ParamType.COUNT, default = 2, help = "the display's density")
+		option("--scale", type = ParamType.COUNT, default = 2, help = "display scale factor")
 
 	override fun run(args: Args): Outcome {
 		val theme = picking.theme(args)

@@ -217,7 +217,7 @@ stdenv.mkDerivation (finalAttrs: {
     Exec=$out/bin/prism
 
     [Desktop Action own-process]
-    Name=New Window in Its Own Process
+    Name=New Window (Separate Process)
     Exec=$out/bin/prism --isolated
     ENTRY
     sed -i 's/^    //' $out/share/applications/prism.desktop

@@ -92,7 +92,7 @@ A shell takes a word's quotes in general, so a word that arrives with a space in
   /home/ember/notes/note-23.md
   /home/ember/notes/note-22.md
   /home/ember/notes/note-21.md
-7 of 30 · Enter chooses, Esc cancels
+7 of 30 · Enter selects, Esc cancels
 ```
 
 | key | does |
@@ -127,7 +127,7 @@ A script, or a function of your shell's, usually wants one path, not a list. `-s
 |---|---|---|
 | one match | prints it, status 0 | prints it, status 0, with no menu |
 | several | prints nothing; says how many on standard error, with the first five, status 3 | the menu; prints the one chosen, or nothing and status 130 where it is cancelled |
-| none | prints nothing; "nothing matches" on standard error, status 1 | the same |
+| none | prints nothing; "no matches" on standard error, status 1 | the same |
 
 So `prism search -si -- QUERY` is always one path on standard output, or none and a status that is not 0. It counts
 every match there is, not only those that would be printed: `-s -n 1` over fifty matches is still several. `-n` and

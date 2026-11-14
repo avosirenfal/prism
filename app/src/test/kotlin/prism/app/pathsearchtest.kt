@@ -114,7 +114,7 @@ class PathSearchTest {
 		assertTrue(
 			(IndexFileSeeker({ file }, root).seek(Sought("report", 0, 20)) as Sifted.NoIndex)
 				.why
-				.startsWith("there is no index at $file"),
+				.startsWith("no index at $file"),
 		)
 
 		IndexFile.write(file, indexed())
@@ -158,7 +158,7 @@ class PathSearchTest {
 			) as Reply.Done
 
 		assertEquals(
-			Sifted.NoIndex("the prism already running keeps no index"),
+			Sifted.NoIndex("the running prism has no index"),
 			Matches.read(none.ran),
 		)
 	}
@@ -178,7 +178,7 @@ class PathSearchTest {
 			val reply =
 				assertInstanceOf(Reply.Unable::class.java, asked(instance, *words.toTypedArray()))
 
-			assertTrue(reply.why.endsWith("was asked to be a prism of its own"), reply.why)
+			assertTrue(reply.why.endsWith("was asked to run in a separate process"), reply.why)
 		}
 		// What no prism does for another, and words it reads as no command of its own.
 		assertInstanceOf(Reply.Unable::class.java, asked(instance, "index", "--fresh"))

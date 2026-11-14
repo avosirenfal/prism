@@ -228,10 +228,10 @@ root.
 
 ```
 prism daemon (process 6957), running since 2026-11-13 22:42
-index: 412,530 entries under /, kept in /home/you/.cache/prism/index.prism
-changes: not watched (the kernel would not load the watcher: ...); in its place, the roots are read again every 30 minutes
+index: 412,530 entries under /, saved in /home/you/.cache/prism/index.prism
+changes: not watched (the kernel would not load the watcher: ...); rescanning every 30 minutes instead
 other prisms: open their windows here
-session bus: the portal's file chooser and the file manager (org.freedesktop.FileManager1) served
+session bus: serving the portal's file chooser and the file manager (org.freedesktop.FileManager1)
 windows: 2 open
 ```
 

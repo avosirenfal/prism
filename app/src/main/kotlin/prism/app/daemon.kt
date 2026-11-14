@@ -51,22 +51,21 @@ import prism.index.query.QueryText
  */
 object DaemonCommand : Command(
 	"daemon",
-	"keep the index current, and open every prism's windows, the portal's pickers among them, until stopped",
+	"keep the index up to date and open windows for other prism commands and the portal, until stopped",
 ) {
 	private val roots =
 		arguments(
 			"PATH",
 			ParamType.FOLDER,
-			help = "the folders to index (/ unless named)",
+			help = "folders to index (default /)",
 		)
 
 	private val foreground =
 		flag(
 			"--foreground",
 			help =
-				"run here, saying what it does on this terminal, until stopped: how a service " +
-					"manager runs it, and how to watch it. Without it, the daemon is started apart " +
-					"from the terminal, and this returns",
+				"run in this terminal and log to it until stopped, as a service manager " +
+					"would; without it, the daemon starts in the background and this command returns",
 		)
 
 	private val file =
@@ -74,41 +73,40 @@ object DaemonCommand : Command(
 			"--file",
 			type = ParamType.PATH,
 			default = defaultIndexFile(),
-			help = "the index's file",
+			help = "index file",
 			shown = "\$XDG_CACHE_HOME/prism/index.prism",
 		)
 
 	private val memory =
 		flag(
 			"--in-memory",
-			help = "keep the index in memory alone, never written",
+			help = "keep the index in memory only and never write it",
 		)
 
 	private val noWindows =
 		flag(
 			"--no-windows",
 			help =
-				"keep the index and nothing else: open no windows, for other prisms or for the " +
+				"only keep the index: open no windows for other prism commands or the " +
 					"session bus",
 		)
 
 	private val noChooser =
 		flag(
 			"--no-file-chooser",
-			help = "leave the portal's file chooser to another backend, and do not serve it",
+			help = "don't serve the portal's file chooser",
 		)
 	private val noManager = noManagerFlag()
 	private val replace = replaceFlag()
 	private val theme = themeOption()
-	private val decorated = decoratedFlag("the window's menu or Ctrl+W closes it")
+	private val decorated = decoratedFlag("close a window from its menu or with Ctrl+W")
 
 	private val seconds =
 		option(
 			"--for",
 			type = ParamType.COUNT,
 			help =
-				"stop after this many seconds (run until stopped without it); runs in the " +
-					"foreground",
+				"stop after N seconds; implies --foreground",
 		)
 
 	private val queries =
@@ -116,8 +114,7 @@ object DaemonCommand : Command(
 			"--find",
 			type = ParamType.TEXT.named("QUERY"),
 			help =
-				"a query in the search language, searched once the roots are read; runs in the " +
-					"foreground",
+				"run a search query once the folders have been read; implies --foreground",
 		)
 
 	override fun run(args: Args): Outcome {
@@ -143,7 +140,7 @@ object DaemonCommand : Command(
 			file?.let {
 				IndexLock.take(it)
 					?: throw InputError(
-						"a prism daemon is already keeping $it; prism status says how it is",
+						"a prism daemon is already using $it; see prism status",
 					)
 			}
 
@@ -173,7 +170,7 @@ object DaemonCommand : Command(
 				say(
 					"stopped: ${"%,d".format(
 						daemon.live.index.size,
-					)} entries, ${settings.file?.let { "written to $it" } ?: "kept nowhere"}",
+					)} entries, ${settings.file?.let { "written to $it" } ?: "not saved"}",
 				)
 			}
 		}
@@ -189,9 +186,9 @@ object DaemonCommand : Command(
 
 			say(
 				"${if (failed == null)
-					"read"
+					"finished reading"
 				else
-					"could not all be read,"} in ${millis(reading)}: " +
+					"finished reading, with errors,"} in ${millis(reading)}: " +
 					"${"%,d".format(daemon.live.index.size)} entries",
 			)
 			args[queries].forEach { found(daemon.live, it) }
@@ -253,9 +250,9 @@ object DaemonCommand : Command(
 							null.also {
 								warn(
 									this,
-									"there is no session bus (${opening.message}), so prism is not the " +
-										"file chooser or the file manager; other prisms still open their " +
-										"windows here",
+									"no session bus (${opening.message}), so prism can't act as the " +
+										"file chooser or file manager; other prism commands still open " +
+										"their windows here",
 								)
 							}
 					}
@@ -274,7 +271,9 @@ object DaemonCommand : Command(
 		return Outcome(
 			"${"%,d".format(
 				daemon.live.index.size,
-			)} entries, written to ${settings.file ?: "nowhere (in memory)"}",
+			)} entries, ${settings.file?.let {
+				"written to $it"
+			} ?: "not saved (in memory only)"}",
 		)
 	}
 
@@ -283,7 +282,7 @@ object DaemonCommand : Command(
 		val usage = UsageFile.read(UsageFile.default())
 
 		if (usage is UsageRead.Unreadable)
-			warn(this, "the usage can't be read (${usage.why}); results are ranked without it")
+			warn(this, "can't read the usage file (${usage.why}); results are ranked without it")
 
 		return LiveFinder(live, home, usage.usage, UsageFile.default().takeIf { written })
 	}
@@ -291,19 +290,19 @@ object DaemonCommand : Command(
 	/** How the index was opened, as the daemon says it as it starts. */
 	private fun originOf(origin: IndexStore.Origin): String =
 		when (origin) {
-			IndexStore.Origin.Memory -> "kept in memory alone"
-			IndexStore.Origin.Missing -> "there is no index yet: it is built"
+			IndexStore.Origin.Memory -> "in memory only"
+			IndexStore.Origin.Missing -> "no index yet, building one"
 			is IndexStore.Origin.Unreadable ->
-				"the index there cannot be read (${origin.why}): it is built anew"
+				"can't read the existing index (${origin.why}), rebuilding it"
 			is IndexStore.Origin.Read ->
-				"the index was read from its file" +
+				"index loaded from its file" +
 					(
 						if (origin.torn)
-							", its last frame, cut short, dropped"
+							", dropping a truncated last frame"
 						else
 							""
 					) +
-					"; read again for what changed since"
+					"; rescanning for changes since"
 		}
 
 	private fun indexLine(daemon: Daemon, settings: DaemonSettings): String {
@@ -312,7 +311,7 @@ object DaemonCommand : Command(
 		return "index: ${"%,d".format(
 			daemon.live.index.size,
 		)} entries under ${settings.roots.joinToString()}, " +
-			(settings.file?.let { "kept in $it" } ?: "in memory alone") +
+			(settings.file?.let { "saved in $it" } ?: "in memory only") +
 			if (reading.isEmpty())
 				""
 			else
@@ -322,10 +321,10 @@ object DaemonCommand : Command(
 	private fun watchingLine(daemon: Daemon, settings: DaemonSettings): String =
 		when (val now = daemon.watching) {
 			Daemon.Watching.On ->
-				"changes: watched through ${daemon.through}, each made in the index as the kernel makes it"
+				"changes: watched through ${daemon.through} and applied to the index as they happen"
 			is Daemon.Watching.Off ->
-				"changes: not watched (${now.why}); in its place, the roots are read again every " +
-					"${settings.rescanWithoutWatcher.inWholeMinutes} minutes"
+				"changes: not watched (${now.why}); rescanning every " +
+					"${settings.rescanWithoutWatcher.inWholeMinutes} minutes instead"
 		}
 
 	/**
@@ -335,13 +334,13 @@ object DaemonCommand : Command(
 	private fun startedApart(file: Path?): Outcome {
 		if (file != null && IndexLock.isHeld(file))
 			return Outcome(
-				"A prism daemon is already running, keeping $file. prism status says how it is.",
+				"A prism daemon is already running, using $file. See prism status.",
 			)
 
 		val launcher =
 			Self.launcher()
 				?: throw InputError(
-					"what started this prism cannot be told, to start it again; run it with --foreground",
+					"can't tell how prism was started, so it can't start in the background; use --foreground",
 				)
 
 		val log = stateFolder().resolve("daemon.log")
@@ -357,7 +356,7 @@ object DaemonCommand : Command(
 				)
 		} catch (failed: IOException) {
 			throw InputError(
-				"$log cannot be written (${failed.message ?: failed}); run it with --foreground",
+				"can't write $log (${failed.message ?: failed}); use --foreground",
 			)
 		}
 
@@ -375,7 +374,7 @@ object DaemonCommand : Command(
 		if (setsid == null)
 			warn(
 				this,
-				"there is no setsid to start it in a session of its own: it ends when this terminal does",
+				"setsid not found, so the daemon will stop when this terminal closes",
 			)
 
 		val process =
@@ -409,17 +408,17 @@ object DaemonCommand : Command(
 		while (System.nanoTime() < until) {
 			if (STARTED in said())
 				return Outcome(
-					"prism daemon is running (process ${process.pid()}). What it says is in $log.",
+					"prism daemon is running (process ${process.pid()}). Its log is $log.",
 				)
 			if (!process.isAlive)
 				throw InputError(
-					"it did not start (status ${process.exitValue()}). It said:\n${said().trimEnd()}",
+					"the daemon failed to start (status ${process.exitValue()}):\n${said().trimEnd()}",
 				)
 			Thread.sleep(100)
 		}
 
 		return Outcome(
-			"prism daemon (process ${process.pid()}) has not said it started yet. What it says is in $log.",
+			"prism daemon (process ${process.pid()}) is still starting. Its log is $log.",
 			1,
 		)
 	}
@@ -435,7 +434,7 @@ object DaemonCommand : Command(
 		val first = live.search(read.query)
 		val searched =
 			if (first is LiveSearch.Found && first.reading.isNotEmpty()) {
-				say("$text: reading ${first.reading.joinToString()} for searches alone, in memory")
+				say("$text: reading ${first.reading.joinToString()} into memory for this search")
 				first.ready.get()
 				live.search(read.query)
 			} else {
@@ -517,7 +516,7 @@ internal class IndexLock private constructor(
 
 				held?.let(::IndexLock) ?: null.also { channel.close() }
 			} catch (failed: IOException) {
-				throw InputError("$beside cannot be locked (${failed.message ?: failed})")
+				throw InputError("can't lock $beside (${failed.message ?: failed})")
 			}
 		}
 
