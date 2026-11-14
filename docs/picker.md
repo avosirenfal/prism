@@ -407,15 +407,22 @@ a sideways scroll (a tilted wheel, a touchpad) as a scroll (`mouseChords`, `brow
 
 ## Searching the index
 
-Searching the folder shown (Ctrl+F) narrows the rows the folder already has. Searching the index (Ctrl+Shift+F) looks
-through every file the index holds, wherever it is. Here is one search, followed through.
+Searching the folder shown (Ctrl+F) narrows the rows the folder already has. Searching the index looks through every
+file the index holds, wherever it is. Its key is Shift+F from the listing; in a text field those keys type an F, so
+Ctrl+Shift+F does the same from anywhere. Here is one search, followed through.
 
 ![The search's window over the picker](picker-search-index.png)
 
-**The window opens.** Ctrl+Shift+F is `BrowserEvent.OpenedSearch`. The state's `search` is `Search.Ready` when the
-picker was given an index, and `Search.Unavailable(why)` when it was not. Opening sets `open`, and the view draws a
-window over the picker: a field, a Search button, and room for matches under them. Without an index, the window says
-why instead.
+**The window opens.** Shift+F is `BrowserEvent.OpenedSearch`. The state's `search` is `Search.Ready` when the
+picker was given an index, and `Search.Unavailable(why)` when it was not. Opening makes a `Search.Ready` afresh, with
+nothing typed, and the view draws a window over the picker: a field, a `?`, a Search button, and room for matches
+under them. Without an index, the window says why instead.
+
+**You click the `?`.** That is `ToggledSearchHelp`: under the field, a sentence on how a query is read and a handful
+of queries, each with what it finds (`QueryHelp`, in the index's module beside the language, where a test reads every
+one of them). A query clicked is typed into the field. The `?` again puts them away.
+
+![How a query is written, under the search's field](picker-search-help.png)
 
 **You type `report -ext:pdf`.** Each key is `BrowserEvent.SearchTyped(text)`. The reducer keeps the text and asks for a
 search of it:
@@ -457,12 +464,13 @@ match does the same as Enter on it.
 **Or you press Enter in the field (or click Search).** That is `SearchEntered` with no match highlighted, or
 `ShowedResults`: every match is shown in the listing. Where the picker is, `at`, becomes `Location.Results` in place
 of `Location.Folder`, and the folder left goes into the history, so Back returns to it. The path across the top says
-"Search results" and what was searched for; clicking it opens the window again. The window closes, and keeps what was
-typed for the next Ctrl+Shift+F.
+"Search results" and what was searched for; clicking it opens the window again with that in its field
+(`EditedSearch`), to be changed. The window closes; the next Shift+F opens it empty, since what was searched for last
+is seldom what is wanted next.
 
-**Pressed again while the window is open,** Ctrl+Shift+F (or whatever it is bound to) empties the field and leaves the
-keyboard in it, for something else to be searched for at once. The window holds the keyboard while it is open, so it
-reads the binding itself.
+**Pressed again while the window is open,** Ctrl+Shift+F (or whatever chord is bound to it that no field types)
+empties the field and leaves the keyboard in it, for something else to be searched for at once. The window holds the
+keyboard while it is open, so it reads the binding itself.
 
 ![A search's results in the listing](picker-results.png)
 
@@ -666,13 +674,14 @@ list by one row, not a page, and a row far away is scrolled to directly (never b
 - **The drawing** (`PickerTest`): every kind of picker drawn headless, in both palettes, with a notice up, a path
   being typed, a search and an unreadable folder; `-Pbrowser.screenshots=DIR` keeps the pictures.
 - **The search of the index** (`FindTest`): over a real index of a folder made for each test, as `--index` searches
-  one. The window's matches, best first, kept when it is closed, an answer for an older text dropped, and the arrows;
+  one. The window's matches, best first, its field empty each time it opens, its help, an answer for an older text
+  dropped, and the arrows;
   a match gone to as each kind of picker goes to it; a folder picker finding only folders; every match in the listing,
   filtered, ordered and read on disk as a folder's would be, a folder among them gone into and Back to them; a name
   saved beside a result, and nowhere without one; a result trashed and gone once searched for again; more than 10,000
   results read as they come into sight, not ordered by size, and ordered by name behind; a pick ranking higher; and
-  the window and the results drawn, in both palettes. `InteractionTest` has Ctrl+Shift+F, typing, Enter and the arrows
-  as a user presses them.
+  the window and the results drawn, in both palettes. `InteractionTest` has Shift+F and Ctrl+Shift+F, the `?`,
+  typing, Enter and the arrows as a user presses them.
 
 `prism pick` itself has been run in a real window on a virtual X display (Xvfb), driven by xdotool: opening a file
 from the keyboard, several with Ctrl-click and the Open button, saving under a typed name, choosing a folder, and

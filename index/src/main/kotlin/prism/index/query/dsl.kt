@@ -116,6 +116,9 @@ class QueryBuilder internal constructor() {
 	/** `recent:when`. */
 	fun recent(since: Since) = Test.Recent(since)
 
+	/** `new:when`. */
+	fun new(since: Since) = Test.New(since)
+
 	/** `mount:type`. */
 	fun mount(type: String) = Test.Mount(TextPattern.of(type))
 }

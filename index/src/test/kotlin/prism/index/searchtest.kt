@@ -236,8 +236,34 @@ class SearchTest {
 		)
 		// report.pdf
 		assertEquals(setOf("q4-report.pdf", "report.pdf"), found { +word("report.pdf") })
-		// .git: a leading dot is the stem's, so this is the stem
+		// .git: a dot anywhere makes it the whole name, so a hidden name is found by its start
 		assertEquals(setOf(".gitignore", ".github"), found { +word(".git") })
+		// .jpg: and an extension by its dot, where "jpg" alone, which looks in stems, finds none
+		assertEquals(
+			setOf(
+				"photo.jpg",
+				"PHOTO2.JPG",
+				"img_2024.jpg",
+				"img_1.jpg",
+				"funny/a.jpg",
+				"funny/sub/c.jpg",
+				"funny/sub/deep/d.jpg",
+				"funny/sub/deep/deeper/e.jpg",
+				"funny/sub/deep/deeper/deepest/f.jpg",
+				"old photos/p.jpg",
+				"mnt/photos/2023/a.jpg",
+				"mnt/photos/b.jpg",
+			),
+			found { +word(".jpg") },
+		)
+		assertEquals(emptySet<String>(), found { +word("jpg") })
+		// .jp: as it is typed, the extensions that start so
+		assertEquals(
+			found { +word(".jpg") } + "img_2025.jpeg",
+			found { +word(".jp") },
+		)
+		// =.bashrc: the whole name
+		assertEquals(setOf(".bashrc"), found { +exactly(".bashrc") })
 		// archive: .tar.gz is one extension
 		assertEquals(setOf("archive.tar.gz"), found { +word("archive") })
 		// ärger: a letter outside ASCII is folded too

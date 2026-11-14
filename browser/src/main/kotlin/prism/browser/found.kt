@@ -24,7 +24,7 @@ import prism.preferences.Order
 import prism.index.Kind as EntryKind
 
 /*
- * Searching the index from the picker. Ctrl+Shift+F opens a search over the picker ([Search]): a field, and the first
+ * Searching the index from the picker. Shift+F opens a search over the picker ([Search]): a field, and the first
  * few matches under it as they are found. A match chosen goes to it; the search given (Enter, or its button) shows
  * every match in the listing, as if a folder held them all ([Location.Results], [Listing.Found]).
  *
@@ -68,7 +68,7 @@ fun queryOf(read: ReadQuery, choosing: Choosing): Query =
 	else
 		read.query
 
-/** The search of the index that Ctrl+Shift+F opens over the picker. What was typed is kept when it is closed. */
+/** The search of the index that Shift+F opens over the picker, its field empty each time it is opened. */
 @Immutable
 sealed interface Search {
 	/** Whether its window is open over the picker. */
@@ -92,6 +92,8 @@ sealed interface Search {
 		val found: Finding? = null,
 		val highlighted: Int? = null,
 		val showing: Boolean = false,
+		/** Whether how a query is written is shown under the field (its `?`): not, each time the window opens. */
+		val help: Boolean = false,
 	) : Search {
 		/** [text] read in the search language: its query, what is wrong with it, and the marks that colour it. */
 		val read: ReadQuery by lazy { QueryText.read(text) }

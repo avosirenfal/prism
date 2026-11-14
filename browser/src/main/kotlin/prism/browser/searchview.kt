@@ -52,6 +52,8 @@ import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
 import java.nio.file.Path
 import prism.index.query.Problem
+import prism.index.query.QueryHelp
+import prism.index.query.QueryText
 import prism.index.query.ReadQuery
 import prism.index.query.Role
 import prism.window.WindowLocals
@@ -61,7 +63,9 @@ import prism.window.WindowLocals
  * window, the query coloured as it is read (each part by what it is, and what is wrong underlined), the first few
  * matches under it, and a button that shows every match in the listing. The arrows go through the matches from the
  * field, which keeps the keyboard throughout; Enter goes to the match they are on, or, from the field, shows every
- * match; Escape, or a click outside, puts the window away with what was typed kept.
+ * match; Escape, or a click outside, puts the window away. Its field is empty each time it opens. A `?` beside the
+ * field shows how a query is written, in a sentence and a handful of queries ([QueryHelp]), each of which is typed
+ * into the field when clicked.
  */
 
 /** The search's window over the picker, for [search] as it stands; where a match is said from `~`, [home]. */
@@ -175,7 +179,7 @@ private fun Searching(
 			search.text,
 			{ onEvent(BrowserEvent.SearchTyped(it)) },
 			Modifier.weight(1f).testTag("search-query"),
-			hint = "Search everything: report, *.pdf, dir:photos, ~/Documents/",
+			hint = "Search everything: report, .pdf, dir:photos, ~/Documents/",
 			leading = Glyph.Search,
 			height = type.control + Space.s,
 			focus = field,
@@ -189,6 +193,12 @@ private fun Searching(
 			style = type.body.times(1.15f),
 		)
 		Spacer(Modifier.width(Space.s))
+		// The field keeps the keyboard, whatever is clicked beside it.
+		PushButton("?", Emphasis.Quiet, enabled = true, Modifier.testTag("search-help")) {
+			onEvent(BrowserEvent.ToggledSearchHelp)
+			field.requestFocus()
+		}
+		Spacer(Modifier.width(Space.xs))
 		PushButton(
 			"Search",
 			Emphasis.Primary,
@@ -196,6 +206,12 @@ private fun Searching(
 			Modifier.testTag("search-go"),
 		) { onEvent(BrowserEvent.ShowedResults) }
 	}
+
+	if (search.help)
+		Help { example ->
+			onEvent(BrowserEvent.SearchTyped(example))
+			field.requestFocus()
+		}
 
 	read.problems.firstOrNull { it.kind == Problem.Kind.Invalid }?.let {
 		Text(
@@ -234,6 +250,54 @@ private fun Searching(
 							vertical = Space.xxs,
 						).testTag("search-count"),
 			)
+		}
+	}
+}
+
+/**
+ * How a query is written, in short ([QueryHelp]): a sentence or two, and a query a line with what it finds, each
+ * coloured as the field would colour it, and given to [onTry] when clicked, to be typed there and tried.
+ */
+@Composable
+private fun Help(onTry: (String) -> Unit) {
+	val palette = LocalPalette.current
+	val type = LocalType.current
+	val shape = RoundedCornerShape(Radius.medium)
+
+	Column(
+		Modifier
+			.fillMaxWidth()
+			.background(palette.hover, shape)
+			.padding(Space.m)
+			.testTag("search-help-shown"),
+		verticalArrangement = Arrangement.spacedBy(Space.xxs),
+	) {
+		Text(QueryHelp.SUMMARY, style = type.muted)
+		Spacer(Modifier.height(Space.xs))
+		for (example in QueryHelp.EXAMPLES) {
+			val coloured =
+				remember(example, palette) {
+					QueryColouring(QueryText.read(example.text), palette)
+						.filter(AnnotatedString(example.text))
+						.text
+				}
+
+			Row(
+				Modifier
+					.fillMaxWidth()
+					.clickable { onTry(example.text) }
+					.testTag("help:${example.text}"),
+				verticalAlignment = Alignment.CenterVertically,
+			) {
+				Text(coloured, style = type.mono, maxLines = 1, modifier = Modifier.width(170.dp))
+				Text(
+					example.finds,
+					style = type.muted,
+					maxLines = 1,
+					overflow = TextOverflow.Ellipsis,
+					modifier = Modifier.weight(1f),
+				)
+			}
 		}
 	}
 }

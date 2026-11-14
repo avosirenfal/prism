@@ -220,8 +220,9 @@ internal class Ranker private constructor(
 		}
 
 		/**
-		 * Whether a word of the name from [from] starts at [at]: after a byte that is not a letter or a digit, between
-		 * a digit and a letter, or at a capital after a small letter (camelCase). Bytes beyond ASCII are letters.
+		 * Whether a word of the name from [from] starts at [at]: after a byte that is not a letter or a digit, at one
+		 * that is neither itself (the dot of `.jpg`, where an extension starts), between a digit and a letter, or at a
+		 * capital after a small letter (camelCase). Bytes beyond ASCII are letters.
 		 */
 		fun startsWord(name: ByteArray, from: Int, at: Int): Boolean {
 			if (at <= from)
@@ -240,6 +241,7 @@ internal class Ranker private constructor(
 
 			return when {
 				!letter(before) && !digit(before) -> true
+				!letter(here) && !digit(here) -> true
 				digit(before) != digit(here) -> true
 				small(before) && capital(here) -> true
 				else -> false

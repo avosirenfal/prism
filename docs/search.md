@@ -28,17 +28,18 @@ A name has a stem and an extension. The extension starts at the last `.`, so `v1
 - `.tar.` followed by anything is one extension: `archive.tar.gz` has the stem `archive` and the extension `tar.gz`;
 - a leading `.` belongs to the stem, so `.gitignore` is all stem, and has no extension.
 
-A term matches the stem, unless it has a `.` somewhere after its first character, in which case it matches the whole
-name. So `report` looks in stems, `report.pdf` looks in whole names, and `.git` (whose only dot is its first
-character) looks in stems, finding `.gitignore` and `.github`.
+A term matches the stem, unless it has a `.` in it, in which case it matches the whole name. So `report` looks in
+stems, and `report.pdf` looks in whole names. So does `.pdf`: it finds `q4-report.pdf` by its extension, and would
+find a hidden `.pdfrc` by its name, as `.git` finds `.gitignore` and `.github`. Typed as far as `.jp`, it finds
+`.jpg` and `.jpeg` alike. `pdf`, with no dot, looks in stems, and finds neither.
 
 A bare word with no glob characters is found anywhere in what it matches: `report` finds `q4-report.pdf`, and `notes`
 finds `v1.2 notes.txt`. Two anchors hold it in place: `^` before a term holds it to the start (`^report`), and `$`
 after it holds it to the end (`report$`, `report.pdf$`). `=` before a term is both: `=thing` is a stem that is exactly
 `thing` (so `thing.zip` and `thing.tar.gz`), and `=thing.zip` is a whole name that is exactly that.
 
-Because `=` follows the stem rule like everything else, `=.bashrc` finds `.bashrc`, and also `.bashrc.bak`, whose stem
-is `.bashrc` too.
+Because `=` follows the same rule, `=.bashrc` is a whole name that is exactly `.bashrc`, and `.pdf$` a name that ends
+in `.pdf`, which is the extension and nothing else.
 
 ## Globs
 
@@ -140,6 +141,10 @@ results come first", below): `today` and `yesterday` (from the start of the day)
 a weekday such as `wednesday` (from the start of the latest one, today if today is that day), or a duration: a number
 and `s`, `m` (minutes), `h`, `d` or `w`: `5m`, `24h`, `2d`, `1w`.
 
+**`new:WHEN`** is an entry the index first saw since `WHEN` (written as `recent:`'s is): made, or moved in, while
+the index was kept ("How new something is", below). What was there when its root was first indexed was never seen to
+turn up, so `new:` never finds it, however long ago `WHEN` is.
+
 **`mount:FSTYPE`** is an entry on a file system of that type, as `/proc/self/mountinfo` names it: `mount:zfs`,
 `-mount:ntfs`.
 
@@ -191,7 +196,7 @@ is **unfinished**; anywhere else, or where no more typing would mend it, it is *
 
 Every problem has a span, so the text can be marked exactly where it is, and a message saying what is wrong in words:
 "the quote is not closed", "“c” and “i” say opposite things: one or the other", "there is no “foo:”; the modifiers are
-dir:, ext:, type:, is:, recent:, mount:". Where the picker knows the user's aliases (`QueryText.read(text, aliases)`),
+dir:, ext:, type:, is:, recent:, new:, mount:". Where the picker knows the user's aliases (`QueryText.read(text, aliases)`),
 a `~name` that is not one of them is invalid too; otherwise it is left for the search to refuse.
 
 ### The grammar
@@ -318,15 +323,14 @@ Say you search for `report`, and these are found:
 - `~/.config/report.tmp`
 
 They come back in that order. Each result is given a score as the walk finds it, from what can be known of it
-without reading the disk, and the results are put in order of their scores, highest first, and by path among equal
-scores. A score is a small number, so ordering them is a counting sort: one pass, however many there are. Here is what
-counts, worth the most first:
+without reading the disk, and the results are put in order of their scores, highest first. A score is a small number,
+so ordering them is a counting sort: one pass, however many there are. Here is what counts, worth the most first:
 
 | what | points |
 |---|---|
 | each word of the query that is the whole name, or the name but for its extension (`report.pdf`) | 4 × 400 |
 | ... that the name starts with (`reports`) | 3 × 400 |
-| ... that a word in the name starts with: after `-`, `_`, `.` or a space, between a digit and a letter, or at a capital after a small letter (`q4-report`, `QuarterlyReport`) | 2 × 400 |
+| ... that a word in the name starts with: after `-`, `_`, `.` or a space, at one of those itself (the dot of `.pdf`), between a digit and a letter, or at a capital after a small letter (`q4-report`, `QuarterlyReport`) | 2 × 400 |
 | ... that is only inside a word (`myreport`) | 1 × 400 |
 | how much the user has picked it: for each doubling of its uses | 200, up to 600 |
 | how much the user has used the folder it is in: for each doubling | 120, up to 400 |
@@ -340,6 +344,25 @@ name's match: a file picked every day, whose name only has the word inside it, c
 with it. Only the first three words of a query count, and only plain words: a glob, a path or a modifier finds what it
 finds, but says nothing of how well. The points are `Ranking`'s, all in one place (`index/.../rank.kt`), to be tuned;
 `SearchContext.ranking` takes others.
+
+### Among equals: by name, the greatest number first
+
+Many results have the same score: every `java_*.hprof` in one folder matches `java` as well as the next, is as deep,
+and was there when the index began. Equals are put in the order of their names, read as a person reads them: from A
+to Z, whatever the case, except that a run of digits is the number it is, and goes from the greatest down. So
+
+- `c_2020.dump` is before `java_2026_11_13_13_36_32.dump`, which is before `kotlin_2027.dump`: letters, from A to Z;
+- `java_2026_11_13_13_36_32.dump` is before `java_2026_11_13_09_00_01.dump`, and that before `java_2025_12_31.dump`:
+  the latest date first, whatever folder each is in;
+- `img_10.png` is before `img_9.png`: 10 is the greater number, though `1` is before `9`.
+
+Names that are the same are in the order of their paths. Ordering by name is a sort, where ordering by score was a
+count, so only the first 1,000 results (`Results.EXACT`) are put in it, which is as far as anybody reads down a
+listing for the sake of the order. Where a score has more equals than are left of those, the first of them by name
+are picked out in one pass over what was found, on every core, each result looked at once against the last of those
+kept; the rest stay in the order of their paths, which a block holds them in already. Measured as the table above
+was, that leaves a search of some tens of thousands of results costing what it did, and adds 15 to 30 ms to one that
+finds a million equals.
 
 ### What the user has picked: the usage
 
@@ -359,7 +382,16 @@ first indexed was seen as the index began, which says nothing of how old it is. 
 it made, or a rescan found it) is seen when it was found. When a folder is read again, what the index held already
 keeps when it was first seen: the old tree and the new one are walked side by side, each folder's children matched by
 name (both are in the order of their names' bytes), and only names the old tree did not have keep the new time. So
-the order things turned up in, after the first scan, says how new each is next to everything else.
+the order things turned up in, after the first scan, says how new each is next to everything else: with a watcher,
+that is the order they were made in, as it happened, with no need of the dates the disk keeps. `new:WHEN` searches by
+it, and `Index.newest(count)` gives the newest entries, newest first, in one pass over the stamps: what a picker
+offers as what was lately made.
+
+## The language in short
+
+`QueryHelp` (`index/.../query/help.kt`) is a sentence on how a query is read and a handful of queries, each with what
+it finds: what the picker's search shows under its `?`. `ParserTest` reads every one of them, and none may have
+anything wrong with it.
 
 ## Not yet
 

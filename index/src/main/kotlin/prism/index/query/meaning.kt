@@ -399,7 +399,8 @@ private class Reading(
 			"ext" -> ext(value)
 			"type" -> type(value as ValueSyntax.Words)
 			"is" -> flags(value as ValueSyntax.Words)
-			"recent" -> recent(value as ValueSyntax.Words)
+			"recent" -> since(value as ValueSyntax.Words, name)?.let(Test::Recent)
+			"new" -> since(value as ValueSyntax.Words, name)?.let(Test::New)
 			else -> mount(value as ValueSyntax.Words)
 		}
 	}
@@ -557,14 +558,15 @@ private class Reading(
 			Test.Is(flags.toSet())
 	}
 
-	private fun recent(value: ValueSyntax.Words): Test? {
+	/** When [value], what `recent:` or `new:` ([name]) was given, counts from. */
+	private fun since(value: ValueSyntax.Words, name: String): Since? {
 		val content = contentOf(value.text) ?: return null
 		val said = content.text.lowercase()
 		val duration = Regex("(\\d+)([smhdw])").matchEntire(said)
 		val days =
 			mapOf("today" to Since.Today, "yesterday" to Since.Yesterday) +
 				DayOfWeek.entries.associate { it.name.lowercase() to Since.Weekday(it) }
-		val what = "recent: takes a time ago (5m, 24h, 2d, 1w), today, yesterday, or a day:"
+		val what = "$name: takes a time ago (5m, 24h, 2d, 1w), today, yesterday, or a day:"
 
 		return when {
 			duration != null -> {
@@ -575,14 +577,14 @@ private class Reading(
 					invalid(content.span, "a time ago is some time ago")
 					null
 				} else {
-					Test.Recent(Since.Within(unit * count.toDouble()))
+					Since.Within(unit * count.toDouble())
 				}
 			}
 			said.isNotEmpty() && said.all { it.isDigit() } -> {
 				unfinishedOr(content.span, "$said what? s, m, h, d or w")
 				null
 			}
-			else -> oneOf(content, days, what)?.let(Test::Recent)
+			else -> oneOf(content, days, what)
 		}
 	}
 
@@ -593,7 +595,7 @@ private class Reading(
 	}
 
 	private companion object {
-		val MODIFIERS = listOf("dir", "ext", "type", "is", "recent", "mount")
+		val MODIFIERS = listOf("dir", "ext", "type", "is", "recent", "new", "mount")
 
 		val UNITS: Map<Char, Duration> =
 			mapOf(

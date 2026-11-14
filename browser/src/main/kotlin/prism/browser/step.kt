@@ -40,8 +40,8 @@ import prism.preferences.Sort
  * - Renaming, the trash and making a folder are asked of the disk, and the folder is read again after, whatever came
  *   of it. The Delete key asks before it moves anything to the trash; Shift+Delete and the menu do not. A name with a
  *   slash in it, or `.` or `..`, is refused before the disk is asked.
- * - Ctrl+Shift+F searches the index, in a window over the picker that lists the first few matches as the query is
- *   typed. A match chosen is gone to: a folder, into it; a file, to the folder it is in, chosen (saving, its name to
+ * - Shift+F (from the listing; Ctrl+Shift+F from anywhere) searches the index, in a window over the picker that lists
+ *   the first few matches as the query is typed, its field empty each time it opens. A match chosen is gone to: a folder, into it; a file, to the folder it is in, chosen (saving, its name to
  *   save over). The search given shows every match in the listing, as a folder holding them all would show them,
  *   filtered as a folder is and ordered best first; Back from a folder gone into from them returns to them. A folder
  *   picker's search finds only folders.
@@ -334,7 +334,9 @@ private fun did(state: BrowserState, event: BrowserEvent): Step =
 		BrowserEvent.Cancelled -> Step(state, listOf(Effect.Finish(Outcome.Cancelled)))
 		// Answers to a notice, with none shown.
 		BrowserEvent.Confirmed, BrowserEvent.Dismissed -> Step(state)
-		BrowserEvent.OpenedSearch -> state.openedSearch()
+		BrowserEvent.OpenedSearch -> state.openedSearch("")
+		is BrowserEvent.EditedSearch -> state.openedSearch(event.text)
+		BrowserEvent.ToggledSearchHelp -> Step(state.withSearch { copy(help = !help) })
 		BrowserEvent.ClosedSearch ->
 			Step(
 				state.copy(
@@ -1258,27 +1260,19 @@ private fun BrowserState.withSearch(change: Search.Ready.() -> Search): BrowserS
 	}
 
 /**
- * The search's window opened, with what was typed before; searched for again, since what the index holds may have
- * changed. With no index, the window says why there is no search.
+ * The search's window opened with [text] in its field and searched for: nothing, for a search begun (and begun again,
+ * where it was open already), since what was searched for last is seldom what is wanted next; what the results shown
+ * were searched for, where those are to be changed. With no index, the window says why there is no search.
  */
-private fun BrowserState.openedSearch(): Step =
+private fun BrowserState.openedSearch(text: String): Step =
 	when (val search = search) {
 		// A place is searched by its own listing, whether or not there is an index of the disk.
 		is Search.Unavailable ->
 			if (inPlace?.tree != null)
-				copy(search = Search.Ready(open = true)).previewing()
+				copy(search = Search.Ready(text, open = true)).previewing()
 			else
 				Step(copy(search = search.copy(open = true)))
-		// Asked for again while it is open, it starts again: what was typed is let go, for something else to be.
-		is Search.Ready ->
-			if (search.open)
-				Step(
-					copy(
-						search = search.copy(text = "", found = null, highlighted = null, showing = false),
-					),
-				)
-			else
-				copy(search = search.copy(open = true, highlighted = null)).previewing()
+		is Search.Ready -> copy(search = Search.Ready(text, open = true)).previewing()
 	}
 
 /** The search's text searched for, for the window's matches; nothing, for no text. */

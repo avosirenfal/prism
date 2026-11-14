@@ -166,10 +166,21 @@ sealed interface BrowserEvent : Input {
 
 	// ---- the search of the index ----
 
-	/** The search's window opened over the picker, with what was typed into it before (Ctrl+Shift+F). */
+	/** The search's window opened over the picker, with nothing typed into it yet (Shift+F, Ctrl+Shift+F). */
 	data object OpenedSearch : BrowserEvent
 
-	/** The search's window put away, what was typed kept (Escape, or a click outside it). */
+	/**
+	 * The search's window opened with [text] in it, to be searched for again or changed: what the results shown were
+	 * searched for (the bar that says so, clicked).
+	 */
+	data class EditedSearch(
+		val text: String,
+	) : BrowserEvent
+
+	/** How a query is written shown under the search's field, or put away again (its `?`). */
+	data object ToggledSearchHelp : BrowserEvent
+
+	/** The search's window put away (Escape, or a click outside it). */
 	data object ClosedSearch : BrowserEvent
 
 	/** The search's field typed into. */

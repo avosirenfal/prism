@@ -76,10 +76,10 @@ enum class NamePart {
 
 	companion object {
 		/**
-		 * The part a term typed as [text] matches: the whole name where a `.` comes after its first character
-		 * (`report.pdf`, `*.jpg`), and otherwise the stem (`report`, and `.git`, whose dot is its first character).
+		 * The part a term typed as [text] matches: the whole name where it has a `.` in it (`report.pdf`, `*.jpg`, and
+		 * `.jpg`, which so finds the extension and a hidden file's name alike), and otherwise the stem (`report`).
 		 */
-		fun of(text: String): NamePart = if (text.indexOf('.', 1) >= 0) Whole else Stem
+		fun of(text: String): NamePart = if ('.' in text) Whole else Stem
 	}
 }
 
@@ -241,7 +241,7 @@ enum class Flag {
 	Symlink,
 }
 
-/** When `recent:` counts from. */
+/** When `recent:` and `new:` count from. */
 sealed interface Since {
 	/** The start of today. */
 	data object Today : Since
@@ -317,6 +317,11 @@ sealed interface Test {
 
 	/** `recent:WHEN`: picked through the picker since then. */
 	data class Recent(
+		val since: Since,
+	) : Test
+
+	/** `new:WHEN`: first seen by the index since then: made, or moved in, after its root was indexed. */
+	data class New(
 		val since: Since,
 	) : Test
 

@@ -70,15 +70,15 @@ class SettingsViewTest {
 			}
 			onNodeWithText("Apply").assertIsNotEnabled()
 
-			// Search everything: clicked, waiting, then Ctrl+K.
-			onNodeWithTag("chord:Ctrl+Shift+F").performClick()
+			// Showing hidden files: its chord clicked, waiting, then Ctrl+K.
+			onNodeWithTag("chord:Ctrl+H").performClick()
 			onNodeWithTag("chord:awaited").assertExists()
 			onNode(isFocused()).performKeyInput { withKeyDown(Key.CtrlLeft) { pressKey(Key.K) } }
 			waitForIdle()
 
 			assertEquals(
 				listOf(chord("Ctrl+K")),
-				settings.rebinding.bindings.of(Action.SearchIndex),
+				settings.rebinding.bindings.of(Action.ToggleHidden),
 			)
 			onNodeWithTag("chord:Ctrl+K").assertExists()
 			onNodeWithText("Apply").assertIsEnabled()
@@ -112,7 +112,7 @@ class SettingsViewTest {
 			assertEquals(
 				mapOf(
 					"Back" to listOf("Mouse Back", "Mouse Middle"),
-					"SearchIndex" to listOf("Ctrl+K"),
+					"ToggleHidden" to listOf("Ctrl+K"),
 				),
 				settings.over(Preferences.DEFAULT).bindings,
 			)

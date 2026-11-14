@@ -989,7 +989,7 @@ data class BrowserState(
 	/** Where the cursor goes when the next read of the folder arrives; nowhere in particular when null. */
 	val landing: Landing? = null,
 	val renaming: Renaming? = null,
-	/** The search of the index, as Ctrl+Shift+F opens it; unavailable where there is no index. */
+	/** The search of the index, as Shift+F opens it; unavailable where there is no index. */
 	val search: Search = Search.Unavailable(NO_INDEX),
 	/** The rows in sight, by their places in [rows], as the view last said; null before it has. */
 	val sight: IntRange? = null,

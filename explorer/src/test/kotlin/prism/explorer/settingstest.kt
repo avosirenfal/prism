@@ -45,25 +45,25 @@ class SettingsTest {
 		// Nothing awaited, nothing pressed is taken.
 		assertEquals(start, start.pressed(chord("F5")))
 
-		// Search everything given F5, which reading again had.
-		val given = start.awaiting(Slot(Action.SearchIndex, 0)).pressed(chord("F5"))
+		// Showing hidden files given F5, which reading again had.
+		val given = start.awaiting(Slot(Action.ToggleHidden, 0)).pressed(chord("F5"))
 
-		assertEquals(listOf(chord("F5")), given.bindings.of(Action.SearchIndex))
+		assertEquals(listOf(chord("F5")), given.bindings.of(Action.ToggleHidden))
 		assertEquals(listOf(chord("Ctrl+R")), given.bindings.of(Action.Refresh))
 		assertEquals(Took(chord("F5"), listOf(Action.Refresh)), given.took)
 		assertNull(given.awaited)
 
 		// A slot past the last adds a chord; a slot removed is gone.
-		val added = given.awaiting(Slot(Action.SearchIndex, 1)).pressed(chord("Mouse Middle"))
+		val added = given.awaiting(Slot(Action.ToggleHidden, 1)).pressed(chord("Mouse Middle"))
 
 		assertEquals(
 			listOf(chord("F5"), chord("Mouse Middle")),
-			added.bindings.of(Action.SearchIndex),
+			added.bindings.of(Action.ToggleHidden),
 		)
 		assertNull(added.took)
 		assertEquals(
 			listOf(chord("Mouse Middle")),
-			added.removed(Slot(Action.SearchIndex, 0)).bindings.of(Action.SearchIndex),
+			added.removed(Slot(Action.ToggleHidden, 0)).bindings.of(Action.ToggleHidden),
 		)
 
 		// A move is bound to its key alone, and takes the key, whatever is held with it, from what had it.
@@ -80,13 +80,13 @@ class SettingsTest {
 		val swapped =
 			Rebinding(
 				Bindings.DEFAULT,
-			).awaiting(Slot(Action.SearchIndex, 0)).pressed(chord("F5"))
+			).awaiting(Slot(Action.ToggleHidden, 0)).pressed(chord("F5"))
 
 		val reset = swapped.reset(Action.Refresh)
 
 		assertEquals(Action.Refresh.defaults, reset.bindings.of(Action.Refresh))
-		assertEquals(emptyList<Chord>(), reset.bindings.of(Action.SearchIndex))
-		assertEquals(Bindings.DEFAULT, reset.reset(Action.SearchIndex).bindings)
+		assertEquals(emptyList<Chord>(), reset.bindings.of(Action.ToggleHidden))
+		assertEquals(Bindings.DEFAULT, reset.reset(Action.ToggleHidden).bindings)
 		assertEquals(Bindings.DEFAULT, swapped.resetAll().bindings)
 	}
 

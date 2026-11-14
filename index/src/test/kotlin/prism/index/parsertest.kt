@@ -139,6 +139,8 @@ class ParserTest {
 			"recent:wednesday" to { +recent(Since.Weekday(DayOfWeek.WEDNESDAY)) },
 			"recent:5m" to { +recent(Since.Within(5.minutes)) },
 			"recent:24h" to { +recent(Since.Within(24.hours)) },
+			"new:today" to { +new(Since.Today) },
+			"new:2d" to { +new(Since.Within(2.days)) },
 			"recent:1w ext:pdf" to {
 				+recent(Since.Within(7.days))
 				+ext("pdf")
@@ -264,7 +266,7 @@ class ParserTest {
 	fun anyTextAtAllReadsAndSearches() {
 		// Text made at random from the characters the language gives meaning to: none of it may fail to read, or make a
 		// query that fails to run.
-		val alphabet = "\"\\/[]{},*?^$=-:#~!.rcisp aZ09dirext:type:is:recent:mount:"
+		val alphabet = "\"\\/[]{},*?^$=-:#~!.rcisp aZ09dirext:type:is:recent:new:mount:"
 		val random = kotlin.random.Random(System.getProperty("parser.seed")?.toIntOrNull() ?: 7)
 
 		val context =
@@ -365,5 +367,15 @@ class ParserTest {
 			},
 			read.query,
 		)
+	}
+
+	@Test
+	fun everyExampleTheHelpGivesReadsWithNothingWrongAndAsksForSomething() {
+		for (example in prism.index.query.QueryHelp.EXAMPLES) {
+			val read = QueryText.read(example.text)
+
+			assertEquals(emptyList<Any>(), read.problems, example.text)
+			assertTrue(read.query.terms.isNotEmpty(), example.text)
+		}
 	}
 }

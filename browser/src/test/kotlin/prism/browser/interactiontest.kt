@@ -1646,10 +1646,45 @@ class InteractionTest {
 			row("notes.md").assertIsDisplayed()
 			onNodeWithTag("status").assertTextEquals("1 result")
 
-			// Opened again, what was typed is there.
+			// Opened again, its field is empty; opened from the results' bar, it holds what they were searched for.
 			ctrlShift(Key.F)
 			waitForIdle()
+			field("search-query").assertTextEquals("")
+			press(Key.Escape)
+			waitForIdle()
+			onNodeWithTag("results").performClick()
+			waitForIdle()
 			field("search-query").assertTextEquals("notes")
+		}
+	}
+
+	@Test
+	fun shiftFSearchesFromTheListingAndTheQuestionMarkShowsHowAQueryIsWritten() {
+		val home = home()
+
+		picking(folder = home, finder = finderOf(home)) { _ ->
+			// From the listing, Shift+F opens the search; in its field, the same keys type an F.
+			focused().performKeyInput { withKeyDown(Key.ShiftLeft) { pressKey(Key.F) } }
+			waitForIdle()
+			onNodeWithTag("search-layer").assertExists()
+			focusIsIn("search-query")
+			assertEquals(0, onAllNodes(hasTestTag("search-help-shown")).fetchSemanticsNodes().size)
+
+			// The question mark shows the language in short, and the field keeps the keyboard.
+			onNodeWithTag("search-help").performClick()
+			waitForIdle()
+			onNodeWithTag("search-help-shown").assertExists()
+			focusIsIn("search-query")
+
+			// An example clicked is typed into the field, and searched for.
+			onNodeWithTag("help:.pdf").performClick()
+			waitForIdle()
+			field("search-query").assertTextEquals(".pdf")
+
+			// Asked again, it is put away.
+			onNodeWithTag("search-help").performClick()
+			waitForIdle()
+			assertEquals(0, onAllNodes(hasTestTag("search-help-shown")).fetchSemanticsNodes().size)
 		}
 	}
 

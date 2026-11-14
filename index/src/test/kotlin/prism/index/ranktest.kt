@@ -79,9 +79,10 @@ class RankTest {
 				"report.pdf",
 				// Its start.
 				"reports.txt",
-				// A word's start: after a dash, or a capital after a small letter.
-				"QuarterlyReport.doc",
+				// A word's start: after a dash, or a capital after a small letter; equals, so from A to Z, whatever
+				// their case.
 				"q4-report.pdf",
+				"QuarterlyReport.doc",
 				// Inside a word.
 				"myreport.txt",
 			),
@@ -99,6 +100,8 @@ class RankTest {
 		assertTrue(starts("QuarterlyReport", 9))
 		assertTrue(starts("my_report", 3))
 		assertTrue(starts("anything", 0))
+		// What is neither a letter nor a digit starts a word itself: the dot an extension starts at.
+		assertTrue(starts("photo.jpg", 5))
 		assertFalse(starts("myreport", 2))
 		assertFalse(starts("REPORT", 2))
 	}
@@ -123,10 +126,151 @@ class RankTest {
 		// What was picked from `work` makes it a folder used, and what is in it comes first.
 		val fromWork = Usage.NONE.picked(listOf(where("work/x.txt")), now)
 
+		// Equal names are in the order of their paths.
 		assertEquals(listOf("other/plan.txt", "work/plan.txt"), ranked(index) { +word("plan") })
 		assertEquals(
 			listOf("work/plan.txt", "other/plan.txt"),
 			ranked(index, context(fromWork)) { +word("plan") },
+		)
+	}
+
+	@Test
+	fun equalsAreInTheOrderOfTheirNamesButTheirNumbersFromTheGreatestSoTheLatestDateLeads() {
+		made(
+			"dumps/java_2026_11_13_13_36_32.dump",
+			"dumps/java_2026_11_13_09_00_01.dump",
+			"dumps/java_2026_2_1_10_00_00.dump",
+			"dumps/java_2025_12_31_23_59_59.dump",
+			"dumps/Java_2024_01_01_00_00_00.dump",
+			"older/java_2026_11_12_08_00_00.dump",
+			"dumps/kotlin_2027_01_01.dump",
+			"dumps/c_2020.dump",
+			"shots/img_9.png",
+			"shots/img_10.png",
+			"shots/img_010.png",
+		)
+
+		val index = indexed()
+
+		// Whatever folder each is in, and whatever case it is written in: a name's numbers as numbers, the greatest
+		// first, so the eleventh month is before the second.
+		assertEquals(
+			listOf(
+				"dumps/java_2026_11_13_13_36_32.dump",
+				"dumps/java_2026_11_13_09_00_01.dump",
+				"older/java_2026_11_12_08_00_00.dump",
+				"dumps/java_2026_2_1_10_00_00.dump",
+				"dumps/java_2025_12_31_23_59_59.dump",
+				"dumps/Java_2024_01_01_00_00_00.dump",
+			),
+			ranked(index) { +word("java") },
+		)
+		// Equal as numbers, they are in the order of their paths.
+		assertEquals(
+			listOf("shots/img_010.png", "shots/img_10.png", "shots/img_9.png"),
+			ranked(index) { +word("img") },
+		)
+		// What is not a number goes from A to Z, whatever numbers follow it.
+		assertEquals(
+			listOf(
+				"dumps/c_2020.dump",
+				"dumps/java_2026_11_13_13_36_32.dump",
+				"dumps/java_2026_11_13_09_00_01.dump",
+				"older/java_2026_11_12_08_00_00.dump",
+				"dumps/java_2026_2_1_10_00_00.dump",
+				"dumps/java_2025_12_31_23_59_59.dump",
+				"dumps/Java_2024_01_01_00_00_00.dump",
+				"dumps/kotlin_2027_01_01.dump",
+			),
+			ranked(index) { +word(".dump") },
+		)
+	}
+
+	@Test
+	fun ofMoreEqualsThanAreOrderedByNameTheFirstByNameLeadAndTheRestFollowByPath() {
+		val count = Results.EXACT + 200
+
+		made(*(1..count).map { "logs/log_%05d.txt".format(it) }.toTypedArray())
+
+		val found = ranked(indexed()) { +word("log_") }
+
+		assertEquals(count, found.size)
+		// The greatest numbers first, as far as names are put in order.
+		assertEquals(
+			(count downTo 201).map { "logs/log_%05d.txt".format(it) },
+			found.take(Results.EXACT),
+		)
+		// The rest as the folder holds them.
+		assertEquals(
+			(1..200).map { "logs/log_%05d.txt".format(it) },
+			found.drop(Results.EXACT),
+		)
+	}
+
+	@Test
+	fun whatIsNewIsFoundByWhenItTurnedUpAndGivenNewestFirst() {
+		made("docs/old.txt")
+
+		val first = Index.EMPTY.with(indexer(now.minus(Duration.ofDays(30))).index(root))
+
+		made("docs/week.txt")
+
+		val second = first.with(indexer(now.minus(Duration.ofDays(5))).reread(where("docs"))!!)
+
+		made("docs/hour.txt", "docs/made/inside.txt")
+
+		val third = second.with(indexer(now.minus(Duration.ofHours(1))).reread(where("docs"))!!)
+
+		// new:1d, new:1w, and what was there when the root was indexed, which was never seen to turn up.
+		assertEquals(
+			setOf("docs/hour.txt", "docs/made", "docs/made/inside.txt"),
+			ranked(third) {
+				+new(
+					prism.index.query.Since
+						.Within(kotlin.time.Duration.parse("1d")),
+				)
+			}.toSet(),
+		)
+		assertEquals(
+			setOf("docs/hour.txt", "docs/made", "docs/made/inside.txt", "docs/week.txt"),
+			ranked(third) {
+				+new(
+					prism.index.query.Since
+						.Within(kotlin.time.Duration.parse("7d")),
+				)
+			}.toSet(),
+		)
+
+		fun newest(count: Int) =
+			third.newest(count) { it.kind == Kind.File }.map {
+				it.entry.where
+					.toString()
+					.removePrefix("$root/") to it.at
+			}
+
+		assertEquals(
+			listOf(
+				"docs/hour.txt" to now.minus(Duration.ofHours(1)),
+				"docs/made/inside.txt" to now.minus(Duration.ofHours(1)),
+				"docs/week.txt" to now.minus(Duration.ofDays(5)),
+			),
+			newest(10).sortedWith(
+				compareByDescending<Pair<String, Instant>> {
+					it.second
+				}.thenBy { it.first },
+			),
+		)
+		assertEquals(listOf("docs/week.txt"), newest(3).drop(2).map { it.first })
+		assertEquals(2, newest(2).size)
+		assertEquals(now.minus(Duration.ofHours(1)), newest(1).single().second)
+		// As a file holds it, and compacted, the same.
+		assertEquals(
+			newest(10),
+			third.compacted().newest(10) { it.kind == Kind.File }.map {
+				it.entry.where
+					.toString()
+					.removePrefix("$root/") to it.at
+			},
 		)
 	}
 

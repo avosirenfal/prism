@@ -102,7 +102,7 @@ class FindTest {
 	}
 
 	@Test
-	fun theWindowListsTheBestMatchesAsTheQueryIsTypedAndKeepsItWhenClosed() {
+	fun theWindowListsTheBestMatchesAsTheQueryIsTypedAndOpensEmptyTheNextTime() {
 		made("docs/report.pdf", "old/q4-report.pdf", "myreport.txt", "reports/", "notes.md")
 
 		val typed = searched(picker(), "report")
@@ -113,12 +113,23 @@ class FindTest {
 			typed.listed(),
 		)
 
-		// Closed, it keeps what was typed and found; opened again, it is all there.
+		// Closed and opened again, it starts from nothing: what was searched for last is seldom what is wanted next.
 		val closed = after(typed, BrowserEvent.ClosedSearch)
 
 		assertFalse(closed.search.open)
-		assertEquals("report", closed.ready.text)
-		assertEquals(typed.listed(), after(closed, BrowserEvent.OpenedSearch).listed())
+
+		val again = after(closed, BrowserEvent.OpenedSearch)
+
+		assertTrue(again.search.open)
+		assertEquals("", again.ready.text)
+		assertEquals(null, again.ready.found)
+
+		// Opened to change what was searched for (the results' bar, clicked), it holds that, searched for again.
+		val edited = after(closed, BrowserEvent.EditedSearch("report"))
+
+		assertTrue(edited.search.open)
+		assertEquals("report", edited.ready.text)
+		assertEquals(typed.listed(), edited.listed())
 
 		// The query is read as it is typed, for the field to colour it.
 		assertEquals(QueryText.read("report").marks, typed.ready.read.marks)
@@ -435,6 +446,14 @@ class FindTest {
 
 		val shown = after(typed, BrowserEvent.MatchMoved(-2), BrowserEvent.SearchEntered)
 		val wrong = searched(picker(), "report ext: [a")
+		val help = after(searched(picker(), "report .pdf"), BrowserEvent.ToggledSearchHelp)
+
+		assertTrue(help.ready.help)
+		// Asked for again it is put away, and it is not there the next time the window opens.
+		assertFalse(after(help, BrowserEvent.ToggledSearchHelp).ready.help)
+		assertFalse(
+			after(help, BrowserEvent.ClosedSearch, BrowserEvent.OpenedSearch).ready.help,
+		)
 
 		val gallery = after(shown, BrowserEvent.Viewed(Layout.Gallery))
 
@@ -443,6 +462,7 @@ class FindTest {
 				"search" to typed,
 				"results" to shown,
 				"search-wrong" to wrong,
+				"search-help" to help,
 				"gallery" to gallery,
 			)
 
@@ -481,9 +501,9 @@ class FindTest {
 		assertEquals(null, again.ready.found)
 		assertEquals(null, again.ready.highlighted)
 
-		// Closed, it keeps what was typed, and opening it again brings it back.
+		// Closed and opened again, the same.
 		val closed = after(typed, BrowserEvent.ClosedSearch, BrowserEvent.OpenedSearch)
 
-		assertEquals("report", closed.ready.text)
+		assertEquals("", closed.ready.text)
 	}
 }

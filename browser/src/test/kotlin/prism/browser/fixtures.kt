@@ -204,8 +204,12 @@ object Fixtures {
 		val NO_TRASH: Path = Path("/tmp")
 	}
 
-	/** What the trash of [Memory] holds: a file and a folder, from two folders, trashed on two days. */
-	val trashRows: List<Row> =
+	/**
+	 * What the trash of [Memory] holds: a file and a folder, from two folders, trashed on two days. Made when first
+	 * asked for: [Memory] is made from this object's [home] and these from [Memory]'s trash, so whichever a test
+	 * touches first, neither is read half made.
+	 */
+	val trashRows: List<Row> by lazy {
 		listOf(
 			Trashed(home.resolve("old notes.md"), "old notes.md", Memory.TRASH) to
 				"2026-11-01T10:00:00Z",
@@ -234,6 +238,7 @@ object Fixtures {
 				hidden = false,
 			)
 		}
+	}
 
 	/**
 	 * A picker opened on [folder] over [Memory], choosing [choosing], settled. A picker shows hidden files until the

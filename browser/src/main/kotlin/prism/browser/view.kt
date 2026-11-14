@@ -161,7 +161,8 @@ import prism.window.WindowLocals
  * | Alt+Left, Alt+Right | anywhere | back, forward |
  * | Ctrl+L, Alt+D | anywhere | type a path |
  * | Ctrl+F, F3 | anywhere | search the folder shown |
- * | Ctrl+Shift+F | anywhere | search the index: the first matches as it is typed, every one in the listing on Enter |
+ * | Shift+F | listing | search the index: the first matches as it is typed, every one in the listing on Enter |
+ * | Ctrl+Shift+F | anywhere | the same, from a field too, where Shift+F types an F |
  * | Ctrl+H | anywhere | hidden files shown, or not |
  * | F5, Ctrl+R | anywhere | the folder read again |
  * | Ctrl+A | listing | every row chosen |
@@ -677,7 +678,7 @@ private fun ResultsBar(
 	val type = LocalType.current
 
 	Bar(Glyph.Search, modifier.testTag("results"), "Search again", {
-		onEvent(BrowserEvent.OpenedSearch)
+		onEvent(BrowserEvent.EditedSearch(results.text))
 	}) {
 		Text("Search results", style = type.strong, maxLines = 1)
 		Text(

@@ -30,6 +30,12 @@ sealed interface Change {
 	) : Change
 }
 
+/** An [entry] the index saw turn up, and when it did ([Index.newest]). */
+data class Sighting(
+	val entry: Entry,
+	val at: java.time.Instant,
+)
+
 /** One entry of the index, as a search finds it. */
 data class Entry(
 	val where: Where,
@@ -294,6 +300,48 @@ class Index private constructor(
 	/** When the index first held the entry at [where]: null for one held since its root was indexed, or not held. */
 	fun seenAt(where: Where): java.time.Instant? =
 		locate(where)?.let { (at, entry) -> Seen.instantOf(placed[at].block.seen[entry]) }
+
+	/**
+	 * The [count] newest entries that [wanted] takes, the newest first: those the index first saw last, which is the
+	 * order they were made in (or moved in), as the watcher said it as it happened. What a picker offers as what was
+	 * lately made. What was there when a root was indexed is not among them: when it was made, the index never saw.
+	 * One pass over the stamps, so cheap enough to ask for as a window opens.
+	 */
+	fun newest(count: Int, wanted: (Entry) -> Boolean = { true }): List<Sighting> {
+		// The oldest of those kept is at the head, to be let go as a newer one is found.
+		val kept =
+			java.util.PriorityQueue<Triple<Long, Int, Int>>(
+				compareBy({ it.first }, { -it.second }, { -it.third }),
+			)
+
+		placed.forEachIndexed { at, it ->
+			val block = it.block
+
+			for (entry in 0 until block.size) {
+				val seen = block.seen[entry]
+
+				if (seen == Seen.UNKNOWN || block.nameLength(entry) == 0)
+					continue
+
+				val stamp = seen.toLong() and 0xFFFFFFFFL
+
+				if (kept.size >= count && stamp <= kept.peek().first)
+					continue
+				if (entry in it.hidden || !wanted(block.entryOf(entry)))
+					continue
+
+				kept.add(Triple(stamp, at, entry))
+				if (kept.size > count)
+					kept.poll()
+			}
+		}
+
+		return generateSequence { kept.poll() }
+			.map { (stamp, at, entry) ->
+				Sighting(entryAt(at, entry), java.time.Instant.ofEpochSecond(stamp))
+			}.toList()
+			.asReversed()
+	}
 
 	/**
 	 * The index as one block a root, made again from what is held now, without what is hidden. It holds the same
