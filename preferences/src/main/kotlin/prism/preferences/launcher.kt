@@ -2,10 +2,7 @@ package prism.preferences
 
 import kotlinx.serialization.Serializable
 
-/**
- * How the launcher looks and what it finds. Its keys are among the rest ([Preferences.bindings]), each named
- * `launcher.` and its action.
- */
+/** How the launcher looks, what it finds, and its keys. */
 @Serializable
 data class LauncherPreferences(
 	/** How wide its window is, in the units text is sized in. */
@@ -24,6 +21,11 @@ data class LauncherPreferences(
 	val closeUnfocused: Boolean = true,
 	/** The applications left out of it, by the desktop's names for them. */
 	val hidden: Set<String> = emptySet(),
+	/**
+	 * Its keys that differ from the defaults: each action's name, and the chords that do it, written as they are
+	 * shown (`Ctrl+Enter`). An action not named here has its default chords; one named with none has none.
+	 */
+	val bindings: Map<String, List<String>> = emptyMap(),
 ) {
 	/** These, each number within what the launcher can be drawn with, whatever a file written by hand says. */
 	val bounded: LauncherPreferences
@@ -39,8 +41,5 @@ data class LauncherPreferences(
 		val WIDTHS = 480..1400
 		val ROWS = 4..20
 		val FILE_RESULTS = 1..200
-
-		/** What an action of the launcher's is named among the bindings. */
-		fun bindingOf(action: String): String = "launcher.$action"
 	}
 }

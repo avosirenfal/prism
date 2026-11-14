@@ -12,6 +12,7 @@ import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import prism.preferences.DateFormat
 import prism.preferences.PreferenceStore
+import prism.preferences.Role
 import prism.preferences.Scales
 import prism.preferences.Typography
 import prism.window.NativeWindow
@@ -54,7 +55,15 @@ fun HostedBrowser(
 		}
 
 	val set by preferences.preferences.collectAsState()
-	val bindings = remember(set) { Bindings.of(set) }
+	// A picker's keys are its own where the user has given pickers their own; what a session is, it stays.
+	val role =
+		remember(session) {
+			if (session.state.value.choosing is Choosing.Exploring)
+				Role.Explorer
+			else
+				Role.Picker
+		}
+	val bindings = remember(set, role) { Bindings.of(set, role) }
 
 	HostedWindow(window, palette, set.typography, set.dates) {
 		CompositionLocalProvider(

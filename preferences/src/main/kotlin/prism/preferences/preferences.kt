@@ -43,6 +43,11 @@ data class Preferences(
 	 */
 	val bindings: Map<String, List<String>> = emptyMap(),
 	/**
+	 * The bindings of a picker's window that differ from the defaults, written as [bindings] are; null where pickers
+	 * have no keys of their own, and an explorer's are theirs too.
+	 */
+	val pickerBindings: Map<String, List<String>>? = null,
+	/**
 	 * The terminal "Open terminal here" opens, and what runs in a terminal runs in: the desktop's own, as the platform
 	 * finds it, unless one is chosen here (terminal.kt).
 	 */

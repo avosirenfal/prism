@@ -3,6 +3,7 @@ package prism.explorer
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import prism.browser.Action
 import prism.browser.Actions
 import prism.browser.Bindable
 import prism.browser.Bindings
@@ -60,7 +61,8 @@ data class Took(
 
 /**
  * Which of the bindings page's actions are shown: those whose names or chords have [Words] in them (every one, for
- * none); or those bound to a [Shortcut] pressed in the window that finds one, as JetBrains' "Find Shortcut" does.
+ * none); those bound to a [Shortcut] pressed in the window that finds one, as JetBrains' "Find Shortcut" does; or
+ * those whose chords are not their defaults ([Changed]).
  */
 sealed interface Finding {
 	data class Words(
@@ -76,16 +78,22 @@ sealed interface Finding {
 		val open: Boolean,
 	) : Finding
 
+	/** Those the user has bound otherwise than they come. */
+	data object Changed : Finding
+
 	/** Whether [action], bound to [chords], is shown. */
 	fun shows(action: Bindable, chords: List<Chord>): Boolean =
 		when (this) {
-			// By its name, as shown or as the preferences file writes it ("ZoomIn" is "Larger"), or by its chords.
+			// By its name, as shown or as the preferences file writes it ("ZoomIn" is "Larger"), by the group it is
+			// listed in ("view" shows the view's), or by its chords.
 			is Words ->
 				text.isBlank() ||
 					action.label.contains(text.trim(), ignoreCase = true) ||
 					action.key.contains(text.trim().replace(" ", ""), ignoreCase = true) ||
+					action.group.label.contains(text.trim(), ignoreCase = true) ||
 					chords.any { it.toString().contains(text.trim(), ignoreCase = true) }
 			is Shortcut -> chord == null || chord in chords
+			Changed -> chords != action.defaults
 		}
 
 	companion object {
@@ -96,25 +104,43 @@ sealed interface Finding {
 	}
 }
 
+/** Which chords a set of bindings can be given. */
+enum class Taking {
+	/** Any: a key that types acts only where nothing is typed, which the browser's listing is. */
+	Any,
+
+	/** None that types a character: the keyboard is always in a field (the launcher's), which would have it first. */
+	NothingTyped,
+}
+
 /**
  * The bindings as the bindings page edits them: [bindings], the slot a chord is [awaited] for, where one is, what the
  * last chord given was taken from, and which actions are shown ([finding]). A chord pressed while one is awaited is put
  * there and taken from any other action that had it, since a chord does one thing; pressed while the window that finds
- * a shortcut is open, it is found.
+ * a shortcut is open, it is found. One these do not take ([takes]) is [refused], and the slot goes on waiting.
  */
 data class Rebinding(
 	val bindings: Bindings,
 	val awaited: Slot? = null,
 	val took: Took? = null,
 	val finding: Finding = Finding.ALL,
+	val takes: Taking = Taking.Any,
+	val refused: Chord? = null,
 ) {
 	/** Whether a chord pressed is taken, for a binding or for finding what has it: nothing else sees it then. */
 	val listening: Boolean get() =
 		awaited != null ||
 			(finding as? Finding.Shortcut)?.open == true
 
+	/** How many actions are bound otherwise than they come. */
+	val changed: Int get() = bindings.actions.count { bindings.of(it) != it.defaults }
+
+	/** These, with [bindings] and nothing awaited, taken or refused: what a change to the bindings leaves. */
+	private fun bound(bindings: Bindings, took: Took? = null): Rebinding =
+		copy(bindings = bindings, awaited = null, took = took, refused = null)
+
 	/** These, awaiting a chord for [slot]. */
-	fun awaiting(slot: Slot): Rebinding = copy(awaited = slot, took = null)
+	fun awaiting(slot: Slot): Rebinding = copy(awaited = slot, took = null, refused = null)
 
 	/**
 	 * These, no longer awaiting a chord; the window that finds one closed, what it found still found (every action, where
@@ -123,17 +149,19 @@ data class Rebinding(
 	fun cancelled(): Rebinding =
 		copy(
 			awaited = null,
+			refused = null,
 			finding =
 				when (val finding = finding) {
 					is Finding.Shortcut ->
 						finding.chord?.let { Finding.Shortcut(it, open = false) }
 							?: Finding.ALL
-					is Finding.Words -> finding
+					else -> finding
 				},
 		)
 
 	/** These, finding as [finding] says. */
-	fun finding(finding: Finding): Rebinding = copy(finding = finding, awaited = null)
+	fun finding(finding: Finding): Rebinding =
+		copy(finding = finding, awaited = null, refused = null)
 
 	/** These, with [chord] in the slot awaited, if one is; or found, while the window that finds one is open. */
 	fun pressed(chord: Chord): Rebinding {
@@ -141,29 +169,38 @@ data class Rebinding(
 			return copy(finding = Finding.Shortcut(chord, open = true))
 
 		val slot = awaited ?: return this
+
+		if (takes == Taking.NothingTyped && chord.typesText)
+			return copy(refused = chord)
+
 		val from = bindings.clashes(slot.action, chord)
 
-		return Rebinding(
+		return bound(
 			bindings.bound(slot.action, slot.index, chord),
-			took = Took(chord, from).takeIf { from.isNotEmpty() },
-			finding = finding,
+			Took(chord, from).takeIf { from.isNotEmpty() },
 		)
 	}
 
 	/** These, without the chord in [slot]. */
-	fun removed(slot: Slot): Rebinding = Rebinding(bindings.unbound(slot.action, slot.index))
+	fun removed(slot: Slot): Rebinding = bound(bindings.unbound(slot.action, slot.index))
 
 	/** These, with [action]'s defaults back. Its default chords are taken from whatever has them meanwhile. */
 	fun reset(action: Bindable): Rebinding =
 		action.defaults
-			.foldIndexed(
-				Rebinding(bindings.with(action, emptyList())),
-			) { index, rebinding, chord ->
+			.foldIndexed(bound(bindings.with(action, emptyList()))) { index, rebinding, chord ->
 				rebinding.awaiting(Slot(action, index)).pressed(chord)
 			}.copy(took = null)
 
 	/** Every default back. */
-	fun resetAll(): Rebinding = Rebinding(bindings.defaults())
+	fun resetAll(): Rebinding = bound(bindings.defaults())
+}
+
+/** Whose keys the bindings page shows: an explorer's windows', or a picker's. */
+enum class KeyTab(
+	val label: String,
+) {
+	Explorer("Explorer"),
+	Picker("Pickers"),
 }
 
 /**
@@ -175,7 +212,13 @@ data class Rebinding(
 data class Settings(
 	val base: Preferences,
 	val terminal: TerminalForm = TerminalForm.of(base.terminal),
+	/** An explorer's keys, and a picker's where pickers have none of their own. */
 	val rebinding: Rebinding = Rebinding(Bindings.of(base)),
+	/** A picker's own keys; null where an explorer's are a picker's too. */
+	val picking: Rebinding? =
+		base.pickerBindings?.let { Rebinding(Bindings.of(base, Role.Picker)) },
+	/** Whose keys the bindings page shows. */
+	val keys: KeyTab = KeyTab.Explorer,
 	val listings: Listings = base.listings,
 	/** Each part's font, and its size. */
 	val typography: Typography = base.typography,
@@ -206,6 +249,39 @@ data class Settings(
 	/** What each action is written to be offered for, by its id: prism's own, then the preferences'. */
 	val specs: Map<String, WhenSpec> by lazy { specsOf(Actions.SHIPPED, base.written) }
 
+	/**
+	 * The bindings the page shows and rebinds: an explorer's, or a picker's own; none, where it shows a picker's and
+	 * they are an explorer's.
+	 */
+	val rebound: Rebinding?
+		get() =
+			when (keys) {
+				KeyTab.Explorer -> rebinding
+				KeyTab.Picker -> picking
+			}
+
+	/** These, with the bindings the page shows as [rebound]. */
+	fun rebound(rebound: Rebinding): Settings =
+		when (keys) {
+			KeyTab.Explorer -> copy(rebinding = rebound)
+			KeyTab.Picker -> copy(picking = rebound)
+		}
+
+	/**
+	 * These, with pickers given keys of their [own], which start as an explorer's are here for everything a picker
+	 * does; or, not their own, given an explorer's again.
+	 */
+	fun pickersOwn(own: Boolean): Settings =
+		copy(
+			picking =
+				if (own)
+					picking ?: Rebinding(
+						Bindings(Action.PICKING.associateWith { rebinding.bindings.of(it) }),
+					)
+				else
+					null,
+		)
+
 	/** What the window would write over its preferences, as these are. */
 	val written: Preferences get() = over(base)
 
@@ -226,7 +302,13 @@ data class Settings(
 			seenFor = seenFor,
 			holding = holding,
 			dragged = dragged,
-		).let { it.copy(rebinding = it.rebinding.copy(finding = rebinding.finding)) }
+			keys = keys,
+		).let {
+			it.copy(
+				rebinding = it.rebinding.copy(finding = rebinding.finding),
+				picking = it.picking?.copy(finding = picking?.finding ?: Finding.ALL),
+			)
+		}
 
 	/** [current], with what was changed here. */
 	fun over(current: Preferences): Preferences {
@@ -237,6 +319,7 @@ data class Settings(
 				field(current)
 
 		val bindings = rebinding.bindings.takeIf { it != Bindings.of(base) }?.differences()
+		val pickersWere = base.pickerBindings?.let { Bindings.of(base, Role.Picker) }
 
 		return current.copy(
 			terminal = kept(Preferences::terminal, terminal.choice()),
@@ -253,6 +336,11 @@ data class Settings(
 					sidebar = kept({ it.scales.sidebar }, scales.sidebar),
 				),
 			bindings = bindings ?: current.bindings,
+			pickerBindings =
+				if (picking?.bindings != pickersWere)
+					picking?.bindings?.differences()
+				else
+					current.pickerBindings,
 		)
 	}
 }

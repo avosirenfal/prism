@@ -61,23 +61,23 @@ nothing else.
 
 ## Settings
 
-"Settings" in the launcher (or Ctrl+comma) opens them in a window of their own. Each change is kept as it is made,
-in `~/.config/prism/preferences.json` under `launcher`, and the launcher is as they say the next time it is shown.
+"Settings" in the launcher (or Ctrl+comma) opens them in a window of their own, made as the explorer's preferences
+are: its pages down the left, the one chosen beside them, and nothing written until Apply (docs/explorer.md, "The
+bindings window"). They are kept in `~/.config/prism/preferences.json` under `launcher`, and the launcher is as they
+say from then on.
 
 ![The launcher's settings](launcher-settings.png)
 
-| setting | what it does |
+| page | what is on it |
 |---|---|
-| Width, Results in sight, Size | how wide the launcher is, how many rows it shows before it scrolls, and how large it is drawn |
-| Files and folders | whether the index is searched at all; off, the launcher finds applications alone |
-| Most files listed | how many of the files found are shown (30) |
-| Application actions | whether what else an application can be started to do is found |
-| Close when it loses the keyboard | whether clicking another window puts it away |
-| Keys | every key above: click a chord and press another to replace it, the × to take it away, the + to add one, Reset for the defaults. A chord another of the launcher's actions has is taken from it. A key that types (a letter alone) is refused, since it would never reach the field |
+| Launcher | how wide it is, how many results are in sight before it scrolls, and how large it is drawn; whether files and folders are found at all, and how many are listed (30); whether what else an application can be started to do is found; whether clicking another window puts it away |
+| Key bindings | every key above, on the page that binds the explorer's: in groups, found by name or by pressing a key, a chord clicked and the next one pressed taking its place, the × taking it away, the + adding one, Reset for the defaults. A chord another of the launcher's actions has is taken from it. A key that types (a letter alone) is refused, since it would never get past the field |
 | Applications | each application installed, switched off to leave it out of the launcher (it is still installed, and still opens files) |
 
-The launcher's keys are kept with the explorer's, in `bindings`, each named `launcher.` and its action
-(`launcher.Open`, `launcher.Reveal`, `launcher.Down`, ...).
+![The launcher's keys](launcher-keys.png)
+
+The launcher's keys are its own, kept under `launcher.bindings`, each action by its name (`Open`, `Reveal`, `Down`,
+...): binding the explorer's keys changes none of them, and binding these none of the explorer's.
 
 ## Showing it
 
@@ -147,13 +147,13 @@ nothing else with it.
 
 - `LauncherStateTest`: what is found for what is typed and in what order, actions, hidden applications, uses, files
   asked for and stale answers dropped, the arrows' ends, what Enter, Escape, Ctrl+Enter and the copy do, launches kept
-  in a file and halved by time, and bindings bound, taken, removed and reset.
+  in a file and halved by time, and its keys as the preferences write and read them.
 - `LauncherViewTest`: the launcher composed and typed into as a user would, over the tests' desktop and a real index
   of a folder: Enter starts the application, a file is opened with what opens it, a folder in a window, a failure is
   said, forty results scroll under the arrows; an icon drawn from a PNG and from an SVG; and the launcher drawn, in
   both palettes, with whatever this machine has installed and its icon theme's pictures.
-- `LauncherSettingsTest`: each setting changed and found in the preferences, a key bound by pressing it, and one that
-  types refused.
+- `KeysTest` (explorer): the launcher's settings changed in their window and written only once applied, its keys
+  rebound on the explorer's own page, one that types refused, an application switched off; and the pages drawn.
 - `ExplorerTest`: the launcher shown, put away by being asked for again, following its settings as they change,
   opening its settings and a folder's window.
 - `tools/daemon/check.sh`: `prism launcher` asked of a running daemon shows a window titled "Prism Launcher", and

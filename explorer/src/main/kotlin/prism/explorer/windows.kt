@@ -39,6 +39,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.withContext
+import prism.browser.Bindings
 import prism.browser.BrowserEvent
 import prism.browser.Chord
 import prism.browser.Edits
@@ -55,11 +56,10 @@ import prism.browser.mouseChords
 import prism.browser.toClipboard
 import prism.browser.zoomedByWheel
 import prism.desktop.TerminalOptions
-import prism.launcher.LauncherBindings
 import prism.launcher.LauncherDims
-import prism.launcher.LauncherSettingsView
 import prism.launcher.LauncherView
 import prism.launcher.LocalIconImages
+import prism.launcher.launcherBindings
 import prism.preferences.DateFormat
 import prism.preferences.Typography
 import prism.preferences.WindowKind
@@ -198,7 +198,7 @@ fun ExplorerWindows(explorer: Explorer, palette: Palette, decorated: Boolean) {
 						LaunchedEffect(Unit) { native.raise() }
 						HostedWindow(native, palette, preferences.typography, preferences.dates) {
 							CompositionLocalProvider(LocalIconImages provides explorer.icons) {
-								LauncherView(window.session, LauncherBindings.of(preferences))
+								LauncherView(window.session, launcherBindings(preferences.launcher))
 							}
 						}
 					}
@@ -206,7 +206,7 @@ fun ExplorerWindows(explorer: Explorer, palette: Palette, decorated: Boolean) {
 				is ExplorerWindow.LauncherSettings ->
 					Dialog(
 						Explorer.titleOf(window),
-						DpSize(760.dp, 680.dp),
+						DpSize(900.dp, 680.dp),
 						palette,
 						decorated,
 						{ explorer.close(window) },
@@ -216,16 +216,8 @@ fun ExplorerWindows(explorer: Explorer, palette: Palette, decorated: Boolean) {
 						dates = preferences.dates,
 						zoom = zoomOf(WindowKind.Preferences),
 					) {
-						val applications =
-							remember { explorer.desktop.applications.all() }
-
 						CompositionLocalProvider(LocalIconImages provides explorer.icons) {
-							LauncherSettingsView(
-								preferences,
-								applications,
-								onChange = explorer.preferences::update,
-								onClose = { explorer.close(window) },
-							)
+							LauncherSettingsWindow(explorer) { explorer.close(window) }
 						}
 					}
 				is ExplorerWindow.Failed ->
@@ -254,6 +246,53 @@ fun ExplorerWindows(explorer: Explorer, palette: Palette, decorated: Boolean) {
 					}
 			}
 		}
+}
+
+/** The launcher's settings' edits, kept while their window is open, and saved as the preferences' are. */
+@Composable
+private fun LauncherSettingsWindow(explorer: Explorer, onClose: () -> Unit) {
+	val chords =
+		remember {
+			MutableSharedFlow<Chord>(
+				extraBufferCapacity = 8,
+				onBufferOverflow = BufferOverflow.DROP_OLDEST,
+			)
+		}
+
+	var settings by remember {
+		mutableStateOf(LauncherSettings(explorer.preferences.preferences.value))
+	}
+	var edits by remember { mutableStateOf(Edits<LauncherSettings>()) }
+	val applications = remember { explorer.desktop.applications.all() }
+	val applied by explorer.preferences.preferences.collectAsState()
+
+	fun stepped(undone: Undone<LauncherSettings>?) {
+		undone?.let {
+			edits = it.edits
+			settings = it.to
+		}
+	}
+
+	Box(Modifier.fillMaxSize().mouseChords { chords.tryEmit(it) }) {
+		LauncherSettingsView(
+			settings,
+			applications,
+			onChange = {
+				edits = edits.changed(settings, it)
+				settings = it
+			},
+			onApply = {
+				explorer.preferences.update(settings::over)
+				settings = settings.applied(explorer.preferences.preferences.value)
+				edits = Edits()
+			},
+			onClose = onClose,
+			mouseChords = chords,
+			keys = remember(applied) { Bindings.of(applied) },
+			onUndo = { stepped(edits.undo(settings)) },
+			onRedo = { stepped(edits.redo(settings)) },
+		)
+	}
 }
 
 /** The preferences window's edits, kept while it is open, and saved over the preferences as they are by then. */

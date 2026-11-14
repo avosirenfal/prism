@@ -308,9 +308,30 @@ Ctrl+Shift+F, "Back" is Alt+Left and the mouse's back button. The view never nam
 was given. So any action can be bound to any chord, and the preferences window's "Key bindings" page is where that is
 done, the way a game's controls are set.
 
-The user's own actions (docs/menus.md) are in the same table, under "On the files, from the list", each with the chord
-it names as its default. The pickers read the same bindings, so a key bound here is bound in every file and folder
-dialog too.
+![The key bindings page](explorer-keys.png)
+
+The actions are listed in the groups they belong to, each group together under its name: getting around, finding,
+the view, moving through the list, choosing, files and folders, undoing, windows, and the user's own actions
+(docs/menus.md), each with the chord it names as its default. A group is a `KeyGroup` every action names
+(`Action.group`), and the page lists the groups in the order the actions are in, so an action added to the enum is on
+the page, under its group, with nothing else to change. Where an action does not act from anywhere, the row says
+where under its name ("from the list").
+
+The filter narrows the list by what is typed (an action's name, a group's name, or a chord), keeping each action
+under its group and leaving out any group with nothing in it; "Find Shortcut" narrows it to what a chord pressed does;
+and once any key is not as it came, a chip says how many are ("2 changed") and narrows it to those. A row whose keys
+are changed has a dot before its name and a "Reset" at its end.
+
+**A picker's keys.** The page has two tabs, "Explorer" and "Pickers". A file picker's keys are the explorer's until
+"Keys of their own" is switched on, on the pickers' tab: then they start as the explorer's are there, for everything
+a picker does (it has no "New window", no "Preferences"), and are bound apart from them from then on, written to
+`pickerBindings` beside `bindings`. Switched off again, pickers have the explorer's once more.
+
+**Every window's keys are bound on this page.** It is one composable (`BindingsPage`, `explorer/bindingspage.kt`)
+over one value (`Rebinding`), and what is bound is anything that is a `Bindable`: the browser's actions, the user's,
+and the launcher's, whose window of settings has the same page (docs/launcher.md). A set of bindings says which chords
+it takes: the launcher's take none that types a character, since its keyboard is always in its field, and the page
+says so where one is pressed.
 
 Each action is a row, with a chip for each of its chords and a "+" for another. Clicking a chip makes it wait ("Press a
 key…"). The next chord pressed is taken: a key with whatever of Ctrl, Alt, Shift and Meta are held, or a mouse button
@@ -338,6 +359,10 @@ Backspace must delete a character.
 Nothing is written while the window is open. Saving writes only what was changed there, over the preferences as they
 are by then: a folder pinned in another window while the bindings were being changed stays pinned. The window holds
 its edits as one immutable value, `Settings`, whose `over(current)` does that merge, and the tests check it.
+
+The window itself (its pages down the left, the one chosen beside them, Apply and Close along the bottom, and a
+chord awaited taking every key) is `SettingsFrame` (`explorer/settingsframe.kt`), which the launcher's settings are
+drawn in too.
 
 ## Across platforms
 

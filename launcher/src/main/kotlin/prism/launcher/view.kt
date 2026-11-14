@@ -46,6 +46,7 @@ import androidx.compose.ui.unit.times
 import kotlin.math.roundToInt
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
+import prism.browser.Bindings
 import prism.browser.Chord
 import prism.browser.Divider
 import prism.browser.EmptyState
@@ -101,7 +102,7 @@ object LauncherDims {
  * it so.
  */
 @Composable
-fun LauncherView(session: LauncherSession, bindings: LauncherBindings) {
+fun LauncherView(session: LauncherSession, bindings: Bindings) {
 	val state by session.state.collectAsState()
 	val focused = LocalWindowInfo.current.isWindowFocused
 	var wasFocused by remember { mutableStateOf(false) }
@@ -144,7 +145,7 @@ fun LauncherView(session: LauncherSession, bindings: LauncherBindings) {
 @Composable
 fun LauncherPane(
 	state: LauncherState,
-	bindings: LauncherBindings = LauncherBindings.DEFAULT,
+	bindings: Bindings = launcherBindings(),
 	typed: TextFieldValue = TextFieldValue(state.query, TextRange(state.query.length)),
 	onTyped: (TextFieldValue) -> Unit = {},
 	onEvent: (LauncherEvent) -> Unit = {},
@@ -159,7 +160,8 @@ fun LauncherPane(
 			.border(1.dp, palette.border)
 			.onPreviewKeyEvent { key ->
 				val action =
-					Chord.of(key)?.let(bindings::action)?.takeIf { key.type == KeyEventType.KeyDown }
+					(Chord.of(key)?.let(bindings::action) as? LauncherAction)
+						?.takeIf { key.type == KeyEventType.KeyDown }
 
 				action?.let { onEvent(eventOf(it, state.preferences.rows - 1)) }
 
@@ -347,7 +349,7 @@ private fun Initial(label: String, size: Dp) {
  * result the arrows are on.
  */
 @Composable
-private fun Footer(state: LauncherState, bindings: LauncherBindings) {
+private fun Footer(state: LauncherState, bindings: Bindings) {
 	val palette = LocalPalette.current
 	val type = LocalType.current
 	val files = state.files as? FilesFound.Found

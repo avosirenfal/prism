@@ -72,6 +72,7 @@ import prism.browser.Chord
 import prism.browser.ComboBox
 import prism.browser.Dims
 import prism.browser.Divider
+import prism.browser.EmptyState
 import prism.browser.Field
 import prism.browser.Glyph
 import prism.browser.GlyphIcon
@@ -96,6 +97,7 @@ import prism.browser.SettingRow
 import prism.browser.Space
 import prism.browser.Stepper
 import prism.browser.Switch
+import prism.browser.Tabs
 import prism.browser.Tone
 import prism.browser.ToolButton
 import prism.browser.World
@@ -157,132 +159,82 @@ fun SettingsView(
 	onUndo: () -> Unit = {},
 	onRedo: () -> Unit = {},
 ) {
-	val palette = LocalPalette.current
-	val type = LocalType.current
-	val root = remember { FocusRequester() }
 	// The keys as they are applied, not as the bindings page is changing them.
 	val bindings = remember(settings.base) { Bindings.of(settings.base) }
-	val latest by rememberUpdatedState(settings)
-	val change by rememberUpdatedState(onChange)
-	val rebinding = settings.rebinding
-
 	val filter = remember { FocusRequester() }
 
-	LaunchedEffect(mouseChords) {
-		mouseChords.collect { chord ->
-			if (latest.rebinding.listening)
-				change(latest.copy(rebinding = latest.rebinding.pressed(chord)))
+	SettingsFrame(
+		Page.entries,
+		settings.page,
+		Page::label,
+		::glyphOf,
+		onPage = { onChange(settings.copy(page = it)) },
+		rebinding = settings.rebound.takeIf { settings.page == Page.Bindings },
+		onRebinding = { onChange(settings.rebound(it)) },
+		changed = settings.changed,
+		onApply = onApply,
+		onClose = onClose,
+		mouseChords = mouseChords,
+		keys = bindings,
+		onUndo = onUndo,
+		onRedo = onRedo,
+		filter = filter,
+	) { page ->
+		when (page) {
+			Page.Display -> DisplayPage(settings, onChange)
+			Page.Renderer -> RendererPage(graphics, onCopy)
+			Page.Layout -> LayoutPage(settings, onChange)
+			Page.Menus -> MenusPage(settings, world, onChange)
+			Page.Terminal -> TerminalPage(settings, onChange, terminalPreview, terminals)
+			Page.Bindings -> ExplorerBindingsPage(settings, filter, onChange)
+			Page.Actions -> ActionsPage(settings.actions)
 		}
 	}
-	// The keyboard starts in the window, where its keys (Ctrl+F) are heard; and goes back there to wait for a chord.
-	LaunchedEffect(rebinding.listening) {
-		root.requestFocus()
-	}
+}
 
-	Row(
-		Modifier
-			.fillMaxSize()
-			.background(palette.canvas)
-			.focusRequester(root)
-			// Left on nothing (a button pressed that then goes, or can no longer be pressed), the keyboard comes back
-			// to the window, where Escape and Ctrl+F are heard.
-			.onFocusChanged {
-				if (!it.hasFocus)
-					root.requestFocus()
-			}.focusable()
-			.onPreviewKeyEvent { key ->
-				// While a chord is awaited, every key is it: none reaches a field, nor moves the keyboard on. Ctrl+F on
-				// the bindings page goes to its filter, as it does in a browser's page.
-				when {
-					!rebinding.listening ->
-						(
-							settings.page == Page.Bindings &&
-								key.type == KeyEventType.KeyDown &&
-								key.isCtrlPressed &&
-								key.key == Key.F
-						).also {
-							if (it)
-								filter.requestFocus()
-						}
-					key.type != KeyEventType.KeyDown -> true
-					key.key == Key.Escape ->
-						true.also {
-							onChange(settings.copy(rebinding = rebinding.cancelled()))
-						}
-					else ->
-						true.also {
-							Chord.of(key)?.let { chord ->
-								onChange(settings.copy(rebinding = rebinding.pressed(chord)))
-							}
-						}
-				}
-			}.onKeyEvent { key ->
-				// Left by whatever has the keyboard: a field undoes its own typing first.
-				key.type == KeyEventType.KeyDown &&
-					when (Chord.of(key)?.let(bindings::leftover)) {
-						Action.Undo -> true.also { onUndo() }
-						Action.Redo -> true.also { onRedo() }
-						else -> false
-					}
-			},
+/**
+ * The explorer's bindings page: an explorer's keys, or, on its other tab, a picker's, which are an explorer's until
+ * pickers are given their own.
+ */
+@Composable
+private fun ExplorerBindingsPage(
+	settings: Settings,
+	filter: FocusRequester,
+	onChange: (Settings) -> Unit,
+) {
+	BindingsPage(
+		settings.rebound,
+		filter,
+		onChange = { onChange(settings.rebound(it)) },
+		empty = {
+			EmptyState(
+				Glyph.Keyboard,
+				"Pickers use the explorer's keys",
+				"A file picker's keys are the explorer's, as they are on its tab. " +
+					"Give pickers their own to bind them apart.",
+				Modifier.fillMaxSize(),
+			)
+		},
 	) {
-		Column(
-			Modifier
-				.width(Dims.navigation)
-				.fillMaxHeight()
-				.background(palette.pane)
-				.padding(Space.s),
-			verticalArrangement = Arrangement.spacedBy(Space.xxs),
-		) {
-			Page.entries.forEach { page ->
-				ListRow(
-					page.label,
-					Modifier.testTag("page:${page.label}"),
-					chosen = page == settings.page,
-					glyph = glyphOf(page),
-				) { onChange(settings.copy(page = page)) }
-			}
-		}
-		Divider(vertical = true)
-		Column(Modifier.weight(1f).fillMaxHeight()) {
-			Box(Modifier.weight(1f).fillMaxWidth()) {
-				when (settings.page) {
-					Page.Display -> DisplayPage(settings, onChange)
-					Page.Renderer -> RendererPage(graphics, onCopy)
-					Page.Layout -> LayoutPage(settings, onChange)
-					Page.Menus -> MenusPage(settings, world, onChange)
-					Page.Terminal -> TerminalPage(settings, onChange, terminalPreview, terminals)
-					Page.Bindings ->
-						BindingsPage(rebinding, filter) {
-							onChange(settings.copy(rebinding = it))
-						}
-					Page.Actions -> ActionsPage(settings.actions)
+		Tabs(
+			KeyTab.entries,
+			settings.keys,
+			KeyTab::label,
+			Modifier.testTag("key-tabs"),
+		) { onChange(settings.copy(keys = it)) }
+		if (settings.keys == KeyTab.Picker)
+			Card {
+				SettingRow(
+					"Keys of their own",
+					description =
+						"Off, a picker's keys are the explorer's. On, they start as the explorer's are " +
+							"now, and are bound here apart from them.",
+				) {
+					Switch(settings.picking != null, Modifier.testTag("picker-keys-own")) { own ->
+						onChange(settings.pickersOwn(own))
+					}
 				}
 			}
-			Divider()
-			Row(
-				Modifier
-					.fillMaxWidth()
-					.background(palette.window)
-					.padding(horizontal = Space.xl, vertical = Space.m),
-				verticalAlignment = Alignment.CenterVertically,
-			) {
-				Text(
-					if (settings.changed)
-						"Changed, and not yet applied"
-					else
-						"",
-					style = type.muted,
-					modifier = Modifier.weight(1f),
-				)
-				// Applied, the window stays: what was changed shows in every window, and more can be changed.
-				ButtonRow(
-					Act("Apply", "apply", settings.changed, onClick = onApply),
-					Modifier.width(androidx.compose.foundation.layout.IntrinsicSize.Max),
-					secondary = listOf(Act("Close", "close", onClick = onClose)),
-				)
-			}
-		}
 	}
 }
 
@@ -1100,286 +1052,3 @@ private fun Preview(
 
 /** The command the Terminal page shows a terminal running, as an action would. */
 private val EXAMPLE = listOf("htop", "-d", "10")
-
-/** Where each scope's actions act, as the bindings page heads them. */
-private fun headingOf(scope: Scope): String =
-	when (scope) {
-		Scope.Window -> "Anywhere in the window"
-		Scope.Listing -> "On the files, from the list"
-		Scope.Movement ->
-			"Moving through the list (Shift chooses as it moves, Ctrl moves without choosing)"
-		Scope.Leftover -> "Wherever the keyboard is, once it is done with the key"
-	}
-
-/**
- * Every action, with its chords, each one clicked to bind it anew, removed, or added to: those [Finding] shows, found
- * by words typed into the filter (Ctrl+F) or by a chord pressed, which shows what it does. The list scrolls, its
- * scrollbar beside it.
- */
-@Composable
-private fun BindingsPage(
-	rebinding: Rebinding,
-	filter: FocusRequester,
-	onChange: (Rebinding) -> Unit,
-) {
-	val palette = LocalPalette.current
-	val type = LocalType.current
-	val list = rememberLazyListState()
-	val finding = rebinding.finding
-	val shown =
-		rebinding.bindings.actions.filter {
-			finding.shows(it, rebinding.bindings.of(it))
-		}
-
-	PageLayout(
-		"Key bindings",
-		"Click a binding, then press a key (with Ctrl, Alt or Shift, if you like) or a mouse " +
-			"button: the middle, back or forward. Escape stops waiting. A chord does one thing, " +
-			"so one given here is taken from whatever had it.",
-		scrolls = false,
-	) {
-		Row(
-			verticalAlignment = Alignment.CenterVertically,
-			horizontalArrangement = Arrangement.spacedBy(Space.s),
-		) {
-			Field(
-				(finding as? Finding.Words)?.text.orEmpty(),
-				{ onChange(rebinding.finding(Finding.Words(it))) },
-				Modifier.weight(1f).testTag("bindings-filter"),
-				hint = "Find an action, or a key (Ctrl+F)",
-				leading = Glyph.Search,
-				focus = filter,
-			)
-			// What the window that finds a shortcut found, while it is what is shown: let go of by its ×.
-			(finding as? Finding.Shortcut)?.chord?.let { chord ->
-				Chip(
-					chord.toString(),
-					removeTag = "found:remove",
-					onRemove = { onChange(rebinding.finding(Finding.ALL)) },
-				) { onChange(rebinding.finding(Finding.OPENED)) }
-			}
-			Box {
-				ToolButton(
-					Glyph.FindKey,
-					"Find a shortcut by pressing it",
-					enabled = true,
-					Modifier.testTag("find-by-key"),
-					selected = finding is Finding.Shortcut,
-				) {
-					// Opened afresh, every action is shown until a shortcut is pressed; pressed again, it closes.
-					onChange(
-						rebinding.finding(
-							if ((finding as? Finding.Shortcut)?.open == true)
-								Finding.ALL
-							else
-								Finding.OPENED,
-						),
-					)
-				}
-				if ((finding as? Finding.Shortcut)?.open == true)
-					FindShortcut(finding.chord, onPressed = { onChange(rebinding.pressed(it)) }) {
-						onChange(rebinding.cancelled())
-					}
-			}
-		}
-		rebinding.took?.let { took ->
-			Text(
-				"${took.chord} was taken from ${namesOf(took.from)}.",
-				style = type.body.copy(color = palette.accentText),
-			)
-		}
-		Card(Modifier.weight(1f)) {
-			LazyScrollArea(
-				Modifier.fillMaxSize(),
-				state = list,
-				padding = PaddingValues(horizontal = Space.xs, vertical = Space.xs),
-				tag = "bindings",
-				scrollbarTag = "bindings-scrollbar",
-			) {
-				Scope.entries.forEach { scope ->
-					val here = shown.filter { it.scope == scope }
-
-					if (here.isNotEmpty())
-						item(key = scope) { ListHeading(headingOf(scope)) }
-					items(here, key = { it.key }) { action ->
-						BindingRow(action, rebinding, onChange)
-					}
-				}
-				if (shown.isEmpty())
-					item(key = "none") {
-						Text(
-							(finding as? Finding.Shortcut)?.chord?.let { "$it does nothing." }
-								?: "No action matches.",
-							style = type.muted,
-							modifier = Modifier.padding(Space.m),
-						)
-					}
-			}
-		}
-		ButtonRow(
-			null,
-			aside =
-				listOf(
-					Act("Reset all", "reset-all", rebinding.bindings != rebinding.bindings.defaults()) {
-						onChange(rebinding.resetAll())
-					},
-				),
-		)
-	}
-}
-
-/**
- * The window that finds a shortcut, as JetBrains' "Find Shortcut": below its button, over the page, taking the keys
- * while it is open. The shortcut pressed ([chord], none yet where null) is shown, and the bindings with it are what the
- * page shows, as it is pressed; another pressed takes its place. A mouse's middle, back or forward button pressed over
- * its lower part is a shortcut too. Escape, or a click elsewhere, closes it ([onClose]), what it found still shown.
- */
-@Composable
-private fun FindShortcut(chord: Chord?, onPressed: (Chord) -> Unit, onClose: () -> Unit) {
-	val palette = LocalPalette.current
-	val type = LocalType.current
-	val keys = remember { FocusRequester() }
-	val shape = RoundedCornerShape(Radius.large)
-
-	Popup(
-		alignment = Alignment.TopEnd,
-		offset = IntOffset(0, 44),
-		onDismissRequest = onClose,
-		properties = PopupProperties(focusable = true),
-	) {
-		WindowLocals {
-			Column(
-				Modifier
-					.width(360.dp)
-					.shadow(16.dp, shape, ambientColor = palette.shadow, spotColor = palette.shadow)
-					.background(palette.overlay, shape)
-					.border(1.dp, palette.border, shape)
-					.testTag("find-shortcut"),
-			) {
-				Column(
-					Modifier.padding(Space.l),
-					verticalArrangement = Arrangement.spacedBy(Space.m),
-				) {
-					Text(
-						"Find Shortcut",
-						style = type.title,
-						textAlign = TextAlign.Center,
-						modifier = Modifier.fillMaxWidth(),
-					)
-					Row(
-						Modifier
-							.fillMaxWidth()
-							.height(type.control)
-							.background(palette.field, RoundedCornerShape(Radius.medium))
-							.border(2.dp, palette.focus, RoundedCornerShape(Radius.medium))
-							.focusRequester(keys)
-							.focusable()
-							.onPreviewKeyEvent { key ->
-								when {
-									key.type != KeyEventType.KeyDown -> true
-									key.key == Key.Escape -> true.also { onClose() }
-									else -> true.also { Chord.of(key)?.let(onPressed) }
-								}
-							}.testTag("shortcut-field")
-							.padding(horizontal = Space.m),
-						verticalAlignment = Alignment.CenterVertically,
-						horizontalArrangement = Arrangement.spacedBy(Space.s),
-					) {
-						GlyphIcon(Glyph.Keyboard, palette.textMuted, type.icon * 0.9f)
-						Text(
-							chord?.toString() ?: "Press a shortcut",
-							style =
-								if (chord ==
-									null
-								)
-									type.body.copy(color = palette.textFaint)
-								else
-									type.strong,
-							maxLines = 1,
-						)
-					}
-				}
-				Divider()
-				Row(
-					Modifier
-						.fillMaxWidth()
-						.background(
-							palette.sunken,
-							RoundedCornerShape(bottomStart = Radius.large, bottomEnd = Radius.large),
-						).mouseChords(onPressed)
-						.padding(horizontal = Space.l, vertical = Space.m)
-						.testTag("mouse-shortcut"),
-					verticalAlignment = Alignment.CenterVertically,
-				) {
-					Text(
-						"Mouse shortcut: press the middle, back or forward button here",
-						style = type.muted,
-					)
-				}
-			}
-			LaunchedEffect(Unit) { keys.requestFocus() }
-		}
-	}
-}
-
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun BindingRow(
-	action: Bindable,
-	rebinding: Rebinding,
-	onChange: (Rebinding) -> Unit,
-) {
-	val palette = LocalPalette.current
-	val type = LocalType.current
-	val chords = rebinding.bindings.of(action)
-
-	Row(
-		Modifier.fillMaxWidth().padding(horizontal = Space.s, vertical = Space.xs),
-		verticalAlignment = Alignment.CenterVertically,
-		horizontalArrangement = Arrangement.spacedBy(Space.m),
-	) {
-		Text(action.label, style = type.body, modifier = Modifier.weight(0.45f))
-		FlowRow(
-			Modifier.weight(0.55f),
-			horizontalArrangement = Arrangement.spacedBy(Space.xs),
-			verticalArrangement = Arrangement.spacedBy(Space.xs),
-		) {
-			chords.forEachIndexed { index, chord ->
-				val slot = Slot(action, index)
-				val awaited = rebinding.awaited == slot
-
-				Chip(
-					if (awaited) "Press a key…" else chord.toString(),
-					Modifier.testTag("chord:${if (awaited) "awaited" else chord.toString()}"),
-					strong = awaited,
-					removeTag = "remove:$chord",
-					onRemove = { onChange(rebinding.removed(slot)) }.takeIf { !awaited },
-				) { onChange(rebinding.awaiting(slot)) }
-			}
-
-			val added = Slot(action, chords.size)
-			val adding = rebinding.awaited == added
-
-			Chip(
-				if (adding) "Press a key…" else "+",
-				Modifier.testTag(if (adding) "chord:awaited" else "chord:+"),
-				strong = adding,
-			) { onChange(rebinding.awaiting(added)) }
-		}
-		if (chords != action.defaults)
-			Text(
-				"Reset",
-				style = type.body.copy(color = palette.accentText),
-				modifier =
-					Modifier
-						.clickable { onChange(rebinding.reset(action)) }
-						.padding(horizontal = Space.xs),
-			)
-		else
-			Spacer(Modifier.width(Space.xs))
-	}
-}
-
-/** “Back” and “Forward”: actions named as the bindings page names them. */
-private fun namesOf(actions: List<Bindable>): String =
-	actions.joinToString(" and ") { "“${it.label}”" }

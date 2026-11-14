@@ -10,6 +10,7 @@ import androidx.compose.ui.input.key.isShiftPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.nativeKeyCode
 import prism.preferences.Preferences
+import prism.preferences.Role
 import java.awt.event.KeyEvent as AwtKeys
 
 /*
@@ -28,32 +29,81 @@ import java.awt.event.KeyEvent as AwtKeys
  */
 
 /** Where an action acts. */
-enum class Scope {
+enum class Scope(
+	/** Where that is, in a word or two, said beside an action that does not act from anywhere; null for one that does. */
+	val said: String?,
+) {
 	/** The window: anywhere, for a chord no text field types; from the listing, for any. */
-	Window,
+	Window(null),
 
 	/** The listing's rows: only from the listing. */
-	Listing,
+	Listing("from the list"),
 
 	/** The listing's cursor: from the listing, Shift and Ctrl changing what moving it chooses. */
-	Movement,
+	Movement(null),
 
 	/** Whatever has the keyboard first, and the window where it does not use the key. */
-	Leftover,
+	Leftover("unless a field uses the key"),
 }
 
 /**
- * Something a chord can be bound to: one of the browser's own actions ([Action]), or one of the user's ([Custom]).
- * The bindings, and the window they are rebound in, know them alike.
+ * Actions that belong together, as the window that binds keys lists them: under [label], with a line under that where
+ * something is true of every one of them ([note]).
  */
-sealed interface Bindable {
+@Immutable
+data class KeyGroup(
+	val label: String,
+	val note: String? = null,
+)
+
+/** The groups the browser's own actions are in, in the order they are listed. */
+object KeyGroups {
+	val Places = KeyGroup("Getting around")
+	val Finding = KeyGroup("Finding")
+	val View = KeyGroup("The view")
+	val Cursor =
+		KeyGroup(
+			"Moving through the list",
+			"Shift chooses as it moves, and Ctrl moves without choosing, whatever key moves it.",
+		)
+	val Choosing = KeyGroup("Choosing")
+	val Files = KeyGroup("Files and folders")
+	val History = KeyGroup("Undoing")
+	val Windows = KeyGroup("Windows")
+	val Own = KeyGroup("Your actions", "Each is done to what is chosen, from the list.")
+}
+
+/**
+ * Something a chord can be bound to: one of the browser's own actions ([Action]), one of the user's ([Custom]), or
+ * something another window does (the launcher's). The bindings, and the window they are rebound in, know them alike.
+ */
+interface Bindable {
 	/** What the preferences call it, where its chords are not its defaults. */
 	val key: String
 	val label: String
-	val scope: Scope
+
+	/** The actions it is listed among. */
+	val group: KeyGroup
 
 	/** The chords that do it until the user says otherwise. */
 	val defaults: List<Chord>
+
+	/**
+	 * Whether it moves a cursor, and so claims its key with Shift and Ctrl held too, which say how moving chooses: no
+	 * other action can have that key with either.
+	 */
+	val moves: Boolean get() = false
+
+	/** Where it acts, said beside it, where that is not everywhere. */
+	val where: String? get() = null
+}
+
+/** Something the browser does, which acts in one [scope] of its window. */
+sealed interface Scoped : Bindable {
+	val scope: Scope
+
+	override val moves: Boolean get() = scope == Scope.Movement
+	override val where: String? get() = scope.said
 }
 
 /**
@@ -65,7 +115,7 @@ data class Custom(
 	val id: String,
 	override val label: String,
 	val default: Chord?,
-) : Bindable {
+) : Scoped {
 	/**
 	 * [action], as something bound. It is known by its id, and not by what it runs: the same action is read with one
 	 * program's command on one machine and another's on another, and is the same action to bind.
@@ -74,62 +124,86 @@ data class Custom(
 
 	override val key: String get() = "action:$id"
 	override val scope: Scope get() = Scope.Listing
+	override val group: KeyGroup get() = KeyGroups.Own
 	override val defaults: List<Chord> get() = listOfNotNull(default)
+
+	// What the group says of them all.
+	override val where: String? get() = null
 }
 
-/** Everything the browser does from the keyboard or a mouse button, with the chords that do it by default. */
+/**
+ * Everything the browser does from the keyboard or a mouse button, with the chords that do it by default, in the
+ * order the window that binds them lists them: each [group] together.
+ */
 enum class Action(
 	override val label: String,
 	override val scope: Scope,
+	override val group: KeyGroup,
 	vararg defaults: String,
-) : Bindable {
-	Back("Back", Scope.Window, "Alt+Left", "Mouse Back"),
-	Forward("Forward", Scope.Window, "Alt+Right", "Mouse Forward"),
-	Up("Folder above", Scope.Window, "Alt+Up", "Backspace"),
-	EditAddress("Type a path", Scope.Window, "Ctrl+L", "Alt+D"),
-	SearchFolder("Search this folder", Scope.Window, "Ctrl+F", "F3"),
-
-	SearchIndex("Search everything", Scope.Window, "Ctrl+Shift+F"),
-	Refresh("Read again", Scope.Window, "F5", "Ctrl+R"),
-	ToggleHidden("Show hidden files and folders", Scope.Window, "Ctrl+H"),
-	NewFolder("New folder", Scope.Window, "Ctrl+Shift+N"),
-	NewFile("New file", Scope.Window),
-	ViewList("View as a list", Scope.Window, "Ctrl+1"),
-	ViewGallery("View as a gallery", Scope.Window, "Ctrl+2"),
-	ZoomIn("Larger", Scope.Window, "Ctrl+Equals", "Ctrl+Plus", "Ctrl+Add"),
-	ZoomOut("Smaller", Scope.Window, "Ctrl+Minus", "Ctrl+Subtract"),
-	ZoomReset("Usual size", Scope.Window, "Ctrl+0", "Ctrl+NumPad0"),
-	OpenTerminal("Open a terminal here", Scope.Window, "Shift+F4"),
-	NewWindow("New window", Scope.Window, "Ctrl+N"),
-	Preferences("Preferences", Scope.Window, "Ctrl+Comma"),
-	CloseWindow("Close the window (a picker: cancel)", Scope.Window, "Ctrl+W"),
-	Cancel("Cancel, or let go of what is chosen", Scope.Leftover, "Escape"),
-	Undo("Undo", Scope.Leftover, "Ctrl+Z"),
-	Redo("Redo", Scope.Leftover, "Ctrl+Shift+Z", "Ctrl+Y"),
-	Open("Open", Scope.Listing, "Enter"),
-	Toggle("Choose, or no longer", Scope.Listing, "Space"),
-	SelectAll("Choose every row", Scope.Listing, "Ctrl+A"),
-	Rename("Rename", Scope.Listing, "F2"),
+) : Scoped {
+	Back("Back", Scope.Window, KeyGroups.Places, "Alt+Left", "Mouse Back"),
+	Forward("Forward", Scope.Window, KeyGroups.Places, "Alt+Right", "Mouse Forward"),
+	Up("Folder above", Scope.Window, KeyGroups.Places, "Alt+Up", "Backspace"),
+	EditAddress("Type a path", Scope.Window, KeyGroups.Places, "Ctrl+L", "Alt+D"),
+	SearchFolder("Search this folder", Scope.Window, KeyGroups.Finding, "Ctrl+F", "F3"),
+	SearchIndex("Search everything", Scope.Window, KeyGroups.Finding, "Ctrl+Shift+F"),
+	Refresh("Read again", Scope.Window, KeyGroups.View, "F5", "Ctrl+R"),
+	ToggleHidden("Show hidden files and folders", Scope.Window, KeyGroups.View, "Ctrl+H"),
+	ViewList("View as a list", Scope.Window, KeyGroups.View, "Ctrl+1"),
+	ViewGallery("View as a gallery", Scope.Window, KeyGroups.View, "Ctrl+2"),
+	ZoomIn("Larger", Scope.Window, KeyGroups.View, "Ctrl+Equals", "Ctrl+Plus", "Ctrl+Add"),
+	ZoomOut("Smaller", Scope.Window, KeyGroups.View, "Ctrl+Minus", "Ctrl+Subtract"),
+	ZoomReset("Usual size", Scope.Window, KeyGroups.View, "Ctrl+0", "Ctrl+NumPad0"),
+	MoveUp("Up a row", Scope.Movement, KeyGroups.Cursor, "Up"),
+	MoveDown("Down a row", Scope.Movement, KeyGroups.Cursor, "Down"),
+	MoveLeft("Left, in the gallery", Scope.Movement, KeyGroups.Cursor, "Left"),
+	MoveRight("Right, in the gallery", Scope.Movement, KeyGroups.Cursor, "Right"),
+	PageUp("Up a page", Scope.Movement, KeyGroups.Cursor, "PageUp"),
+	PageDown("Down a page", Scope.Movement, KeyGroups.Cursor, "PageDown"),
+	First("The first row", Scope.Movement, KeyGroups.Cursor, "Home"),
+	Last("The last row", Scope.Movement, KeyGroups.Cursor, "End"),
+	Toggle("Choose, or no longer", Scope.Listing, KeyGroups.Choosing, "Space"),
+	SelectAll("Choose every row", Scope.Listing, KeyGroups.Choosing, "Ctrl+A"),
+	Cancel(
+		"Cancel, or let go of what is chosen",
+		Scope.Leftover,
+		KeyGroups.Choosing,
+		"Escape",
+	),
+	Open("Open", Scope.Listing, KeyGroups.Files, "Enter"),
+	Rename("Rename", Scope.Listing, KeyGroups.Files, "F2"),
+	CopyFiles("Copy", Scope.Listing, KeyGroups.Files, "Ctrl+C"),
+	CutFiles("Cut", Scope.Listing, KeyGroups.Files, "Ctrl+X"),
+	Paste("Paste", Scope.Listing, KeyGroups.Files, "Ctrl+V"),
+	CopyPaths("Copy the paths", Scope.Listing, KeyGroups.Files, "Ctrl+Shift+C"),
 	Trash(
 		"Move to the trash (deleting, where a drive has none, once asked)",
 		Scope.Listing,
+		KeyGroups.Files,
 		"Delete",
 	),
-	Erase("Delete for good, once asked", Scope.Listing, "Shift+Delete"),
-	CopyFiles("Copy", Scope.Listing, "Ctrl+C"),
-	CutFiles("Cut", Scope.Listing, "Ctrl+X"),
-	Paste("Paste", Scope.Listing, "Ctrl+V"),
-	CopyPaths("Copy the paths", Scope.Listing, "Ctrl+Shift+C"),
-	Properties("Properties", Scope.Listing, "Alt+Enter"),
-	ContextMenu("The menu of what is chosen", Scope.Listing, "Shift+F10", "ContextMenu"),
-	MoveUp("Up a row", Scope.Movement, "Up"),
-	MoveDown("Down a row", Scope.Movement, "Down"),
-	MoveLeft("Left, in the gallery", Scope.Movement, "Left"),
-	MoveRight("Right, in the gallery", Scope.Movement, "Right"),
-	PageUp("Up a page", Scope.Movement, "PageUp"),
-	PageDown("Down a page", Scope.Movement, "PageDown"),
-	First("The first row", Scope.Movement, "Home"),
-	Last("The last row", Scope.Movement, "End"),
+	Erase("Delete for good, once asked", Scope.Listing, KeyGroups.Files, "Shift+Delete"),
+	NewFolder("New folder", Scope.Window, KeyGroups.Files, "Ctrl+Shift+N"),
+	NewFile("New file", Scope.Window, KeyGroups.Files),
+	Properties("Properties", Scope.Listing, KeyGroups.Files, "Alt+Enter"),
+	ContextMenu(
+		"The menu of what is chosen",
+		Scope.Listing,
+		KeyGroups.Files,
+		"Shift+F10",
+		"ContextMenu",
+	),
+	OpenTerminal("Open a terminal here", Scope.Window, KeyGroups.Files, "Shift+F4"),
+	Undo("Undo", Scope.Leftover, KeyGroups.History, "Ctrl+Z"),
+	Redo("Redo", Scope.Leftover, KeyGroups.History, "Ctrl+Shift+Z", "Ctrl+Y"),
+	NewWindow("New window", Scope.Window, KeyGroups.Windows, "Ctrl+N"),
+	Preferences("Preferences", Scope.Window, KeyGroups.Windows, "Ctrl+Comma"),
+	CloseWindow(
+		"Close the window (a picker: cancel)",
+		Scope.Window,
+		KeyGroups.Windows,
+		"Ctrl+W",
+	),
 	;
 
 	override val key: String get() = name
@@ -139,6 +213,15 @@ enum class Action(
 			Chord.parse(it)
 				?: error("$name's default “$it” is not a chord")
 		}
+
+	companion object {
+		/** What only an explorer does: a picker has no key for these, since it would do nothing with one. */
+		val EXPLORING: Set<Action> =
+			setOf(NewFile, OpenTerminal, NewWindow, Preferences, Properties)
+
+		/** What a picker does, in the order it is listed. */
+		val PICKING: List<Action> = entries - EXPLORING
+	}
 }
 
 /** A mouse button a chord can be made of: those a person presses on purpose, and not the two every click is. */
@@ -179,6 +262,14 @@ data class Chord(
 					is Trigger.Mouse -> true
 					is Trigger.Key -> trigger.code in Keys.untyped
 				}
+
+	/**
+	 * Whether it types a character where text is typed: a letter, a digit, a mark or a space, with nothing but Shift
+	 * held. A window whose keyboard is always in a field (the launcher's) can do nothing else with such a chord.
+	 */
+	val typesText: Boolean
+		get() =
+			!ctrl && !alt && !meta && (trigger as? Trigger.Key)?.code in Keys.printing
 
 	/** The chord without Shift and Ctrl: what moving the cursor is matched by. */
 	val bare: Chord get() = copy(ctrl = false, shift = false)
@@ -292,6 +383,26 @@ object Keys {
 			AwtKeys.VK_WINDOWS,
 		)
 
+	/** The keys that type a character: the letters, the digits, the numeric pad's, the marks, and the space bar. */
+	val printing: Set<Int> =
+		(AwtKeys.VK_A..AwtKeys.VK_Z).toSet() + (AwtKeys.VK_0..AwtKeys.VK_9) +
+			(AwtKeys.VK_NUMPAD0..AwtKeys.VK_DIVIDE) +
+			setOf(
+				AwtKeys.VK_SPACE,
+				AwtKeys.VK_COMMA,
+				AwtKeys.VK_MINUS,
+				AwtKeys.VK_PERIOD,
+				AwtKeys.VK_SLASH,
+				AwtKeys.VK_SEMICOLON,
+				AwtKeys.VK_EQUALS,
+				AwtKeys.VK_OPEN_BRACKET,
+				AwtKeys.VK_BACK_SLASH,
+				AwtKeys.VK_CLOSE_BRACKET,
+				AwtKeys.VK_BACK_QUOTE,
+				AwtKeys.VK_QUOTE,
+				AwtKeys.VK_PLUS,
+			)
+
 	/** The keys no text field types: the function keys, Escape, and the menu key. */
 	val untyped: Set<Int> =
 		(AwtKeys.VK_F1..AwtKeys.VK_F12).toSet() + (AwtKeys.VK_F13..AwtKeys.VK_F24) +
@@ -299,7 +410,10 @@ object Keys {
 			AwtKeys.VK_CONTEXT_MENU
 }
 
-/** Every action's chords, as the user has them: the defaults, but where the preferences say otherwise. */
+/**
+ * Every action's chords, as the user has them: the defaults, but where the preferences say otherwise. One set of
+ * actions' own: an explorer's, a picker's, the launcher's.
+ */
 @Immutable
 class Bindings(
 	val chords: Map<Bindable, List<Chord>>,
@@ -316,12 +430,15 @@ class Bindings(
 			}.groupBy({ it.first }, { it.second })
 	}
 
-	private fun find(chord: Chord, where: (Bindable) -> Boolean): Bindable? =
-		byChord[chord]?.firstOrNull(where)
+	/** What [chord] does, where everything bound acts in one place: the first thing bound to it. */
+	fun action(chord: Chord): Bindable? = byChord[chord]?.firstOrNull()
+
+	private fun find(chord: Chord, where: (Scope) -> Boolean): Bindable? =
+		byChord[chord]?.firstOrNull { (it as? Scoped)?.scope?.let(where) == true }
 
 	/** The window's action [chord] does from anywhere: one bound to a chord no text field types. */
 	fun window(chord: Chord): Action? =
-		(find(chord) { it.scope == Scope.Window } as? Action).takeIf { chord.typesNothing }
+		(find(chord) { it == Scope.Window } as? Action).takeIf { chord.typesNothing }
 
 	/** What [chord] does from the listing: a row's action, or a window's, or one left to whatever has the keyboard. */
 	fun listing(chord: Chord): Bindable? = listings(chord).firstOrNull()
@@ -333,18 +450,17 @@ class Bindings(
 	 * of the user's says so; each is tried in turn until one has something to do.
 	 */
 	fun listings(chord: Chord): List<Bindable> =
-		byChord[chord].orEmpty().let { bound ->
+		byChord[chord].orEmpty().filterIsInstance<Scoped>().let { bound ->
 			bound.filter { it.scope == Scope.Listing } +
 				bound.filter { it.scope == Scope.Window || it.scope == Scope.Leftover }
 		}
 
 	/** The cursor's move [chord] makes, Shift and Ctrl aside. */
 	fun movement(chord: Chord): Action? =
-		find(chord.bare) { it.scope == Scope.Movement } as? Action
+		find(chord.bare) { it == Scope.Movement } as? Action
 
 	/** What [chord] does where whatever had the keyboard did not use it. */
-	fun leftover(chord: Chord): Action? =
-		find(chord) { it.scope == Scope.Leftover } as? Action
+	fun leftover(chord: Chord): Action? = find(chord) { it == Scope.Leftover } as? Action
 
 	/** These, with [action]'s chords [chords]. */
 	fun with(action: Bindable, chords: List<Chord>): Bindings =
@@ -366,7 +482,7 @@ class Bindings(
 	 */
 	fun bound(action: Bindable, index: Int, chord: Chord): Bindings {
 		val given =
-			if (action.scope == Scope.Movement)
+			if (action.moves)
 				chord.bare
 			else
 				chord
@@ -402,7 +518,7 @@ class Bindings(
 	private fun same(action: Bindable, chord: Chord, other: Bindable, its: Chord): Boolean =
 		its == chord ||
 			(
-				(other.scope == Scope.Movement || action.scope == Scope.Movement) &&
+				(other.moves || action.moves) &&
 					its.bare == chord.bare
 			)
 
@@ -421,13 +537,29 @@ class Bindings(
 			Bindings(Action.entries.associateWith<Bindable, List<Chord>> { it.defaults })
 
 		/**
-		 * The bindings [preferences] make, of the browser's own actions and of [actions], the user's: an action named
-		 * there has the chords written there that read as chords.
+		 * The bindings [preferences] make for a window that is [role]. An explorer's are of the browser's own actions
+		 * and of [actions], the user's: an action named in the preferences has the chords written there that read as
+		 * chords. A picker's are those too, until the user gives pickers keys of their own; then they are of what a
+		 * picker does, each with the chords written for pickers.
 		 */
-		fun of(preferences: Preferences, actions: Actions = Actions.of(preferences)): Bindings =
+		fun of(
+			preferences: Preferences,
+			role: Role = Role.Explorer,
+			actions: Actions = Actions.of(preferences),
+		): Bindings {
+			val written = preferences.pickerBindings.takeIf { role == Role.Picker }
+
+			return if (written == null)
+				of(Action.entries + actions.actions.map(::Custom), preferences.bindings)
+			else
+				of(Action.PICKING, written)
+		}
+
+		/** The bindings of [actions]: each as [written] has it, where it is named there, and its defaults where not. */
+		fun of(actions: List<Bindable>, written: Map<String, List<String>>): Bindings =
 			Bindings(
-				(Action.entries + actions.actions.map(::Custom)).associateWith { action ->
-					preferences.bindings[action.key]?.mapNotNull(Chord::parse) ?: action.defaults
+				actions.associateWith { action ->
+					written[action.key]?.mapNotNull(Chord::parse) ?: action.defaults
 				},
 			)
 	}

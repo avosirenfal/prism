@@ -87,7 +87,7 @@ class LauncherViewTest {
 					).also { running[0] = it }
 				}
 
-			BrowserTheme { LauncherView(session, LauncherBindings.DEFAULT) }
+			BrowserTheme { LauncherView(session, launcherBindings()) }
 		}
 		waitForIdle()
 		check(running[0]!!, desktop, host, launches)

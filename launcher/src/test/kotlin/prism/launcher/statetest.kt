@@ -378,47 +378,39 @@ class LauncherStateTest {
 
 	@Test
 	fun theKeysAreTheUsersWhereTheyHaveBoundOthers() {
-		val defaults = LauncherBindings.DEFAULT
+		val defaults = launcherBindings()
 
 		assertEquals(LauncherAction.Open, defaults.action(chord("Enter")))
 		assertEquals(LauncherAction.Reveal, defaults.action(chord("Ctrl+Enter")))
 		assertEquals(LauncherAction.Down, defaults.action(chord("Ctrl+N")))
 		assertNull(defaults.action(chord("Ctrl+Q")))
+		// Each is in a group, in the order the page that binds them lists them.
+		assertEquals(
+			listOf("The result chosen", "Moving through the results", "The launcher"),
+			LauncherAction.entries.map { it.group.label }.distinct(),
+		)
 
-		// Bound to another action's chord, it is taken from that action; reset, it has its defaults again.
-		val bound =
-			LauncherBindings.bound(
-				prism.preferences.Preferences.DEFAULT,
-				LauncherAction.Settings,
-				0,
-				chord("Ctrl+N"),
-			)
+		// Bound to another action's chord, it is taken from that action; what differs is what the preferences keep,
+		// by each action's name, and what is read back from them.
+		val bound = defaults.bound(LauncherAction.Settings, 0, chord("Ctrl+N"))
+		val written = LauncherPreferences(bindings = bound.differences())
 
-		val read = LauncherBindings.of(bound)
+		assertEquals(
+			mapOf(
+				"Settings" to listOf("Ctrl+N"),
+				"Down" to listOf("Down", "Ctrl+J", "Tab"),
+			),
+			written.bindings,
+		)
 
-		assertEquals(listOf(chord("Ctrl+N")), read.of(LauncherAction.Settings))
-		assertFalse(chord("Ctrl+N") in read.of(LauncherAction.Down))
+		val read = launcherBindings(written)
+
+		assertEquals(bound, read)
 		assertEquals(LauncherAction.Settings, read.action(chord("Ctrl+N")))
+		// Reset, each has its defaults again, and nothing is written.
 		assertEquals(
-			emptyList<prism.browser.Chord>(),
-			LauncherBindings
-				.of(
-					LauncherBindings.unbound(bound, LauncherAction.Settings, 0),
-				).of(LauncherAction.Settings),
-		)
-		assertEquals(
-			LauncherAction.Settings.defaults,
-			LauncherBindings
-				.of(
-					LauncherBindings.reset(bound, LauncherAction.Settings),
-				).of(LauncherAction.Settings),
-		)
-		// A chord added after the last.
-		assertEquals(
-			LauncherAction.Dismiss.defaults + chord("Ctrl+G"),
-			LauncherBindings
-				.of(LauncherBindings.bound(bound, LauncherAction.Dismiss, 9, chord("Ctrl+G")))
-				.of(LauncherAction.Dismiss),
+			emptyMap<String, List<String>>(),
+			read.reset(LauncherAction.Settings).reset(LauncherAction.Down).differences(),
 		)
 	}
 

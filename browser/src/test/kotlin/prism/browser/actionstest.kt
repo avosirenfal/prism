@@ -446,7 +446,7 @@ class ActionsTest {
 			contextMenuOf(
 				state,
 				rowsOf(state, "notes.md"),
-				Bindings.of(Preferences(), state.actions),
+				Bindings.of(Preferences(), actions = state.actions),
 				Known(),
 			)
 
@@ -516,7 +516,7 @@ class ActionsTest {
 	fun aUsersActionIsBoundLikeAnyOtherAndItsChordIsThePreferencesToChange() {
 		val actions = read(mine)
 		val upper = Custom(actions["upper"]!!)
-		val defaults = Bindings.of(Preferences(), actions)
+		val defaults = Bindings.of(Preferences(), actions = actions)
 
 		assertEquals(listOf(Chord.parse("Ctrl+U")), defaults.of(upper))
 		assertEquals(listOf<Bindable>(upper), defaults.listings(Chord.parse("Ctrl+U")!!))
@@ -526,7 +526,11 @@ class ActionsTest {
 		assertEquals(mapOf("action:upper" to listOf("F9")), rebound.differences())
 		assertEquals(
 			listOf(Chord.parse("F9")),
-			Bindings.of(Preferences(bindings = rebound.differences()), actions).of(upper),
+			Bindings
+				.of(
+					Preferences(bindings = rebound.differences()),
+					actions = actions,
+				).of(upper),
 		)
 	}
 
