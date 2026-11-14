@@ -71,6 +71,8 @@ fun changedOf(observed: Observed): List<Changed> {
 
 	return when (val what = observed.what) {
 		is Done.Made, is Done.Removed -> listOf(Changed(observed.folder, name))
+		// Moved to where the record does not say: the folder it left is read again, which is all there is to do.
+		is Done.Left -> listOf(Changed(observed.folder, null))
 		is Done.Moved ->
 			listOf(
 				Changed(observed.folder, null),

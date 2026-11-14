@@ -108,6 +108,22 @@ sealed interface Done {
 					Change.Moved
 	}
 
+	/**
+	 * The entry was moved out of its folder (or, [swapped], changed places), and the record does not say where to:
+	 * the kernel's own memory of where could not be read. All that is known is that the folder it was in has
+	 * changed, which is still worth knowing: whoever keeps that folder reads it again.
+	 */
+	data class Left(
+		val swapped: Boolean,
+	) : Done {
+		override val change: Change
+			get() =
+				if (swapped)
+					Change.Exchanged
+				else
+					Change.Moved
+	}
+
 	/** What was made. */
 	enum class Making(
 		val change: Change,
@@ -130,18 +146,23 @@ sealed interface Done {
 	companion object {
 		/**
 		 * What a record of [change] says was done: [to] is the inode of the folder a move went to, on [dev], and
-		 * [entry] what the entry is now, both as the record has them (0 where it has none). Null for a record that
-		 * does not say what its kind of change must: a move to nowhere.
+		 * [entry] what the entry is now, both as the record has them (0 where it has none). Every kind of change is
+		 * something done: a move the record has no destination of is one that [Left].
 		 */
-		internal fun of(change: Change, dev: KernelDev, to: Long, entry: Present): Done? =
+		internal fun of(change: Change, dev: KernelDev, to: Long, entry: Present): Done =
 			when (change) {
+				Change.FileMade -> Made(Making.File, entry)
+				Change.DirectoryMade -> Made(Making.Directory, entry)
+				Change.SymlinkMade -> Made(Making.Symlink, entry)
+				Change.NodeMade -> Made(Making.Node, entry)
+				Change.Linked -> Made(Making.Link, entry)
+				Change.FileRemoved -> Removed(Removing.File)
+				Change.DirectoryRemoved -> Removed(Removing.Directory)
 				Change.Moved, Change.Exchanged ->
-					to.takeIf { it != 0L }?.let {
-						Moved(FileId(dev, it), change == Change.Exchanged, entry)
-					}
-				else ->
-					Making.entries.firstOrNull { it.change == change }?.let { Made(it, entry) }
-						?: Removing.entries.firstOrNull { it.change == change }?.let(::Removed)
+					if (to != 0L)
+						Moved(FileId(dev, to), change == Change.Exchanged, entry)
+					else
+						Left(change == Change.Exchanged)
 			}
 	}
 }
@@ -208,13 +229,10 @@ class Watch internal constructor(
 				FileKind.ofMode(record.number(FsChange.mode).toInt()),
 			)
 
-		val what =
-			Done.of(change, dev, record.number(FsChange.toParentIno), entry) ?: return null
-
 		return Observed(
 			folder = FileId(dev, record.number(FsChange.parentIno)),
 			name = EntryName(name),
-			what = what,
+			what = Done.of(change, dev, record.number(FsChange.toParentIno), entry),
 			tgid = record.number(FsChange.tgid).toInt(),
 			atNs = record.number(FsChange.atNs),
 		)

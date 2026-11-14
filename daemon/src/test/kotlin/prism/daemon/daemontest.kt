@@ -253,6 +253,11 @@ class DaemonTest {
 			listOf(Changed(FileId(dev, 10), null), Changed(FileId(dev, 20), name)),
 			changedOf(seen(Done.Moved(FileId(dev, 20), swapped = false, entry))),
 		)
+		// A move to where the record does not say: the folder it left, read again.
+		assertEquals(
+			listOf(Changed(FileId(dev, 10), null)),
+			changedOf(seen(Done.Left(swapped = false))),
+		)
 		// A swap: both folders.
 		assertEquals(
 			listOf(Changed(FileId(dev, 10), null), Changed(FileId(dev, 20), null)),

@@ -2,7 +2,6 @@ package prism.watcher
 
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotEquals
-import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
 import prism.linux.Dev
 import prism.linux.FileId
@@ -18,7 +17,7 @@ class ObservedTest {
 	@Test
 	fun everyChangeTheProbeSendsIsSomethingDoneThatSaysTheSameChange() {
 		for (change in Change.entries)
-			assertEquals(change, Done.of(change, dev, to = 20, entry)?.change, "$change")
+			assertEquals(change, Done.of(change, dev, to = 20, entry).change, "$change")
 	}
 
 	@Test
@@ -31,8 +30,9 @@ class ObservedTest {
 			Done.Moved(FileId(dev, 20), swapped = true, entry),
 			Done.of(Change.Exchanged, dev, to = 20, entry),
 		)
-		assertNull(Done.of(Change.Moved, dev, to = 0, entry))
-		assertNull(Done.of(Change.Exchanged, dev, to = 0, entry))
+		// A move the record has no destination of is still a change to the folder it left.
+		assertEquals(Done.Left(swapped = false), Done.of(Change.Moved, dev, to = 0, entry))
+		assertEquals(Done.Left(swapped = true), Done.of(Change.Exchanged, dev, to = 0, entry))
 		// Whatever a record of anything else has where a move's destination would be, it is not read.
 		assertEquals(
 			Done.Made(Done.Making.File, entry),
