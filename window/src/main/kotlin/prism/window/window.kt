@@ -210,15 +210,17 @@ class NativeWindow internal constructor(
 	/** Who is told what went wrong in the window, once: the application itself, until someone else is. */
 	internal var onFailure: (Throwable) -> Unit = app::fail
 
-	/** Whether something went wrong in the window: its scene is not to be trusted with a frame or an event again. */
-	private var failed = false
+	/**
+	 * Where the window is in its life (life.kt): on the screen or not yet, with a frame in it or none, failed,
+	 * closed. Read and written on the windows' thread alone.
+	 */
+	private var life: Life = Life.Hidden
 
 	internal val drops = Drops()
 
 	private var density by mutableStateOf(Density(1f))
 	private var pixelSize = IntSize.Zero
 	private var focused by mutableStateOf(false)
-	private var closed = false
 
 	/** Whether the scene asked to be drawn again: what the windows' thread draws, at the next frame. */
 	internal var wantsFrame = true
@@ -285,12 +287,6 @@ class NativeWindow internal constructor(
 		}
 
 	private val scene: ComposeScene
-
-	/** Whether the window is on the screen yet. */
-	private var shown = false
-
-	/** Whether a frame has ever been put on the screen: a window none can be put on is said to be so, not left blank. */
-	private var drawn = false
 
 	init {
 		val gpu = app.sdl.rendering.onGpu
@@ -406,8 +402,10 @@ class NativeWindow internal constructor(
 		Log.say { "window $id: ${pixels.javaClass.simpleName}" }
 
 		// A Wayland window takes a buffer only once the compositor has said how it is to be: shown first, then drawn.
-		if (pixels is WaylandPixels)
+		if (pixels is WaylandPixels) {
 			show()
+			life = Life.Shown(drawn = false)
+		}
 		density = Density(scale)
 		pixelSize = pixelSizeOf()
 
@@ -496,7 +494,7 @@ class NativeWindow internal constructor(
 				// other way to know, and says in its turn that the window was resized.
 				onSized = { wide, high ->
 					Ui.dispatch(EmptyCoroutineContext) {
-						if (!closed)
+						if (life !is Life.Closed)
 							SDL_SetWindowSize(window, wide, high)
 					}
 				},
@@ -535,7 +533,7 @@ class NativeWindow internal constructor(
 	}
 
 	internal fun invalidate() {
-		if (!wantsFrame && !failed) {
+		if (!wantsFrame && !life.failed) {
 			wantsFrame = true
 			Ui.wake()
 		}
@@ -550,10 +548,7 @@ class NativeWindow internal constructor(
 		// A coroutine of the content's that fails on another thread fails the window here, on its own.
 		if (!Ui.isCurrent)
 			return Ui.dispatch(EmptyCoroutineContext) { fail(failure) }
-		if (failed)
-			return
-
-		failed = true
+		life = life.failing() ?: return
 		wantsFrame = false
 		try {
 			onFailure(failure)
@@ -575,7 +570,6 @@ class NativeWindow internal constructor(
 		} else {
 			SDL_ShowWindow(sdl)
 		}
-		shown = true
 	}
 
 	/** What the window shows, with [locals] as its composition's, from the composition that opened it. */
@@ -612,7 +606,10 @@ class NativeWindow internal constructor(
 
 	/** A frame drawn, if one was asked for: the scene's frame, its layout and its drawing, into the window's pixels. */
 	internal fun frame(nanos: Long) {
-		if (closed || failed || !wantsFrame)
+		// As it was before the frame: what the frame is the first of, and what it has shown, is told by that.
+		val before = life as? Life.Sound ?: return
+
+		if (!wantsFrame)
 			return
 
 		wantsFrame = false
@@ -631,10 +628,9 @@ class NativeWindow internal constructor(
 				throw error
 			}
 
-		if (drew && !drawn) {
-			drawn = true
+		if (drew && !before.drawn)
 			layer?.let(::awaitKeyboard)
-		} else if (!drew && !drawn)
+		else if (!drew && !before.drawn)
 			throw CannotDraw(
 				"window $id cannot be drawn (${pixels.javaClass.simpleName}): " +
 					(
@@ -646,11 +642,13 @@ class NativeWindow internal constructor(
 			)
 
 		// Shown once there is something in it, rather than empty first.
-		if (!shown) {
+		if (before == Life.Hidden) {
 			show()
 			// Placed again once shown: a window not yet on the screen is placed as the platform likes when it is.
 			place?.let { SDL_SetWindowPosition(sdl, it.x, it.y) }
 		}
+		// On the screen with a frame in it from here on; unless it failed as the frame was drawn, which it stays.
+		life = life.drawnIn()
 
 		if (scene.hasPendingDraw || scene.hasPendingMeasureOrLayout ||
 			recomposer.hasPendingWork()
@@ -679,7 +677,7 @@ class NativeWindow internal constructor(
 
 	/** One of SDL's events for this window, handled; none but a request to close it, once it has failed. */
 	internal fun handle(event: SDL_Event) {
-		if (failed && event.type() != SDL_EVENT_WINDOW_CLOSE_REQUESTED)
+		if (life.failed && event.type() != SDL_EVENT_WINDOW_CLOSE_REQUESTED)
 			return
 
 		when (event.type()) {
@@ -907,10 +905,7 @@ class NativeWindow internal constructor(
 	}
 
 	internal fun close() {
-		if (closed)
-			return
-
-		closed = true
+		life = life.closing() ?: return
 
 		// Each let go of whatever the one before came to, and SDL's window destroyed whatever they did: a window whose
 		// scene failed is closed all the same, and what closing a sound one throws is its failure.
