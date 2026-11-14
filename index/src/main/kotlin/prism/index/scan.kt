@@ -8,6 +8,7 @@ import java.nio.file.Files
 import java.nio.file.LinkOption
 import java.nio.file.Path
 import java.util.concurrent.ForkJoinPool
+import java.util.concurrent.ForkJoinTask
 import java.util.concurrent.RecursiveTask
 import kotlin.time.Duration
 import kotlin.time.measureTimedValue
@@ -578,6 +579,17 @@ class Scanner(
 			else -> null
 		}
 
+	/** What was begun of a folder found in a directory: left unread, and why, or being read. */
+	private sealed interface Begun<out T> {
+		class Skipped(
+			val why: Skip,
+		) : Begun<Nothing>
+
+		class Reading<T>(
+			val read: ForkJoinTask<T>,
+		) : Begun<T>
+	}
+
 	/** One directory read, and its subdirectories read as tasks of their own. */
 	private inner class Read<T>(
 		private val where: Where,
@@ -589,23 +601,30 @@ class Scanner(
 				is Listing.Read -> gathering.read(where, listing, found(listing))
 			}
 
+		/**
+		 * What was found of each entry of [listing]: each folder that is read, read as a task of its own, every one
+		 * begun before any is waited for. The folders are kept in the order they were listed in, and taken again in
+		 * it: a map from each entry to its task would hash every folder's name four times over.
+		 */
 		private fun found(listing: Listing.Read): List<Found<T>> {
-			val folders = listing.entries.filter { it.kind == FileKind.Directory }
-			val places = folders.associateWith { where.child(it.name) }
-			val skips = places.mapValues { (_, place) -> skipOf(place) }
-			val reads =
-				places
-					.filterKeys { skips[it] == null }
-					.mapValues { (_, place) -> Read(place, gathering).fork() }
+			val folders =
+				listing.entries
+					.filter { it.kind == FileKind.Directory }
+					.map { entry ->
+						val place = where.child(entry.name)
+
+						skipOf(place)?.let { Begun.Skipped(it) }
+							?: Begun.Reading(Read(place, gathering).fork())
+					}.iterator()
 
 			return listing.entries.map { entry ->
-				val skip = skips[entry]
-
-				when {
-					entry.kind != FileKind.Directory -> Found.Leaf(entry)
-					skip != null -> Found.Skipped(entry, skip)
-					else -> Found.Folder(entry, reads.getValue(entry).join())
-				}
+				if (entry.kind != FileKind.Directory)
+					Found.Leaf(entry)
+				else
+					when (val begun = folders.next()) {
+						is Begun.Skipped -> Found.Skipped(entry, begun.why)
+						is Begun.Reading -> Found.Folder(entry, begun.read.join())
+					}
 			}
 		}
 	}
