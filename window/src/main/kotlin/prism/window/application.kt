@@ -326,6 +326,11 @@ private fun CompositionLocalApplication(
  *
  * [role] is what the window is among the others on the screen (role.kt): a window as the platform has them, or over
  * them all, as a launcher is, where the platform has a way.
+ *
+ * [backdrop] is what is behind what the window draws (backdrop.kt): nothing, or, for a window that asks to be
+ * [Backdrop.Clear], whatever is behind the window, where the platform and the way it is drawn can blend it. Whether it
+ * turned out so is [NativeWindow.backdrop], which the content reads ([LocalNativeWindow]) before it leaves anything
+ * unpainted.
  */
 @Composable
 fun Window(
@@ -338,6 +343,7 @@ fun Window(
 	activation: String? = null,
 	resizable: Boolean = true,
 	role: WindowRole = WindowRole.Normal,
+	backdrop: Backdrop = Backdrop.Opaque,
 	content: @Composable WindowScope.() -> Unit,
 ) {
 	val app =
@@ -353,7 +359,7 @@ fun Window(
 		remember {
 			runCatching {
 				val window =
-					NativeWindow(app, title, size, decorated, at, activation, resizable, role)
+					NativeWindow(app, title, size, decorated, at, activation, resizable, role, backdrop)
 
 				val scope =
 					object : WindowScope {

@@ -365,7 +365,8 @@ internal class ShmBuffer private constructor(
 
 /**
  * The pixels of the Wayland surface [surface] on SDL's connection [display], drawn by the CPU into shared memory and
- * attached to the surface as they are. Two buffers at most are in use: one shown, one drawn; a third is made only while
+ * attached to the surface as they are: without alpha, or, for a window that is to be clear, with it, each colour
+ * already multiplied by it, as a compositor blends. Two buffers at most are in use: one shown, one drawn; a third is made only while
  * the compositor holds both.
  */
 internal class WaylandPixels private constructor(
@@ -374,7 +375,11 @@ internal class WaylandPixels private constructor(
 	private val queue: MemorySegment,
 	private val shm: MemorySegment,
 	private val arena: Arena,
+	/** Whether the buffers are without alpha, as a window's are unless it is to be clear (backdrop.kt). */
+	private val opaque: Boolean,
 ) : Pixels {
+	override val alpha: Boolean get() = !opaque
+
 	private val buffers = ArrayList<ShmBuffer>()
 
 	/** What tells this a buffer is the compositor's no longer: `wl_buffer.release`, an upcall to [released]. */
@@ -437,7 +442,7 @@ internal class WaylandPixels private constructor(
 
 	/** A buffer of [width] by [height] pixels, told to say when the compositor lets go of it; null where none can be made. */
 	private fun made(width: Int, height: Int): ShmBuffer? =
-		ShmBuffer.of(shm, width, height, opaque = true)?.also {
+		ShmBuffer.of(shm, width, height, opaque)?.also {
 			Wl.addListener.invokeExact(it.proxy, listener, MemorySegment.NULL) as Int
 		}
 
@@ -475,7 +480,7 @@ internal class WaylandPixels private constructor(
 		 * The pixels of [handle]'s surface, `wl_shm` bound from the registry on a queue of this one's own; null where
 		 * libwayland-client cannot be had, or the compositor has no `wl_shm` (which every one has).
 		 */
-		fun of(handle: NativeHandle.Wayland): WaylandPixels? {
+		fun of(handle: NativeHandle.Wayland, opaque: Boolean = true): WaylandPixels? {
 			val arena = Arena.ofShared()
 
 			return try {
@@ -565,7 +570,7 @@ internal class WaylandPixels private constructor(
 
 				Wl.destroy.invoke(registry)
 
-				WaylandPixels(display, surface, queue, shm, arena)
+				WaylandPixels(display, surface, queue, shm, arena, opaque)
 			} catch (missing: IllegalArgumentException) {
 				arena.close()
 				null

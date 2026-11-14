@@ -285,6 +285,57 @@ into it unchanged.
 Tried for real with `tools/launcher/check-wayland.sh`, on sway 1.9 and niri 26.04, each drawn both ways
 (docs/launcher.md, "Tested").
 
+## A window that is clear
+
+A window is a rectangle, and what it does not paint is black: nothing of what is under it is seen. A window whose
+shape is not a rectangle (a launcher with round corners) asks to be clear instead (`backdrop.kt`):
+
+```kotlin
+Window(
+    onCloseRequest = ...,
+    title = "Prism Launcher",
+    role = WindowRole.Overlay("prism-launcher"),
+    backdrop = Backdrop.Clear,              // Backdrop.Opaque is what a window is unless it asks
+) {
+    val clear = LocalNativeWindow.current?.backdrop == Backdrop.Clear
+    // round the corners only where `clear`: anywhere else they would be black
+}
+```
+
+Being clear is the window's pixels having an alpha channel that whatever puts windows on the screen blends by. A
+frame is cleared to nothing before the content is drawn into it, and what the content draws is premultiplied, which
+is what Wayland's compositors and X11's compositing managers expect. Each platform, and each of prism's ways of
+drawing on it, gets its alpha its own way, or has none:
+
+| platform | drawn on the GPU | drawn on the CPU |
+|---|---|---|
+| Wayland, a window or a layer surface | SDL makes the window transparent (`SDL_WINDOW_TRANSPARENT`): an EGL configuration with 8 bits of alpha (`SDL_GL_ALPHA_SIZE`, asked for around this window's making only), and no opaque region said of the surface | prism's own buffers are `ARGB8888` in place of `XRGB8888` (`WaylandPixels`) |
+| X11, with a compositing manager (picom, xcompmgr, KWin, Mutter) | SDL chooses a visual of 32 bits for a transparent window | none: SDL's window surface is of the screen's own visual, which has no alpha, so the window is opaque |
+| X11 with nothing compositing | none: alpha would be nobody's to blend, and a clear corner would be black | none |
+| macOS, Windows | not yet | not yet |
+
+Whether it is asked for at all is decided before the window is made, from the platform and, on X11, from whether a
+compositing manager owns the selection one takes (`_NET_WM_CM_S0`, asked of libX11 directly): `mayBeClear`. Whether
+it was got is read back from the pixels the window ended up with (`Pixels.alpha`: the alpha bits of the OpenGL
+context, the format of the buffers): `backdropOf`. So `NativeWindow.backdrop` is `Clear` only where a pixel left
+unpainted really shows what is behind it, and what draws in the window can believe it. `PRISM_WINDOW_LOG=1` says how
+each window that asked turned out, and why where it is opaque:
+
+```
+window 5: asked to be clear, and is clear
+window 3: asked to be clear, and is opaque: nothing composites this X11 screen
+window 3: asked to be clear, and is opaque: its pixels have no alpha channel (Cpu)
+```
+
+A window that does not ask is made exactly as it was before there was anything to ask: an explorer's and a
+picker's windows are opaque, with their opaque region said on Wayland, which lets a compositor skip what is under
+them.
+
+Tried for real: on sway 1.9 and niri 26.04, as a layer surface and as a window, drawn both ways
+(`tools/launcher/check-wayland.sh` reads the pixel at the launcher's very corner off a screenshot, and it is what is
+behind the launcher); under Xvfb with nothing compositing (opaque, and the launcher square); and under Xvfb with
+xcompmgr, where it is clear drawn by OpenGL and opaque drawn on the CPU.
+
 ## When no window opens
 
 `PRISM_WINDOW_LOG=1` says on standard error which display server SDL speaks to, what OpenGL's renderer is (or that
@@ -328,9 +379,11 @@ the windows' thread now ("The thread", above), where nothing runs beside a layou
 
 ## Not yet
 
-- **An overlay on macOS and Windows**, and an overlay with an alpha channel (round corners and a shadow of its own,
-  and larger than it looks, to see a click beside it): `WindowRole.Overlay` says what is wanted, and each has its
-  row in the table above to be made of.
+- **An overlay on macOS and Windows**: `WindowRole.Overlay` says what is wanted, and each has its row in the table
+  above to be made of.
+- **A clear window on macOS and Windows, and on X11 drawn on the CPU**: `Backdrop.Clear` says what is wanted, and a
+  window there is opaque and says so. X11's would be a window of a 32 bit visual and an image put to it by prism
+  itself, as Wayland's shared memory is.
 - **Dragging out to other programs on X11, Windows and macOS**: XDND, OLE's `DoDragDrop` and an `NSDraggingSession`,
   each a `NativeDrags` of its own, as Wayland's is. Until then, a drag there goes between prism's own windows, and copy
   and paste is the way to other programs.
@@ -349,6 +402,9 @@ the windows' thread now ("The thread", above), where nothing runs beside a layou
 ## Tested
 
 - `KeysTest`: keys by layout and by place, modifiers, typed text, and which OpenGL renderers are the CPU's.
+- `RoleTest`, `BackdropTest`: what a window of each role is made as, and whether one that asks to be clear is, on
+  each platform, with and without what the platform might have (layer-shell, a compositing manager, pixels with
+  alpha); no window is made.
 - `AwtEventsTest`: what is left for AWT's thread (an `invokeLater`, a Swing timer) runs on the windows' thread, and on
   AWT's own when there is none; a scene whose layout takes several frames' time is told of what it moved on the
   windows' thread, after the layout, not on AWT's in the middle of it (which, with AWT's queue left alone, it is); a

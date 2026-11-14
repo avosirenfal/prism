@@ -159,6 +159,43 @@ middle="$((wide / 2)) $((high / 2))"
 pixel() { grim -g "$1,$2 1x1" -t ppm - | tail -c 3 | od -An -tu1 | tr -s ' ' | sed 's/^ //'; }
 # Whether the middle of the screen is another colour than [1]: something is drawn there over what was.
 drawn_over() { [ "$(pixel $middle)" != "$1" ]; }
+# Where, going along the row (x) or the column (y) through the middle of the screen from its edge, the colour is first
+# other than [2], what is behind: the launcher's left edge, or its top. Found by halving, since what is behind is one
+# colour up to the launcher and the launcher's line from there.
+edge() {
+	local axis="$1" behind="$2" before=0 from at
+
+	[ "$axis" = x ] && from=$((wide / 2)) || from=$((high / 2))
+	while [ $((from - before)) -gt 1 ]; do
+		at=$(((before + from) / 2))
+		if [ "$axis" = x ]; then
+			[ "$(pixel "$at" $((high / 2)))" = "$behind" ] && before=$at || from=$at
+		else
+			[ "$(pixel $((wide / 2)) "$at")" = "$behind" ] && before=$at || from=$at
+		fi
+	done
+	echo "$from"
+}
+# The launcher's corners, looked at where it is on the screen over [1], what is behind it: round, the very corner is
+# what is behind and a little way in is the launcher's own; square, the very corner is the line around it.
+corners() {
+	local behind="$1" wanted="$2" left top corner line inside own
+
+	left="$(edge x "$behind")"
+	top="$(edge y "$behind")"
+	corner="$(pixel "$left" "$top")"
+	line="$(pixel "$left" $((high / 2)))"
+	inside="$(pixel $((left + 6)) $((top + 6)))"
+	own="$(pixel $((left + 60)) $((top + 6)))"
+	check "the line around it is not what is behind it" "true" "$([ "$line" != "$behind" ] && echo true || echo false)"
+	if [ "$wanted" = round ]; then
+		check "its very corner is what is behind it" "$behind" "$corner"
+		check "a little way in from the corner is the launcher's own" "$own" "$inside"
+		check "which is not what is behind it" "true" "$([ "$inside" != "$behind" ] && echo true || echo false)"
+	else
+		check "its very corner is the line around it" "$line" "$corner"
+	fi
+}
 
 cd "$HOME" || exit 2
 echo "--- a daemon, in a Wayland session"
@@ -192,6 +229,16 @@ fi
 side="$(pixel $((wide / 2 - 500)) $((high / 2)))"
 check "it is in the middle, side to side" "$side" "$(pixel $((wide / 2 + 500)) $((high / 2)))"
 
+echo "--- its corners are round, and show what is behind it"
+eventually "its window is clear behind what it draws" 10 \
+	grep -q "asked to be clear, and is clear" "$XDG_STATE_HOME/prism/daemon.log"
+# Drawn as it was asked to be: by OpenGL where PRISM_DRAWING=gpu says so, and otherwise as the session has it.
+if [ "${PRISM_DRAWING:-}" = gpu ]; then
+	check "it is drawn by OpenGL" "1" "$(grep -c "window [0-9]*: Gpu" "$XDG_STATE_HOME/prism/daemon.log")"
+fi
+echo "    drawn by $(grep -o "window [0-9]*: [A-Za-z]*Pixels\|window [0-9]*: Gpu\|window [0-9]*: Cpu" "$XDG_STATE_HOME/prism/daemon.log" | tail -1 | cut -d' ' -f3)"
+corners "$side" round
+
 echo "--- it has the keyboard: what is typed arrives, and Enter starts what was found"
 wtype zzmark
 sleep 1.5
@@ -216,6 +263,25 @@ check "Escape lets go of what was typed first" "windows: 1 open" "$(windows)"
 wtype -k Escape
 eventually "and then puts it away" 10 have_windows "none open"
 
+echo "--- told to have square corners, it has them"
+mkdir -p "$XDG_CONFIG_HOME/prism"
+echo '{"launcher": {"rounded": false}}' > "$XDG_CONFIG_HOME/prism/preferences.json"
+sleep 1
+behind="$(pixel $middle)"
+"$PRISM" launcher
+eventually "it is shown" 10 have_windows "1 open"
+eventually "and drawn" 10 drawn_over "$behind"
+sleep 0.5
+shot launcher-square
+corners "$(pixel $((wide / 2 - 500)) $((high / 2)))" square
+wtype -k Escape
+sleep 0.5
+wtype -k Escape
+eventually "put away" 10 have_windows "none open"
+# Written anew, with nothing set, rather than taken away: a file taken away is not noticed until another is written.
+echo '{}' > "$XDG_CONFIG_HOME/prism/preferences.json"
+sleep 1
+
 if [ "$compositor" != another ]; then
 	echo "--- a window that fills the screen does not cover it"
 	foot > /dev/null 2>&1 &
@@ -228,6 +294,8 @@ if [ "$compositor" != another ]; then
 	eventually "the launcher is shown over it" 10 have_windows "1 open"
 	eventually "and drawn over it" 10 drawn_over "$full"
 	shot launcher-over-fullscreen
+	# Its corners show the terminal, which is what is behind it now.
+	corners "$(pixel $((wide / 2 - 500)) $((high / 2)))" round
 	# A moment, as a person takes: on sway the keyboard is the launcher's a moment after it is on the screen.
 	sleep 1
 	if [ "$compositor" = sway ]; then
@@ -284,6 +352,8 @@ if [ "$compositor" != another ]; then
 	eventually "it opens as a window of the compositor's" 10 has_title "Prism Launcher"
 	"$PRISM" launcher
 	eventually "and is put away by being asked for" 10 has_no_title "Prism Launcher"
+	rm "$XDG_CONFIG_HOME/prism/preferences.json"
+	sleep 1
 fi
 
 [ "$failed" -eq 0 ] && echo && echo PASSED

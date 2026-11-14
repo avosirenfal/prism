@@ -63,6 +63,7 @@ import prism.launcher.launcherBindings
 import prism.preferences.DateFormat
 import prism.preferences.Typography
 import prism.preferences.WindowKind
+import prism.window.Backdrop
 import prism.window.Graphics
 import prism.window.GraphicsReport
 import prism.window.Keyboard
@@ -220,6 +221,15 @@ fun ExplorerWindows(explorer: Explorer, palette: Palette, decorated: Boolean) {
 						activation = window.activation,
 						resizable = false,
 						role = role,
+						// Clear behind what it draws, for round corners to show what is behind them, where the user
+						// wants them round; the window says whether it could be, and the launcher is square if not.
+						backdrop =
+							remember {
+								if (preferences.launcher.rounded)
+									Backdrop.Clear
+								else
+									Backdrop.Opaque
+							},
 					) {
 						val native = this.window
 

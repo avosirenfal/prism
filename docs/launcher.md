@@ -70,7 +70,7 @@ say from then on.
 
 | page | what is on it |
 |---|---|
-| Launcher | how wide it is, how many results are in sight before it scrolls, and how large it is drawn; whether files and folders are found at all, and how many are listed (30); whether what else an application can be started to do is found; whether it is shown over every window (a layer surface, where the compositor has them), or as a floating window of the window manager's; whether clicking another window puts it away |
+| Launcher | whether its corners are round ("Round corners", below; on as it starts), how wide it is, how many results are in sight before it scrolls, and how large it is drawn; whether files and folders are found at all, and how many are listed (30); whether what else an application can be started to do is found; whether it is shown over every window (a layer surface, where the compositor has them), or as a floating window of the window manager's; whether clicking another window puts it away |
 | Key bindings | every key above, on the page that binds the explorer's: in groups, found by name or by pressing a key, a chord clicked and the next one pressed taking its place, the × taking it away, the + adding one, Reset for the defaults. A chord another of the launcher's actions has is taken from it. A key that types (a letter alone) is refused, since it would never get past the field |
 | Applications | each application installed, switched off to leave it out of the launcher (it is still installed, and still opens files) |
 
@@ -127,6 +127,39 @@ manager that tiles takes such a window for a dialog and leaves it floating, in t
 it asked for; niri, sway and Hyprland all do. Its title is "Prism Launcher" (every window of prism's has the app id
 `prism`), for a rule to know it by. `PRISM_WINDOW_LOG=1` has the daemon say which it was, as each is opened.
 
+### Round corners
+
+The launcher's corners are round ("Rounded corners", in its settings under Appearance; `launcher.rounded`, on as it
+starts): a radius of 12, times the size the launcher is drawn at. prism draws them itself, so they are the same on
+every compositor, and nothing of the compositor's has to be configured for them: the window is clear at its corners
+(docs/window.md, "A window that is clear"), and what is behind the launcher shows there.
+
+![The launcher's corner, enlarged: on niri, with the shadow of the rule below](launcher-corner.png)
+
+The line round the launcher is prism's too, and follows the corner. It is drawn as the whole shape filled with the
+line's colour and the launcher's inside laid over it, one line's width in and clipped to a radius one line's width
+less, so the line is as thick round the corner as along the sides, and nothing of the inside (the footer's
+background, the field's) shows past it or through its edge.
+
+Round corners need a window that can be clear, and where it cannot be the launcher is square, whatever the setting
+says, rather than round with black corners:
+
+| where | the launcher's corners |
+|---|---|
+| Wayland, as a layer surface or as a window, drawn either way | round |
+| X11 with a compositing manager (picom, xcompmgr, KWin, Mutter), drawn by OpenGL | round |
+| X11 with a compositing manager, drawn on the CPU | square |
+| X11 with nothing compositing the screen | square |
+| the setting switched off | square |
+
+Whether its window is clear is decided as the launcher is shown, so the setting switched on is seen the next time
+it is shown (switched off, it is square at once).
+
+What a compositor draws round the launcher is drawn round a rectangle unless it is told the shape, so it is worth
+telling it. As a layer surface the launcher has no border, focus ring or title bar of the compositor's at all (they
+are for windows), on niri, sway or any other; only a shadow, if one is asked for. As a window ("Over every window"
+off) it has whatever the compositor gives a floating window.
+
 ### niri
 
 ```kdl
@@ -135,17 +168,20 @@ binds {
 }
 
 // A shadow under the launcher. It is a layer surface, so it is a layer rule that finds it, by its name.
+// The radius is the launcher's own, so the shadow is round where the launcher is: without it the shadow
+// is a rectangle's, and its square corners show past the launcher's round ones.
 layer-rule {
     match namespace="^prism-launcher$"
+    geometry-corner-radius 12
     shadow {
         on
     }
 }
 ```
 
-niri draws the shadow; it does not round a layer surface's corners (a layer rule's `geometry-corner-radius` shapes
-the shadow, and nothing is clipped to it), so the launcher's corners are square until prism draws them round itself
-("Not yet"). With "Over every window" off, the launcher is a window, and a window rule finds it:
+The radius is 12 times the launcher's size in its settings (12 at 100%, 15 at 125%). niri rounds nothing of a layer
+surface itself (`geometry-corner-radius` in a layer rule shapes the shadow only), which is why prism draws the
+corners. With "Over every window" off, the launcher is a window, and a window rule finds it:
 
 ```kdl
 window-rule {
@@ -155,15 +191,30 @@ window-rule {
     shadow {
         on
     }
+    // niri's focus ring and border follow the radius above. The launcher has a line of its own, so they
+    // can as well be left off it:
+    focus-ring {
+        off
+    }
+    border {
+        off
+    }
 }
 ```
+
+Without `geometry-corner-radius`, niri's focus ring (and its border, if you have one on) is drawn square round the
+window, and its corners are seen past the launcher's round ones; with it, the ring follows the launcher's shape.
+Both rules are as `niri validate` accepts them (26.04), and both were looked at on it: the shadow round the layer
+surface, and the ring round the window.
 
 On NixOS with the module (docs/nixos.md), `prism` is on the path and the daemon is the user service `prism.service`,
 so the bind is all there is to add.
 
 ### Others
 
-- sway: `bindsym $mod+space exec prism launcher`
+- sway: `bindsym $mod+space exec prism launcher`. sway draws nothing round a layer surface and has no shadows or
+  round corners of its own, so there is nothing to tell it. Should it draw a border round the launcher as a window
+  ("Over every window" off), `for_window [app_id="^prism$" title="^Prism Launcher$"] border none` takes it off.
 - Hyprland: `bind = SUPER, space, exec, prism launcher`
 - GNOME, KDE: a custom shortcut whose command is `prism launcher`
 
@@ -207,15 +258,25 @@ nothing else with it.
   the session it is run in), looked at by screenshots and typed into as a keyboard would: it is in the overlay layer
   and no window of the compositor's, in the middle of the screen, typed into, Enter starts what was found, the same
   key and Escape put it away, it is drawn over a window that fills the screen, an explorer's window is a window
-  still, and with `overlay` off it is a window. Run on sway 1.9 and on niri 26.04, each with prism drawing on the CPU
-  and with OpenGL.
+  still, and with `overlay` off it is a window. Its corners are read off the screenshots: the pixel at the launcher's
+  very corner is what is behind it (the screen's background, and then the terminal that fills the screen), the pixel
+  just inside is the launcher's, and with `rounded` off the corner is the line's colour. Run on sway 1.9 and on niri
+  26.04, each with prism drawing on the CPU and with OpenGL.
+- `CornersTest`: corners are round only where they are asked for and the window is clear; and the launcher drawn
+  with no display, in both palettes at 1x and 2x: its corners clear, the line unbroken along the arc, and every pixel
+  that is partly clear the line's colour and nothing else's (no rim of the inside past the line).
+- By hand, under Xvfb: with nothing compositing, the launcher is square and its corner the line's colour, not
+  black; with xcompmgr, it is round drawn by OpenGL (the corner is xcompmgr's background) and square drawn on the
+  CPU.
 
 ## Not yet
 
-- **Round corners, and a click outside.** A layer surface is exactly as large as the launcher, and opaque: its
-  corners are square, and a click beside it is another surface's. Drawn larger than it looks, with what is around it
-  clear (a window with an alpha channel, which neither of prism's ways of drawing asks for yet), it would have round
-  corners and a shadow of its own on every compositor, and would see the click that should put it away.
+- **A shadow of its own, and a click outside.** A layer surface is exactly as large as the launcher: a shadow is the
+  compositor's to draw (niri's rule, above), and a click beside it is another surface's. Now that its window can be
+  clear, the launcher drawn larger than it looks, with what is around it clear, would have a shadow of its own on
+  every compositor, and would see the click that should put it away.
+- **Round on X11 drawn on the CPU**, and on macOS and Windows: a window there cannot be clear yet (docs/window.md,
+  "Not yet"), so the launcher is square.
 - **Kept warm.** The window is made each time it is shown; kept hidden between, it would be there sooner still.
 - **More to find.** A calculator, windows to switch to, the clipboard's history: what Vicinae and Raycast do beyond
   applications and files.

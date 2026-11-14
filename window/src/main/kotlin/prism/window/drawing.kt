@@ -24,10 +24,13 @@ import org.lwjgl.opengl.GL
 import org.lwjgl.opengl.GL11
 import org.lwjgl.opengl.GL30
 import org.lwjgl.opengl.GLCapabilities
+import org.lwjgl.sdl.SDLPixels.SDL_PIXELFORMAT_ARGB8888
 import org.lwjgl.sdl.SDLVideo.SDL_CreateWindow
 import org.lwjgl.sdl.SDLVideo.SDL_DestroyWindow
+import org.lwjgl.sdl.SDLVideo.SDL_GL_ALPHA_SIZE
 import org.lwjgl.sdl.SDLVideo.SDL_GL_CreateContext
 import org.lwjgl.sdl.SDLVideo.SDL_GL_DestroyContext
+import org.lwjgl.sdl.SDLVideo.SDL_GL_GetAttribute
 import org.lwjgl.sdl.SDLVideo.SDL_GL_MakeCurrent
 import org.lwjgl.sdl.SDLVideo.SDL_GL_STENCIL_SIZE
 import org.lwjgl.sdl.SDLVideo.SDL_GL_SetAttribute
@@ -38,6 +41,7 @@ import org.lwjgl.sdl.SDLVideo.SDL_UpdateWindowSurface
 import org.lwjgl.sdl.SDLVideo.SDL_WINDOW_HIDDEN
 import org.lwjgl.sdl.SDLVideo.SDL_WINDOW_OPENGL
 import org.lwjgl.sdl.SDLVideo.nSDL_GL_GetProcAddress
+import org.lwjgl.system.MemoryStack
 import org.lwjgl.system.MemoryUtil
 
 /*
@@ -137,6 +141,9 @@ private fun probe(): OpenGl {
 
 /** A window's pixels, made frame by frame. */
 internal sealed interface Pixels : AutoCloseable {
+	/** Whether the pixels have an alpha channel the platform is given: what a clear window's must (backdrop.kt). */
+	val alpha: Boolean
+
 	/** A frame of [width] by [height] pixels drawn by [draw] and put on the screen; false where it could not be. */
 	fun frame(width: Int, height: Int, draw: (Canvas) -> Unit): Boolean
 
@@ -162,6 +169,7 @@ internal sealed interface Pixels : AutoCloseable {
 		/** LWJGL's table of the context's functions, which it keeps per thread and is told to use. */
 		private val functions: GLCapabilities,
 		private val skia: DirectContext,
+		override val alpha: Boolean,
 	) : Pixels {
 		private var target: Pair<BackendRenderTarget, Surface>? = null
 		private var size = 0 to 0
@@ -238,10 +246,28 @@ internal sealed interface Pixels : AutoCloseable {
 			private const val STENCIL_BITS = 8
 			private const val GL_RGBA8 = 0x8058
 
-			/** OpenGL's attributes, set before any window of OpenGL's is made: a stencil, which Skia clips with. */
-			fun configure() {
+			private const val ALPHA_BITS = 8
+
+			/**
+			 * OpenGL's attributes, set before a window of OpenGL's is made: a stencil, which Skia clips with, and, for
+			 * a window that is to be clear, an [alpha] channel in its framebuffer. They are SDL's for every window made
+			 * after, so a window that asks for alpha says so as it is made and takes it back once it is.
+			 */
+			fun configure(alpha: Boolean = false) {
 				SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, STENCIL_BITS)
+				SDL_GL_SetAttribute(SDL_GL_ALPHA_SIZE, if (alpha) ALPHA_BITS else 0)
 			}
+
+			/** How many bits of alpha the framebuffer of the context now current has, as OpenGL was configured. */
+			private fun alphaBits(): Int =
+				MemoryStack.stackPush().use { stack ->
+					val bits = stack.mallocInt(1)
+
+					if (SDL_GL_GetAttribute(SDL_GL_ALPHA_SIZE, bits))
+						bits[0]
+					else
+						0
+				}
 
 			/** OpenGL for [window] (made for OpenGL), and Skia over it; or why either cannot be had. */
 			fun of(window: Long, video: Video): Made {
@@ -283,7 +309,7 @@ internal sealed interface Pixels : AutoCloseable {
 						)
 					}
 
-				return Made.Drawing(Gpu(window, gl, functions, skia))
+				return Made.Drawing(Gpu(window, gl, functions, skia, alphaBits() > 0))
 			}
 
 			private fun sdlError(): String =
@@ -297,6 +323,13 @@ internal sealed interface Pixels : AutoCloseable {
 	class Cpu(
 		private val window: Long,
 	) : Pixels {
+		/**
+		 * Whether SDL's pixels for the window have an alpha channel: those of a window made transparent whose visual
+		 * has one (X11's of 32 bits), as SDL names their format.
+		 */
+		override val alpha: Boolean =
+			SDL_GetWindowSurface(window)?.format() == SDL_PIXELFORMAT_ARGB8888
+
 		/** Skia's surface over SDL's pixels, and where those pixels were: the same until SDL makes new ones. */
 		private var surface: Pair<Long, Surface>? = null
 
@@ -314,8 +347,18 @@ internal sealed interface Pixels : AutoCloseable {
 						surface?.second?.close()
 						Surface
 							.makeRasterDirect(
-								// SDL's window pixels are XRGB8888: B, G, R and a byte unused, in memory order.
-								ImageInfo(pixels.w(), pixels.h(), ColorType.BGRA_8888, ColorAlphaType.OPAQUE),
+								// SDL's window pixels are XRGB8888: B, G, R and a byte unused, in memory order; or, for
+								// a window with an alpha channel, ARGB8888, its fourth byte the alpha the colours are
+								// already multiplied by, as what composites it expects.
+								ImageInfo(
+									pixels.w(),
+									pixels.h(),
+									ColorType.BGRA_8888,
+									if (alpha)
+										ColorAlphaType.PREMUL
+									else
+										ColorAlphaType.OPAQUE,
+								),
 								address,
 								pixels.pitch(),
 							).also { surface = key to it }

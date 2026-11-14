@@ -210,6 +210,16 @@ private fun GeneralPage(
 						tag = "launcher-rows",
 					) { step -> changed { copy(rows = rows + step) } }
 				}
+				SettingRow(
+					"Rounded corners",
+					description =
+						"Round, where what is behind the launcher can show at them: on Wayland, and on " +
+							"X11 where something composites the screen. Square everywhere else.",
+				) {
+					Switch(set.rounded, Modifier.testTag("launcher-rounded")) { on ->
+						changed { copy(rounded = on) }
+					}
+				}
 				SettingRow("Size", description = "How large its text and pictures are drawn.") {
 					Stepper(
 						"${(set.scale * 100).roundToInt()} %",

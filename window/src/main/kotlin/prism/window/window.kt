@@ -123,6 +123,7 @@ import org.lwjgl.sdl.SDLVideo.SDL_PROP_WINDOW_CREATE_HEIGHT_NUMBER
 import org.lwjgl.sdl.SDLVideo.SDL_PROP_WINDOW_CREATE_HIGH_PIXEL_DENSITY_BOOLEAN
 import org.lwjgl.sdl.SDLVideo.SDL_PROP_WINDOW_CREATE_OPENGL_BOOLEAN
 import org.lwjgl.sdl.SDLVideo.SDL_PROP_WINDOW_CREATE_TITLE_STRING
+import org.lwjgl.sdl.SDLVideo.SDL_PROP_WINDOW_CREATE_TRANSPARENT_BOOLEAN
 import org.lwjgl.sdl.SDLVideo.SDL_PROP_WINDOW_CREATE_WAYLAND_SURFACE_ROLE_CUSTOM_BOOLEAN
 import org.lwjgl.sdl.SDLVideo.SDL_PROP_WINDOW_CREATE_WIDTH_NUMBER
 import org.lwjgl.sdl.SDLVideo.SDL_PROP_WINDOW_WAYLAND_SURFACE_POINTER
@@ -137,6 +138,7 @@ import org.lwjgl.sdl.SDLVideo.SDL_WINDOW_HIDDEN
 import org.lwjgl.sdl.SDLVideo.SDL_WINDOW_HIGH_PIXEL_DENSITY
 import org.lwjgl.sdl.SDLVideo.SDL_WINDOW_OPENGL
 import org.lwjgl.sdl.SDLVideo.SDL_WINDOW_RESIZABLE
+import org.lwjgl.sdl.SDLVideo.SDL_WINDOW_TRANSPARENT
 import org.lwjgl.sdl.SDL_Event
 import org.lwjgl.system.MemoryStack
 
@@ -165,6 +167,8 @@ class NativeWindow internal constructor(
 	resizable: Boolean = true,
 	/** What it is among the others on the screen: a window as the platform has them, or over them all (role.kt). */
 	role: WindowRole = WindowRole.Normal,
+	/** What is behind what it draws, as it asks: its own, or whatever is behind the window (backdrop.kt). */
+	backdrop: Backdrop = Backdrop.Opaque,
 ) {
 	private val place = at
 	private val sdl: Long
@@ -181,6 +185,13 @@ class NativeWindow internal constructor(
 	 * an overlay where the platform has none, which is then a window in front as far as the platform keeps one there.
 	 */
 	val overlaid: Boolean get() = layer != null
+
+	/**
+	 * What is behind what the window draws, as it turned out: clear only where it asked to be and the platform gave its
+	 * pixels an alpha channel that something blends by. What draws a shape that is not the window's rectangle draws it
+	 * only where this is clear: on an opaque window what is not painted is black.
+	 */
+	val backdrop: Backdrop
 
 	/** The platform this window is on. */
 	val video: Video get() = app.sdl.video
@@ -285,12 +296,18 @@ class NativeWindow internal constructor(
 		val gpu = app.sdl.rendering.onGpu
 		val layers = app.seat()?.layers
 		val surfacing = surfaceFor(role, video, layers?.version, decorated, resizable)
+		val clear = mayBeClear(backdrop, video, X11Compositing::present)
+
+		// A window to be clear is made transparent, for which SDL chooses what has an alpha channel (a visual, an EGL
+		// configuration) and leaves the surface's opaque region unset; OpenGL is asked for alpha only for its making.
+		if (gpu)
+			Pixels.Gpu.configure(alpha = clear)
 
 		// An overlay in the compositor's overlay layer, where it has one and will have this; and a window of the
 		// platform's own otherwise, as an overlay is where there are no layers at all.
 		val layered =
 			(surfacing as? Surfacing.Layer)?.let { asked ->
-				layers?.let { layered(it, asked, title, size, gpu) }
+				layers?.let { layered(it, asked, title, size, gpu, clear) }
 			}
 
 		val looks =
@@ -306,6 +323,7 @@ class NativeWindow internal constructor(
 					SDL_WINDOW_HIGH_PIXEL_DENSITY or SDL_WINDOW_HIDDEN or
 						(if (looks.resizable) SDL_WINDOW_RESIZABLE else 0L) or
 						(if (gpu) SDL_WINDOW_OPENGL else 0L) or
+						(if (clear) SDL_WINDOW_TRANSPARENT else 0L) or
 						(
 							if (looks.decorated)
 								0L
@@ -352,7 +370,8 @@ class NativeWindow internal constructor(
 
 		// Drawn by the CPU: on Wayland into buffers of prism's own, since SDL has none there but through EGL.
 		fun onCpu(): Pixels =
-			(handle as? NativeHandle.Wayland)?.let(WaylandPixels::of) ?: Pixels.Cpu(sdl)
+			(handle as? NativeHandle.Wayland)?.let { WaylandPixels.of(it, opaque = !clear) }
+				?: Pixels.Cpu(sdl)
 
 		val made =
 			if (gpu)
@@ -365,6 +384,19 @@ class NativeWindow internal constructor(
 
 		pixels = made.first
 		drawnOn = made.second
+		if (gpu)
+			Pixels.Gpu.configure(alpha = false)
+		this.backdrop = backdropOf(clear, pixels.alpha)
+		if (backdrop == Backdrop.Clear)
+			Log.say {
+				"window $id: asked to be clear, and is ${this.backdrop.name.lowercase()}" +
+					when {
+						this.backdrop == Backdrop.Clear -> ""
+						!clear && video == Video.X11 -> ": nothing composites this X11 screen"
+						!clear -> ": $video has no clear windows yet"
+						else -> ": its pixels have no alpha channel (${pixels.javaClass.simpleName})"
+					}
+			}
 		// Said whatever the log says: a window that should have been drawn on the GPU and is not costs the CPU dearly.
 		(drawnOn as? Drawn.FellBack)?.let {
 			System.err.println(
@@ -407,6 +439,7 @@ class NativeWindow internal constructor(
 		title: String,
 		size: DpSize,
 		gpu: Boolean,
+		clear: Boolean,
 	): Pair<Long, LayerSurface>? {
 		val properties = SDL_CreateProperties()
 
@@ -422,6 +455,7 @@ class NativeWindow internal constructor(
 			true,
 		)
 		SDL_SetBooleanProperty(properties, SDL_PROP_WINDOW_CREATE_OPENGL_BOOLEAN, gpu)
+		SDL_SetBooleanProperty(properties, SDL_PROP_WINDOW_CREATE_TRANSPARENT_BOOLEAN, clear)
 		SDL_SetStringProperty(properties, SDL_PROP_WINDOW_CREATE_TITLE_STRING, title)
 		SDL_SetNumberProperty(
 			properties,

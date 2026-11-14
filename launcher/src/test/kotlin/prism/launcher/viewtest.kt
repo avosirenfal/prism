@@ -388,7 +388,10 @@ class LauncherViewTest {
 			for ((tone, palette) in listOf("light" to Palette.Light, "dark" to Palette.Dark)) {
 				val png =
 					renderedPng(width.value.toInt(), height.value.toInt(), palette, scale = 2f) {
-						CompositionLocalProvider(LocalIconImages provides images) { LauncherPane(state) }
+						CompositionLocalProvider(LocalIconImages provides images) {
+							// As it is where its window can be clear: the picture is clear at its corners.
+							LauncherPane(state, corners = Corners.Round)
+						}
 					}
 
 				assertTrue(png.size > 10_000, "$name: ${png.size} bytes")

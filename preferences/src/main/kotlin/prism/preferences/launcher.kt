@@ -11,6 +11,12 @@ data class LauncherPreferences(
 	val rows: Int = 9,
 	/** How large it is drawn: 1 is the size every window starts at. */
 	val scale: Float = 1f,
+	/**
+	 * Whether its corners are round, where its window can be clear at them: where what is behind a window shows
+	 * through what it does not paint (a Wayland compositor's surfaces, an X11 screen that is composited). Where it
+	 * cannot be, its corners are square, whatever this says.
+	 */
+	val rounded: Boolean = true,
 	/** Whether files and folders are found too, after the applications, by a search of the index. */
 	val files: Boolean = true,
 	/** The most files a search lists. */

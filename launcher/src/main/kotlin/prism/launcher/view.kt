@@ -30,6 +30,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.onPreviewKeyEvent
@@ -63,6 +64,8 @@ import prism.browser.Space
 import prism.browser.Spinner
 import prism.browser.times
 import prism.preferences.LauncherPreferences
+import prism.window.Backdrop
+import prism.window.LocalNativeWindow
 
 /*
  * The launcher, drawn as Raycast's and Vicinae's are: a field across the top, large, with nothing around it but the
@@ -85,6 +88,10 @@ object LauncherDims {
 	/** The room around the list of results, between the field's rule and the footer's. */
 	val around = Space.s
 
+	/** How round its corners are, where they are round; and how wide the line around it is. */
+	val corner = 12.dp
+	val edge = 1.dp
+
 	/**
 	 * How tall the launcher's window is with [rows] results in sight: the field, the results with a heading's room
 	 * over them, and the footer.
@@ -99,6 +106,23 @@ object LauncherDims {
 
 	private val heading = 36.dp
 }
+
+/** How the launcher's corners are drawn. */
+enum class Corners {
+	Square,
+	Round,
+}
+
+/**
+ * The corners of a launcher whose user wants them as [preferences] say, in a window with [backdrop] behind what it
+ * draws: round only where they are asked for and the window is clear, since the corners of an opaque window are
+ * its own to paint, and what is left unpainted there is black.
+ */
+fun cornersOf(preferences: LauncherPreferences, backdrop: Backdrop): Corners =
+	if (preferences.rounded && backdrop == Backdrop.Clear)
+		Corners.Round
+	else
+		Corners.Square
 
 /**
  * The launcher [session] runs, drawn in a window of its own: its state as it changes, what the user does sent to it,
@@ -133,11 +157,15 @@ fun LauncherView(session: LauncherSession, bindings: Bindings) {
 		}
 	}
 
+	// What is behind the window, as it turned out: its corners are round only where they can be seen through.
+	val backdrop = LocalNativeWindow.current?.backdrop ?: Backdrop.Opaque
+
 	Scaled(state.preferences.scale) {
 		LauncherPane(
 			state,
 			bindings,
 			typed,
+			corners = cornersOf(state.preferences, backdrop),
 			onTyped = {
 				val changed = it.text != typed.text
 
@@ -150,23 +178,43 @@ fun LauncherView(session: LauncherSession, bindings: Bindings) {
 	}
 }
 
-/** The launcher as [state] has it, what is in its field being [typed]: what [LauncherView] draws, and the tests. */
+/**
+ * The launcher as [state] has it, what is in its field being [typed], its [corners] square or round: what
+ * [LauncherView] draws, and the tests.
+ *
+ * The line around it is the colour of its edge filling the whole of its shape, with everything else drawn over that
+ * a line's width in, clipped to the same shape made that much smaller. So the line is exactly as wide all the way
+ * round a corner, nothing of what is inside shows past it, and its outer edge fades into what is behind the window
+ * and into nothing else: a line drawn over the content, both clipped at one edge, would let the content show through
+ * the line's own fading there, as a pale rim.
+ */
 @Composable
 fun LauncherPane(
 	state: LauncherState,
 	bindings: Bindings = launcherBindings(),
 	typed: TextFieldValue = TextFieldValue(state.query, TextRange(state.query.length)),
+	corners: Corners = Corners.Square,
 	onTyped: (TextFieldValue) -> Unit = {},
 	onEvent: (LauncherEvent) -> Unit = {},
 ) {
 	val palette = LocalPalette.current
 	val field = remember { FocusRequester() }
 
+	val (outer, inner) =
+		when (corners) {
+			Corners.Square -> RectangleShape to RectangleShape
+			Corners.Round ->
+				RoundedCornerShape(LauncherDims.corner) to
+					RoundedCornerShape(LauncherDims.corner - LauncherDims.edge)
+		}
+
 	Column(
 		Modifier
 			.fillMaxSize()
+			.background(palette.border, outer)
+			.padding(LauncherDims.edge)
+			.clip(inner)
 			.background(palette.overlay)
-			.border(1.dp, palette.border)
 			.onPreviewKeyEvent { key ->
 				val action =
 					(Chord.of(key)?.let(bindings::action) as? LauncherAction)
