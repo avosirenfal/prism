@@ -8,6 +8,7 @@ import prism.preferences.ActionsFile
 import prism.preferences.AskSpec
 import prism.preferences.PlaceSpec
 import prism.preferences.Preferences
+import prism.preferences.ShowSpec
 import prism.preferences.Spec
 import prism.preferences.WhenSpec
 
@@ -1124,21 +1125,17 @@ data class Actions(
 			installed: (String) -> Boolean,
 		): Reading<PlaceType> {
 			val named = spec.takes.toSet()
+			val list = spec.list
+			// Each way with its command; none, for a way that has none.
+			val ways = spec.ways.map { way -> way.list?.let { way.programs to it } }
 
 			val listing =
 				when {
-					spec.list != null && spec.ways.isNotEmpty() ->
+					list != null && ways.isNotEmpty() ->
 						Reading.Wrong("it says both “list” and “ways”: one or the other")
-					spec.list != null -> Command.read(spec.list!!, named, installed)
-					spec.ways.any { it.list == null } -> Reading.Wrong("each of its ways needs a “list”")
-					spec.ways.isNotEmpty() ->
-						wayOf(
-							spec.ways.map {
-								it.programs to it.list!!
-							},
-							named,
-							installed,
-						)
+					list != null -> Command.read(list, named, installed)
+					null in ways -> Reading.Wrong("each of its ways needs a “list”")
+					ways.isNotEmpty() -> wayOf(ways.filterNotNull(), named, installed)
 					else -> Reading.Wrong("it has no “list”: there is no command to list it by")
 				}
 
@@ -1194,31 +1191,35 @@ data class Actions(
 			installed: (String) -> Boolean,
 		): Reading<UserAction> {
 			val named = namedIn(spec.conditions.within, taken) + spec.ask.keys + TEMP
-			val runs = spec.run != null || spec.ways.isNotEmpty()
+			val run = spec.run
+			val show = spec.show
+			// Each way with its command; none, for a way that has none.
+			val ways = spec.ways.map { way -> way.run?.let { way.programs to it } }
+			val runs = run != null || ways.isNotEmpty()
 
 			val deed: Reading<Deed> =
 				when {
-					runs && spec.show != null ->
+					runs && show != null ->
 						Reading.Wrong(
 							"it says both “run” and “show”: one or the other",
 						)
-					spec.run != null && spec.ways.isNotEmpty() ->
+					run != null && ways.isNotEmpty() ->
 						Reading.Wrong("it says both “run” and “ways”: one or the other")
-					spec.ways.any { it.run == null } -> Reading.Wrong("each of its ways needs a “run”")
+					null in ways -> Reading.Wrong("each of its ways needs a “run”")
 					runs ->
 						(
-							spec.run?.let { Command.read(it, named, installed) }
-								?: wayOf(spec.ways.map { it.programs to it.run!! }, named, installed)
+							run?.let { Command.read(it, named, installed) }
+								?: wayOf(ways.filterNotNull(), named, installed)
 						).then { command ->
 							howOf(spec, named).map { Deed.Run(command, it) }
 						}
-					spec.show != null ->
+					show != null ->
 						if (spec.how.terminal || spec.how.watched ||
 							spec.then != prism.preferences.ThenSpec()
 						)
 							Reading.Wrong("“how” and “then” are said of a command, and this shows somewhere")
 						else
-							showingOf(spec, named, places)
+							showingOf(show, named, places)
 					else ->
 						Reading.Wrong(
 							"it says neither “run” nor “show”: there is nothing for it to do",
@@ -1352,24 +1353,25 @@ data class Actions(
 		}
 
 		private fun showingOf(
-			spec: ActionSpec,
+			show: ShowSpec,
 			named: Set<String>,
 			places: Map<String, PlaceType>,
 		): Reading<Deed> {
-			val show = spec.show!!
+			val shown = show.folder
+			val placed = show.place
 
 			return window(show.within).then { window ->
 				when {
-					show.folder != null && show.place != null ->
+					shown != null && placed != null ->
 						Reading.Wrong("it shows a folder and a place: one or the other")
-					show.folder != null ->
-						Phrase.read(show.folder!!, named).then { folder ->
+					shown != null ->
+						Phrase.read(shown, named).then { folder ->
 							phrase(show.choose, named).map { Deed.Show(Showing.Folder(folder, it), window) }
 						}
-					show.place != null -> {
+					placed != null -> {
 						val place =
-							places[show.place]
-								?: return@then Reading.Wrong("it shows “${show.place}”, which is not a place")
+							places[placed]
+								?: return@then Reading.Wrong("it shows “$placed”, which is not a place")
 						val missing = place.takes - show.with.keys
 						val extra = show.with.keys - place.takes.toSet()
 
@@ -1411,6 +1413,9 @@ data class Actions(
 		): Reading<List<Question>> {
 			val read =
 				ask.map { (name, spec) ->
+					val text = spec.text
+					val folder = spec.folder
+
 					// A question's start cannot be an answer: what was asked is not known until it is.
 					phrase(spec.start, named - ask.keys).then { start ->
 						when {
@@ -1423,10 +1428,10 @@ data class Actions(
 								Reading.Wrong(
 									"“$name” is a placeholder of prism's own: a question needs another name",
 								)
-							spec.text != null && spec.folder != null ->
+							text != null && folder != null ->
 								Reading.Wrong("“$name” asks for text and for a folder: one or the other")
-							spec.text != null -> Reading.Right(Question.Text(name, spec.text!!, start))
-							spec.folder != null -> Reading.Right(Question.Folder(name, spec.folder!!, start))
+							text != null -> Reading.Right(Question.Text(name, text, start))
+							folder != null -> Reading.Right(Question.Folder(name, folder, start))
 							else ->
 								Reading.Wrong(
 									"“$name” asks for nothing: say “text” or “folder”, with what to ask",

@@ -364,17 +364,20 @@ fun load(
 		return Loading.Refused(why)
 	}
 
-	val programs = program.hooks.associateWith { libbpf.program(handle, it.cName, arena) }
-	val missing = programs.filterValues { it == null }.keys.map { it.cName }
+	// Each hook's program in the object, where the object has one: all of them, or the object is not this program's.
+	val programs =
+		program.hooks
+			.mapNotNull { hook ->
+				libbpf.program(handle, hook.cName, arena)?.let { hook to it }
+			}.toMap()
+	val missing = (program.hooks - programs.keys).map { it.cName }
 
 	if (missing.isNotEmpty())
 		return refused(Refusal.NotThisProgram(program, missing))
 
 	val logs = HashMap<Hook, MemorySegment>()
 
-	for ((hook, found) in programs) {
-		val programHandle = found!!
-
+	for ((hook, programHandle) in programs) {
 		if (hook in mismatched)
 			libbpf.skip(programHandle)
 		else
@@ -399,7 +402,7 @@ fun load(
 	val attachments =
 		program.hooks.associateWith { hook ->
 			mismatched[hook]?.let { Attachment.Mismatched(it) }
-				?: when (val linked = libbpf.attach(programs.getValue(hook)!!)) {
+				?: when (val linked = libbpf.attach(programs.getValue(hook))) {
 					is Sys.Ok -> {
 						links[hook] = linked.value
 
