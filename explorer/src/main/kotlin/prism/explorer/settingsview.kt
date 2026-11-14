@@ -150,7 +150,7 @@ fun SettingsView(
 	onClose: () -> Unit,
 	mouseChords: Flow<Chord> = emptyFlow(),
 	terminalPreview: (TerminalChoice, List<String>?) -> TerminalCommand = { _, _ ->
-		TerminalCommand.Failed("a terminal", "there is no desktop")
+		TerminalCommand.Failed("a terminal", "No desktop session is available.")
 	},
 	terminals: TerminalOptions = TerminalOptions.NONE,
 	graphics: GraphicsReport? = null,

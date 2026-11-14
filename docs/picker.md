@@ -419,8 +419,6 @@ nothing typed, and the view draws a window over the picker: a field with a `?` b
 under them, and along the bottom how many matches there are and what the keys do now. Without an index, the window
 says why instead.
 
-![The search's window, with nothing typed](picker-search-empty.png)
-
 **You click the `?`.** That is `ToggledSearchHelp`: how a query is written takes the place of the field and what it
 found, and is not drawn over them: a sentence on how a query is read and a handful of queries, each with what it
 finds (`QueryHelp`, in the index's module beside the language, where a test reads every one of them). A query clicked

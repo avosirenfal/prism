@@ -127,7 +127,7 @@ class JvmFacts(
 		} catch (failed: IOException) {
 			failed.message ?: failed.toString()
 		} catch (unsupported: UnsupportedOperationException) {
-			"this file system has no permissions to change"
+			"This file system doesn't support changing permissions."
 		} catch (denied: SecurityException) {
 			denied.message ?: "not allowed"
 		}

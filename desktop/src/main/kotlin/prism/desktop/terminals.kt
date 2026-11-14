@@ -155,24 +155,19 @@ object Placeholders {
 	/** Why [words] are not a command line saying [FOLDER] once, and [COMMAND] once or ([command] false) never; null where they are. */
 	internal fun wrongIn(words: List<String>, command: Boolean): String? =
 		when {
-			words.isEmpty() -> "it is empty"
-			words.count {
-				FOLDER in it
-			} != 1 -> "it says $FOLDER ${if (words.none { FOLDER in it })
-				"nowhere"
-			else
-				"more than once"}: once, where the folder goes"
-			words.any {
-				COMMAND in it && it != COMMAND
-			} -> "$COMMAND is a word of its own: a command's words take its place"
-			!command && COMMAND in words ->
-				"it says $COMMAND, which a terminal opened in a folder is not given"
-			command && words.count {
-				it == COMMAND
-			} != 1 -> "it says $COMMAND ${if (COMMAND !in words)
-				"nowhere"
-			else
-				"more than once"}: once, where a command's words go"
+			words.isEmpty() -> "The command line is empty."
+			words.count { FOLDER in it } != 1 ->
+				if (words.none { FOLDER in it })
+					"Add $FOLDER where the folder goes."
+				else
+					"Use $FOLDER only once."
+			words.any { COMMAND in it && it != COMMAND } -> "$COMMAND must be a separate word."
+			!command && COMMAND in words -> "$COMMAND can't be used when opening a folder."
+			command && words.count { it == COMMAND } != 1 ->
+				if (COMMAND !in words)
+					"Add $COMMAND where the command goes."
+				else
+					"Use $COMMAND only once."
 			else -> null
 		}
 }
