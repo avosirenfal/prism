@@ -57,18 +57,56 @@ data class Drive(
 )
 
 /**
- * Where a volume's files are reached: [mounts], each folder it is mounted at, the shortest first (none for a dataset
- * that is not mounted); [name], what it is (a dataset's name, a subvolume's); and how much it [holds] of the volume's
- * space, where that is known of it alone (a ZFS dataset's own use; null for a btrfs subvolume, which shares its file
- * system's). Whatever mounted it (its own tools, the system's mount table, systemd): where the kernel says it is.
+ * Where a volume's files are reached: [name], what it is (a dataset's name, a subvolume's); and how much it [holds] of
+ * the volume's space, where that is known of it alone (a ZFS dataset's own use; null for a btrfs subvolume, which
+ * shares its file system's). It is mounted, at one folder at least, or it is not, and is told of only for the room it
+ * holds: so there is none that is nowhere and holds nothing. Whatever mounted it (its own tools, the system's mount
+ * table, systemd): where the kernel says it is.
  */
-data class Reached(
-	val name: String,
-	val mounts: List<Path>,
-	val holds: Long?,
-) {
+sealed interface Reached {
+	val name: String
+	val holds: Long?
+
 	/** The folder it is first reached at; null where it is not mounted. */
-	val at: Path? get() = mounts.firstOrNull()
+	val at: Path?
+
+	/** Each folder it is mounted at, the shortest first; none where it is not mounted. */
+	val mounts: List<Path>
+
+	/** Mounted: [at] the first of its folders, and [also] at the rest. */
+	data class Mounted(
+		override val name: String,
+		override val at: Path,
+		override val holds: Long?,
+		val also: List<Path> = emptyList(),
+	) : Reached {
+		override val mounts: List<Path> get() = listOf(at) + also
+
+		companion object {
+			/** What is mounted at [folders], the first of them first; null where there are none. */
+			fun of(name: String, folders: List<Path>, holds: Long?): Mounted? =
+				folders.firstOrNull()?.let { Mounted(name, it, holds, folders.drop(1)) }
+		}
+	}
+
+	/** A dataset that is not mounted, which holds room all the same. */
+	data class Unmounted(
+		override val name: String,
+		override val holds: Long,
+	) : Reached {
+		override val at: Path? get() = null
+		override val mounts: List<Path> get() = emptyList()
+	}
+
+	companion object {
+		/**
+		 * What is mounted at [folders], or, where there are none, what holds [holds] unmounted; null for what is
+		 * nowhere and holds nothing, which there is nothing to say of.
+		 */
+		fun of(name: String, folders: List<Path>, holds: Long?): Reached? =
+			Mounted.of(name, folders, holds)
+				?: holds?.takeIf { it > 0 }?.let { Unmounted(name, it) }
+	}
 }
 
 /** Something that takes room in a [Store]: [size] bytes of it. */

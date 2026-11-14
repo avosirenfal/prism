@@ -345,23 +345,38 @@ class LinuxStorage(
 
 	/** A file system on drives of the machine's: where it is first reached, and the partitions and drives under it. */
 	private inner class Local(
-		val mounts: List<Mount>,
+		/** The first of its mounts: what says its type, what was mounted, and how. */
+		val first: Mount,
+		/** Where it is first reached. */
+		val at: Path,
+		/** Where it is reached: its root, and each btrfs subvolume, each at every folder it is mounted at. */
+		val reached: List<Reached.Mounted>,
 		val leaves: Set<String>,
 		val label: String?,
 	) {
-		/** Where it is reached: its root, and each btrfs subvolume, each at every folder it is mounted at. */
-		val reached: List<Reached> =
+		fun part(space: Space?) =
+			Part.Volume(
+				label,
+				first.type,
+				first.source,
+				space,
+				reached,
+				readOnly = readOnly(first),
+			)
+	}
+
+	/** The file system [mounts] are of, on [leaves]: null where it is mounted nowhere, which is no file system here. */
+	private fun localOf(mounts: List<Mount>, leaves: Set<String>, label: String?): Local? {
+		val reached =
 			mounts
 				.filter { it.root == "/" || it.root == it.option("subvol") }
 				.groupBy { it.root }
-				.map { (root, at) ->
+				.mapNotNull { (root, at) ->
 					val folders = foldersOf(at)
 
-					Reached(
-						if (root ==
-							"/"
-						)
-							folders.first().toString()
+					Reached.Mounted.of(
+						if (root == "/")
+							folders.firstOrNull().toString()
 						else
 							root.removePrefix("/"),
 						folders,
@@ -369,22 +384,16 @@ class LinuxStorage(
 					)
 				}.ifEmpty {
 					// Only a folder of it is mounted: that, then, is where it is reached.
-					foldersOf(mounts).let { listOf(Reached(it.first().toString(), it, null)) }
-				}.sortedBy { it.at?.nameCount ?: 0 }
+					foldersOf(mounts).let { folders ->
+						listOfNotNull(
+							Reached.Mounted.of(folders.firstOrNull().toString(), folders, null),
+						)
+					}
+				}.sortedBy { it.at.nameCount }
 
-		val at: Path get() = reached.first().at!!
-
-		fun part(space: Space?) =
-			mounts.first().let { first ->
-				Part.Volume(
-					label,
-					first.type,
-					first.source,
-					space,
-					reached,
-					readOnly = readOnly(first),
-				)
-			}
+		return reached.firstOrNull()?.let { nearest ->
+			mounts.firstOrNull()?.let { Local(it, nearest.at, reached, leaves, label) }
+		}
 	}
 
 	/** The folders [mounts] are at, each once, the shortest first. */
@@ -403,8 +412,8 @@ class LinuxStorage(
 			.mapNotNull { (dev, all) ->
 				val first = all.first()
 
-				// A block device's own number, or, for a file system that numbers its superblock apart (btrfs), its
-				// source's.
+				// A block device's own number, which the kernel's for the file system is where it is on one; or, for
+				// a file system that numbers its superblock apart (btrfs), its source's.
 				val device =
 					blockOf(dev.dev)?.let { dev.dev to it }
 						?: first.source
@@ -429,7 +438,7 @@ class LinuxStorage(
 				)
 					return@mapNotNull null
 
-				Local(all, leaves, udev(number)["ID_FS_LABEL"]?.takeIf { it.isNotBlank() })
+				localOf(all, leaves, udev(number)["ID_FS_LABEL"]?.takeIf { it.isNotBlank() })
 			}
 
 	/** The devices a btrfs on [name] spans, as /sys/fs/btrfs lists them; [name] alone where it does not say. */
@@ -451,7 +460,7 @@ class LinuxStorage(
 				mount.type,
 				mount.source,
 				space,
-				listOf(Reached(mount.at.toString(), listOf(mount.at), null)),
+				listOf(Reached.Mounted(mount.at.toString(), mount.at, null)),
 				readOnly = readOnly(mount),
 			)
 	}
@@ -516,9 +525,9 @@ class LinuxStorage(
 			val (space, reached) =
 				if (top != null)
 					Space(top.used + top.free, top.used, top.free) to
-						datasets
-							.map { Reached(it.name, folders[it.name].orEmpty(), it.used - it.children) }
-							.filter { it.mounts.isNotEmpty() || (it.holds ?: 0) > 0 }
+						datasets.mapNotNull {
+							Reached.of(it.name, folders[it.name].orEmpty(), it.used - it.children)
+						}
 				else
 					measured(mounted.filter { poolOf(it.source) == pool && it.root == "/" })
 
@@ -536,9 +545,12 @@ class LinuxStorage(
 	 * to itself, and the pool's free room is any of theirs (they share it). Snapshots are not counted.
 	 */
 	private fun measured(datasets: List<Mount>): Pair<Space?, List<Reached>> {
-		val bySource = datasets.groupBy { it.source }.mapValues { foldersOf(it.value) }
-		val spaces = spacesOf(bySource.values.map { it.first() })
-		val reached = bySource.map { (name, at) -> Reached(name, at, spaces[at.first()]?.used) }
+		val mounted =
+			datasets
+				.groupBy { it.source }
+				.mapNotNull { (name, mounts) -> Reached.Mounted.of(name, foldersOf(mounts), null) }
+		val spaces = spacesOf(mounted.map { it.at })
+		val reached = mounted.map { it.copy(holds = spaces[it.at]?.used) }
 		val free = spaces.values.maxOfOrNull { it.free } ?: return null to reached
 		val used = reached.sumOf { it.holds ?: 0 }
 

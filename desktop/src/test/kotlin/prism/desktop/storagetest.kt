@@ -392,13 +392,14 @@ class StorageTest {
 		// readable of is left out.
 		assertEquals(
 			listOf(
-				Reached(
+				Reached.Mounted(
 					"tank/media",
-					listOf(Path.of("/tank/media"), Path.of("/srv/share/media")),
+					Path.of("/tank/media"),
 					1540 * gib,
+					listOf(Path.of("/srv/share/media")),
 				),
-				Reached("tank/backups", emptyList(), 650 * gib),
-				Reached("tank", listOf(Path.of("/tank")), 10 * gib),
+				Reached.Unmounted("tank/backups", 650 * gib),
+				Reached.Mounted("tank", Path.of("/tank"), 10 * gib),
 			),
 			pool.reached,
 		)
@@ -427,12 +428,13 @@ class StorageTest {
 		// What each refers to itself; the pool free as any of them says. Snapshots and datasets not mounted unseen.
 		assertEquals(
 			listOf(
-				Reached(
+				Reached.Mounted(
 					"tank/media",
-					listOf(Path.of("/tank/media"), Path.of("/srv/share/media")),
+					Path.of("/tank/media"),
 					1540 * gib,
+					listOf(Path.of("/srv/share/media")),
 				),
-				Reached("tank", listOf(Path.of("/tank")), 9 * gib),
+				Reached.Mounted("tank", Path.of("/tank"), 9 * gib),
 			),
 			pool.reached,
 		)

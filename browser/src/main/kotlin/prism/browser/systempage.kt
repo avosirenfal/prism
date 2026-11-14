@@ -472,17 +472,17 @@ private fun StoreIcon(store: Store) {
  * a mount table is best given); nothing for a store of no drive that has one.
  */
 private fun devlinksOf(store: Store): Menu<BrowserEvent>? {
-	val linked = store.drives.filter { it.link != null }
+	val linked = store.drives.mapNotNull { drive -> drive.link?.let { drive.name to it } }
 
 	return linked.takeIf { it.isNotEmpty() }?.let {
 		menu {
-			for (drive in linked)
+			for ((name, link) in linked)
 				item(
 					if (linked.size == 1)
 						"Copy devlink"
 					else
-						"Copy devlink of ${drive.name}",
-					BrowserEvent.CopiedPaths(listOf(FilePath.of(drive.link!!))),
+						"Copy devlink of $name",
+					BrowserEvent.CopiedPaths(listOf(FilePath.of(link))),
 				)
 		}
 	}
