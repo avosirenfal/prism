@@ -8,6 +8,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import java.time.Instant
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
@@ -89,12 +90,18 @@ class Session(
 	/** How the picker ended, once it has. */
 	val outcome: Deferred<Outcome> get() = ending
 
+	// The state as it last was made, for whatever carries out an effect to read: set before the state's effects are
+	// begun, and there from the first, which [state] is not while this is being made.
+	private val latest = AtomicReference(first.state)
+
 	val state: StateFlow<BrowserState> =
 		inputs
 			.receiveAsFlow()
 			.runningFold(first) { last, input -> step(last.state, input) }
-			.onEach { it.effects.forEach(::perform) }
-			.map { it.state }
+			.onEach {
+				latest.set(it.state)
+				it.effects.forEach(::perform)
+			}.map { it.state }
 			.stateIn(scope, SharingStarted.Eagerly, first.state)
 
 	init {
@@ -290,6 +297,13 @@ class Session(
 			services.answer(asking, ::watching).also {
 				if (it is Answer.TempMade)
 					temps.add(it.folder)
+
+				// A folder's rows, sorted and narrowed as the window now shows a folder's, here where it was read:
+				// left to the first time they are drawn, a large folder is sorted on the windows' thread, which
+				// draws nothing while it does. The listing keeps them; arranged otherwise by then, it arranges again.
+				val read = (it as? Answer.Arrived)?.read as? Listing.Shown
+
+				read?.rows(latest.get().arrangement)?.ready()
 			}
 		} catch (stopped: kotlinx.coroutines.CancellationException) {
 			throw stopped

@@ -363,6 +363,36 @@ class FindTest {
 	}
 
 	@Test
+	fun whatIsReadOfManyResultsLeavesTheirRowsWhereTheyAreAndOneFoundGoneIsTakenAway() {
+		made(*(0..FEW_RESULTS).map { "many/file-%05d.txt".format(it) }.toTypedArray())
+
+		val shown = after(searched(picker(), "file"), BrowserEvent.SearchEntered)
+		val listing = shown.listing as Listing.Found
+		val rows = listing.rows(shown.arrangement)
+		val some = listing.matches.ranks.between(5_000, 5_003)
+		val ids = some.map { RowId.Found(listing.matches, it) }
+		val places = ids.map(rows::indexOf)
+		val there = Stat.Read(null, null)
+
+		// Read, and all there: the same rows in the same places, with what was read of them.
+		val read = listing.knowing(listing.stats.read(some, listOf(there, there, there)), some)
+		val after = read.rows(shown.arrangement)
+
+		assertEquals(rows.size, after.size)
+		assertEquals(places, ids.map(after::indexOf))
+		assertEquals((0 until 20).map(rows::idAt), (0 until 20).map(after::idAt))
+		assertEquals(there, read.stats[some[1]])
+
+		// One found gone: it has no row, and the rest close up.
+		val gone = read.knowing(read.stats.read(some, listOf(Stat.Gone, there, there)), some)
+		val left = gone.rows(shown.arrangement)
+
+		assertEquals(rows.size - 1, left.size)
+		assertNull(left.indexOf(ids[0]))
+		assertEquals(places[1]!! - 1, left.indexOf(ids[1]))
+	}
+
+	@Test
 	fun manyResultsAreReadAsTheyComeIntoSightAndOrderedByWhatTheIndexKnowsBehind() {
 		made(*(0..FEW_RESULTS).map { "many/file-%05d.txt".format(it) }.toTypedArray())
 

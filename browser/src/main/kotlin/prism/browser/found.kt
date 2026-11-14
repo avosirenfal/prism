@@ -190,6 +190,16 @@ class Ranks internal constructor(
 
 	fun <T> map(of: (Rank) -> T): List<T> = List(size) { of(this[it]) }
 
+	/** Whether [holds] of any of them. */
+	inline fun any(holds: (Rank) -> Boolean): Boolean {
+		forEach {
+			if (holds(it))
+				return true
+		}
+
+		return false
+	}
+
 	/** Those [keeps] keeps, in the order they are in. */
 	inline fun filter(keeps: (Rank) -> Boolean): Ranks {
 		val kept = Building(size)

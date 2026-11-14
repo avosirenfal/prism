@@ -389,6 +389,12 @@ sealed class Rows {
 
 	abstract fun indexOf(id: RowId): Int?
 
+	/**
+	 * These rows, with what they are looked up by worked out now, by whoever asks: off the windows' thread, by what
+	 * read a large folder there, where it would otherwise be worked out the first time a row is looked for.
+	 */
+	abstract fun ready(): Rows
+
 	/** The rows, in order, as a list made as it is read. */
 	val list: List<Row> =
 		object : AbstractList<Row>() {
@@ -434,22 +440,40 @@ sealed class Rows {
 
 		override fun indexOf(id: RowId): Int? = positions[id]
 
+		override fun ready(): Rows = also { positions.size }
+
 		override fun toString(): String = "Rows(${rows.map { it.name }})"
 	}
 
 	/** A search's rows: the results at [order]'s ranks, each made from [matches] and [stats] as it is asked for. */
-	class Found(
+	class Found private constructor(
 		private val matches: Matches,
 		private val stats: Stats,
 		private val order: Ranks,
-	) : Rows() {
 		/** Where each result is shown, by its rank; -1 for one not shown. */
-		private val shownAt: IntArray by lazy {
-			IntArray(matches.size) { -1 }.also { at ->
-				for (index in 0 until order.size)
-					at[order[index].at] = index
-			}
-		}
+		private val shown: Lazy<IntArray>,
+	) : Rows() {
+		constructor(matches: Matches, stats: Stats, order: Ranks) : this(
+			matches,
+			stats,
+			order,
+			lazy {
+				IntArray(matches.size) { -1 }.also { at ->
+					for (index in 0 until order.size)
+						at[order[index].at] = index
+				}
+			},
+		)
+
+		private val shownAt: IntArray get() = shown.value
+
+		/**
+		 * The same rows, in the same places, with [stats] known of them: for what was read of some of them since,
+		 * where none was found gone. Nothing is arranged again, and where each is shown is what it was.
+		 */
+		fun knowing(stats: Stats): Found = Found(matches, stats, order, shown)
+
+		override fun ready(): Rows = also { shown.value }
 
 		override val size: Int get() = order.size
 
@@ -485,9 +509,14 @@ sealed class Rows {
  * and nothing outside can see it change.
  */
 internal class Memo<K, V>(
+	/** An answer had already, for the key it is of: what another memo of the same function last kept. */
+	had: Pair<K, V>? = null,
 	private val compute: (K) -> V,
 ) {
-	private val last = AtomicReference<Pair<K, V>?>(null)
+	private val last = AtomicReference(had)
+
+	/** The answer kept, and the key it is for; none, where it has not been asked. */
+	val kept: Pair<K, V>? get() = last.get()
 
 	operator fun invoke(key: K): V =
 		last.get()?.takeIf { it.first == key }?.second
@@ -535,10 +564,12 @@ sealed interface Listing {
 	 *
 	 * A listing is equal only to itself.
 	 */
-	class Found(
+	class Found private constructor(
 		val finding: Finding.Matched,
 		val stats: Stats,
-		val orders: Map<ColumnId, Permutation> = emptyMap(),
+		val orders: Map<ColumnId, Permutation>,
+		/** The rows as a listing these came of last arranged them, where they are these rows still ([knowing]). */
+		arrangedBefore: Pair<Arrangement, Rows.Found>?,
 	) : Listing {
 		val matches: Matches get() = finding.matches
 
@@ -546,9 +577,36 @@ sealed interface Listing {
 		val few: Boolean get() = matches.size <= FEW_RESULTS
 
 		private val sortedBy = Memo<ColumnId, Permutation> { matches.orderedBy(it, stats) }
-		private val arranged = Memo<Arrangement, Rows> { arrange(it) }
+		private val arranged = Memo(arrangedBefore) { arrange(it) }
+
+		constructor(
+			finding: Finding.Matched,
+			stats: Stats,
+			orders: Map<ColumnId, Permutation> = emptyMap(),
+		) : this(finding, stats, orders, null)
 
 		fun rows(arrangement: Arrangement): Rows = arranged(arrangement)
+
+		/**
+		 * These results with [stats] known of them, which is what was known but for [changed]. A million results
+		 * are read a screenful at a time, and each batch read is a new listing: so where no row can have moved (none
+		 * of [changed] was found gone, which takes its row away, and they are too many for their order to be by
+		 * what was read), the rows last arranged are kept as they are, with what is now known of them, and not
+		 * arranged again.
+		 */
+		fun knowing(stats: Stats, changed: Ranks): Found {
+			val moved = few || changed.any { stats[it] == Stat.Gone }
+
+			return Found(
+				finding,
+				stats,
+				orders,
+				arranged.kept.takeUnless { moved }?.let { (arrangement, rows) ->
+					arrangement to
+						rows.knowing(stats)
+				},
+			)
+		}
 
 		/**
 		 * Whether the results can be ordered by [column]: by any, where they are few (all read at once, and ordered as
@@ -582,7 +640,7 @@ sealed interface Listing {
 		 * The rows shown: filtered as a folder's are, then in the arrangement's order (best first, where that is not
 		 * an order these can be had in), folders first.
 		 */
-		private fun arrange(arrangement: Arrangement): Rows {
+		private fun arrange(arrangement: Arrangement): Rows.Found {
 			val sort = (arrangement.order as? Order.By)?.sort
 			val sorted = sort?.let { orderedBy(it.by) }
 			val descending = sort?.ascending == false

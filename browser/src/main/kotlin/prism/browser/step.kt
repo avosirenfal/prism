@@ -628,7 +628,7 @@ private fun BrowserState.stating(ranks: Ranks): Step {
 
 	return Step(
 		copy(
-			listing = Listing.Found(listing.finding, listing.stats.asking(asked), listing.orders),
+			listing = listing.knowing(listing.stats.asking(asked), asked),
 		),
 		asked.chunked(STAT_BATCH).map { Effect.Stat(listing.matches, it) },
 	)
@@ -1130,11 +1130,7 @@ private fun answered(state: BrowserState, answer: Answer): Step =
 					Step(
 						if (listing.matches === answer.matches)
 							state.relisted(
-								Listing.Found(
-									listing.finding,
-									listing.stats.read(answer.ranks, answer.stats),
-									listing.orders,
-								),
+								listing.knowing(listing.stats.read(answer.ranks, answer.stats), answer.ranks),
 							)
 						else
 							state,
@@ -1220,13 +1216,7 @@ private fun BrowserState.broke(asking: Effect.Asking, fault: Fault): Step {
 				?.takeIf { it.matches === asking.matches }
 				?.let {
 					Step(
-						relisted(
-							Listing.Found(
-								it.finding,
-								it.stats.unknown(asking.ranks),
-								it.orders,
-							),
-						),
+						relisted(it.knowing(it.stats.unknown(asking.ranks), asking.ranks)),
 					).said()
 				}
 				?: Step(this)
