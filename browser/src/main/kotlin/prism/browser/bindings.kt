@@ -37,13 +37,13 @@ enum class Scope(
 	Window(null),
 
 	/** The listing's rows: only from the listing. */
-	Listing("from the list"),
+	Listing("in the file list"),
 
 	/** The listing's cursor: from the listing, Shift and Ctrl changing what moving it chooses. */
 	Movement(null),
 
 	/** Whatever has the keyboard first, and the window where it does not use the key. */
-	Leftover("unless a field uses the key"),
+	Leftover("unless a text field uses the key"),
 }
 
 /**
@@ -58,19 +58,19 @@ data class KeyGroup(
 
 /** The groups the browser's own actions are in, in the order they are listed. */
 object KeyGroups {
-	val Places = KeyGroup("Getting around")
-	val Finding = KeyGroup("Finding")
-	val View = KeyGroup("The view")
+	val Places = KeyGroup("Navigation")
+	val Finding = KeyGroup("Search")
+	val View = KeyGroup("View")
 	val Cursor =
 		KeyGroup(
-			"Moving through the list",
-			"Shift chooses as it moves, and Ctrl moves without choosing, whatever key moves it.",
+			"Cursor",
+			"Hold Shift to extend the selection, or Ctrl to move without selecting.",
 		)
-	val Choosing = KeyGroup("Choosing")
-	val Files = KeyGroup("Files and folders")
-	val History = KeyGroup("Undoing")
+	val Choosing = KeyGroup("Selection")
+	val Files = KeyGroup("Files")
+	val History = KeyGroup("History")
 	val Windows = KeyGroup("Windows")
-	val Own = KeyGroup("Your actions", "Each is done to what is chosen, from the list.")
+	val Own = KeyGroup("Custom actions", "Run on the selected items.")
 }
 
 /**
@@ -143,29 +143,29 @@ enum class Action(
 ) : Scoped {
 	Back("Back", Scope.Window, KeyGroups.Places, "Alt+Left", "Mouse Back"),
 	Forward("Forward", Scope.Window, KeyGroups.Places, "Alt+Right", "Mouse Forward"),
-	Up("Folder above", Scope.Window, KeyGroups.Places, "Alt+Up", "Backspace"),
-	EditAddress("Type a path", Scope.Window, KeyGroups.Places, "Ctrl+L", "Alt+D"),
-	SearchFolder("Search this folder", Scope.Window, KeyGroups.Finding, "Ctrl+F", "F3"),
-	SearchIndex("Search everything", Scope.Window, KeyGroups.Finding, "F2"),
-	Refresh("Read again", Scope.Window, KeyGroups.View, "F5", "Ctrl+R"),
-	ToggleHidden("Show hidden files and folders", Scope.Window, KeyGroups.View, "Ctrl+H"),
-	ViewList("View as a list", Scope.Window, KeyGroups.View, "Ctrl+1"),
-	ViewGallery("View as a gallery", Scope.Window, KeyGroups.View, "Ctrl+2"),
-	ZoomIn("Larger", Scope.Window, KeyGroups.View, "Ctrl+Equals", "Ctrl+Plus", "Ctrl+Add"),
-	ZoomOut("Smaller", Scope.Window, KeyGroups.View, "Ctrl+Minus", "Ctrl+Subtract"),
-	ZoomReset("Usual size", Scope.Window, KeyGroups.View, "Ctrl+0", "Ctrl+NumPad0"),
-	MoveUp("Up a row", Scope.Movement, KeyGroups.Cursor, "Up"),
-	MoveDown("Down a row", Scope.Movement, KeyGroups.Cursor, "Down"),
-	MoveLeft("Left, in the gallery", Scope.Movement, KeyGroups.Cursor, "Left"),
-	MoveRight("Right, in the gallery", Scope.Movement, KeyGroups.Cursor, "Right"),
-	PageUp("Up a page", Scope.Movement, KeyGroups.Cursor, "PageUp"),
-	PageDown("Down a page", Scope.Movement, KeyGroups.Cursor, "PageDown"),
-	First("The first row", Scope.Movement, KeyGroups.Cursor, "Home"),
-	Last("The last row", Scope.Movement, KeyGroups.Cursor, "End"),
-	Toggle("Choose, or no longer", Scope.Listing, KeyGroups.Choosing, "Space"),
-	SelectAll("Choose every row", Scope.Listing, KeyGroups.Choosing, "Ctrl+A"),
+	Up("Parent folder", Scope.Window, KeyGroups.Places, "Alt+Up", "Backspace"),
+	EditAddress("Edit location", Scope.Window, KeyGroups.Places, "Ctrl+L", "Alt+D"),
+	SearchFolder("Search in folder", Scope.Window, KeyGroups.Finding, "Ctrl+F", "F3"),
+	SearchIndex("Search everywhere", Scope.Window, KeyGroups.Finding, "F2"),
+	Refresh("Refresh", Scope.Window, KeyGroups.View, "F5", "Ctrl+R"),
+	ToggleHidden("Show hidden files", Scope.Window, KeyGroups.View, "Ctrl+H"),
+	ViewList("List view", Scope.Window, KeyGroups.View, "Ctrl+1"),
+	ViewGallery("Gallery view", Scope.Window, KeyGroups.View, "Ctrl+2"),
+	ZoomIn("Zoom in", Scope.Window, KeyGroups.View, "Ctrl+Equals", "Ctrl+Plus", "Ctrl+Add"),
+	ZoomOut("Zoom out", Scope.Window, KeyGroups.View, "Ctrl+Minus", "Ctrl+Subtract"),
+	ZoomReset("Reset zoom", Scope.Window, KeyGroups.View, "Ctrl+0", "Ctrl+NumPad0"),
+	MoveUp("Move up", Scope.Movement, KeyGroups.Cursor, "Up"),
+	MoveDown("Move down", Scope.Movement, KeyGroups.Cursor, "Down"),
+	MoveLeft("Move left", Scope.Movement, KeyGroups.Cursor, "Left"),
+	MoveRight("Move right", Scope.Movement, KeyGroups.Cursor, "Right"),
+	PageUp("Page up", Scope.Movement, KeyGroups.Cursor, "PageUp"),
+	PageDown("Page down", Scope.Movement, KeyGroups.Cursor, "PageDown"),
+	First("Go to first", Scope.Movement, KeyGroups.Cursor, "Home"),
+	Last("Go to last", Scope.Movement, KeyGroups.Cursor, "End"),
+	Toggle("Toggle selection", Scope.Listing, KeyGroups.Choosing, "Space"),
+	SelectAll("Select all", Scope.Listing, KeyGroups.Choosing, "Ctrl+A"),
 	Cancel(
-		"Cancel, or let go of what is chosen",
+		"Cancel or clear selection",
 		Scope.Leftover,
 		KeyGroups.Choosing,
 		"Escape",
@@ -175,31 +175,31 @@ enum class Action(
 	CopyFiles("Copy", Scope.Listing, KeyGroups.Files, "Ctrl+C"),
 	CutFiles("Cut", Scope.Listing, KeyGroups.Files, "Ctrl+X"),
 	Paste("Paste", Scope.Listing, KeyGroups.Files, "Ctrl+V"),
-	CopyPaths("Copy the paths", Scope.Listing, KeyGroups.Files, "Ctrl+Shift+C"),
+	CopyPaths("Copy path", Scope.Listing, KeyGroups.Files, "Ctrl+Shift+C"),
 	Trash(
-		"Move to the trash (deleting, where a drive has none, once asked)",
+		"Move to trash",
 		Scope.Listing,
 		KeyGroups.Files,
 		"Delete",
 	),
-	Erase("Delete for good, once asked", Scope.Listing, KeyGroups.Files, "Shift+Delete"),
+	Erase("Delete permanently", Scope.Listing, KeyGroups.Files, "Shift+Delete"),
 	NewFolder("New folder", Scope.Window, KeyGroups.Files, "Ctrl+Shift+N"),
 	NewFile("New file", Scope.Window, KeyGroups.Files),
 	Properties("Properties", Scope.Listing, KeyGroups.Files, "Alt+Enter"),
 	ContextMenu(
-		"The menu of what is chosen",
+		"Context menu",
 		Scope.Listing,
 		KeyGroups.Files,
 		"Shift+F10",
 		"ContextMenu",
 	),
-	OpenTerminal("Open a terminal here", Scope.Window, KeyGroups.Files, "Shift+F4"),
+	OpenTerminal("Open terminal here", Scope.Window, KeyGroups.Files, "Shift+F4"),
 	Undo("Undo", Scope.Leftover, KeyGroups.History, "Ctrl+Z"),
 	Redo("Redo", Scope.Leftover, KeyGroups.History, "Ctrl+Shift+Z", "Ctrl+Y"),
 	NewWindow("New window", Scope.Window, KeyGroups.Windows, "Ctrl+N"),
 	Preferences("Preferences", Scope.Window, KeyGroups.Windows, "Ctrl+P"),
 	CloseWindow(
-		"Close the window (a picker: cancel)",
+		"Close window",
 		Scope.Window,
 		KeyGroups.Windows,
 		"Ctrl+W",

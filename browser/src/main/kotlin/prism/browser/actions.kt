@@ -196,21 +196,21 @@ data class Phrase(
 									name,
 									Part.entries.firstOrNull { it.word == part.ifEmpty { null } }
 										?: return Reading.Wrong(
-											"“${match.value}”: there is no “.$part” of a value; there are " +
+											"“${match.value}”: unknown part “.$part”. Available: " +
 												"${Part.entries.mapNotNull { it.word }.joinToString { ".$it" }}",
 										),
 								)
 							Every.entries.any { it.word == name } ->
 								return Reading.Wrong(
-									"“${match.value}” stands for several words, so it must be a word by itself",
+									"“${match.value}” expands to several arguments, so it must be an argument on its own",
 								)
 							else ->
 								return Reading.Wrong(
-									"nothing fills “${match.value}”" +
+									"Unknown placeholder “${match.value}”" +
 										named
 											.takeIf { it.isNotEmpty() }
 											?.let { names ->
-												": the values with names here are ${names.sorted().joinToString { "{$it}" }}"
+												". Available here: ${names.sorted().joinToString { "{$it}" }}"
 											}.orEmpty(),
 								)
 						},
@@ -329,7 +329,7 @@ data class Command(
 
 						programs.firstOrNull(installed)
 							?: return Reading.Wrong(
-								"none of ${programs.joinToString()} is installed",
+								"None of these programs is installed: ${programs.joinToString()}",
 								missing = true,
 							)
 					} ?: word
@@ -340,7 +340,7 @@ data class Command(
 
 		private fun read(words: List<String>, named: Set<String>): Reading<Command> {
 			if (words.isEmpty() || words.first().isBlank())
-				return Reading.Wrong("a command needs a program to run")
+				return Reading.Wrong("The command is empty")
 
 			val read =
 				words.map { word ->
@@ -370,11 +370,13 @@ data class Command(
 							.every.word
 
 					Reading.Wrong(
-						"it names one file at a time ({$one}) and every file at once ({$all}): one or the other",
+						"It uses both {$one} (one file at a time) and {$all} (all files at once). Use one or the other",
 					)
 				}
 				command.needs.size > 1 ->
-					Reading.Wrong("it names files on disk and entries of a place: it cannot be for both")
+					Reading.Wrong(
+						"It uses both files on disk and entries of a place. It can only be for one",
+					)
 				else -> Reading.Right(command)
 			}
 		}
@@ -545,12 +547,12 @@ data class Conditions(
 					null -> Reading.Right(null)
 					else ->
 						of.firstOrNull { word(it) == text }?.let { Reading.Right(it) }
-							?: Reading.Wrong("“$text” is not $what: there are ${of.joinToString { word(it) }}")
+							?: Reading.Wrong("“$text” is not $what. Options: ${of.joinToString { word(it) }}")
 				}
 
-			return one(spec.target, On.entries, On::word, "something a menu is of").then { on ->
-				one(spec.kind, ThingKind.entries, ThingKind::word, "a kind of file").then { kind ->
-					one(spec.count, Count.entries, Count::word, "a count").then { count ->
+			return one(spec.target, On.entries, On::word, "a valid target").then { on ->
+				one(spec.kind, ThingKind.entries, ThingKind::word, "a valid kind").then { kind ->
+					one(spec.count, Count.entries, Count::word, "a valid count").then { count ->
 						(spec.not?.let(::read) ?: Reading.Right(null)).map { not ->
 							Conditions(
 								on = on ?: On.Files,
@@ -1041,7 +1043,7 @@ data class Actions(
 				meant(actionSpecs.filterValues { it.like == null }, "action") {
 					// A place that cannot be listed here is not one to show, which is nothing wrong with the action.
 					if (it.show?.place in unavailable)
-						Reading.Wrong("the place it shows cannot be listed here", missing = true)
+						Reading.Wrong("The place it opens isn't available here", missing = true)
 					else
 						actionOf(it, places, taken, installed)
 				}
@@ -1054,7 +1056,7 @@ data class Actions(
 					"action",
 				) {
 					if (it.like in unavailable)
-						Reading.Wrong("what it is like cannot be run here", missing = true)
+						Reading.Wrong("The action it is based on isn't available here", missing = true)
 					else
 						likeOf(it, plain, taken)
 				}
@@ -1077,16 +1079,16 @@ data class Actions(
 									val out = all.firstOrNull { it.id == id }
 
 									when {
-										out == null -> "its way out, “$id”, is not an action"
+										out == null -> "Its “out” action, “$id”, doesn't exist"
 										out.destination == null ->
-											"its way out, “$id”, must ask for exactly one folder, which a drop gives"
+											"Its “out” action, “$id”, must ask for exactly one folder"
 										(out.deed as? Deed.Run)?.how !is How.Watched ->
-											"its way out, “$id”, must be a command that is watched"
+											"Its “out” action, “$id”, must be a watched command"
 										else -> null
 									}
 								},
 								place.into?.let { id ->
-									"its way in, “$id”, is not an action".takeIf { all.none { it.id == id } }
+									"Its “in” action, “$id”, doesn't exist".takeIf { all.none { it.id == id } }
 								},
 							).firstOrNull()
 
@@ -1117,7 +1119,7 @@ data class Actions(
 				}
 
 			return runnable?.let { Command.read(it.second, named, installed) }
-				?: Reading.Wrong("none of the programs its ways need is installed", missing = true)
+				?: Reading.Wrong("None of the programs it can use is installed", missing = true)
 		}
 
 		private fun placeOf(
@@ -1132,16 +1134,16 @@ data class Actions(
 			val listing =
 				when {
 					list != null && ways.isNotEmpty() ->
-						Reading.Wrong("it says both “list” and “ways”: one or the other")
+						Reading.Wrong("It has both “list” and “ways”. Use one or the other")
 					list != null -> Command.read(list, named, installed)
-					null in ways -> Reading.Wrong("each of its ways needs a “list”")
+					null in ways -> Reading.Wrong("Each of its ways needs a “list”")
 					ways.isNotEmpty() -> wayOf(ways.filterNotNull(), named, installed)
-					else -> Reading.Wrong("it has no “list”: there is no command to list it by")
+					else -> Reading.Wrong("It needs a “list” command")
 				}
 
 			return listing.then { list ->
 				if (list.named)
-					Reading.Wrong("a place is listed whatever is chosen: its command cannot name files")
+					Reading.Wrong("A place's command can't use the selected files")
 				else
 					phrase(spec.title, named).then { title ->
 						phrase(spec.folder, named).then { folder ->
@@ -1149,7 +1151,7 @@ data class Actions(
 								spec.read ?: PlaceRead.Paths.word,
 								PlaceRead.entries,
 								PlaceRead::word,
-								"a way to read",
+								"a valid way to read",
 							).then { read ->
 								window(spec.opens).map { window ->
 									PlaceType(
@@ -1201,11 +1203,11 @@ data class Actions(
 				when {
 					runs && show != null ->
 						Reading.Wrong(
-							"it says both “run” and “show”: one or the other",
+							"It has both “run” and “show”. Use one or the other",
 						)
 					run != null && ways.isNotEmpty() ->
-						Reading.Wrong("it says both “run” and “ways”: one or the other")
-					null in ways -> Reading.Wrong("each of its ways needs a “run”")
+						Reading.Wrong("It has both “run” and “ways”. Use one or the other")
+					null in ways -> Reading.Wrong("Each of its ways needs a “run”")
 					runs ->
 						(
 							run?.let { Command.read(it, named, installed) }
@@ -1217,12 +1219,12 @@ data class Actions(
 						if (spec.how.terminal || spec.how.watched ||
 							spec.then != prism.preferences.ThenSpec()
 						)
-							Reading.Wrong("“how” and “then” are said of a command, and this shows somewhere")
+							Reading.Wrong("“how” and “then” only apply to a command, not to “show”")
 						else
 							showingOf(show, named, places)
 					else ->
 						Reading.Wrong(
-							"it says neither “run” nor “show”: there is nothing for it to do",
+							"It needs a “run” or a “show”",
 						)
 				}
 
@@ -1231,7 +1233,7 @@ data class Actions(
 					questionsOf(spec.ask, named).then { questions ->
 						if (spec.given.isNotEmpty())
 							Reading.Wrong(
-								"“given” answers the questions of an action this is “like”, and it is like none",
+								"“given” is only allowed with “like”",
 							)
 						else
 							keyOf(spec).map { key ->
@@ -1262,21 +1264,21 @@ data class Actions(
 			val base =
 				plain[spec.like]
 					?: return Reading.Wrong(
-						"it is like “${spec.like}”, which is not an action (or is itself like another)",
+						"“like” names “${spec.like}”, which doesn't exist or is itself based on another action",
 					)
 
 			if (spec.run != null || spec.ways.isNotEmpty() || spec.show != null ||
 				spec.ask.isNotEmpty()
 			)
 				return Reading.Wrong(
-					"it is like “${spec.like}”, so what it runs, shows and asks is that action's to say",
+					"It is based on “${spec.like}”, so it can't have its own “run”, “show” or “ask”",
 				)
 
 			val unasked = spec.given.keys - base.questions.map { it.name }.toSet()
 
 			if (unasked.isNotEmpty())
 				return Reading.Wrong(
-					"“${spec.like}” does not ask for ${unasked.joinToString { "“$it”" }}",
+					"“${spec.like}” doesn't ask for ${unasked.joinToString { "“$it”" }}",
 				)
 
 			val named = namedIn(spec.conditions.within, taken)
@@ -1327,9 +1329,9 @@ data class Actions(
 
 			return when {
 				spec.how.terminal && spec.how.watched ->
-					Reading.Wrong("it is run in a terminal and watched: one or the other")
+					Reading.Wrong("It is both run in a terminal and watched. Use one or the other")
 				follows && !spec.how.watched ->
-					Reading.Wrong("“then” follows a command prism watches: say “how”: {“watched”: true}")
+					Reading.Wrong("“then” needs a watched command: add “how”: {“watched”: true}")
 				spec.how.watched ->
 					phrase(spec.then.choose, named).then { choose ->
 						phrase(spec.then.bring?.from, named).then { from ->
@@ -1363,7 +1365,7 @@ data class Actions(
 			return window(show.within).then { window ->
 				when {
 					shown != null && placed != null ->
-						Reading.Wrong("it shows a folder and a place: one or the other")
+						Reading.Wrong("It shows both a folder and a place. Use one or the other")
 					shown != null ->
 						Phrase.read(shown, named).then { folder ->
 							phrase(show.choose, named).map { Deed.Show(Showing.Folder(folder, it), window) }
@@ -1371,19 +1373,19 @@ data class Actions(
 					placed != null -> {
 						val place =
 							places[placed]
-								?: return@then Reading.Wrong("it shows “$placed”, which is not a place")
+								?: return@then Reading.Wrong("It shows “$placed”, which isn't a place")
 						val missing = place.takes - show.with.keys
 						val extra = show.with.keys - place.takes.toSet()
 
 						when {
 							missing.isNotEmpty() ->
 								Reading.Wrong(
-									"“${place.id}” is opened with ${missing.joinToString {
+									"“${place.id}” needs ${missing.joinToString {
 										"“$it”"
-									}}, which it does not give",
+									}}, which isn't given",
 								)
 							extra.isNotEmpty() ->
-								Reading.Wrong("“${place.id}” does not take ${extra.joinToString { "“$it”" }}")
+								Reading.Wrong("“${place.id}” doesn't accept ${extra.joinToString { "“$it”" }}")
 							else -> {
 								val with = show.with.mapValues { (_, text) -> Phrase.read(text, named) }
 
@@ -1402,7 +1404,7 @@ data class Actions(
 							}
 						}
 					}
-					else -> Reading.Wrong("it shows neither a folder nor a place")
+					else -> Reading.Wrong("“show” needs a folder or a place")
 				}
 			}
 		}
@@ -1421,20 +1423,20 @@ data class Actions(
 						when {
 							!Regex("[a-z][A-Za-z0-9_]*").matches(name) ->
 								Reading.Wrong(
-									"“$name” cannot name a value: a name is letters and digits, a small letter first",
+									"“$name” isn't a valid name: use letters and digits, starting with a lowercase letter",
 								)
 							Each.entries.any { it.word == name } || Every.entries.any { it.word == name } ||
 								name == "folder" ->
 								Reading.Wrong(
-									"“$name” is a placeholder of prism's own: a question needs another name",
+									"“$name” is reserved. Choose another name",
 								)
 							text != null && folder != null ->
-								Reading.Wrong("“$name” asks for text and for a folder: one or the other")
+								Reading.Wrong("“$name” asks for both text and a folder. Use one or the other")
 							text != null -> Reading.Right(Question.Text(name, text, start))
 							folder != null -> Reading.Right(Question.Folder(name, folder, start))
 							else ->
 								Reading.Wrong(
-									"“$name” asks for nothing: say “text” or “folder”, with what to ask",
+									"“$name” needs a “text” or “folder” prompt",
 								)
 						}
 					}
@@ -1449,7 +1451,7 @@ data class Actions(
 				null -> Reading.Right(null)
 				else ->
 					Chord.parse(key)?.let { Reading.Right(it) }
-						?: Reading.Wrong("“$key” is not a chord")
+						?: Reading.Wrong("“$key” isn't a valid shortcut")
 			}
 
 		private fun submenuOf(text: String?): List<String> =
@@ -1467,7 +1469,7 @@ data class Actions(
 				null -> Reading.Right(null)
 				"here" -> Reading.Right(false)
 				"window" -> Reading.Right(true)
-				else -> Reading.Wrong("“$text” is not where something opens: “here” or “window”")
+				else -> Reading.Wrong("“$text” must be “here” or “window”")
 			}
 
 		private fun <T> word(
@@ -1477,6 +1479,6 @@ data class Actions(
 			what: String,
 		): Reading<T> =
 			of.firstOrNull { word(it) == text }?.let { Reading.Right(it) }
-				?: Reading.Wrong("“$text” is not $what: there are ${of.joinToString { word(it) }}")
+				?: Reading.Wrong("“$text” is not $what. Options: ${of.joinToString { word(it) }}")
 	}
 }

@@ -1390,15 +1390,15 @@ class StepTest {
 				picker(),
 				Answer.Changed(
 					back,
-					ChangeResult.Failed("“main.kt” isn't in the trash any more."),
+					ChangeResult.Failed("“main.kt” is no longer in the trash."),
 					Doing.Undo(Change.Trash(listOf(home.resolve("main.kt")))),
 				),
 			)
 
 		assertEquals(
 			Notice.Failed(
-				"Couldn't undo the move to the trash",
-				"“main.kt” isn't in the trash any more.",
+				"Couldn't undo move to trash",
+				"“main.kt” is no longer in the trash.",
 			),
 			failed.state.notice,
 		)

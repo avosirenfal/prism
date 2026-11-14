@@ -197,10 +197,10 @@ object PathPatterns {
 
 	private fun levelsOf(pieces: List<String>): List<Segment> =
 		pieces.map {
-			require(it.isNotEmpty()) { "a path's levels are named: “//” has none between" }
+			require(it.isNotEmpty()) { "A path can't contain an empty level (“//”)" }
 			require(
 				it == "**" || "**" !in it,
-			) { "“**” is a whole level, or the start of the last" }
+			) { "“**” must be a whole level, or start the last one" }
 
 			if (it == "**")
 				Segment.AnyLevels
@@ -209,7 +209,7 @@ object PathPatterns {
 		}
 
 	private fun entryOf(last: String, anchors: Anchors): PathPattern.Last.Entry {
-		require(last.isNotEmpty()) { "a path ends with a name, or with “/”" }
+		require(last.isNotEmpty()) { "A path must end with a name or “/”" }
 
 		return PathPattern.Last.Entry(
 			NameMatch(TextPattern.of(last), NamePart.of(last), anchors),

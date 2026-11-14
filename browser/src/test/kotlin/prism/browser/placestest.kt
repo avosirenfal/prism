@@ -332,7 +332,7 @@ class PlacesTest {
 
 		val naming = exploring().choose("Compress ▸ As a .tar.gz…", "src", "README.md")
 
-		assertEquals(Notice.Asking("Name of the archive", "src"), naming.notice)
+		assertEquals(Notice.Asking("Archive name", "src"), naming.notice)
 
 		val made = naming.then(BrowserEvent.AnswerTyped("sources")).then(BrowserEvent.Confirmed)
 
@@ -354,7 +354,7 @@ class PlacesTest {
 			// Nothing in an archive is on disk: what prism does to files is not offered for it.
 			assertNull(top.row("README.md").path)
 			assertEquals(
-				listOf("Open", "Extract to…", "Extract beside the archive") +
+				listOf("Open", "Extract to…", "Extract next to archive") +
 					listOf("Remove from archive").filter { archive.endsWith(".zip") } + "Copy",
 				top.menu("README.md").labels(),
 			)
@@ -405,7 +405,7 @@ class PlacesTest {
 			assertFalse(root.resolve("$into/with space").exists())
 		}
 
-		// "Extract beside the archive" is "Extract to…" with its folder given: nothing is asked.
+		// "Extract next to archive" is "Extract to…" with its folder given: nothing is asked.
 		sh("mkdir away && mv code.zip away/")
 
 		val moved = exploring(root.resolve("away")).viewing("code.zip")
@@ -413,7 +413,7 @@ class PlacesTest {
 		val spaced = moved.then(BrowserEvent.Activated(moved.row("with space").id))
 
 		// An entry is brought out as it is shown: the file itself, and not the folders it sits under in the archive.
-		spaced.choose("Extract beside the archive", "my file.txt")
+		spaced.choose("Extract next to archive", "my file.txt")
 		assertEquals("spaced", root.resolve("away/my file.txt").readText())
 		assertFalse(root.resolve("away/with space").exists())
 	}
@@ -703,11 +703,11 @@ class PlacesTest {
 		assertTrue(all.resolve("top.txt").exists())
 		// What was not made is said, and nothing outside the folder the command worked in is ever taken.
 		assertTrue(
-			"was not there" in delivered(Delivery(from, into, listOf("missing" to "missing")))!!,
+			"wasn't found" in delivered(Delivery(from, into, listOf("missing" to "missing")))!!,
 		)
 		root.resolve("secret").writeText("s")
 		assertTrue(
-			"was not there" in delivered(Delivery(from, into, listOf("../secret" to "secret")))!!,
+			"wasn't found" in delivered(Delivery(from, into, listOf("../secret" to "secret")))!!,
 		)
 		assertFalse(into.resolve("secret").exists())
 	}

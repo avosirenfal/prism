@@ -574,7 +574,7 @@ class InteractionTest {
 			absent(".stash")
 
 			onNodeWithTag("filters").performClick()
-			onNodeWithTag("menu:All kinds").assertIsSelected()
+			onNodeWithTag("menu:All types").assertIsSelected()
 			onNodeWithTag("menu:Images").performClick()
 
 			// Only the images, and the menu closed.
@@ -596,7 +596,7 @@ class InteractionTest {
 			onNodeWithTag("status").assertTextEquals("2 of 9 items")
 
 			// Every kind again, then the hidden folders, apart from the kinds.
-			onNodeWithTag("menu:All kinds").performClick()
+			onNodeWithTag("menu:All types").performClick()
 			noMenu()
 			row("notes.md").assertExists()
 			onNodeWithTag("filters").performClick()
@@ -612,7 +612,7 @@ class InteractionTest {
 	fun aMenuIsWorkedByTheKeyboard() =
 		picking(folder = media()) {
 			onNodeWithTag("filters").performClick()
-			// Down lights All kinds, then Folders; Enter chooses it.
+			// Down lights All types, then Folders; Enter chooses it.
 			press(Key.DirectionDown)
 			press(Key.DirectionDown)
 			press(Key.Enter)
@@ -754,7 +754,7 @@ class InteractionTest {
 			onNodeWithTag("trash-bar").assertExists()
 
 			row("todo.txt").performMouseInput { rightClickName() }
-			onNodeWithTag("menu:Put back").performClick()
+			onNodeWithTag("menu:Restore").performClick()
 			waitUntil(timeoutMillis = TIMEOUT) { work.resolve("todo.txt").exists() }
 			assertEquals("everything", work.resolve("todo.txt").readText())
 		}
@@ -1193,7 +1193,7 @@ class InteractionTest {
 
 			// Undone the latest first: the rename, from the menu, which says what it undoes; then the folder itself.
 			rightClickNowhere()
-			onNodeWithTag("menu:Undo the rename").performClick()
+			onNodeWithTag("menu:Undo rename").performClick()
 			waitUntil(timeoutMillis = TIMEOUT) { work.resolve("New folder").exists() }
 			assertFalse(work.resolve("Archive").exists())
 			ctrl(Key.Z)
@@ -1203,7 +1203,7 @@ class InteractionTest {
 			ctrlShift(Key.Z)
 			waitUntil(timeoutMillis = TIMEOUT) { work.resolve("New folder").exists() }
 			rightClickNowhere()
-			onNodeWithTag("menu:Redo the rename").performClick()
+			onNodeWithTag("menu:Redo rename").performClick()
 			waitUntil(timeoutMillis = TIMEOUT) { work.resolve("Archive").exists() }
 		}
 

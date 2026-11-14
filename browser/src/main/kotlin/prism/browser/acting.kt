@@ -40,7 +40,7 @@ internal fun BrowserState.doing(pending: Pending): Step {
 	if (given.values.any { it == null })
 		return failed(
 			action,
-			"What it is given could not be worked out from what it was chosen for.",
+			"Some of its values couldn't be filled in from the selection.",
 		)
 
 	val answers = given.mapValues { it.value!! } + pending.answers
@@ -125,7 +125,7 @@ private fun BrowserState.done(pending: Pending, filling: Filling): Step {
 		is Deed.Run -> {
 			val runs =
 				deed.command.fill(filling)
-					?: return failed(action, "Something its command names is not there to give it.")
+					?: return failed(action, "Its command uses a value that isn't available here.")
 			val folder = filling.folder ?: home
 			// The values with names are the command's environment too, which is how a script reads them safely.
 			val environment = filling.values + ("folder" to folder.toString())
@@ -144,8 +144,8 @@ private fun BrowserState.done(pending: Pending, filling: Filling): Step {
 					if (!terminal.runsCommands)
 						failed(
 							action,
-							"The terminal chosen in the preferences has no place for a command: its command line says " +
-								"no {command}.",
+							"The terminal set in Preferences can't run commands: its command line has no " +
+								"{command}.",
 						)
 					else
 						Step(
@@ -172,7 +172,7 @@ private fun BrowserState.done(pending: Pending, filling: Filling): Step {
 							if (from == null || into == null)
 								return failed(
 									action,
-									"Where what it makes is brought from, or to, could not be worked out.",
+									"The source or destination of its output couldn't be determined.",
 								)
 
 							Delivery(
@@ -195,7 +195,7 @@ private fun BrowserState.done(pending: Pending, filling: Filling): Step {
 				is Showing.Folder -> {
 					val path =
 						what.path.fill(filling)?.let { pathOf(it, filling.folder, home) }
-							?: return failed(action, "The folder to show could not be worked out.")
+							?: return failed(action, "The folder to open couldn't be determined.")
 
 					if (deed.window == true && choosing is Choosing.Exploring)
 						Step(this, listOf(Effect.Ask(Request.NewWindow(Start.Folder(path)))))
@@ -212,7 +212,7 @@ private fun BrowserState.done(pending: Pending, filling: Filling): Step {
 					val values = what.with.mapValues { (_, phrase) -> phrase.fill(filling) }
 
 					if (values.values.any { it == null })
-						return failed(action, "What the place is opened with could not be worked out.")
+						return failed(action, "The values needed to open the place couldn't be filled in.")
 
 					val placed = Placed(type, values.mapValues { it.value!! })
 
@@ -227,7 +227,7 @@ private fun BrowserState.done(pending: Pending, filling: Filling): Step {
 
 private fun BrowserState.failed(action: UserAction, why: String): Step =
 	Step(
-		copy(pending = null, notice = Notice.Failed("“${action.label}” couldn't be done", why)),
+		copy(pending = null, notice = Notice.Failed("“${action.label}” failed", why)),
 	)
 
 /**

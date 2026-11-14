@@ -186,7 +186,7 @@ internal fun SystemPane(
 							query.isNotBlank() ->
 								EmptyState(
 									Glyph.Search,
-									"Nothing here matches “$query”",
+									"No matches for “$query”",
 									null,
 									Modifier.fillMaxWidth(),
 								)
@@ -303,9 +303,9 @@ private fun nounOf(kind: StoreKind): String =
 /** What a tab of [kind] with nothing in it says of when it would have something. */
 private fun whenNoneOf(kind: StoreKind): String =
 	when (kind) {
-		StoreKind.Internal -> "Nothing mounted here is on a drive this computer has."
-		StoreKind.Removable -> "A USB drive or a card plugged in shows here."
-		StoreKind.Network -> "A share mounted from another computer shows here."
+		StoreKind.Internal -> "No internal drives are mounted."
+		StoreKind.Removable -> "USB drives and memory cards appear here when connected."
+		StoreKind.Network -> "Network shares appear here when mounted."
 	}
 
 /** "4 drives and 2 network shares · 2.4 TB free of 9.6 TB": what the System page shows, together. */
@@ -333,7 +333,7 @@ internal fun overviewOf(storage: Storage): String {
 
 /** What the status line says of the System page: what it shows together, or that it is being read. */
 internal fun statusOf(system: Location.System): String =
-	system.storage?.let(::overviewOf) ?: "Reading…"
+	system.storage?.let(::overviewOf) ?: "Loading…"
 
 private fun counted(count: Int, noun: String): String =
 	if (count ==
@@ -409,9 +409,9 @@ private fun StoreCard(
 				ToolButton(
 					if (folded) Glyph.Chevron else Glyph.ChevronDown,
 					if (folded)
-						"Show what is on it"
+						"Show partitions"
 					else
-						"Show its bar alone",
+						"Hide partitions",
 					enabled = true,
 					Modifier.testTag("fold:${store.key}"),
 					onClick = onFold,
@@ -455,12 +455,12 @@ private fun StoreIcon(store: Store) {
 	when (store.boot) {
 		null -> Icon(palette.textMuted)
 		Boot.Firmware ->
-			Tip("The computer was started from this drive") {
+			Tip("Boot drive") {
 				Icon(palette.folder, Modifier.testTag("booted"))
 			}
 		Boot.Root ->
 			Tip(
-				"The system runs from this drive; where the computer was started from isn't recorded",
+				"System drive (the boot drive isn't recorded)",
 			) {
 				Icon(palette.folder, Modifier.testTag("booted"))
 			}
@@ -479,9 +479,9 @@ private fun devlinksOf(store: Store): Menu<BrowserEvent>? {
 			for ((name, link) in linked)
 				item(
 					if (linked.size == 1)
-						"Copy devlink"
+						"Copy device path"
 					else
-						"Copy devlink of $name",
+						"Copy device path of $name",
 					BrowserEvent.CopiedPaths(listOf(FilePath.of(link))),
 				)
 		}
@@ -543,7 +543,7 @@ internal fun descriptionOf(store: Store): String {
 	if (store.kind == StoreKind.Network)
 		return counted(store.parts.size, "share")
 	if (drives.isEmpty())
-		return "On drives this computer does not show"
+		return "On drives not listed by this computer"
 
 	val sizes = drives.map { sizeOf(it.size) }.distinct()
 
@@ -768,7 +768,7 @@ private fun PartRows(part: Part, color: Color, rowing: Rowing) {
 			PartRow(
 				Swatch.Empty,
 				"Unallocated",
-				"Room on ${part.drive} no partition takes",
+				"Unpartitioned space on ${part.drive}",
 				sizeOf(part.size),
 				null,
 				color,
@@ -978,7 +978,7 @@ private fun amountOf(volume: Part.Volume): String =
 			"${sizeOf(it.used)}, read-only"
 		else
 			"${sizeOf(it.free)} free of ${sizeOf(it.total)}"
-	} ?: "Not answering"
+	} ?: "Not responding"
 
 /** A file system's type as one says it: "Btrfs", "NTFS", "NFS"; as the system names it, where this knows no other. */
 internal fun typeNameOf(type: String): String =

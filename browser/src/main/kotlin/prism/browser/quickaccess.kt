@@ -120,10 +120,8 @@ internal fun QuickAccessLayer(sidebar: Sidebar, onEvent: (BrowserEvent) -> Unit)
 			},
 		) {
 			Text(
-				"What the sidebar shows first, in this order: drag an entry to move it, or several " +
-					"chosen together (a click, and Shift and a click). Prism's own places are " +
-					"hidden by their boxes, and can always be shown again; folders you pinned can be " +
-					"removed. A folder's menu pins it.",
+				"Drag to reorder. Uncheck a built-in place to hide it, or remove a folder you " +
+					"pinned. To pin a folder, use its context menu.",
 				style = type.muted,
 			)
 			// As tall as the window has room for, and scrolled where it has not.
@@ -154,7 +152,7 @@ internal fun QuickAccessLayer(sidebar: Sidebar, onEvent: (BrowserEvent) -> Unit)
 			}
 			Labelled(
 				"Pin a folder",
-				help = "That is not a folder's whole path.".takeIf { folder != null && !pinnable },
+				help = "Enter the full path of a folder.".takeIf { folder != null && !pinnable },
 			) {
 				Row(
 					verticalAlignment = Alignment.CenterVertically,
@@ -241,8 +239,8 @@ private fun EntryLine(
 			val where =
 				when {
 					entry.item == null -> "Not on this computer"
-					entry.item is SidebarItem.Trash -> "Every drive's trash"
-					entry.item is SidebarItem.System -> "Every drive, and how full it is"
+					entry.item is SidebarItem.Trash -> "Deleted items from every drive"
+					entry.item is SidebarItem.System -> "Drives and storage"
 					else -> entry.item.path?.let { tildeOf(it, home) }
 				}
 

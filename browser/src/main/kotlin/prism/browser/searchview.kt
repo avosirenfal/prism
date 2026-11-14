@@ -159,7 +159,7 @@ private fun Unavailable(
 	val type = LocalType.current
 
 	Column(Modifier.padding(Space.l), verticalArrangement = Arrangement.spacedBy(Space.m)) {
-		Text("There is no index to search", style = type.title)
+		Text("Search is unavailable", style = type.title)
 		Text(search.why, style = type.body)
 		ButtonRow(Act("OK", "search-ok", focus = focus) { onEvent(BrowserEvent.ClosedSearch) })
 	}
@@ -206,7 +206,7 @@ private fun Searching(
 			search.text,
 			{ onEvent(BrowserEvent.SearchTyped(it)) },
 			Modifier.weight(1f).testTag("search-query"),
-			hint = "Search everything",
+			hint = "Search everywhere",
 			leading = Glyph.Search,
 			height = tall,
 			focus = field,
@@ -241,12 +241,12 @@ private fun Searching(
 			Said(found.why, type.muted, "search-refused")
 		found is Finding.Failed -> {
 			Said(
-				"The search failed. That is a mistake of prism's, not of what you typed.",
+				"The search failed. This is a bug in prism, not a problem with your query.",
 				type.body.copy(color = palette.dangerText),
 				"search-failed",
 			)
 			Said(
-				"${found.fault.line}. It is said in full in prism's log.",
+				"${found.fault.line}. See prism's log for details.",
 				type.muted,
 				"search-failure",
 			)
@@ -305,7 +305,7 @@ private fun HelpButton(size: androidx.compose.ui.unit.Dp, onClick: () -> Unit) {
 	val hovered by source.collectIsHoveredAsState()
 	val shape = RoundedCornerShape(Radius.medium)
 
-	Tip("How to search") {
+	Tip("Search help") {
 		Box(
 			Modifier
 				.size(size)
@@ -325,7 +325,7 @@ private fun HelpButton(size: androidx.compose.ui.unit.Dp, onClick: () -> Unit) {
 				.clickable(
 					source,
 					indication = null,
-					onClickLabel = "How to search",
+					onClickLabel = "Search help",
 					onClick = onClick,
 				).testTag("search-help"),
 			contentAlignment = Alignment.Center,
@@ -363,7 +363,7 @@ private fun Footer(search: Search.Ready, onEvent: (BrowserEvent) -> Unit) {
 				!search.searchable || matches == null -> ""
 				// Something of prism's own is listed: it is only among files that nothing was found.
 				matches.size == 0 && search.own.isNotEmpty() -> "No files match"
-				matches.size == 0 -> "Nothing matches"
+				matches.size == 0 -> "No matches"
 				matches.size == 1 -> "1 match"
 				else -> "${"%,d".format(matches.size)} matches"
 			},

@@ -477,7 +477,7 @@ class SearchTest {
 		)
 		// ~nowhere/: an alias not defined is said, not taken as nothing
 		assertEquals(
-			Searched.Refused("“~nowhere” is not a folder you have named"),
+			Searched.Refused("No folder alias named “~nowhere”"),
 			index.search(query { +path("~nowhere/") }, named),
 		)
 	}

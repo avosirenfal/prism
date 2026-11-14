@@ -297,7 +297,7 @@ fun Services.answer(
 		is Effect.Terminal ->
 			Answer.Started(
 				desktop?.launcher?.terminal(asking.folder, preferences.preferences.value.terminal)
-					?: Launched.Failed("a terminal", "there is no desktop to start one on"),
+					?: Launched.Failed("a terminal", "No desktop session is available."),
 			)
 		is Effect.ReadClip -> Answer.Clipped(asking.into, clipboard.read(), carried.get())
 		is Effect.ListPlace ->
@@ -332,7 +332,7 @@ fun Services.answer(
 private fun Services.launched(job: Job, terminal: Boolean): Launched {
 	val launcher =
 		desktop?.launcher
-			?: return Launched.Failed(job.label, "there is no desktop to start it on")
+			?: return Launched.Failed(job.label, "No desktop session is available.")
 
 	val started =
 		job.invocations.map { invocation ->
@@ -351,7 +351,7 @@ private fun Services.launched(job: Job, terminal: Boolean): Launched {
 		}
 
 	return started.firstOrNull { it is Launched.Failed } ?: started.lastOrNull()
-		?: Launched.Failed(job.label, "there is nothing to run")
+		?: Launched.Failed(job.label, "The action has no command to run.")
 }
 
 /** The answer to [asking], from this disk, and from [finder] for a search. */
@@ -396,7 +396,7 @@ class JvmDisk(
 					// Only an empty file: what was written into it since would be lost.
 					is Change.RemoveFile -> {
 						if (Files.size(change.path) != 0L)
-							throw IOException("“${change.path.fileName}” has something in it now")
+							throw IOException("“${change.path.fileName}” is no longer empty.")
 						Files.delete(change.path)
 						Change.MakeFile(change.path)
 					}
@@ -499,7 +499,7 @@ class JvmDisk(
 	/** A folder cannot go inside itself. */
 	private fun refuseInto(source: Path, into: Path) {
 		if (into.toAbsolutePath().normalize().startsWith(source.toAbsolutePath().normalize()))
-			throw IOException("“${source.fileName}” can't go inside itself")
+			throw IOException("“${source.fileName}” can't be placed inside itself.")
 	}
 
 	override fun stat(paths: List<Path>): List<Stat> = paths.map(::statOf)
@@ -581,17 +581,17 @@ private fun <T> tried(work: () -> T): Tried<T> =
 	try {
 		Tried.Did(work())
 	} catch (taken: FileAlreadyExistsException) {
-		Tried.Failed("There is already something called “${Path(taken.file).fileName}” here.")
+		Tried.Failed("“${Path(taken.file).fileName}” already exists here.")
 	} catch (gone: NoSuchFileException) {
-		Tried.Failed("“${Path(gone.file).fileName}” isn't there any more.")
+		Tried.Failed("“${Path(gone.file).fileName}” no longer exists.")
 	} catch (denied: AccessDeniedException) {
-		Tried.Failed("You aren't allowed to change “${Path(denied.file).fileName}”.")
+		Tried.Failed("You don't have permission to change “${Path(denied.file).fileName}”.")
 	} catch (full: DirectoryNotEmptyException) {
-		Tried.Failed("“${Path(full.file).fileName}” isn't empty any more.")
+		Tried.Failed("“${Path(full.file).fileName}” is not empty.")
 	} catch (failed: IOException) {
 		Tried.Failed(failed.message ?: failed.toString())
 	} catch (denied: SecurityException) {
-		Tried.Failed(denied.message ?: "Not allowed.")
+		Tried.Failed(denied.message ?: "Permission denied.")
 	}
 
 /** [work] done, answered with what undoes it, or why it was not done. */
@@ -650,7 +650,7 @@ fun listingOf(folder: Path): Listing.Read =
 	} catch (failed: DirectoryIteratorException) {
 		Listing.Unreadable(failed.cause?.message ?: failed.toString())
 	} catch (denied: SecurityException) {
-		Listing.Unreadable(denied.message ?: "not allowed")
+		Listing.Unreadable(denied.message ?: "Permission denied.")
 	}
 
 /** What is at [path], following a link to what it leads to. */

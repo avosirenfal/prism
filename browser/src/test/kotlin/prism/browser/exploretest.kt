@@ -224,7 +224,7 @@ class ExploreTest {
 		assertFalse(root.resolve("report (copy 2).txt").exists())
 		// Named as what the user did: a copy is undone by a move to the trash, but it is still the copy undone.
 		assertEquals(
-			listOf("Undo the copy", "Redo the copy"),
+			listOf("Undo copy", "Redo copy"),
 			labels(contextMenuOf(undone, Target.Folder)).take(2),
 		)
 	}

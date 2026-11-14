@@ -466,7 +466,7 @@ fun wordsOf(hint: Hint, exploring: Boolean): String {
 		}
 
 	return when {
-		hint.spot == DropSpot.Here && !exploring -> "Go to what is dropped"
+		hint.spot == DropSpot.Here && !exploring -> "Go to the dropped item"
 		// Another application's files: what a drop makes of them is known once they are, and where they come from.
 		dropping.transfer == null -> "Drop $what $where"
 		dropping.transfer == Transfer.Copy -> "Copy $what $where"

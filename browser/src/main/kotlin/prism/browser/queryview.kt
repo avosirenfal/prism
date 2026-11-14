@@ -101,7 +101,7 @@ fun QueryHelpPanel(
 			Text(Own.Help.title, style = type.title, modifier = Modifier.weight(1f))
 			ToolButton(
 				Glyph.Close,
-				"Back to the search (Esc)",
+				"Back to search (Esc)",
 				enabled = true,
 				Modifier.testTag("search-help-close"),
 				onClick = onClose,
@@ -133,7 +133,7 @@ fun QueryHelpPanel(
 			verticalAlignment = Alignment.CenterVertically,
 		) {
 			Text(
-				"Click a query to try it",
+				"Click an example to try it",
 				style = type.muted,
 				modifier = Modifier.weight(1f),
 			)

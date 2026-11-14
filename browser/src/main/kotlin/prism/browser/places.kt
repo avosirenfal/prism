@@ -238,7 +238,7 @@ data class Ran(
 		val ended =
 			when (status) {
 				null -> null
-				else -> "It ended with status $status."
+				else -> "Exited with status $status."
 			}
 
 		return listOfNotNull(
@@ -247,7 +247,7 @@ data class Ran(
 			},
 			wrote.ifBlank { null },
 		).joinToString("\n\n")
-			.ifBlank { "It could not be run." }
+			.ifBlank { "The command couldn't be run." }
 	}
 
 	private companion object {
@@ -271,7 +271,7 @@ fun delivered(delivery: Delivery): String? =
 
 				// Only what is under the folder the command worked in: a name that climbs out of it is not followed.
 				if (!made.startsWith(delivery.from) || !Files.exists(made, LinkOption.NOFOLLOW_LINKS))
-					return "“$name” was not there after the command ran."
+					return "“$name” wasn't found after the command ran."
 
 				made to name
 			}
@@ -385,7 +385,7 @@ object ProcessCommands : Commands {
 		}
 
 	/** What a command the user stopped is said to have failed by. */
-	const val STOPPED = "It was stopped."
+	const val STOPPED = "Stopped."
 }
 
 /**
@@ -476,7 +476,7 @@ fun listingOf(
 	val folder =
 		placed.type.folder?.let {
 			it.fill(filling)?.let { text -> pathOf(text, home, home) }
-				?: return PlaceListing.Failed("The folder to list it in could not be worked out.")
+				?: return PlaceListing.Failed("The folder to list couldn't be determined.")
 		} ?: home
 
 	val words =
@@ -484,7 +484,7 @@ fun listingOf(
 			.fill(filling.copy(folder = folder))
 			?.singleOrNull()
 			?: return PlaceListing.Failed(
-				"Its command names something this place was not opened with.",
+				"Its command uses a value this place wasn't opened with.",
 			)
 
 	val ran = commands.run(Invocation(words, folder, placed.values), watch)

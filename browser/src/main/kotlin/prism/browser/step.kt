@@ -1277,24 +1277,24 @@ private fun BrowserState.broke(asking: Effect.Asking, fault: Fault): Step {
 internal fun failingOf(asking: Effect.Asking): String =
 	when (asking) {
 		is Effect.Read -> "Couldn't read “${asking.folder.fileName ?: asking.folder}”"
-		is Effect.Look -> "Couldn't look for what was typed"
+		is Effect.Look -> "Couldn't look up the path"
 		is Effect.Make -> failingOf(asking.change, asking.doing)
 		is Effect.Erase -> "Couldn't delete ${erasedOf(asking.erasing)}"
 		Effect.ReadTrash -> "Couldn't read the trash"
-		Effect.ReadStorage -> "Couldn't read the machine's storage"
+		Effect.ReadStorage -> "Couldn't read this computer's storage"
 		is Effect.Search -> "Couldn't search for “${asking.text}”"
-		is Effect.Stat -> "Couldn't read the results' sizes and dates"
+		is Effect.Stat -> "Couldn't read the sizes and dates of the results"
 		is Effect.Born ->
-			"Couldn't read when what “${asking.folder.fileName ?: asking.folder}” holds was made"
-		is Effect.Order -> "Couldn't put the results in order"
+			"Couldn't read creation dates in “${asking.folder.fileName ?: asking.folder}”"
+		is Effect.Order -> "Couldn't sort the results"
 		is Effect.Open -> "Couldn't open ${countOf(asking.paths)}"
 		is Effect.Terminal -> "Couldn't open a terminal"
-		is Effect.ReadClip -> "Couldn't read what was copied"
-		is Effect.ListPlace -> "Couldn't list “${asking.placed.title}”"
+		is Effect.ReadClip -> "Couldn't read the clipboard"
+		is Effect.ListPlace -> "Couldn't open “${asking.placed.title}”"
 		is Effect.Run -> "“${asking.job.label}” failed"
 		is Effect.Launch -> "Couldn't open ${asking.job.label}"
-		is Effect.Scratch -> "“${asking.pending.action.label}” couldn't be done"
-		is Effect.Temp -> "“${asking.carried.pending.action.label}” couldn't be done"
+		is Effect.Scratch -> "“${asking.pending.action.label}” failed"
+		is Effect.Temp -> "“${asking.carried.pending.action.label}” failed"
 	}
 
 /**
@@ -1797,10 +1797,10 @@ private fun failingOf(change: Change, doing: Doing): String =
 			when (change) {
 				is Change.Rename -> "Couldn't rename “${change.from.fileName}”"
 				is Change.Trash -> "Couldn't move ${countOf(change.paths)} to the trash"
-				is Change.MakeFolder -> "Couldn't make a folder"
-				is Change.PutBack -> "Couldn't put ${countOf(change.originals)} back"
+				is Change.MakeFolder -> "Couldn't create the folder"
+				is Change.PutBack -> "Couldn't restore ${countOf(change.originals)}"
 				is Change.RemoveFolder -> "Couldn't remove “${change.path.fileName}”"
-				is Change.MakeFile -> "Couldn't make a file"
+				is Change.MakeFile -> "Couldn't create the file"
 				is Change.RemoveFile -> "Couldn't remove “${change.path.fileName}”"
 				is Change.Copy -> "Couldn't copy ${countOf(change.sources)}"
 				is Change.Link -> "Couldn't link to ${countOf(change.sources)}"
@@ -1814,16 +1814,16 @@ private fun failingOf(change: Change, doing: Doing): String =
 /** What the user did, [change], in words: what the undo and redo menu items, and a failed undo or redo, name. */
 fun doneBy(change: Change): String =
 	when (change) {
-		is Change.Rename -> "the rename"
-		is Change.Trash -> "the move to the trash"
-		is Change.MakeFolder -> "the new folder"
-		is Change.PutBack -> "putting back"
-		is Change.RemoveFolder -> "removing the folder"
-		is Change.MakeFile -> "the new file"
-		is Change.RemoveFile -> "removing the file"
-		is Change.Copy -> "the copy"
-		is Change.Link -> "the link"
-		is Change.Move, is Change.Relocate -> "the move"
+		is Change.Rename -> "rename"
+		is Change.Trash -> "move to trash"
+		is Change.MakeFolder -> "new folder"
+		is Change.PutBack -> "restore"
+		is Change.RemoveFolder -> "folder removal"
+		is Change.MakeFile -> "new file"
+		is Change.RemoveFile -> "file removal"
+		is Change.Copy -> "copy"
+		is Change.Link -> "link"
+		is Change.Move, is Change.Relocate -> "move"
 	}
 
 /** "“a.txt”" for one path, "3 items" for several: how a change's paths are named in what is said of it. */
@@ -1833,10 +1833,10 @@ fun countOf(paths: List<Path>): String =
 /** Why [name] cannot be a name of an entry, if it cannot. */
 fun refusalOf(name: String): String? =
 	when {
-		'/' in name -> "A name can't have “/” in it."
-		'\u0000' in name -> "A name can't have a NUL character in it."
-		name == "." || name == ".." -> "“$name” is the name of a folder itself, not of an entry in it."
-		name.toByteArray().size > 255 -> "That name is too long."
+		'/' in name -> "A name can't contain “/”."
+		'\u0000' in name -> "A name can't contain a NUL character."
+		name == "." || name == ".." -> "“$name” can't be used as a name."
+		name.toByteArray().size > 255 -> "The name is too long."
 		else -> null
 	}
 

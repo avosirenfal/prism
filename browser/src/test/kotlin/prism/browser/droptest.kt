@@ -99,7 +99,7 @@ class DropTest {
 		)
 		// A picker given files on its listing goes to them.
 		assertEquals(
-			"Go to what is dropped",
+			"Go to the dropped item",
 			wordsOf(Hint(Dropping(1, Transfer.Copy, root), DropSpot.Here), exploring = false),
 		)
 	}

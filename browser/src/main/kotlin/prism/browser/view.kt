@@ -432,7 +432,7 @@ private fun Toolbar(state: BrowserState, stops: Stops, onEvent: (BrowserEvent) -
 		}
 		ToolButton(
 			Glyph.Up,
-			tip("The folder above", Action.Up),
+			tip("Parent folder", Action.Up),
 			state.folder?.parent != null || state.place?.within?.isNotEmpty() == true,
 			Modifier.testTag("up"),
 		) {
@@ -645,7 +645,7 @@ private fun Crumbs(
 	modifier: Modifier,
 	onEvent: (BrowserEvent) -> Unit,
 ) {
-	Bar(Glyph.Folder, modifier.testTag("crumbs"), "Type a path", {
+	Bar(Glyph.Folder, modifier.testTag("crumbs"), "Edit location", {
 		onEvent(BrowserEvent.EditedAddress)
 	}) {
 		Steps(crumbs.size) { index, last ->
@@ -676,7 +676,7 @@ private fun ResultsBar(
 ) {
 	val type = LocalType.current
 
-	Bar(Glyph.Search, modifier.testTag("results"), "Search again", {
+	Bar(Glyph.Search, modifier.testTag("results"), "Edit search", {
 		onEvent(BrowserEvent.EditedSearch(results.text))
 	}) {
 		Text("Search results", style = type.strong, maxLines = 1)
@@ -839,7 +839,7 @@ private fun SidebarPane(
 					if (group.arranged)
 						ToolButton(
 							Glyph.Settings,
-							"Arrange ${group.heading.lowercase()}",
+							"Edit ${group.heading.lowercase()}",
 							enabled = true,
 							Modifier.testTag("arrange-quick-access"),
 							size = type.line + Space.xs,
@@ -1531,8 +1531,8 @@ private fun ListingPane(
 					is Listing.Unreadable ->
 						Message(
 							Glyph.Warning,
-							state.place?.let { "“${it.placed.title}” can't be listed" }
-								?: "This folder can't be opened",
+							state.place?.let { "Can't open “${it.placed.title}”" }
+								?: "Can't open this folder",
 							listing.why,
 						)
 					is Listing.Shown, is Listing.Found ->
@@ -1547,16 +1547,16 @@ private fun ListingPane(
 										else -> Glyph.Filter
 									},
 									when {
-										query.isNotBlank() -> "Nothing here matches “$query”"
-										none && listing is Listing.Found -> "Nothing matches “${listing.finding.text}”"
-										none && state.place != null -> "Nothing is here"
+										query.isNotBlank() -> "No matches for “$query”"
+										none && listing is Listing.Found -> "No results for “${listing.finding.text}”"
+										none && state.place != null -> "Nothing here"
 										none -> "This folder is empty"
-										else -> "Nothing here is shown"
+										else -> "No items shown"
 									},
 									if (none || query.isNotBlank())
 										null
 									else
-										"The filters leave out everything here.",
+										"Everything here is hidden by the filters.",
 								)
 							}
 							gallery ->
@@ -2805,7 +2805,7 @@ private fun statusOf(state: BrowserState): String {
 		found?.let {
 			when (val column = it.pending(state.arrangement.order)) {
 				null -> null
-				else -> "ordering by ${state.kind.labelOf(column).lowercase()}…"
+				else -> "sorting by ${state.kind.labelOf(column).lowercase()}…"
 			}
 		}
 
@@ -2823,7 +2823,7 @@ private fun statusOf(state: BrowserState): String {
 
 	return listOfNotNull(
 		if (state.listing is Listing.Reading)
-			"Reading…"
+			"Loading…"
 		else
 			counted,
 		"$chosen selected".takeIf {
@@ -2857,14 +2857,14 @@ private fun wordsOf(notice: Notice): Words =
 		is Notice.NotAFolder ->
 			Words(
 				"“${notice.text}” is a file",
-				"Choose a folder, or type the path of one.",
+				"Select a folder, or enter a folder's path.",
 				"OK",
 				null,
 			)
 		is Notice.Replace ->
 			Words(
 				"“${notice.path.name}” already exists",
-				"Saving will replace what is in it. Replace it?",
+				"Do you want to replace it? Its current contents will be lost.",
 				"Replace",
 				"Cancel",
 			)
@@ -2872,8 +2872,8 @@ private fun wordsOf(notice: Notice): Words =
 			Words(
 				"Delete ${erasedOf(notice.erasing)} permanently?",
 				listOfNotNull(
-					notice.noTrash?.let { "There is no trash to move it to: $it." },
-					"It can't be put back once it is deleted.",
+					notice.noTrash?.let { "It can't be moved to the trash: $it." },
+					"This can't be undone.",
 				).joinToString(" "),
 				"Delete permanently",
 				"Cancel",
@@ -2881,8 +2881,8 @@ private fun wordsOf(notice: Notice): Words =
 		is Notice.Trouble -> Words(notice.doing, notice.detail, "OK", null)
 		is Notice.NoFolder ->
 			Words(
-				"Search results aren't a folder",
-				"Choose a result to save “${notice.text}” beside, or type a whole path.",
+				"Can't save in search results",
+				"To save “${notice.text}”, select a result to save next to, or enter a full path.",
 				"OK",
 				null,
 			)

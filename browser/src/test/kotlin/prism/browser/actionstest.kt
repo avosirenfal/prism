@@ -166,10 +166,10 @@ class ActionsTest {
 			(Command.read(words.toList(), named) as Reading.Wrong).why
 
 		assertTrue("one or the other" in why("cp", "{path}", "{paths}"))
-		assertTrue("nothing fills “{pth}”" in why("cp", "{pth}"))
-		assertTrue("must be a word by itself" in why("cp", "x{paths}"))
-		assertTrue("cannot be for both" in why("cp", "{paths}", "{entries}"))
-		assertTrue("needs a program" in why())
+		assertTrue("Unknown placeholder “{pth}”" in why("cp", "{pth}"))
+		assertTrue("must be an argument on its own" in why("cp", "x{paths}"))
+		assertTrue("can only be for one" in why("cp", "{paths}", "{entries}"))
+		assertTrue("command is empty" in why())
 		assertTrue("{dest}" in why("cp", "{dst}", named = setOf("dest")))
 	}
 
@@ -177,17 +177,20 @@ class ActionsTest {
 
 	@Test
 	fun anActionRunsOrShowsAndNeverBothOrNeither() {
-		assertTrue("neither" in wrong("""{"id": "a", "label": "A"}"""))
+		assertTrue("needs a “run” or a “show”" in wrong("""{"id": "a", "label": "A"}"""))
 		assertTrue(
 			"both" in
 				wrong("""{"id": "a", "label": "A", "run": ["x"], "show": {"folder": "{parent}"}}"""),
 		)
 		assertTrue(
-			"watches" in
+			"watched command" in
 				wrong("""{"id": "a", "label": "A", "run": ["x"], "then": {"reread": true}}"""),
 		)
 		assertTrue(
-			"not a place" in wrong("""{"id": "a", "label": "A", "show": {"place": "nowhere"}}"""),
+			"isn't a place" in
+				wrong(
+					"""{"id": "a", "label": "A", "show": {"place": "nowhere"}}""",
+				),
 		)
 		// A condition written wrong is said, and not taken for no condition at all.
 		assertTrue(
@@ -195,7 +198,7 @@ class ActionsTest {
 				wrong("""{"id": "a", "label": "A", "run": ["x"], "when": {"typs": ["image/*"]}}"""),
 		)
 		assertTrue(
-			"a count" in
+			"a valid count" in
 				wrong("""{"id": "a", "label": "A", "run": ["x"], "when": {"count": "two"}}"""),
 		)
 	}
@@ -236,7 +239,7 @@ class ActionsTest {
 			"""[{"id": "archive", "takes": ["archive"], "list": ["tar", "-tf", "{archive}"], "read": "names"}]"""
 
 		assertTrue(
-			"nothing fills “{archive}”" in
+			"Unknown placeholder “{archive}”" in
 				wrong("""{"id": "x", "label": "X", "run": ["tar", "-xf", "{archive}"]}""", places),
 		)
 		assertEquals(
@@ -617,13 +620,13 @@ class ActionsTest {
 	fun aLineAskedForIsTypedBeforeAnythingRuns() {
 		val action =
 			action(
-				"""{"id": "z", "label": "Compress", "ask": {"to": {"text": "Name of the archive", "start": "{stem}"}},
+				"""{"id": "z", "label": "Compress", "ask": {"to": {"text": "Archive name", "start": "{stem}"}},
 				"run": ["tar", "-czf", "{to}.tar.gz", "--", "{names}"], "how": {"watched": true}}""",
 			)
 
 		val asked = step(exploring(Actions.NONE), BrowserEvent.Did(action, notes))
 
-		assertEquals(Notice.Asking("Name of the archive", "notes"), asked.state.notice)
+		assertEquals(Notice.Asking("Archive name", "notes"), asked.state.notice)
 		assertEquals(emptyList<Effect>(), asked.effects)
 
 		val typed = step(asked.state, BrowserEvent.AnswerTyped("old notes")).state

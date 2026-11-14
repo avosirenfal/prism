@@ -199,7 +199,7 @@ An action can say several ways of doing what it does, the one to be preferred fi
 
 ```json
 { "id": "compress.zip", "label": "As a .zip…", "submenu": "Compress",
-  "ask": { "to": { "text": "Name of the archive", "start": "{stem}" } },
+  "ask": { "to": { "text": "Archive name", "start": "{stem}" } },
   "ways": [
     { "programs": ["zip"], "run": ["zip", "-q", "-r", "{to}.zip", "--", "{names}"] },
     { "programs": ["7zz|7z|7za"], "run": ["{which:7zz|7z|7za}", "a", "-tzip", "{to}.zip", "--", "{names}"] }
@@ -231,7 +231,7 @@ command the user stopped is not then said to have failed. A window closed while 
 `ask` is questions by name. Each answer is a value with that name, for the command to use.
 
 ```json
-"ask": { "to": { "text": "Name of the archive", "start": "{stem}" } }
+"ask": { "to": { "text": "Archive name", "start": "{stem}" } }
 "ask": { "dest": { "folder": "Extract to", "start": "{folder}" } }
 ```
 
@@ -317,7 +317,7 @@ as held.
 `like` makes an action that does what another does, with some of its questions answered beforehand:
 
 ```json
-{ "id": "archive.zip.extract-beside", "label": "Extract beside the archive",
+{ "id": "archive.zip.extract-beside", "label": "Extract next to archive",
   "when": { "in": ["archive.zip"] },
   "like": "archive.zip.extract", "given": { "dest": "{archive.parent}" } }
 ```
@@ -471,7 +471,7 @@ the format is learnt from:
 
   Opening an archive (a double click, Enter, "Open") opens its window. From the folder it is in: "Extract here",
   "Extract into a folder", "Extract to…", none of which writes over what is there. In its window: "Extract to…" and
-  "Extract beside the archive" on entries, "Extract all to…" on the place, "Remove from archive" (Delete), entries
+  "Extract next to archive" on entries, "Extract all to…" on the place, "Remove from archive" (Delete), entries
   dragged or copied out, files dropped or pasted in. Removing and adding are offered for the kinds, and with the
   programs, in the last column.
 - **Decompress**, for one file compressed by itself and not a tar (`.gz`, `.zst` `.zstd`, `.xz` `.lzma`, `.bz2`,

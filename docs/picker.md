@@ -165,7 +165,7 @@ shown, so turning one on or off moves nothing.
 
 Click "Images", and only the images are shown, and the menu closes: a plain click shows that one kind alone. Open the
 menu again and click "Videos" with **Ctrl** held, and the videos are shown as well as the images, and the menu stays
-open, so that more can be added the same way (or taken away: Ctrl-clicking a ticked kind unticks it). "All kinds"
+open, so that more can be added the same way (or taken away: Ctrl-clicking a ticked kind unticks it). "All types"
 shows everything again. The button shows as pressed while any kind is chosen, and the status line says how much is
 left out ("2 of 9 items").
 
@@ -259,11 +259,11 @@ several chosen rows, and the menu is of all of them, with nothing that takes onl
 Right-click a row that is not chosen, and it is chosen first, alone. Right-click where there is no row, and the menu is
 of the folder: "Sort by" and "View" (each opening a submenu beside it), the two hidden checks, "New folder", "Copy
 path", "Refresh". Once the picker has changed something on disk, the folder's menu starts with "Undo" and "Redo",
-each saying what it will undo or redo: "Undo the rename", "Redo the move to the trash". Shift+F10, or the keyboard's
+each saying what it will undo or redo: "Undo rename", "Redo move to trash". Shift+F10, or the keyboard's
 menu key, opens the same menu at the cursor's row.
 
 "Move to trash", by the menu or the Delete key, moves at once, where there is a trash; "Delete permanently" asks first
-(below, under "Changing what is on disk"). In the trash's own window, a row's menu offers "Put back" and "Delete
+(below, under "Changing what is on disk"). In the trash's own window, a row's menu offers "Restore" and "Delete
 permanently", and the folder's menu "Empty trash".
 
 What makes this easy to grow is that **a menu is data**. Here is the file's menu above as the picker writes it
@@ -520,7 +520,7 @@ goes to it.
 The listing shows a search's results as a folder holding them all would show them. Every filter applies: the kinds,
 hidden files and folders, the application's filter, and the words typed into Ctrl+F's field. The gallery draws them. A
 double click goes into a folder (and Back returns to the results) or opens a file. They are ordered folders first,
-then best first; a column's heading orders them by that column instead, and "Best match" in the folder menu's "Sort
+then best first; a column's heading orders them by that column instead, and "Relevance" in the folder menu's "Sort
 by" puts them back. A column between the name and the date says which folder each is in.
 
 A search can find millions of results, so their rows are not all made at once. `Matches` keeps the index's results (a

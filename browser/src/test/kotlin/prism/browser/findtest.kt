@@ -832,7 +832,7 @@ class FindTest {
 				.map { it.size },
 		)
 		assertEquals(
-			Notice.Broke("Couldn't read the results' sizes and dates", fault),
+			Notice.Broke("Couldn't read the sizes and dates of the results", fault),
 			broke.state.notice,
 		)
 		assertTrue(Fault.MISTAKE in (broke.state.notice as Notice.Trouble).detail)
@@ -880,7 +880,7 @@ class FindTest {
 		val change = Change.MakeFolder(root.resolve("new"))
 		val broke = step(picker(), Answer.Broke(Effect.Make(change), fault))
 
-		assertEquals(Notice.Broke("Couldn't make a folder", fault), broke.state.notice)
+		assertEquals(Notice.Broke("Couldn't create the folder", fault), broke.state.notice)
 		assertEquals(Changes(), broke.state.changes)
 		assertEquals(listOf<Effect>(Effect.Read(root)), broke.effects)
 	}
@@ -961,13 +961,13 @@ class FindTest {
 
 					assertEquals(
 						Notice.Broke(
-							"Couldn't read the results' sizes and dates",
+							"Couldn't read the sizes and dates of the results",
 							Fault.of(IllegalStateException("no such column")),
 						),
 						broke.notice,
 					)
 					assertEquals(
-						listOf("Couldn't read the results' sizes and dates"),
+						listOf("Couldn't read the sizes and dates of the results"),
 						reported.map { it.first },
 					)
 					assertTrue(reported.single().second is IllegalStateException)

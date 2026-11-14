@@ -180,7 +180,7 @@ private fun rowsSlots(
 	if (rows.all { it.item is Item.InTrash })
 		return slots {
 			slot("builtin.put-back") {
-				item("Put back", BrowserEvent.PutBack(ids), id = "builtin.put-back")
+				item("Restore", BrowserEvent.PutBack(ids), id = "builtin.put-back")
 			}
 			slot("builtin.erase") {
 				item(
@@ -227,7 +227,7 @@ private fun rowsSlots(
 				}
 				state.choosing is Choosing.SaveAs ->
 					slot("builtin.save-over") {
-						item("Save over it", BrowserEvent.Picked(row.id), id = "builtin.save-over")
+						item("Replace", BrowserEvent.Picked(row.id), id = "builtin.save-over")
 					}
 				else ->
 					slot("builtin.open") {
@@ -447,19 +447,19 @@ private fun spaceSlots(
 				separator()
 				// Each can be chosen where it would change something: what it would do is asked of the reducer itself.
 				item(
-					"Larger",
+					"Zoom in",
 					BrowserEvent.Zoomed(1),
 					keys = bindings.keys(Action.ZoomIn),
 					enabled = state.changedBy(BrowserEvent.Zoomed(1)),
 				)
 				item(
-					"Smaller",
+					"Zoom out",
 					BrowserEvent.Zoomed(-1),
 					keys = bindings.keys(Action.ZoomOut),
 					enabled = state.changedBy(BrowserEvent.Zoomed(-1)),
 				)
 				item(
-					"Usual size",
+					"Reset zoom",
 					BrowserEvent.Unzoomed,
 					keys = bindings.keys(Action.ZoomReset),
 					enabled = state.changedBy(BrowserEvent.Unzoomed),
@@ -611,7 +611,7 @@ private fun sidebarSlots(
 			unpinning(item)
 			slot("builtin.arrange") {
 				item(
-					"Arrange quick access…",
+					"Edit quick access…",
 					BrowserEvent.ArrangingQuickAccess(true),
 					id = "builtin.arrange",
 				)
@@ -630,7 +630,7 @@ private fun MenuBuilder<BrowserEvent>.sorts(state: BrowserState) {
 	val sort = order.sort
 
 	if (found != null) {
-		radio("Best match", order == Order.Relevance, BrowserEvent.SortedByRelevance)
+		radio("Relevance", order == Order.Relevance, BrowserEvent.SortedByRelevance)
 		separator()
 	}
 	// Each column the listing offers, shown or not: an order is not a column's to be seen in.
@@ -665,7 +665,7 @@ fun filterMenuOf(state: BrowserState): Menu<BrowserEvent> {
 		// A folder picker shows only folders: there are no kinds to choose among.
 		if (!folders) {
 			check(
-				"All kinds",
+				"All types",
 				kinds.isEmpty(),
 				BrowserEvent.ShowedEveryKind,
 				alternate = BrowserEvent.ShowedEveryKind,

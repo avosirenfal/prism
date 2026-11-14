@@ -209,8 +209,8 @@ is **unfinished**; anywhere else, or where no more typing would mend it, it is *
   unclosed, so it is invalid, and the search is for `report` alone.
 
 Every problem has a span, so the text can be marked exactly where it is, and a message saying what is wrong in words:
-"the quote is not closed", "“c” and “i” say opposite things: one or the other", "there is no “foo:”; the modifiers are
-dir:, ext:, type:, is:, recent:, new:, mount:". Where the picker knows the user's aliases (`QueryText.read(text, aliases)`),
+"Missing closing quote", "Use either “c” or “i”, not both", "Unknown modifier “foo:”. Available: dir:, ext:,
+type:, is:, recent:, new:, mount:". Where the picker knows the user's aliases (`QueryText.read(text, aliases)`),
 a `~name` that is not one of them is invalid too; otherwise it is left for the search to refuse.
 
 ### The grammar

@@ -430,8 +430,8 @@ private class Plan(
 		private fun refusal(base: PathBase): Compiled =
 			Compiled.Refused(
 				when (base) {
-					is PathBase.Alias -> "“~${base.name}” is not a folder you have named"
-					else -> "that path is too long to search for"
+					is PathBase.Alias -> "No folder alias named “~${base.name}”"
+					else -> "That path is too long to search for"
 				},
 			)
 

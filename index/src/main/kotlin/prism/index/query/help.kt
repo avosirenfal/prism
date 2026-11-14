@@ -8,9 +8,10 @@ package prism.index.query
  */
 object QueryHelp {
 	const val SUMMARY =
-		"Words are separated by spaces, and a result has to fit every one of them. " +
-			"A plain word is looked for in a name without its extension; " +
-			"a word with a dot in it, in the whole name."
+		"Separate terms with spaces; results match every term. " +
+			"A term without a dot matches the name without its extension, " +
+			"a term starting with a dot matches the extension, " +
+			"and a term with a dot elsewhere matches the whole name."
 
 	/** A query, and what it finds, in a few words. */
 	data class Example(
@@ -20,27 +21,27 @@ object QueryHelp {
 
 	val EXAMPLES: List<Example> =
 		listOf(
-			Example("report", "names with “report” in them, the extension aside"),
-			Example(".pdf", "the extension .pdf, and hidden names that start so"),
-			Example("report .pdf", "both: PDFs with “report” in their names"),
-			Example("^report", "names that start with it"),
-			Example("report$", "names that end with it, the extension aside"),
-			Example("=report", "names that are exactly it, whatever their extension"),
-			Example("img_*.{jpg,png}", "a glob: * is anything, ? one character, {a,b} either"),
-			Example("\"tax return\"", "words with a space between them"),
-			Example("-draft", "not: without “draft” in the name"),
-			Example("~/Documents/", "everything under a folder"),
-			Example("photos/*.jpg", "directly inside any folder named photos"),
-			Example("dir:photos", "anywhere under a folder named photos"),
+			Example("report", "names containing “report” (extension ignored)"),
+			Example(".pdf", "files with the .pdf extension, or hidden files starting with .pdf"),
+			Example("report .pdf", "PDFs with “report” in the name"),
+			Example("^report", "names starting with “report”"),
+			Example("report$", "names ending with “report” (extension ignored)"),
+			Example("=report", "names that are exactly “report”, with any extension"),
+			Example("img_*.{jpg,png}", "wildcards: * any text, ? one character, {a,b} either one"),
+			Example("\"tax return\"", "a phrase containing spaces"),
+			Example("-draft", "exclude names containing “draft”"),
+			Example("~/Documents/", "everything inside a folder"),
+			Example("photos/*.jpg", "JPEGs directly inside any folder named photos"),
+			Example("dir:photos", "anything inside a folder named photos, at any depth"),
 			Example(
 				"type:image",
-				"by kind: ${Group.entries.joinToString(", ") { it.name.lowercase() }}",
+				"by type: ${Group.entries.joinToString(", ") { it.name.lowercase() }}",
 			),
 			Example("is:dir", "folders only"),
-			Example("is:file -is:hidden", "files only, and none of the hidden ones"),
-			Example("new:2d", "what turned up in the last two days"),
-			Example("recent:1w", "what you picked in the last week"),
+			Example("is:file -is:hidden", "files only, excluding hidden ones"),
+			Example("new:2d", "added in the last two days"),
+			Example("recent:1w", "opened with prism in the last week"),
 			Example("r/^img_\\d{4}/", "a regular expression"),
-			Example(Own.WORD, "prism's own: its settings, its key bindings, the system's page"),
+			Example(Own.WORD, "prism's settings, key bindings and System page"),
 		)
 }

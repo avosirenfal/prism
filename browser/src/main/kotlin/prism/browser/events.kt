@@ -707,7 +707,7 @@ sealed interface Task {
 	data class Listing(
 		val placed: prism.browser.Placed,
 	) : Task {
-		override val label: String get() = "Listing ${placed.title}"
+		override val label: String get() = "Loading ${placed.title}"
 	}
 }
 

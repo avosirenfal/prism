@@ -273,7 +273,7 @@ class SystemPageTest {
 				)} free of ${sizeOf(storage.stores.sumOf { it.size })}",
 			overviewOf(storage),
 		)
-		assertEquals("Reading…", statusOf(Location.System()))
+		assertEquals("Loading…", statusOf(Location.System()))
 	}
 
 	@Test
@@ -388,7 +388,7 @@ class SystemPageTest {
 			onNodeWithTag("store:Samsung SSD 980 PRO 1TB").performMouseInput {
 				rightClick(Offset(centerX, 30f))
 			}
-			onNodeWithText("Copy devlink").performClick()
+			onNodeWithText("Copy device path").performClick()
 			assertEquals(
 				BrowserEvent.CopiedPaths(
 					listOf(Path("/dev/disk/by-id/nvme-Samsung_SSD_980_PRO_1TB_S5GXNF0R123456")),
@@ -406,7 +406,7 @@ class SystemPageTest {
 				}
 			}
 
-			onNodeWithText("Not answering").assertExists()
+			onNodeWithText("Not responding").assertExists()
 			// A share that can only be read is full as it was made: said to be read-only, not to have nothing free.
 			onNodeWithText("2.0 TB, read-only").assertExists()
 			onNodeWithTag("system-bar").assertExists()

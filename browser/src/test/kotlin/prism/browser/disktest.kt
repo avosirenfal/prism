@@ -36,7 +36,7 @@ class DiskTest {
 		)
 		assertEquals("a", work.resolve("c.txt").readText())
 		assertEquals(
-			ChangeResult.Failed("There is already something called “b.txt” here."),
+			ChangeResult.Failed("“b.txt” already exists here."),
 			disk.make(Change.Rename(work.resolve("c.txt"), work.resolve("b.txt"))),
 		)
 		assertEquals("b", work.resolve("b.txt").readText())
@@ -52,14 +52,14 @@ class DiskTest {
 		)
 		assertTrue(Files.isDirectory(folder))
 		assertEquals(
-			ChangeResult.Failed("There is already something called “New folder” here."),
+			ChangeResult.Failed("“New folder” already exists here."),
 			disk.make(Change.MakeFolder(folder)),
 		)
 
 		// Undone while something is in it, it is kept: an undo loses nothing.
 		folder.resolve("kept.txt").writeText("kept")
 		assertEquals(
-			ChangeResult.Failed("“New folder” isn't empty any more."),
+			ChangeResult.Failed("“New folder” is not empty."),
 			disk.make(Change.RemoveFolder(folder)),
 		)
 		assertEquals("kept", folder.resolve("kept.txt").readText())
@@ -116,7 +116,7 @@ class DiskTest {
 		// Something of the same name made meanwhile: putting back would replace it, so it is refused.
 		notes.writeText("newer")
 		assertEquals(
-			ChangeResult.Failed("There is already something called “notes.md” here."),
+			ChangeResult.Failed("“notes.md” already exists here."),
 			disk.make(back),
 		)
 		assertEquals("newer", notes.readText())
@@ -128,7 +128,7 @@ class DiskTest {
 		assertFalse(bin.resolve("info/notes.md.trashinfo").exists())
 		// Gone from the trash meanwhile: said so.
 		assertEquals(
-			ChangeResult.Failed("“notes.md” isn't in the trash any more."),
+			ChangeResult.Failed("“notes.md” is no longer in the trash."),
 			disk.make(back),
 		)
 	}
@@ -168,7 +168,7 @@ class DiskTest {
 	@Test
 	fun somethingGoneIsSaidToBeGone() {
 		assertEquals(
-			ChangeResult.Failed("“gone.txt” isn't there any more."),
+			ChangeResult.Failed("“gone.txt” no longer exists."),
 			disk.make(Change.Rename(work.resolve("gone.txt"), work.resolve("x.txt"))),
 		)
 	}

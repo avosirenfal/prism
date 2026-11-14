@@ -148,7 +148,7 @@ class Trash(
 		// An entry is in its folder, whose mount it is moved within; a mount point itself cannot be moved at all.
 		val folder =
 			absolute.parent
-				?: return TrashFor.Nowhere("the top of the file system can't be trashed")
+				?: return TrashFor.Nowhere("the root folder can't be moved to the trash")
 		val mount = mounts.of(folder) ?: return TrashFor.In(Bin.Home(home))
 		val homeMount =
 			generateSequence(home) {
@@ -158,10 +158,12 @@ class Trash(
 		return when {
 			homeMount?.id == mount.id -> TrashFor.In(Bin.Home(home))
 			mount.inMemory ->
-				TrashFor.Nowhere("${mount.at} is kept in memory (${mount.type}), which has no trash")
+				TrashFor.Nowhere(
+					"${mount.at} is an in-memory file system (${mount.type}) with no trash",
+				)
 			mount.type in KERNELS_OWN ->
 				TrashFor.Nowhere(
-					"${mount.at} is the kernel's, which has no trash",
+					"${mount.at} is a system file system with no trash",
 				)
 			else -> topOf(mount.at)
 		}
@@ -191,7 +193,7 @@ class Trash(
 		} catch (elsewhere: AtomicMoveNotSupportedException) {
 			Files.deleteIfExists(record)
 			throw IOException(
-				"“$name” is on another drive than its trash, which only takes what can be moved into it.",
+				"“$name” is on a different drive from its trash.",
 			)
 		} catch (failed: IOException) {
 			Files.deleteIfExists(record)
@@ -206,7 +208,7 @@ class Trash(
 		when (val where = binFor(path)) {
 			is TrashFor.In -> put(path, where.bin)
 			is TrashFor.Nowhere -> throw IOException(
-				"“${path.fileName}” can't be trashed: ${where.why}.",
+				"“${path.fileName}” can't be moved to the trash: ${where.why}.",
 			)
 		}
 
@@ -218,7 +220,7 @@ class Trash(
 		val kept = entry.bin.resolve("files").resolve(entry.name)
 
 		if (!Files.exists(kept, LinkOption.NOFOLLOW_LINKS))
-			throw IOException("“${entry.original.fileName}” isn't in the trash any more.")
+			throw IOException("“${entry.original.fileName}” is no longer in the trash.")
 
 		// An atomic move on Linux replaces what is there without a word, so what is there is looked for first.
 		if (Files.exists(entry.original, LinkOption.NOFOLLOW_LINKS))
@@ -303,18 +305,18 @@ class Trash(
 		return when {
 			Files.isSymbolicLink(
 				own,
-			) -> TrashFor.Nowhere("$own is a link, which a trash must not be")
+			) -> TrashFor.Nowhere("$own is a symbolic link, which can't be used as a trash")
 			Files.isDirectory(own, LinkOption.NOFOLLOW_LINKS) ->
 				if (owned(own))
 					TrashFor.In(Bin.Top(own, top))
 				else
-					TrashFor.Nowhere("$own is another user's")
+					TrashFor.Nowhere("$own belongs to another user")
 			Files.exists(
 				own,
 				LinkOption.NOFOLLOW_LINKS,
 			) -> TrashFor.Nowhere("$own is not a folder")
 			made(own) -> TrashFor.In(Bin.Top(own, top))
-			else -> TrashFor.Nowhere("there is no trash on $top, and prism can't make one there")
+			else -> TrashFor.Nowhere("$top has no trash, and one can't be created there")
 		}
 	}
 

@@ -144,7 +144,7 @@ fun <T> List<T>.inOrderOf(arrangement: List<Placed>, idOf: (T) -> String?): List
 data class Builtin(
 	val id: String,
 	val label: String,
-	/** When it is in a menu that can hold it, where that is not always: "In an explorer", "A folder pinned". */
+	/** When it is in a menu that can hold it, where that is not always: "Explorer only", "A folder pinned". */
 	val note: String? = null,
 )
 
@@ -152,34 +152,34 @@ data class Builtin(
 val BUILTINS: Map<String, Builtin> =
 	listOf(
 		Builtin("builtin.open", "Open"),
-		Builtin("builtin.put-back", "Put back"),
-		Builtin("builtin.open-in-new-window", "Open in new window", "In an explorer"),
-		Builtin("builtin.select-folder", "Select folder", "Choosing a folder"),
-		Builtin("builtin.save-over", "Save over it", "Saving a file"),
-		Builtin("builtin.open-with", "Open with…", "In an explorer"),
-		Builtin("builtin.cut", "Cut", "In an explorer"),
-		Builtin("builtin.copy", "Copy", "In an explorer"),
-		Builtin("builtin.paste-into", "Paste into folder", "In an explorer"),
+		Builtin("builtin.put-back", "Restore"),
+		Builtin("builtin.open-in-new-window", "Open in new window", "Explorer only"),
+		Builtin("builtin.select-folder", "Select folder", "When selecting a folder"),
+		Builtin("builtin.save-over", "Replace", "When saving a file"),
+		Builtin("builtin.open-with", "Open with…", "Explorer only"),
+		Builtin("builtin.cut", "Cut", "Explorer only"),
+		Builtin("builtin.copy", "Copy", "Explorer only"),
+		Builtin("builtin.paste-into", "Paste into folder", "Explorer only"),
 		Builtin("builtin.rename", "Rename"),
 		Builtin("builtin.copy-path", "Copy path"),
-		Builtin("builtin.pin", "Pin to sidebar", "A folder the sidebar does not show"),
-		Builtin("builtin.unpin", "Unpin from sidebar", "Something the sidebar shows"),
-		Builtin("builtin.terminal", "Open terminal here", "In an explorer"),
+		Builtin("builtin.pin", "Pin to sidebar", "Folders not in the sidebar"),
+		Builtin("builtin.unpin", "Unpin from sidebar", "Items in the sidebar"),
+		Builtin("builtin.terminal", "Open terminal here", "Explorer only"),
 		Builtin("builtin.trash", "Move to trash"),
-		Builtin("builtin.erase", "Delete permanently", "In an explorer"),
-		Builtin("builtin.properties", "Properties", "In an explorer"),
-		Builtin("builtin.undo", "Undo", "Where something can be undone"),
-		Builtin("builtin.redo", "Redo", "Where something can be done again"),
-		Builtin("builtin.empty-trash", "Empty trash", "In an explorer"),
-		Builtin("builtin.paste", "Paste", "In an explorer"),
+		Builtin("builtin.erase", "Delete permanently", "Explorer only"),
+		Builtin("builtin.properties", "Properties", "Explorer only"),
+		Builtin("builtin.undo", "Undo", "When there is something to undo"),
+		Builtin("builtin.redo", "Redo", "When there is something to redo"),
+		Builtin("builtin.empty-trash", "Empty trash", "Explorer only"),
+		Builtin("builtin.paste", "Paste", "Explorer only"),
 		Builtin("builtin.sort", "Sort by"),
 		Builtin("builtin.view", "View"),
 		Builtin("builtin.hidden-files", "Show hidden files"),
 		Builtin("builtin.hidden-folders", "Show hidden folders"),
 		Builtin("builtin.new-folder", "New folder"),
-		Builtin("builtin.new-file", "New file", "In an explorer"),
+		Builtin("builtin.new-file", "New file", "Explorer only"),
 		Builtin("builtin.refresh", "Refresh"),
-		Builtin("builtin.arrange", "Arrange quick access…"),
+		Builtin("builtin.arrange", "Edit quick access…"),
 	).associateBy { it.id }
 
 /**

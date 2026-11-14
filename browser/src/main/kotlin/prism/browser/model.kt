@@ -910,11 +910,11 @@ data class Fault private constructor(
 ) {
 	/** What a window says of it: whose mistake it is, the line, and where all of it is. */
 	val said: String
-		get() = "$MISTAKE\n$line. It is said in full in prism's log."
+		get() = "$MISTAKE\n$line. See prism's log for details."
 
 	companion object {
 		const val MISTAKE =
-			"prism itself went wrong: a mistake of prism's, not of anything you did."
+			"Something went wrong in prism. This is a bug in prism, not something you did."
 
 		fun of(failure: Throwable): Fault =
 			Fault(
@@ -1358,7 +1358,7 @@ data class BrowserState(
 				is Location.Folder -> crumbs.last().label
 				is Location.Results -> "results for “${at.finding.text}”"
 				is Location.Place -> at.within.lastOrNull() ?: at.placed.title
-				Location.Trash -> "the trash"
+				Location.Trash -> "Trash"
 				is Location.System -> "System"
 			}
 
@@ -1453,7 +1453,7 @@ data class BrowserState(
 
 	companion object {
 		/** Why a picker opened without an index has no search. */
-		const val NO_INDEX = "This window was opened without an index to search."
+		const val NO_INDEX = "This window was opened without a search index."
 	}
 }
 

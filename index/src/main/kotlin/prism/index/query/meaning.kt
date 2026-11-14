@@ -105,7 +105,7 @@ private class Reading(
 				null -> {
 					unfinishedOr(
 						term.negation ?: term.span,
-						"“-” leaves out what the term after it finds; a name that starts with “-” is quoted: \"-notes\"",
+						"“-” excludes the term after it. To search for a name starting with “-”, quote it: \"-notes\"",
 					)
 					null
 				}
@@ -117,7 +117,7 @@ private class Reading(
 				is BodySyntax.Modifier -> modifier(body)
 			}
 
-		term.junk?.let { invalid(it, "a term needs a space before the next one") }
+		term.junk?.let { invalid(it, "Add a space between terms") }
 
 		return ReadTerm(
 			term,
@@ -175,16 +175,16 @@ private class Reading(
 
 		if (sensitive.isNotEmpty() && insensitive.isNotEmpty())
 			(sensitive + insensitive).forEach {
-				invalid(it.span, "“c” and “i” say opposite things: one or the other")
+				invalid(it.span, "Use either “c” or “i”, not both")
 			}
 		if (text.hashes != null && text.flags.none { it.value == 'r' })
-			invalid(text.hashes, "only a raw literal takes “#”: r#\"...\"#")
+			invalid(text.hashes, "“#” is only allowed in a raw term: r#\"...\"#")
 		if (text.close == null)
-			unfinishedOr(text.span, "the quote is not closed")
+			unfinishedOr(text.span, "Missing closing quote")
 
 		if (text.content.value.isEmpty()) {
 			if (text.close != null)
-				invalid(text.span, "empty quotes match nothing")
+				invalid(text.span, "Empty quotes match nothing")
 
 			return null
 		}
@@ -214,12 +214,12 @@ private class Reading(
 		for (range in reading.backwards)
 			invalid(
 				Span(content.starts + range.start, content.starts + range.end),
-				"the range runs backwards: “${content.text.substring(range.start, range.end)}”",
+				"The range “${content.text.substring(range.start, range.end)}” is backwards",
 			)
 		for (opened in reading.unclosed)
 			unfinishedOr(
 				Span(content.starts + opened, content.span.end),
-				"the “${content.text[opened]}” is not closed with “${if (content.text[opened] == '[') ']' else '}'}”",
+				"“${content.text[opened]}” is missing its closing “${if (content.text[opened] == '[') ']' else '}'}”",
 			)
 
 		return if (reading.glob.parts.isEmpty())
@@ -237,9 +237,9 @@ private class Reading(
 				if (body.start !=
 					null
 				)
-					"nothing after the anchor to anchor"
+					"Add a term after the anchor"
 				else
-					"nothing before “$” to anchor",
+					"Add a term before “$”",
 			)
 
 			return null
@@ -267,7 +267,7 @@ private class Reading(
 			try {
 				PathPatterns.parse(content.text, anchors)
 			} catch (wrong: IllegalArgumentException) {
-				unfinishedOr(content.span, wrong.message ?: "not a path")
+				unfinishedOr(content.span, wrong.message ?: "Not a valid path")
 
 				return null
 			}
@@ -282,7 +282,7 @@ private class Reading(
 
 		invalid(
 			Span(content.starts, content.starts + 1 + base.name.length),
-			"“~${base.name}” is not a folder you have named",
+			"No folder alias named “~${base.name}”",
 		)
 
 		return false
@@ -313,7 +313,7 @@ private class Reading(
 
 		for (flag in flags)
 			if (flag.value !in (if (on.size > 1) "spci" else "ci"))
-				invalid(flag.span, "a regex here takes the flags $letters")
+				invalid(flag.span, "Allowed regex flags here: $letters")
 
 		fun pair(one: Char, other: Char): Char? {
 			val ones = flags.filter { it.value == one }
@@ -321,7 +321,7 @@ private class Reading(
 
 			if (ones.isNotEmpty() && others.isNotEmpty()) {
 				(ones + others).forEach {
-					invalid(it.span, "“$one” and “$other” cannot both be said: one or the other")
+					invalid(it.span, "Use either “$one” or “$other”, not both")
 				}
 
 				return null
@@ -350,13 +350,13 @@ private class Reading(
 			}
 
 		if (regex.close == null)
-			unfinishedOr(regex.span, "the regex is not closed with “/”")
+			unfinishedOr(regex.span, "Missing closing “/”")
 
 		val source = regex.source.value
 
 		if (source.isEmpty()) {
 			if (regex.close != null)
-				invalid(regex.span, "an empty regex says nothing to find")
+				invalid(regex.span, "The regex is empty")
 
 			return null
 		}
@@ -365,7 +365,7 @@ private class Reading(
 			Pattern.compile(source)
 		} catch (wrong: PatternSyntaxException) {
 			if (regex.close != null)
-				invalid(regex.source.span, "not a regex: ${wrong.description}")
+				invalid(regex.source.span, "Invalid regex: ${wrong.description}")
 
 			return null
 		}
@@ -381,7 +381,7 @@ private class Reading(
 		/** What [mean] makes of [value], which the modifier needs: said to be missing, where nothing follows the colon. */
 		fun <V : ValueSyntax> given(value: V?, mean: (V) -> Test?): Test? {
 			if (value == null) {
-				unfinishedOr(body.span, "“$name:” needs something after it")
+				unfinishedOr(body.span, "“$name:” needs a value")
 
 				return null
 			}
@@ -393,7 +393,7 @@ private class Reading(
 			is ModifierSyntax.Unknown -> {
 				val known = ModifierSyntax.NAMES.joinToString(", ") { "$it:" }
 
-				invalid(body.name.span, "there is no “${body.name.value}:”; the modifiers are $known")
+				invalid(body.name.span, "Unknown modifier “${body.name.value}:”. Available: $known")
 
 				null
 			}
@@ -440,13 +440,13 @@ private class Reading(
 		if (text.isEmpty()) {
 			unfinishedOr(
 				depth.span,
-				"a depth after “:”: 2 (exactly), 2-4 (from 2 to 4) or 2- (2 or more)",
+				"Add a depth after “:”: 2 (exactly), 2-4 (from 2 to 4) or 2- (2 or more)",
 			)
 
 			return null
 		}
 		if (shape == null) {
-			invalid(depth.span, "a depth is 2 (exactly), 2-4 (from 2 to 4) or 2- (2 or more)")
+			invalid(depth.span, "A depth is 2 (exactly), 2-4 (from 2 to 4) or 2- (2 or more)")
 
 			return null
 		}
@@ -457,13 +457,13 @@ private class Reading(
 		return when {
 			min == null || min < 1 ->
 				null.also {
-					invalid(depth.span, "a depth counts levels up from 1, the parent")
+					invalid(depth.span, "Depth starts at 1 (the parent folder)")
 				}
 			shape.groupValues[2].isEmpty() -> Depth.exactly(min)
 			shape.groupValues[3].isEmpty() -> Depth.atLeast(min)
 			max == null || max < min ->
 				null.also {
-					invalid(depth.span, "a depth runs from its lower end to its higher: $max-$min")
+					invalid(depth.span, "The depth range is backwards. Use $max-$min")
 				}
 			else -> Depth.between(min, max)
 		}
@@ -517,7 +517,7 @@ private class Reading(
 			Group.entries.associateBy {
 				it.name.lowercase()
 			},
-			"type: takes",
+			"type: accepts",
 		)?.let(Test::Type)
 	}
 
@@ -526,7 +526,7 @@ private class Reading(
 		val names = Flag.entries.associateBy { it.name.lowercase() }
 
 		if (!content.text.startsWith("{"))
-			return oneOf(content, names, "is: takes")?.let { Test.Is(setOf(it)) }
+			return oneOf(content, names, "is: accepts")?.let { Test.Is(setOf(it)) }
 
 		// `is:{file,symlink}`: each name between the braces, each with where it is.
 		val closed = content.text.endsWith("}") && content.text.length > 1
@@ -541,7 +541,7 @@ private class Reading(
 			)
 
 		if (!closed)
-			unfinishedOr(content.span, "the “{” is not closed with “}”")
+			unfinishedOr(content.span, "Missing closing “}”")
 
 		val starts = inside.indices.filter { inside[it] == ',' }.map { it + 1 }
 		val entries =
@@ -552,10 +552,10 @@ private class Reading(
 		val flags =
 			entries.mapNotNull { entry ->
 				if (entry.text.isEmpty()) {
-					unfinishedOr(Span(entry.starts, entry.starts), "a flag between the commas")
+					unfinishedOr(Span(entry.starts, entry.starts), "Add a flag between the commas")
 					null
 				} else {
-					oneOf(entry, names, "is: takes")
+					oneOf(entry, names, "is: accepts")
 				}
 			}
 
@@ -573,7 +573,9 @@ private class Reading(
 		val days =
 			mapOf("today" to Since.Today, "yesterday" to Since.Yesterday) +
 				DayOfWeek.entries.associate { it.name.lowercase() to Since.Weekday(it) }
-		val what = "$name: takes a time ago (5m, 24h, 2d, 1w), today, yesterday, or a day:"
+
+		val what =
+			"$name: accepts a duration (5m, 24h, 2d, 1w), today, yesterday, or a weekday:"
 
 		return when {
 			duration != null -> {
@@ -581,14 +583,14 @@ private class Reading(
 				val unit = UNITS.getValue(duration.groupValues[2].single())
 
 				if (count == null || count == 0L) {
-					invalid(content.span, "a time ago is some time ago")
+					invalid(content.span, "The duration must be greater than zero")
 					null
 				} else {
 					Since.Within(unit * count.toDouble())
 				}
 			}
 			said.isNotEmpty() && said.all { it.isDigit() } -> {
-				unfinishedOr(content.span, "$said what? s, m, h, d or w")
+				unfinishedOr(content.span, "Add a unit to “$said”: s, m, h, d or w")
 				null
 			}
 			else -> oneOf(content, days, what)

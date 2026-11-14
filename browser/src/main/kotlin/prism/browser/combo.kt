@@ -93,7 +93,7 @@ fun <T> ComboBox(
 	label: (T) -> String,
 	modifier: Modifier = Modifier,
 	tag: String = "combo",
-	hint: String = "Type to find one",
+	hint: String = "Search",
 	onChoose: (T) -> Unit,
 ) {
 	val type = LocalType.current
@@ -253,7 +253,7 @@ private fun <T> ComboList(
 	) {
 		if (shown.isEmpty())
 			Text(
-				"Nothing is called that",
+				"No matches",
 				style = type.muted,
 				modifier = Modifier.padding(Space.s),
 			)

@@ -236,7 +236,7 @@ private fun <T> OptionList(
 				typed,
 				{ typed = it },
 				Modifier.fillMaxWidth().testTag("options-filter"),
-				hint = "Type to narrow the list",
+				hint = "Filter",
 				leading = Glyph.Search,
 				focus = focus,
 			)
@@ -244,7 +244,7 @@ private fun <T> OptionList(
 			Box(Modifier.focusRequester(focus).focusable())
 		if (shown.isEmpty())
 			Text(
-				"Nothing is called that",
+				"No matches",
 				style = type.muted,
 				modifier = Modifier.padding(horizontal = Space.s, vertical = Space.s),
 			)

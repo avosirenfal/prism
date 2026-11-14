@@ -119,7 +119,7 @@ class MenuTest {
 		val state = picker(Choosing.SaveAs("draft.txt"))
 
 		assertEquals(
-			"Save over it",
+			"Replace",
 			contextMenuOf(state, rowsOf(state, "notes.md")).labels().first(),
 		)
 	}
@@ -198,8 +198,8 @@ class MenuTest {
 				Target.Folder,
 			).submenu("View")
 
-		assertFalse(view.item("Smaller").enabled)
-		assertEquals(true, view.item("Usual size").enabled)
+		assertFalse(view.item("Zoom out").enabled)
+		assertEquals(true, view.item("Reset zoom").enabled)
 	}
 
 	@Test
@@ -221,11 +221,11 @@ class MenuTest {
 			)
 
 		assertEquals(
-			listOf("Undo the rename", "Redo the move to the trash", "—"),
+			listOf("Undo rename", "Redo move to trash", "—"),
 			menu.labels().take(3),
 		)
-		assertEquals(BrowserEvent.Undone, menu.item("Undo the rename").action)
-		assertEquals("Ctrl+Z", menu.item("Undo the rename").keys)
+		assertEquals(BrowserEvent.Undone, menu.item("Undo rename").action)
+		assertEquals("Ctrl+Z", menu.item("Undo rename").keys)
 		// With nothing done, neither is there.
 		assertEquals("Sort by ▸", contextMenuOf(picker(), Target.Folder).labels().first())
 	}
@@ -242,8 +242,8 @@ class MenuTest {
 
 		val view = contextMenuOf(whole, Target.Folder).submenu("View")
 
-		assertFalse(view.item("Larger").enabled)
-		assertEquals(true, view.item("Smaller").enabled)
+		assertFalse(view.item("Zoom in").enabled)
+		assertEquals(true, view.item("Zoom out").enabled)
 	}
 
 	@Test
@@ -252,11 +252,11 @@ class MenuTest {
 		val menu = filterMenuOf(state)
 
 		assertEquals(
-			listOf("All kinds") + Kind.entries.map { it.label } +
+			listOf("All types") + Kind.entries.map { it.label } +
 				listOf("—", "Show hidden files", "Show hidden folders"),
 			menu.labels(),
 		)
-		assertEquals(Mark.Check(true), menu.item("All kinds").mark)
+		assertEquals(Mark.Check(true), menu.item("All types").mark)
 		assertEquals(Mark.Check(false), menu.item("Images").mark)
 		assertEquals(BrowserEvent.ShowedOnlyKind(Kind.Images), menu.item("Images").action)
 		assertEquals(BrowserEvent.ToggledKind(Kind.Images), menu.item("Images").alternate)
@@ -267,7 +267,7 @@ class MenuTest {
 		val images = filterMenuOf(after(state, BrowserEvent.ShowedOnlyKind(Kind.Images)))
 
 		assertEquals(Mark.Check(true), images.item("Images").mark)
-		assertEquals(Mark.Check(false), images.item("All kinds").mark)
+		assertEquals(Mark.Check(false), images.item("All types").mark)
 	}
 
 	@Test

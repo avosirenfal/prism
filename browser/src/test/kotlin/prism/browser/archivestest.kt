@@ -502,7 +502,7 @@ class ArchivesTest {
 							state.menu(programs, "src", "a b.txt").event("Compress ▸ $label"),
 						)
 
-					assertEquals(Notice.Asking("Name of the archive", "src"), naming.notice)
+					assertEquals(Notice.Asking("Archive name", "src"), naming.notice)
 
 					val made =
 						naming
@@ -667,13 +667,13 @@ class ArchivesTest {
 		val notice = failed.notice as Notice.Failed
 
 		assertEquals("“Extract here” failed", notice.doing)
-		assertTrue("It ended with status" in notice.why, notice.why)
+		assertTrue("Exited with status" in notice.why, notice.why)
 		assertTrue("broken.zip" in notice.why, notice.why)
 		assertEquals(emptyList<Work>(), failed.running)
 
 		// A place that cannot be listed says the same where its listing would be.
 		val listing = state.opening(programs, "broken.zip").listing as Listing.Unreadable
 
-		assertTrue("It ended with status" in listing.why, listing.why)
+		assertTrue("Exited with status" in listing.why, listing.why)
 	}
 }

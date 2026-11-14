@@ -480,7 +480,7 @@
 		},
 		{
 			"id": "archive.tar.extract-beside",
-			"label": "Extract beside the archive",
+			"label": "Extract next to archive",
 			"when": {
 				"in": [
 					"archive.tar"
@@ -565,7 +565,7 @@
 			],
 			"how": {
 				"watched": true,
-				"confirm": "What is removed from the archive cannot be put back."
+				"confirm": "Items removed from the archive can't be restored."
 			},
 			"then": {
 				"reread": true
@@ -861,7 +861,7 @@
 		},
 		{
 			"id": "archive.zip.extract-beside",
-			"label": "Extract beside the archive",
+			"label": "Extract next to archive",
 			"when": {
 				"in": [
 					"archive.zip"
@@ -972,7 +972,7 @@
 			],
 			"how": {
 				"watched": true,
-				"confirm": "What is removed from the archive cannot be put back."
+				"confirm": "Items removed from the archive can't be restored."
 			},
 			"then": {
 				"reread": true
@@ -1188,7 +1188,7 @@
 		},
 		{
 			"id": "archive.7z.extract-beside",
-			"label": "Extract beside the archive",
+			"label": "Extract next to archive",
 			"when": {
 				"in": [
 					"archive.7z"
@@ -1274,7 +1274,7 @@
 			],
 			"how": {
 				"watched": true,
-				"confirm": "What is removed from the archive cannot be put back."
+				"confirm": "Items removed from the archive can't be restored."
 			},
 			"then": {
 				"reread": true
@@ -1502,7 +1502,7 @@
 		},
 		{
 			"id": "archive.rar.extract-beside",
-			"label": "Extract beside the archive",
+			"label": "Extract next to archive",
 			"when": {
 				"in": [
 					"archive.rar"
@@ -1597,7 +1597,7 @@
 			],
 			"how": {
 				"watched": true,
-				"confirm": "What is removed from the archive cannot be put back."
+				"confirm": "Items removed from the archive can't be restored."
 			},
 			"then": {
 				"reread": true
@@ -1800,7 +1800,7 @@
 		},
 		{
 			"id": "archive.disk.extract-beside",
-			"label": "Extract beside the archive",
+			"label": "Extract next to archive",
 			"when": {
 				"in": [
 					"archive.disk"
@@ -2229,7 +2229,7 @@
 			},
 			"ask": {
 				"to": {
-					"text": "Name of the archive",
+					"text": "Archive name",
 					"start": "{stem}"
 				}
 			},
@@ -2284,7 +2284,7 @@
 			},
 			"ask": {
 				"to": {
-					"text": "Name of the archive",
+					"text": "Archive name",
 					"start": "{stem}"
 				}
 			},
@@ -2325,7 +2325,7 @@
 			},
 			"ask": {
 				"to": {
-					"text": "Name of the archive",
+					"text": "Archive name",
 					"start": "{stem}"
 				}
 			},
@@ -2366,7 +2366,7 @@
 			},
 			"ask": {
 				"to": {
-					"text": "Name of the archive",
+					"text": "Archive name",
 					"start": "{stem}"
 				}
 			},
@@ -2420,7 +2420,7 @@
 			},
 			"ask": {
 				"to": {
-					"text": "Name of the archive",
+					"text": "Archive name",
 					"start": "{stem}"
 				}
 			},
@@ -2474,7 +2474,7 @@
 			},
 			"ask": {
 				"to": {
-					"text": "Name of the archive",
+					"text": "Archive name",
 					"start": "{stem}"
 				}
 			},
