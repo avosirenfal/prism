@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -54,6 +55,11 @@ import prism.browser.mouseChords
 import prism.browser.toClipboard
 import prism.browser.zoomedByWheel
 import prism.desktop.TerminalOptions
+import prism.launcher.LauncherBindings
+import prism.launcher.LauncherDims
+import prism.launcher.LauncherSettingsView
+import prism.launcher.LauncherView
+import prism.launcher.LocalIconImages
 import prism.preferences.DateFormat
 import prism.preferences.Typography
 import prism.preferences.WindowKind
@@ -68,6 +74,12 @@ import prism.window.Window
  * (properties, "open with", the preferences) in a smaller one, closed by its own buttons or Escape as well as by the
  * window manager. A window has the title bar the window manager draws only where [decorated] asks for one.
  */
+
+/**
+ * What the launcher's window is titled: what a window manager's rule knows it by, to place it or to round its
+ * corners, since every window of prism's has prism's own name as its application's.
+ */
+const val LAUNCHER_TITLE = "Prism Launcher"
 
 /** Every window [explorer] has open, in [palette]. */
 @Composable
@@ -166,6 +178,55 @@ fun ExplorerWindows(explorer: Explorer, palette: Palette, decorated: Boolean) {
 						zoom = zoomOf(WindowKind.Preferences),
 					) {
 						SettingsWindow(explorer) { explorer.close(window) }
+					}
+				// The launcher: a window with no title bar, of a size that cannot be changed, which a window manager
+				// that tiles leaves floating over its tiles; in front, and with the keyboard, since it was asked for.
+				is ExplorerWindow.Launching -> {
+					val size = remember { LauncherDims.sizeOf(preferences.launcher) }
+
+					Window(
+						onCloseRequest = { explorer.close(window) },
+						title = LAUNCHER_TITLE,
+						size = DpSize(size.first, size.second),
+						decorated = false,
+						onFailure = { explorer.failed(window, it) },
+						activation = window.activation,
+						resizable = false,
+					) {
+						val native = this.window
+
+						LaunchedEffect(Unit) { native.raise() }
+						HostedWindow(native, palette, preferences.typography, preferences.dates) {
+							CompositionLocalProvider(LocalIconImages provides explorer.icons) {
+								LauncherView(window.session, LauncherBindings.of(preferences))
+							}
+						}
+					}
+				}
+				is ExplorerWindow.LauncherSettings ->
+					Dialog(
+						Explorer.titleOf(window),
+						DpSize(760.dp, 680.dp),
+						palette,
+						decorated,
+						{ explorer.close(window) },
+						onFailure = { explorer.failed(window, it) },
+						raised = window.raised,
+						typography = preferences.typography,
+						dates = preferences.dates,
+						zoom = zoomOf(WindowKind.Preferences),
+					) {
+						val applications =
+							remember { explorer.desktop.applications.all() }
+
+						CompositionLocalProvider(LocalIconImages provides explorer.icons) {
+							LauncherSettingsView(
+								preferences,
+								applications,
+								onChange = explorer.preferences::update,
+								onClose = { explorer.close(window) },
+							)
+						}
 					}
 				is ExplorerWindow.Failed ->
 					Dialog(

@@ -486,6 +486,37 @@ class FindTest {
 	}
 
 	@Test
+	fun theArrowsGoThroughEveryMatchAndNotOnlyThoseInSight() {
+		made(*(1..30).map { "notes/note-%02d.md".format(it) }.toTypedArray())
+
+		val typed = searched(picker(), "note-")
+
+		// Every match is listed, a few of them in sight at once.
+		assertEquals(30, typed.ready.listed)
+		assertTrue(typed.ready.listed > Search.SHOWN)
+
+		val down = after(typed, *Array(12) { BrowserEvent.MatchMoved(1) })
+
+		assertEquals(11, down.ready.highlighted)
+
+		// A page at a time, stopping at the last; and back up to the field.
+		val paged =
+			after(down, *Array(4) { BrowserEvent.MatchMoved(Search.SHOWN) })
+
+		assertEquals(29, paged.ready.highlighted)
+		assertEquals(
+			null,
+			after(paged, *Array(5) { BrowserEvent.MatchMoved(-Search.SHOWN) }).ready.highlighted,
+		)
+
+		// The one the arrows are on, however far down, is the one Enter goes to.
+		val gone = after(down, BrowserEvent.SearchEntered)
+
+		assertFalse(gone.search.open)
+		assertEquals(root.resolve("notes"), gone.folder)
+	}
+
+	@Test
 	fun askedForAgainWhileOpenTheSearchStartsAgain() {
 		made("docs/report.pdf", "notes.md")
 

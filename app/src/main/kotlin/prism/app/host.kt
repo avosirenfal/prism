@@ -46,6 +46,7 @@ import prism.dbus.Connection
 import prism.desktop.Desktop
 import prism.explorer.Explorer
 import prism.explorer.ExplorerWindows
+import prism.launcher.LaunchFile
 import prism.portal.FileChooser
 import prism.portal.FileManager
 import prism.portal.Owning
@@ -321,6 +322,7 @@ internal class Windows(
 							hosting.search,
 							JvmFolderWatcher,
 							Report::problem,
+							LaunchFile(stateFolder().resolve("launches"), Report::problem),
 						)
 					}
 

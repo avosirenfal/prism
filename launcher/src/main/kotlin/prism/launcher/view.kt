@@ -206,7 +206,7 @@ private fun QueryField(
 ) {
 	val palette = LocalPalette.current
 	val type = LocalType.current
-	val style = type.body.times(1.3f)
+	val style = type.body.times(1.4f)
 
 	Row(
 		Modifier.fillMaxWidth().height(LauncherDims.field).padding(
@@ -215,7 +215,7 @@ private fun QueryField(
 		),
 		verticalAlignment = Alignment.CenterVertically,
 	) {
-		GlyphIcon(Glyph.Search, palette.textMuted, 20.dp)
+		GlyphIcon(Glyph.Search, palette.textMuted, 22.dp)
 		Spacer(Modifier.width(Space.m + Space.xxs))
 		Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
 			if (typed.text.isEmpty())

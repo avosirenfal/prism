@@ -38,6 +38,8 @@ import prism.browser.TypeFilter
 import prism.browser.UserAction
 import prism.browser.subjectOf
 import prism.desktop.MimeType
+import prism.launcher.Entry
+import prism.launcher.LauncherEvent
 import prism.preferences.ActionsFile
 import prism.preferences.MemoryPreferences
 import prism.preferences.QuickAccess
@@ -145,6 +147,80 @@ class ExplorerTest {
 			assertEquals(listOf(MimeType.TEXT to desktop.editor), desktop.defaultsSet)
 			// What shows a default reads it again.
 			assertEquals(1, explorer.defaults.value)
+		}
+
+	@Test
+	fun theLauncherIsShownAndPutAwayByBeingAskedForAndOpensWhatItIsAskedTo() =
+		explored { explorer, _, preferences ->
+			suspend fun settled(what: () -> Boolean) {
+				while (!what())
+					delay(10)
+			}
+
+			explorer.launch()
+
+			val launching = explorer.windows.value.single() as ExplorerWindow.Launching
+
+			assertEquals("Launcher", Explorer.titleOf(launching))
+			// The tests' desktop has one application, and the launcher lists it.
+			assertEquals(
+				listOf("Editor"),
+				launching.session.state.value.entries
+					.filterIsInstance<Entry.App>()
+					.map { it.title },
+			)
+
+			// Asked for again, it is put away; and again, shown anew.
+			explorer.launch()
+			assertEquals(emptyList<ExplorerWindow>(), explorer.windows.value)
+			explorer.launch()
+
+			val again = explorer.windows.value.single() as ExplorerWindow.Launching
+
+			assertTrue(again.id != launching.id)
+
+			// Its settings changed while it is shown, it is as they now say.
+			preferences.update {
+				it.copy(launcher = it.launcher.copy(rows = 12, hidden = setOf("editor.desktop")))
+			}
+			settled { again.session.state.value.preferences.rows == 12 }
+			assertEquals(
+				emptyList<Entry>(),
+				again.session.state.value.entries
+					.filterIsInstance<Entry.App>(),
+			)
+
+			// Its settings asked for open in a window of their own, and it is put away; asked for again, the one
+			// window is raised.
+			again.session.send(LauncherEvent.AskedForSettings)
+			settled { explorer.windows.value.singleOrNull() is ExplorerWindow.LauncherSettings }
+			explorer.launcherSettings()
+			assertEquals(
+				1,
+				(explorer.windows.value.single() as ExplorerWindow.LauncherSettings).raised,
+			)
+
+			// What it starts is started, and it is put away; a folder it is asked for is a browser's window.
+			preferences.update { it.copy(launcher = it.launcher.copy(hidden = emptySet())) }
+			explorer.launch()
+
+			val third =
+				explorer.windows.value
+					.filterIsInstance<ExplorerWindow.Launching>()
+					.single()
+
+			third.session.send(LauncherEvent.Typed("files"))
+			third.session.send(LauncherEvent.Entered)
+			settled {
+				explorer.browsers.size == 1 &&
+					explorer.windows.value.none { it is ExplorerWindow.Launching }
+			}
+			assertEquals(
+				root,
+				explorer.browsers
+					.single()
+					.session.state.value.folder,
+			)
 		}
 
 	@Test

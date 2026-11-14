@@ -17,6 +17,8 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import prism.browser.BrowserEvent
@@ -40,10 +42,18 @@ import prism.browser.World
 import prism.browser.opened
 import prism.browser.openedIn
 import prism.browser.sidebarOf
+import prism.browser.toClipboard
 import prism.browser.zoomOf
 import prism.desktop.Application
 import prism.desktop.Desktop
 import prism.desktop.MimeType
+import prism.launcher.IconImages
+import prism.launcher.LaunchStore
+import prism.launcher.LauncherEvent
+import prism.launcher.LauncherHost
+import prism.launcher.LauncherServices
+import prism.launcher.LauncherSession
+import prism.launcher.MemoryLaunches
 import prism.preferences.PreferenceStore
 import prism.preferences.Role
 
@@ -103,6 +113,23 @@ sealed interface ExplorerWindow {
 
 	/** The preferences, of which there is one window; [raised] counts the times it was asked for again while open. */
 	data class Settings(
+		override val id: Int,
+		val raised: Int = 0,
+	) : ExplorerWindow
+
+	/**
+	 * The launcher, of which there is one window: its [session], whose work is done in [scope], which ends with the
+	 * window. [activation] is the desktop's token for whoever asked for it, with which it is given the keyboard.
+	 */
+	class Launching internal constructor(
+		override val id: Int,
+		val session: LauncherSession,
+		internal val scope: CoroutineScope,
+		val activation: String? = null,
+	) : ExplorerWindow
+
+	/** The launcher's settings, of which there is one window; [raised] as the preferences' is. */
+	data class LauncherSettings(
 		override val id: Int,
 		val raised: Int = 0,
 	) : ExplorerWindow
@@ -209,7 +236,15 @@ class Explorer(
 	private val report: (String, Throwable) -> Unit = { what, failure ->
 		System.err.println("prism: $what: ${failure.stackTraceToString().trimEnd()}")
 	},
+	/** What the launcher has started, and how lately: kept in memory alone, unless a file's is given. */
+	private val launches: LaunchStore = MemoryLaunches(),
 ) {
+	/** What a search is asked of: the launcher's, as every window's. */
+	private val finder = finder
+
+	/** The pictures applications are known by, drawn once and kept for every launcher shown. */
+	val icons = IconImages(desktop.icons)
+
 	private val services =
 		Services(disk, finder, desktop, clipboard, preferences, watcher = watcher)
 
@@ -319,22 +354,87 @@ class Explorer(
 					)
 				}
 			Request.Preferences ->
-				open.update { windows ->
-					val settings = windows.filterIsInstance<ExplorerWindow.Settings>().firstOrNull()
-
-					if (settings == null)
-						windows.plusElement(ExplorerWindow.Settings(ids.incrementAndGet()))
-					else
-						windows.map {
-							if (it ==
-								settings
-							)
-								settings.copy(raised = settings.raised + 1)
-							else
-								it
-						}
-				}
+				raising({ ExplorerWindow.Settings(it) }) { it.copy(raised = it.raised + 1) }
 		}
+	}
+
+	/**
+	 * The launcher shown, or, where it is shown already, put away: asked for by one key, it comes and goes by that
+	 * key. What it asks for (a folder's window, its settings, itself closed) is done here, on the windows' thread,
+	 * whichever thread it asks from.
+	 */
+	fun launch(activation: String? = null) {
+		open.value.filterIsInstance<ExplorerWindow.Launching>().firstOrNull()?.let {
+			return close(it)
+		}
+
+		val (id, window) = making()
+
+		val host =
+			object : LauncherHost {
+				private fun doing(work: () -> Unit) {
+					scope.launch { work() }
+				}
+
+				override fun close() =
+					doing {
+						open.value.firstOrNull { it.id == id }?.let { this@Explorer.close(it) }
+					}
+
+				override fun settings() = doing { launcherSettings() }
+
+				override fun browse(folder: Path) = doing { this@Explorer.browse(folder) }
+
+				override fun reveal(path: Path) =
+					doing {
+						path.parent?.let {
+							this@Explorer.browse(it, chosen = path.fileName.toString())
+						} ?: this@Explorer.browse(path)
+					}
+
+				override fun copy(text: String) = doing { toClipboard(text) }
+			}
+
+		val session =
+			LauncherSession(
+				LauncherServices(
+					desktop,
+					finder,
+					launches,
+					home,
+					terminal = { preferences.preferences.value.terminal },
+				),
+				host,
+				window,
+				preferences.preferences.value.launcher,
+			)
+
+		opened(ExplorerWindow.Launching(id, session, window, activation))
+		// Its settings changed while it is shown (their window is another), it is as they now say. What they are as
+		// this begins is said too: they may have changed since the session was made with them.
+		window.launch {
+			preferences.preferences
+				.map { it.launcher }
+				.distinctUntilChanged()
+				.collect { session.send(LauncherEvent.PreferencesChanged(it)) }
+		}
+	}
+
+	/** The launcher's settings, in their window: the one there is, raised, where it is open already. */
+	fun launcherSettings() =
+		raising({ ExplorerWindow.LauncherSettings(it) }) { it.copy(raised = it.raised + 1) }
+
+	/** The one window of its kind there is, opened by [make], or, where it is open, changed by [raise] to be raised. */
+	private inline fun <reified W : ExplorerWindow> raising(
+		crossinline make: (Int) -> W,
+		crossinline raise: (W) -> W,
+	) = open.update { windows ->
+		val held = windows.filterIsInstance<W>().firstOrNull()
+
+		if (held == null)
+			windows.plusElement(make(ids.incrementAndGet()))
+		else
+			windows.map { if (it == held) raise(held) else it }
 	}
 
 	/** A picker of folders opened for [request]: what it chooses, or that it was cancelled, is the answer. */
@@ -453,6 +553,7 @@ class Explorer(
 		when (window) {
 			is ExplorerWindow.Browsing -> window.scope.cancel()
 			is ExplorerWindow.Picking -> window.scope.cancel()
+			is ExplorerWindow.Launching -> window.scope.cancel()
 			else -> Unit
 		}
 	}
@@ -541,6 +642,8 @@ class Explorer(
 				is ExplorerWindow.Properties -> propertiesTitleOf(window.paths)
 				is ExplorerWindow.OpenWith -> openWithTitleOf(window.choice)
 				is ExplorerWindow.Settings -> "Preferences"
+				is ExplorerWindow.Launching -> "Launcher"
+				is ExplorerWindow.LauncherSettings -> "Launcher settings"
 				is ExplorerWindow.Failed -> "${window.what} failed"
 			}
 
@@ -550,6 +653,7 @@ class Explorer(
 				is ExplorerWindow.Browsing ->
 					"the window on ${window.session.state.value.folder ?: titleOf(window)}"
 				is ExplorerWindow.Picking -> "the picker “${window.title}”"
+				is ExplorerWindow.Launching -> "the launcher"
 				is ExplorerWindow.Failed -> "the window that says ${window.what} failed"
 				else -> "the window “${titleOf(window)}”"
 			}
