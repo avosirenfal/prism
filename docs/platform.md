@@ -17,7 +17,7 @@ vim "$(prism pick ~/Documents)"
 
 On macOS and Windows an application's own open and save dialogs are the system's, and cannot be replaced. That takes
 away one way to the picker, not the picker: the command line is the same on every platform, so a script, a terminal
-tool, an editor's command or a launcher can still ask prism for a file, with its index's Ctrl+Shift+F search, and get
+tool, an editor's command or a launcher can still ask prism for a file, with its index's F2 search, and get
 the path back. The explorer and the search are the same everywhere too.
 
 ## Drag and drop, followed through

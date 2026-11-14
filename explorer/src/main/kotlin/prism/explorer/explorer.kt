@@ -117,10 +117,15 @@ sealed interface ExplorerWindow {
 		val choice: Choice,
 	) : ExplorerWindow
 
-	/** The preferences, of which there is one window; [raised] counts the times it was asked for again while open. */
+	/**
+	 * The preferences, of which there is one window; [raised] counts the times it was asked for again while open,
+	 * and [page] is the page it was last asked for at (its key bindings, say), where it was asked for at one: it
+	 * opens there, and goes there when asked for again.
+	 */
 	data class Settings(
 		override val id: WindowId,
 		val raised: Int = 0,
+		val page: Page? = null,
 	) : ExplorerWindow
 
 	/**
@@ -359,8 +364,8 @@ class Explorer(
 						Choice.Open(request.paths, types.singleOrNull().takeIf { request.settable }),
 					)
 				}
-			Request.Preferences ->
-				raising({ ExplorerWindow.Settings(it) }) { it.copy(raised = it.raised + 1) }
+			Request.Preferences -> preferences(null)
+			Request.KeyBindings -> preferences(Page.Bindings)
 		}
 	}
 
@@ -427,6 +432,12 @@ class Explorer(
 				.collect { session.send(LauncherEvent.PreferencesChanged(it)) }
 		}
 	}
+
+	/** The preferences, in their window, at [page] where one is asked for: the one there is, raised, where it is open. */
+	private fun preferences(page: Page?) =
+		raising({ ExplorerWindow.Settings(it, page = page) }) {
+			it.copy(raised = it.raised + 1, page = page)
+		}
 
 	/** The launcher's settings, in their window: the one there is, raised, where it is open already. */
 	fun launcherSettings() =

@@ -1218,7 +1218,7 @@ data class BrowserState(
 	val landing: Landing? = null,
 	/** The row whose name was asked to be typed over: [renaming] is that, where the listing shows the row. */
 	private val naming: Renaming? = null,
-	/** The search of the index, as Ctrl+Shift+F opens it; unavailable where there is no index. */
+	/** The search of the index, as F2 opens it; unavailable where there is no index. */
 	val search: Search = Search.Unavailable(NO_INDEX),
 	/** The rows in sight, by their places in [rows], as the view last said; null before it has. */
 	val sight: IntRange? = null,

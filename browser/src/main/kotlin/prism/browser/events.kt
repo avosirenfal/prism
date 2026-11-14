@@ -166,7 +166,7 @@ sealed interface BrowserEvent : Input {
 
 	// ---- the search of the index ----
 
-	/** The search's window opened over the picker, with nothing typed into it yet (Ctrl+Shift+F). */
+	/** The search's window opened over the picker, with nothing typed into it yet (F2). */
 	data object OpenedSearch : BrowserEvent
 
 	/**
@@ -177,7 +177,7 @@ sealed interface BrowserEvent : Input {
 		val text: String,
 	) : BrowserEvent
 
-	/** How a query is written shown under the search's field, or put away again (its `?`). */
+	/** How a query is written shown in place of the search's field and matches (its `?`), or left for them again. */
 	data object ToggledSearchHelp : BrowserEvent
 
 	/** The search's window put away (Escape, or a click outside it). */
@@ -193,7 +193,7 @@ sealed interface BrowserEvent : Input {
 		val by: Int,
 	) : BrowserEvent
 
-	/** A match clicked: gone to, as the picker's kind says. */
+	/** What the search's window lists [at] clicked: a match gone to, as the picker's kind says; one of prism's own done. */
 	data class MatchChosen(
 		val at: Int,
 	) : BrowserEvent
@@ -206,7 +206,7 @@ sealed interface BrowserEvent : Input {
 
 	// ---- changing what is on disk ----
 
-	/** A row's name made into a field to type a new one into (F2). */
+	/** A row's name made into a field to type a new one into (F6). */
 	data class StartedRenaming(
 		val row: RowId,
 	) : BrowserEvent
@@ -671,6 +671,9 @@ sealed interface Request {
 
 	/** The preferences: pinned places, the terminal, and every binding. */
 	data object Preferences : Request
+
+	/** The preferences, at their page of key bindings. */
+	data object KeyBindings : Request
 }
 
 /** Where a window starts: in a folder, or in a place. */

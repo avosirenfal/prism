@@ -108,7 +108,7 @@ private class Picking(
 }
 
 /**
- * `prism pick`: the picker in a window. With `--index`, Ctrl+Shift+F searches an index read once from its file (and
+ * `prism pick`: the picker in a window. With `--index`, F2 searches an index read once from its file (and
  * the usage beside it), as it was read: what the daemon will hand a picker it opens, kept current, for now a copy to
  * develop against. Where there is none, or it cannot be read, the picker says so on standard error and opens without.
  */

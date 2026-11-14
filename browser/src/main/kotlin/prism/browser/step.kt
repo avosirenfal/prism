@@ -5,6 +5,7 @@ import java.nio.file.Path
 import java.time.Instant
 import java.time.ZoneId
 import prism.desktop.Launched
+import prism.index.query.Own
 import prism.index.query.QueryText
 import prism.preferences.Builtin
 import prism.preferences.ColumnId
@@ -40,7 +41,7 @@ import prism.preferences.Sort
  * - Renaming, the trash and making a folder are asked of the disk, and the folder is read again after, whatever came
  *   of it. The Delete key asks before it moves anything to the trash; Shift+Delete and the menu do not. A name with a
  *   slash in it, or `.` or `..`, is refused before the disk is asked.
- * - Ctrl+Shift+F searches the index, in a window over the picker that lists
+ * - F2 searches the index, in a window over the picker that lists
  *   the first few matches as the query is typed, its field empty each time it opens. A match chosen is gone to: a folder, into it; a file, to the folder it is in, chosen (saving, its name to
  *   save over). The search given shows every match in the listing, as a folder holding them all would show them,
  *   filtered as a folder is and ordered best first; Back from a folder gone into from them returns to them. A folder
@@ -1388,10 +1389,13 @@ private fun BrowserState.openedSearch(text: String): Step =
 		// A place is searched by its own listing, whether or not there is an index of the disk.
 		is Search.Unavailable ->
 			if (inPlace?.tree != null)
-				copy(search = Search.Ready(text, open = true)).previewing()
+				copy(search = Search.Ready(open = true, offers = offers).typed(text)).previewing()
 			else
 				Step(copy(search = search.copy(open = true)))
-		is Search.Ready -> copy(search = Search.Ready(text, open = true)).previewing()
+		is Search.Ready ->
+			copy(
+				search = Search.Ready(open = true, offers = offers).typed(text),
+			).previewing()
 	}
 
 /** The search's text searched for, for the window's matches; nothing, for no text. */
@@ -1419,7 +1423,21 @@ private fun Search.Ready.closed(): Search =
 	copy(open = false, highlighted = null, showing = false)
 
 private fun BrowserState.searchTyped(text: String): Step =
-	withSearch { copy(text = text, highlighted = null, showing = false) }.previewing()
+	withSearch {
+		typed(text)
+	}.previewing()
+
+/**
+ * Which of prism's own things a search in this window can find: all of them, in an explorer; in a picker, which is
+ * another application's window for a moment and has no preferences of its own to open, the system's page and how a
+ * query is written.
+ */
+private val BrowserState.offers: List<Own>
+	get() =
+		when (role) {
+			Role.Explorer -> Own.ALL
+			Role.Picker -> listOf(Own.System, Own.Help)
+		}
 
 /** The arrows' match [by] down: from the field, the first; up from the first, back to the field. */
 private fun Search.Ready.moved(by: Int): Search {
@@ -1438,14 +1456,35 @@ private fun Search.Ready.moved(by: Int): Search {
 }
 
 /**
+ * One of prism's [own] chosen in the search's window: how a query is written, shown there in place of the field and
+ * what it found; anything else done with the window put away, by whoever keeps this one's windows where it is another
+ * window's to show.
+ */
+private fun BrowserState.chosenOwn(search: Search.Ready, own: Own): Step {
+	val closed = copy(search = search.closed())
+
+	return when (own) {
+		Own.Help -> Step(copy(search = search.copy(help = true)))
+		Own.Settings -> Step(closed, listOf(Effect.Ask(Request.Preferences)))
+		Own.Bindings -> Step(closed, listOf(Effect.Ask(Request.KeyBindings)))
+		Own.System -> step(closed, BrowserEvent.OpenedSystem)
+	}
+}
+
+/**
  * The [at]th match the window lists gone to, the window put away: a folder, into it; a file, to the folder it is in,
  * chosen, so that saving saves over it once the user says so, and opening opens it once they do.
  */
 private fun BrowserState.chosenMatch(at: Int): Step {
 	val search = search as? Search.Ready ?: return Step(this)
-	val matches = (search.found as? Finding.Matched)?.matches ?: return Step(this)
 
-	val rank = matches.rank(at) ?: return Step(this)
+	val (matches, rank) =
+		when (val listed = search.listedAt(at)) {
+			null -> return Step(this)
+			is Search.Listed.Prisms -> return chosenOwn(search, listed.own)
+			is Search.Listed.Match -> listed
+		}
+
 	val path = matches.pathOf(rank)
 	val closed = copy(search = search.closed())
 

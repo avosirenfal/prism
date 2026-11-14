@@ -40,9 +40,9 @@ class BindingsTest {
 	fun aWindowsActionActsFromAnywhereOnlyForAChordNoTextFieldTypes() {
 		val bindings = Bindings.DEFAULT
 
-		assertEquals(Action.SearchIndex, bindings.window(chord("Ctrl+Shift+F")))
+		assertEquals(Action.SearchIndex, bindings.window(chord("F2")))
 		// Shift+F types an F, in a field and into the listing's own search by letters: it is nothing's chord.
-		assertEquals(listOf(chord("Ctrl+Shift+F")), Action.SearchIndex.defaults)
+		assertEquals(listOf(chord("F2")), Action.SearchIndex.defaults)
 		assertNull(bindings.listing(chord("Shift+F")))
 		assertEquals(Action.Refresh, bindings.window(chord("F5")))
 		assertEquals(Action.Back, bindings.window(chord("Mouse Back")))
@@ -73,7 +73,7 @@ class BindingsTest {
 		val bindings = Bindings.of(preferences)
 
 		assertEquals(Action.SearchIndex, bindings.window(chord("Ctrl+Space")))
-		assertNull(bindings.window(chord("Ctrl+Shift+F")))
+		assertNull(bindings.window(chord("F2")))
 		assertNull(bindings.window(chord("Alt+Left")))
 		assertNull(bindings.window(chord("F5")))
 		assertEquals(Action.Forward, bindings.window(chord("Alt+Right")))

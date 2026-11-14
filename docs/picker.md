@@ -248,7 +248,7 @@ Right-click a file in the listing, and a menu opens at the pointer:
 |---|---|
 | Open | Enter |
 | — | |
-| Rename | F2 |
+| Rename | F6 |
 | Copy path | Ctrl+Shift+C |
 | — | |
 | Move to trash | Delete |
@@ -273,7 +273,7 @@ What makes this easy to grow is that **a menu is data**. Here is the file's menu
 menu {
     item("Open", BrowserEvent.Picked(row.id), keys = "Enter")
     separator()
-    item("Rename", BrowserEvent.StartedRenaming(row.id), keys = "F2")
+    item("Rename", BrowserEvent.StartedRenaming(row.id), keys = "F6")
     item("Copy path", BrowserEvent.CopiedPaths(paths), keys = "Ctrl+Shift+C")
     separator()
     item("Move to trash", BrowserEvent.Trashed(ids), keys = "Delete")
@@ -286,7 +286,7 @@ can be chosen, a tick or a dot, its keys), a **submenu** (a label and a menu), o
 several rows) leaves no stray line, and a submenu with nothing in it is left out.
 
 Each item's action is the event choosing it reports, exactly as if the user had pressed its keys: "Rename" reports
-`StartedRenaming`, the same event F2 reports. So choosing from a menu is just another way to do what the picker can
+`StartedRenaming`, the same event F6 reports. So choosing from a menu is just another way to do what the picker can
 already do, and the reducer decides what comes of it. The menu knows nothing of what its actions mean: a `Menu<A>` is
 generic in its action, and the picker's menus are `Menu<BrowserEvent>`.
 
@@ -318,7 +318,7 @@ with its menu under it, as the filter menu is.
 A picker is where people find a file is misnamed, or that a folder is needed, so it can change things a little, as
 the desktop's own dialogs can:
 
-- **Rename** (F2, or the menu): the row's name becomes a field with the name's stem selected, so typing replaces the
+- **Rename** (F6, or the menu): the row's name becomes a field with the name's stem selected, so typing replaces the
   name but not its extension. Enter, or clicking away, gives the new name; Escape leaves it as it was. A name with a
   slash in it, or `.` or `..`, is refused before the disk is asked. The disk never renames onto something already
   there.
@@ -409,20 +409,27 @@ a sideways scroll (a tilted wheel, a touchpad) as a scroll (`mouseChords`, `brow
 ## Searching the index
 
 Searching the folder shown (Ctrl+F) narrows the rows the folder already has. Searching the index looks through every
-file the index holds, wherever it is. Its key is Ctrl+Shift+F, from anywhere. Here is one search, followed through.
+file the index holds, wherever it is. Its key is F2, from anywhere. Here is one search, followed through.
 
 ![The search's window over the picker](picker-search-index.png)
 
-**The window opens.** Ctrl+Shift+F is `BrowserEvent.OpenedSearch`. The state's `search` is `Search.Ready` when the
+**The window opens.** F2 is `BrowserEvent.OpenedSearch`. The state's `search` is `Search.Ready` when the
 picker was given an index, and `Search.Unavailable(why)` when it was not. Opening makes a `Search.Ready` afresh, with
-nothing typed, and the view draws a window over the picker: a field, a `?`, a Search button, and room for matches
-under them. Without an index, the window says why instead.
+nothing typed, and the view draws a window over the picker: a field with a `?` button beside it, what the field found
+under them, and along the bottom how many matches there are and what the keys do now. With nothing typed yet, it says
+what it searches and offers a few things to type, each typed into the field when clicked. Without an index, the window
+says why instead.
 
-**You click the `?`.** That is `ToggledSearchHelp`: under the field, a sentence on how a query is read and a handful
-of queries, each with what it finds (`QueryHelp`, in the index's module beside the language, where a test reads every
-one of them). A query clicked is typed into the field. The `?` again puts them away.
+![The search's window, with nothing typed](picker-search-empty.png)
 
-![How a query is written, under the search's field](picker-search-help.png)
+**You click the `?`.** That is `ToggledSearchHelp`: how a query is written takes the place of the field and what it
+found, and is not drawn over them: a sentence on how a query is read and a handful of queries, each with what it
+finds (`QueryHelp`, in the index's module beside the language, where a test reads every one of them). A query clicked
+is typed into the field, and the search is shown again. Its × or Escape leaves it for the search as it was; only the
+next Escape puts the search away. The page is `QueryHelpPanel` (`browser/queryview.kt`), which the launcher shows
+too.
+
+![How a query is written, in the search's place](picker-search-help.png)
 
 **You type `report -ext:pdf`.** Each key is `BrowserEvent.SearchTyped(text)`. The reducer keeps the text and asks for a
 search of it:
@@ -465,18 +472,47 @@ to, as the picker's kind says:
 Nothing is accepted for you. Going to a match is only going there; the picker's own button still accepts. A click on a
 match does the same as Enter on it.
 
-**Or you press Enter in the field (or click Search).** That is `SearchEntered` with no match highlighted, or
-`ShowedResults`: every match is shown in the listing. Where the picker is, `at`, becomes `Location.Results` in place
+**Or you press Enter in the field.** That is `SearchEntered` with nothing highlighted (the hint along the bottom,
+"Show all in the listing", clicked, is `ShowedResults`): every match is shown in the listing. Where the picker is, `at`, becomes `Location.Results` in place
 of `Location.Folder`, and the folder left goes into the history, so Back returns to it. The path across the top says
 "Search results" and what was searched for; clicking it opens the window again with that in its field
-(`EditedSearch`), to be changed. The window closes; the next Ctrl+Shift+F opens it empty, since what was searched for last
+(`EditedSearch`), to be changed. The window closes; the next F2 opens it empty, since what was searched for last
 is seldom what is wanted next.
 
-**Pressed again while the window is open,** Ctrl+Shift+F (or whatever chord is bound to it that no field types)
+**Pressed again while the window is open,** F2 (or whatever chord is bound to it that no field types)
 empties the field and leaves the keyboard in it, for something else to be searched for at once. The window holds the
 keyboard while it is open, so it reads the binding itself.
 
 ![A search's results in the listing](picker-results.png)
+
+### Prism's own things
+
+A search finds a few things that are not files: prism's settings, its key bindings, the page of the system's drives,
+and how a query is written. They are asked for by the word `prism`:
+
+![What the word prism finds, in an explorer](picker-search-own.png)
+
+| typed | finds first |
+|---|---|
+| `prism` | all of them |
+| `prism settings`, `prism set`, `prism pref` | Settings: the preferences window |
+| `prism bindings`, `prism keys` | Key bindings: the preferences window, at its key bindings |
+| `prism system`, `prism drives` | System: the system's page, in this window, whether or not it is pinned |
+| `prism help`, or `?` alone | How to search: the page the `?` button shows |
+
+The word has to be there whole and alone (`prisms` and `prism.md` are names), and each other word has to begin a word
+of what it finds. They are listed before the matches, and the arrows start on the first of them, so `prism set` and
+Enter opens the settings; Down goes past them to the files, which are searched for all the same (a file named
+`prism settings.txt` is found, after). A bare `?` is the one thing found without the word.
+
+They are `Own` (`index/query/own.kt`), a sealed type beside the search language: whoever searches says which of them
+it offers, and `Own.found(text, offered)` gives back those the text asks for, best first. An explorer offers them all;
+a picker, which is another application's window for a moment, offers the system's page and the help; the launcher has
+its own (docs/launcher.md). What the window lists is `Search.Ready.listedAt(index)`: one of prism's own
+(`Listed.Prisms`) or a match (`Listed.Match`), and what choosing one of prism's own does is the reducer's
+(`chosenOwn`): the help is shown in the window; the settings and the key bindings are asked of whoever keeps the
+windows (`Request.Preferences`, `Request.KeyBindings`); the system's page is gone to as its place in the sidebar
+goes to it.
 
 ### Results, as a folder holding them all
 
@@ -526,7 +562,7 @@ picker changes for that.
 
 `--index` alone reads the usual file, `$XDG_CACHE_HOME/prism/index.prism`; `--index FILE` reads that one. A folder
 after `--index` is the folder to open, not the index. Where there is no index, or it cannot be read, the picker says so
-on standard error and opens without a search, and Ctrl+Shift+F's window says why.
+on standard error and opens without a search, and F2's window says why.
 
 Which matches are "best" is the index's ranking: docs/search.md, "Which results come first".
 
@@ -617,7 +653,7 @@ keyboard is on the listing, or on the name for a picker that saves.
 | letters | listing | the next row whose name starts with them; the same letter again, the next such row |
 | Backspace | listing | the folder above |
 | Ctrl+A | listing | every row chosen |
-| F2 | listing | rename the row chosen |
+| F6 | listing | rename the row chosen |
 | Delete | listing | the rows chosen to their trashes; asked first only where a drive has none, to delete them for good |
 | Shift+Delete | listing | the rows chosen deleted for good, once asked |
 | Ctrl+Shift+C | listing | the paths of the rows chosen (or of the folder) copied |
@@ -663,7 +699,7 @@ list by one row, not a page, and a row far away is scrolled to directly (never b
 - **The picker as a user meets it** (`InteractionTest`): composed headless around a running `Session` over a real
   temporary folder, then clicked, double-clicked, Ctrl- and Shift-clicked, typed at and tabbed through with
   Compose's own test input, and what it shows and how it ends checked: the filter menu by pointer, by Ctrl-click and
-  by keyboard; a row's menu renaming it on disk; F2 and Escape; the trash, without asking, by Delete and by the menu,
+  by keyboard; a row's menu renaming it on disk; F6 and Escape; the trash, without asking, by Delete and by the menu,
   and Ctrl+Z and Ctrl+Shift+Z putting back and trashing again; Shift+Delete asking first, Escape on its notice
   cancelling, and Enter deleting for good; the trash in quick access, an entry put back from it; quick
   access's own window, one of prism's own hidden there and not removable, and moved; the folder's menu sorting
@@ -684,7 +720,7 @@ list by one row, not a page, and a row far away is scrolled to directly (never b
   filtered, ordered and read on disk as a folder's would be, a folder among them gone into and Back to them; a name
   saved beside a result, and nowhere without one; a result trashed and gone once searched for again; more than 10,000
   results read as they come into sight, not ordered by size, and ordered by name behind; a pick ranking higher; and
-  the window and the results drawn, in both palettes. `InteractionTest` has Ctrl+Shift+F, the `?`,
+  the window and the results drawn, in both palettes. `InteractionTest` has F2, the `?`,
   typing, Enter and the arrows as a user presses them.
 
 `prism pick` itself has been run in a real window on a virtual X display (Xvfb), driven by xdotool: opening a file
@@ -700,7 +736,7 @@ Enter, Ctrl+Z, Ctrl+Shift+Z and Shift+Delete on real files, with the trash in a 
 says how to do the same.
 
 The search of the index has been run the same way, over an index `prism index` made of a small home: a missing index
-warned of and the picker opening without search; Ctrl+Shift+F with a query typed by real keys; Enter showing every
+warned of and the picker opening without search; F2 with a query typed by real keys; Enter showing every
 match in the listing; a folder among them gone into, and Alt+Left back to them; the window opened again with what was
 typed, the arrows down to a file, Enter going to its folder with it chosen and named, and Enter again printing its
 path. The real keyboard found what the tests could not: typing quickly lost letters (`report` became `rprt`), since a

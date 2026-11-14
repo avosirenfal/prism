@@ -394,6 +394,22 @@ that is the order they were made in, as it happened, with no need of the dates t
 it, and `Index.newest(count)` gives the newest entries, newest first, in one pass over the stamps: what a picker
 offers as what was lately made.
 
+## Prism's own things
+
+A window that searches can find, beside the index's files, a few things of prism's own: its settings, its key
+bindings, the page of the system's drives, and how a query is written. They are not terms of the language, and the
+index is not asked for them: they are `Own` (`index/query/own.kt`), a sealed type whose every case has a title, what
+choosing it does, and the words it is found by, and `Own.found(text, offered)` says which of those a window offers
+the text asks for:
+
+- a text with the word `prism` in it, whole and alone, finds each one whose words its other words begin: `prism`
+  finds them all, `prism settings` and `prism set` the settings, `prism key` the key bindings;
+- a bare `?` finds how a query is written, and nothing else does without the word.
+
+They are listed before what the index found for the same text, which is searched for all the same. Each window has
+its own: an explorer's search, a picker's and the launcher's each say which they offer and what choosing one does
+(docs/picker.md, "Prism's own things"; docs/launcher.md).
+
 ## The language in short
 
 `QueryHelp` (`index/.../query/help.kt`) is a sentence on how a query is read and a handful of queries, each with what

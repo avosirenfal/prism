@@ -17,7 +17,7 @@ import androidx.compose.runtime.Immutable
  * menu {
  *     item("Open", BrowserEvent.Activated(row.id), keys = "Enter")
  *     separator()
- *     item("Rename", BrowserEvent.StartedRenaming(row.id), keys = "F2")
+ *     item("Rename", BrowserEvent.StartedRenaming(row.id), keys = "F6")
  *     item("Move to trash", BrowserEvent.Trashed(listOf(row.id)), keys = "Delete")
  * }
  * ```
@@ -67,7 +67,7 @@ sealed interface MenuEntry<out A> {
 		val alternate: A? = null,
 		val enabled: Boolean = true,
 		val mark: Mark = Mark.None,
-		/** The keys that do the same without the menu, shown beside the label: "F2", "Ctrl+Shift+N". */
+		/** The keys that do the same without the menu, shown beside the label: "F6", "Ctrl+Shift+N". */
 		val keys: String? = null,
 		/** What the entry is known by, where it can be hidden: `builtin.copy-path`, or an action's id. */
 		val id: String? = null,

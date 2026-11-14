@@ -72,7 +72,7 @@ The explorer's state is one immutable list of `ExplorerWindow`s, each one of:
 | `Browsing` | `prism explore`, "New window", "Open in new window" | a browser's `Session`, and the coroutine scope its work runs in |
 | `Properties` | "Properties" (Alt+Enter) | the properties of some paths |
 | `OpenWith` | "Open with…", a file nothing opens, the properties' "Change…" | an application chosen, to open files with or to be a type's default |
-| `Settings` | "Preferences…" (Ctrl+Comma) | the preferences window; there is only ever one |
+| `Settings` | "Preferences…" (Ctrl+P), or `prism settings` and `prism bindings` in a search (F2) | the preferences window; there is only ever one. Asked for at its key bindings, it opens on that page, or goes to it where it is open |
 | `Picking` | an action of the user's that asks for a folder ("Extract to…") | prism's folder picker, whose choice is the answer, given to the window that asked |
 
 A `Browsing` window starts in a folder or in a place (`Start`): opening an archive opens one on the
@@ -304,7 +304,7 @@ time a window opens costs a few hundred lookups in a map; `icons.reread()` forge
 ## The bindings window
 
 Every key the browser answers is an `Action` (`browser/bindings.kt`) with default chords: "Search everything" is
-Ctrl+Shift+F, "Back" is Alt+Left and the mouse's back button. The view never names a key; it looks up the chord it
+F2, "Back" is Alt+Left and the mouse's back button. The view never names a key; it looks up the chord it
 was given. So any action can be bound to any chord, and the preferences window's "Key bindings" page is where that is
 done, the way a game's controls are set.
 
@@ -635,7 +635,7 @@ terminal here" says why it cannot open it, rather than losing the rest of the pr
 
 - **The rest of the context menus the user configures**: docs/menus.md says what is built (actions, places, the
   archive tool made of them) and what is not (the menu's order, items made as it opens, an editor).
-- **Renaming from the properties window** (rename from the listing, with F2, as before), and the properties of several
+- **Renaming from the properties window** (rename from the listing, with F6, as before), and the properties of several
   files' permissions together.
 - **Icons**: applications and files are drawn with prism's own glyphs, not the desktop's icon theme.
 - **Content sniffing** with shared-mime-info's magic, for files whose names say nothing.

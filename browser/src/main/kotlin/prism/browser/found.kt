@@ -13,6 +13,7 @@ import prism.index.Searched
 import prism.index.Usage
 import prism.index.Where
 import prism.index.query.Flag
+import prism.index.query.Own
 import prism.index.query.Query
 import prism.index.query.QueryText
 import prism.index.query.ReadQuery
@@ -24,7 +25,7 @@ import prism.preferences.Order
 import prism.index.Kind as EntryKind
 
 /*
- * Searching the index from the picker. Ctrl+Shift+F opens a search over the picker ([Search]): a field, and the first
+ * Searching the index from the picker. F2 opens a search over the picker ([Search]): a field, and the first
  * few matches under it as they are found. A match chosen goes to it; the search given (Enter, or its button) shows
  * every match in the listing, as if a folder held them all ([Location.Results], [Listing.Found]).
  *
@@ -68,7 +69,7 @@ fun queryOf(read: ReadQuery, choosing: Choosing): Query =
 	else
 		read.query
 
-/** The search of the index that Ctrl+Shift+F opens over the picker, its field empty each time it is opened. */
+/** The search of the index that F2 opens over the picker, its field empty each time it is opened. */
 @Immutable
 sealed interface Search {
 	/** Whether its window is open over the picker. */
@@ -82,9 +83,12 @@ sealed interface Search {
 
 	/**
 	 * An index to search: what is typed into the field, what the last search that came back found ([found], which can
-	 * be for an older [text] while the next one is run), and which of the first few matches the arrows are on (none
+	 * be for an older [text] while the next one is run), and which of what the window lists the arrows are on (none
 	 * while the keyboard is in the field). [showing] says the matches are to be shown in the listing once the search
 	 * for [text] comes back, which was asked for before it had.
+	 *
+	 * What the window lists is prism's own things that [text] asks for ([own], of those this window [offers]), and
+	 * then the matches: one list, which the arrows go through from its first.
 	 */
 	data class Ready(
 		val text: String = "",
@@ -92,9 +96,14 @@ sealed interface Search {
 		val found: Finding? = null,
 		val highlighted: Int? = null,
 		val showing: Boolean = false,
-		/** Whether how a query is written is shown under the field (its `?`): not, each time the window opens. */
+		/** Whether how a query is written is shown in place of the field and what it found: not, each time it opens. */
 		val help: Boolean = false,
+		/** Which of prism's own things a search here can find: an explorer's, or a picker's fewer. */
+		val offers: List<Own> = emptyList(),
 	) : Search {
+		/** Prism's own things that [text] asks for, the best first. */
+		val own: List<Own> by lazy { Own.found(text, offers) }
+
 		/** [text] read in the search language: its query, what is wrong with it, and the marks that colour it. */
 		val read: ReadQuery by lazy { QueryText.read(text) }
 
@@ -108,8 +117,35 @@ sealed interface Search {
 					text
 			}
 
-		/** How many matches the window lists, a few of them in sight at once: every one. */
-		val listed: Int get() = (found as? Finding.Matched)?.matches?.size ?: 0
+		/** How many things the window lists, a few of them in sight at once: prism's own, and every match. */
+		val listed: Int get() = own.size + ((found as? Finding.Matched)?.matches?.size ?: 0)
+
+		/** The [index]th thing the window lists: one of prism's own, or after them a match; nothing past the last. */
+		fun listedAt(index: Int): Listed? =
+			own.getOrNull(index)?.let(Listed::Prisms)
+				?: (found as? Finding.Matched)?.matches?.let { matches ->
+					matches.rank(index - own.size)?.let { Listed.Match(matches, it) }
+				}
+
+		/** This search with [text] typed into its field: the arrows on the first of prism's own it asks for, if any. */
+		fun typed(text: String): Ready =
+			copy(text = text, showing = false, help = false).let {
+				it.copy(highlighted = 0.takeIf { _ -> it.own.isNotEmpty() })
+			}
+	}
+
+	/** One thing a search's window lists. */
+	sealed interface Listed {
+		/** Something of prism's own. */
+		data class Prisms(
+			val own: Own,
+		) : Listed
+
+		/** A match of the index's: which of [matches]. */
+		data class Match(
+			val matches: Matches,
+			val rank: Rank,
+		) : Listed
 	}
 
 	companion object {

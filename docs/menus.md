@@ -382,7 +382,7 @@ again (F5, or an action's `then`) lists it again.
 ### Searching a place
 
 What a place lists is made into an index of its own (`Index.given`, in the index module): the same columns the index
-of the disk is held in, built from the entries the command printed. Ctrl+Shift+F in a place searches that index and
+of the disk is held in, built from the entries the command printed. F2 in a place searches that index and
 nothing else, with the whole search language and the same ranking (`ext:c`, `dir:src`, `*.txt`, `is:dir`), whether or
 not the window was opened with an index of the disk at all. A match chosen is gone to in the place; every match shown
 is a listing of the place's entries, with the place's actions. Ctrl+F narrows the folder shown, as in any folder.

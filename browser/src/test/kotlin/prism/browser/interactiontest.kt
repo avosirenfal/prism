@@ -691,10 +691,10 @@ class InteractionTest {
 		}
 
 	@Test
-	fun f2RenamesAndEscapeLeavesTheNameAsItWas() =
+	fun f6RenamesAndEscapeLeavesTheNameAsItWas() =
 		picking { session ->
 			row("todo.txt").performClick()
-			press(Key.F2)
+			press(Key.F6)
 			field("rename").performTextReplacement("done.txt")
 			press(Key.Escape)
 
@@ -958,7 +958,7 @@ class InteractionTest {
 			// An archive's window is the archive's: the places on disk are not beside it.
 			assertEquals(0, onAllNodes(hasTestTag("places")).fetchSemanticsNodes().size)
 
-			// Ctrl+Shift+F searches the archive, by its own listing, though this window has no index of the disk.
+			// F2 searches the archive, by its own listing, though this window has no index of the disk.
 			session.send(BrowserEvent.OpenedSearch)
 			waitUntil(timeoutMillis = TIMEOUT) { session.state.value.search.open }
 			session.send(BrowserEvent.SearchTyped("todo"))
@@ -1091,7 +1091,7 @@ class InteractionTest {
 			Choosing.Exploring(),
 			finder = StaticFinder(prism.index.Index.EMPTY, home = work),
 		) { session ->
-			ctrlShift(Key.F)
+			press(Key.F2)
 			waitUntil(timeoutMillis = TIMEOUT) { session.state.value.search.open }
 			field("search-query").performTextReplacement("report")
 			waitUntil(timeoutMillis = TIMEOUT) {
@@ -1099,7 +1099,7 @@ class InteractionTest {
 					"report"
 			}
 
-			ctrlShift(Key.F)
+			press(Key.F2)
 			waitUntil(timeoutMillis = TIMEOUT) {
 				(session.state.value.search as Search.Ready).text.isEmpty()
 			}
@@ -1626,11 +1626,11 @@ class InteractionTest {
 		)
 
 	@Test
-	fun ctrlShiftFSearchesTheIndexAndEnterShowsEveryMatchInTheListing() {
+	fun f2SearchesTheIndexAndEnterShowsEveryMatchInTheListing() {
 		val home = home()
 
 		picking(folder = home, finder = finderOf(home)) { session ->
-			ctrlShift(Key.F)
+			press(Key.F2)
 			waitForIdle()
 			onNodeWithTag("search-layer").assertExists()
 			focusIsIn("search-query")
@@ -1650,7 +1650,7 @@ class InteractionTest {
 			onNodeWithTag("status").assertTextEquals("1 result")
 
 			// Opened again, its field is empty; opened from the results' bar, it holds what they were searched for.
-			ctrlShift(Key.F)
+			press(Key.F2)
 			waitForIdle()
 			field("search-query").assertTextEquals("")
 			press(Key.Escape)
@@ -1662,31 +1662,66 @@ class InteractionTest {
 	}
 
 	@Test
-	fun theQuestionMarkShowsHowAQueryIsWrittenAndAnExampleClickedIsTyped() {
+	fun theQuestionMarkShowsHowAQueryIsWrittenInTheSearchsPlaceUntilItIsLeft() {
 		val home = home()
 
 		picking(folder = home, finder = finderOf(home)) { _ ->
-			ctrlShift(Key.F)
+			fun shown(tag: String) = onAllNodes(hasTestTag(tag)).fetchSemanticsNodes().isNotEmpty()
+
+			press(Key.F2)
 			waitForIdle()
 			onNodeWithTag("search-layer").assertExists()
 			focusIsIn("search-query")
-			assertEquals(0, onAllNodes(hasTestTag("search-help-shown")).fetchSemanticsNodes().size)
+			assertFalse(shown("search-help-shown"))
 
-			// The question mark shows the language in short, and the field keeps the keyboard.
+			// The question mark shows the language in short, in the place of the field and what it found.
 			onNodeWithTag("search-help").performClick()
 			waitForIdle()
 			onNodeWithTag("search-help-shown").assertExists()
-			focusIsIn("search-query")
+			assertFalse(shown("search-query"))
 
-			// An example clicked is typed into the field, and searched for.
+			// An example clicked is typed into the field, and searched for, the field shown again with the keyboard.
 			onNodeWithTag("help:.pdf").performClick()
 			waitForIdle()
+			assertFalse(shown("search-help-shown"))
 			field("search-query").assertTextEquals(".pdf")
+			focusIsIn("search-query")
 
-			// Asked again, it is put away.
+			// Its × leaves it for the search, which is as it was.
 			onNodeWithTag("search-help").performClick()
 			waitForIdle()
-			assertEquals(0, onAllNodes(hasTestTag("search-help-shown")).fetchSemanticsNodes().size)
+			onNodeWithTag("search-help-close").performClick()
+			waitForIdle()
+			assertFalse(shown("search-help-shown"))
+			field("search-query").assertTextEquals(".pdf")
+
+			// So does Escape, once: the search is still there, and the next Escape puts that away.
+			onNodeWithTag("search-help").performClick()
+			waitForIdle()
+			press(Key.Escape)
+			waitForIdle()
+			assertFalse(shown("search-help-shown"))
+			onNodeWithTag("search-layer").assertExists()
+			focusIsIn("search-query")
+			press(Key.Escape)
+			waitForIdle()
+			assertFalse(shown("search-layer"))
+		}
+	}
+
+	@Test
+	fun aBareQuestionMarkEnteredShowsHowAQueryIsWritten() {
+		val home = home()
+
+		picking(folder = home, finder = finderOf(home)) { _ ->
+			press(Key.F2)
+			waitForIdle()
+			field("search-query").performTextReplacement("?")
+			waitForIdle()
+			onNodeWithTag("own:How to search").assertExists()
+			press(Key.Enter)
+			waitForIdle()
+			onNodeWithTag("search-help-shown").assertExists()
 		}
 	}
 
@@ -1695,7 +1730,7 @@ class InteractionTest {
 		val home = home()
 
 		picking(folder = home, finder = finderOf(home)) { session ->
-			ctrlShift(Key.F)
+			press(Key.F2)
 			waitForIdle()
 			field("search-query").performTextReplacement("letter")
 			waitUntil(timeoutMillis = TIMEOUT) {
@@ -1717,7 +1752,7 @@ class InteractionTest {
 	@Test
 	fun withNoIndexTheSearchSaysSo() {
 		picking { _ ->
-			ctrlShift(Key.F)
+			press(Key.F2)
 			waitForIdle()
 			onNodeWithTag("search-ok").assertIsDisplayed()
 			press(Key.Escape)

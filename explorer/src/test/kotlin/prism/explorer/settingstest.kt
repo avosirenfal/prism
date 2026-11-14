@@ -162,12 +162,12 @@ class SettingsTest {
 
 		val rebound =
 			opened.copy(
-				rebinding = opened.rebinding.awaiting(first(Action.Refresh)).pressed(chord("F6")),
+				rebinding = opened.rebinding.awaiting(first(Action.Refresh)).pressed(chord("F7")),
 			)
 
 		assertTrue(rebound.changed)
 		assertEquals(
-			elsewhere.copy(bindings = mapOf("Refresh" to listOf("F6", "Ctrl+R"))),
+			elsewhere.copy(bindings = mapOf("Refresh" to listOf("F7", "Ctrl+R"))),
 			rebound.over(elsewhere),
 		)
 

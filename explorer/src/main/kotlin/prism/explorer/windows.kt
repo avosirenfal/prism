@@ -186,7 +186,7 @@ fun ExplorerWindows(explorer: Explorer, palette: Palette, decorated: Boolean) {
 						dates = preferences.dates,
 						zoom = zoomOf(WindowKind.Preferences),
 					) {
-						SettingsWindow(explorer) { explorer.close(window) }
+						SettingsWindow(explorer, window) { explorer.close(window) }
 					}
 				// The launcher: over every window, in the middle of the screen, with the keyboard for as long as it is
 				// shown, where the platform has such a surface and the user wants it one; and otherwise a window
@@ -335,7 +335,11 @@ private fun LauncherSettingsWindow(explorer: Explorer, onClose: () -> Unit) {
 
 /** The preferences window's edits, kept while it is open, and saved over the preferences as they are by then. */
 @Composable
-private fun SettingsWindow(explorer: Explorer, onClose: () -> Unit) {
+private fun SettingsWindow(
+	explorer: Explorer,
+	window: ExplorerWindow.Settings,
+	onClose: () -> Unit,
+) {
 	val chords =
 		remember {
 			MutableSharedFlow<Chord>(
@@ -345,8 +349,18 @@ private fun SettingsWindow(explorer: Explorer, onClose: () -> Unit) {
 		}
 
 	var settings by remember {
-		mutableStateOf(Settings(explorer.preferences.preferences.value))
+		mutableStateOf(
+			Settings(explorer.preferences.preferences.value).let { opened ->
+				window.page?.let { opened.copy(page = it) } ?: opened
+			},
+		)
 	}
+
+	// Asked for again at a page (its key bindings, from a search), it goes to that page, what was being edited kept.
+	LaunchedEffect(
+		window.raised,
+	) { window.page?.let { settings = settings.copy(page = it) } }
+
 	// The window's edits not yet applied, to be undone: its own, apart from any other window's, and forgotten once
 	// applied or closed.
 	var edits by remember { mutableStateOf(Edits<Settings>()) }
@@ -363,12 +377,12 @@ private fun SettingsWindow(explorer: Explorer, onClose: () -> Unit) {
 		value = withContext(Dispatchers.IO) { explorer.desktop.launcher.terminals() }
 	}
 	// How the windows are drawn, and the graphics devices, looked at afresh each time the Renderer page is opened.
-	val window = LocalNativeWindow.current
+	val native = LocalNativeWindow.current
 	val examining = settings.page == Page.Renderer
-	val graphics by produceState<GraphicsReport?>(null, window, examining) {
-		if (examining && window != null)
+	val graphics by produceState<GraphicsReport?>(null, native, examining) {
+		if (examining && native != null)
 			value =
-				withContext(Dispatchers.IO) { Graphics.examine(window.rendering, window.drawnOn) }
+				withContext(Dispatchers.IO) { Graphics.examine(native.rendering, native.drawnOn) }
 	}
 
 	Box(Modifier.fillMaxSize().mouseChords { chords.tryEmit(it) }) {

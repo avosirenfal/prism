@@ -19,6 +19,7 @@ import prism.desktop.freedesktop.XdgPlaces
 import prism.index.Index
 import prism.index.Indexer
 import prism.index.Searched
+import prism.index.query.Own
 import prism.index.query.QueryText
 import prism.preferences.ColumnId
 import prism.preferences.Kind
@@ -223,7 +224,8 @@ class FindTest {
 		made("projects/prism/README.md", "prism.txt")
 
 		val typed = searched(picker(), "prism")
-		val folder = typed.listed().indexOf("prism")
+		// The matches are listed after what of prism's own the word asks for.
+		val folder = typed.ready.own.size + typed.listed().indexOf("prism")
 		val gone = after(typed, BrowserEvent.MatchChosen(folder))
 
 		assertEquals(root.resolve("projects/prism"), gone.folder)
@@ -459,6 +461,102 @@ class FindTest {
 	}
 
 	@Test
+	fun theWordPrismFindsPrismsOwnFirstAndTheArrowsStartOnTheFirstOfThem() {
+		made("Projects/prism/notes.md", "prism settings.txt", "report.pdf")
+
+		val explorer = picker(Choosing.Exploring())
+		val all = searched(explorer, "prism")
+
+		// Prism's own, and then what the index found for the same words; the arrows on the first.
+		assertEquals(Own.ALL, all.ready.own)
+		assertEquals(0, all.ready.highlighted)
+		assertEquals(Own.ALL.size + all.listed().size, all.ready.listed)
+		assertEquals(Search.Listed.Prisms(Own.Settings), all.ready.listedAt(0))
+		assertTrue(all.ready.listedAt(Own.ALL.size) is Search.Listed.Match)
+		assertNull(all.ready.listedAt(all.ready.listed))
+
+		// The other words begin the words of what is found; a file of those words is still found, after.
+		val settings = searched(explorer, "prism set")
+
+		assertEquals(listOf(Own.Settings), settings.ready.own)
+		assertEquals(listOf("prism settings.txt"), settings.listed())
+
+		// A picker is another application's window: it has no preferences to open.
+		assertEquals(listOf(Own.System, Own.Help), searched(picker(), "prism").ready.own)
+
+		// Without the word, nothing of prism's is found, and the arrows are in the field.
+		val plain = searched(explorer, "settings")
+
+		assertEquals(emptyList<Own>(), plain.ready.own)
+		assertNull(plain.ready.highlighted)
+		// Up from the first is the field again, from which Enter shows every match and opens nothing of prism's.
+		assertNull(after(all, BrowserEvent.MatchMoved(-1)).ready.highlighted)
+	}
+
+	@Test
+	fun eachOfPrismsOwnChosenDoesWhatItIsAndPutsTheWindowAway() {
+		made("report.pdf")
+
+		val explorer = picker(Choosing.Exploring())
+
+		fun entered(text: String): Step =
+			step(searched(explorer, text), BrowserEvent.SearchEntered)
+
+		val settings = entered("prism settings")
+
+		assertEquals(listOf<Effect>(Effect.Ask(Request.Preferences)), settings.effects)
+		assertFalse(settings.state.search.open)
+
+		val bindings = entered("prism key")
+
+		assertEquals(listOf<Effect>(Effect.Ask(Request.KeyBindings)), bindings.effects)
+		assertFalse(bindings.state.search.open)
+
+		// The system's page, whether or not it is pinned: gone to in this window.
+		val system = entered("prism system").settled(disk, finder)
+
+		assertTrue(system.system != null)
+		assertFalse(system.search.open)
+
+		// Clicked rather than entered, the same.
+		val clicked = step(searched(explorer, "prism"), BrowserEvent.MatchChosen(1))
+
+		assertEquals(listOf<Effect>(Effect.Ask(Request.KeyBindings)), clicked.effects)
+	}
+
+	@Test
+	fun aBareQuestionMarkOffersHowAQueryIsWrittenWhichTakesTheWindowsPlaceUntilLeft() {
+		made("a.txt", "b.txt")
+
+		val asked = searched(picker(), "?")
+
+		// The first thing listed, with the arrows on it; what one character names is still found, after.
+		assertEquals(listOf(Own.Help), asked.ready.own)
+		assertEquals(0, asked.ready.highlighted)
+		assertFalse(asked.ready.help)
+
+		val shown = after(asked, BrowserEvent.SearchEntered)
+
+		assertTrue(shown.ready.help)
+		assertTrue(shown.search.open)
+
+		// Left, the search is as it was: what was typed, and what it found.
+		val left = after(shown, BrowserEvent.ToggledSearchHelp)
+
+		assertFalse(left.ready.help)
+		assertEquals("?", left.ready.text)
+		assertTrue(left.search.open)
+
+		// One of its queries tried: typed into the field, and the search shown again.
+		val tried = after(shown, BrowserEvent.SearchTyped(".txt"))
+
+		assertFalse(tried.ready.help)
+		assertEquals(listOf("a.txt", "b.txt"), tried.listed().sorted())
+		// Arrowed past, the next thing is opened instead.
+		assertEquals(1, after(asked, BrowserEvent.MatchMoved(1)).ready.highlighted)
+	}
+
+	@Test
 	fun theSearchAndItsResultsDraw() {
 		made(
 			"Documents/Quarterly report.pdf",
@@ -495,6 +593,11 @@ class FindTest {
 				"results" to shown,
 				"search-wrong" to wrong,
 				"search-help" to help,
+				"search-empty" to after(picker(), BrowserEvent.OpenedSearch),
+				"search-nothing" to searched(picker(), "nothing-is-named-this"),
+				"search-own" to searched(picker(Choosing.Exploring()), "prism"),
+				"search-own-one" to searched(picker(Choosing.Exploring()), "prism set"),
+				"search-how" to searched(picker(Choosing.Exploring()), "?"),
 				"gallery" to gallery,
 			)
 

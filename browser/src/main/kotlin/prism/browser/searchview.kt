@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
@@ -26,8 +27,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEvent
@@ -61,13 +64,15 @@ import prism.window.WindowLocals
 
 /*
  * The search of the index, drawn over the picker as Everything's and Listary's are: a field across the top of a
- * window, the query coloured as it is read (each part by what it is, and what is wrong underlined), the matches
- * under it, a few in sight at once ([ResultList]), and a button that shows every match in the listing. The arrows, and
- * Page Up and Down, go through the matches from the field, which keeps the keyboard throughout, the list scrolling
- * to keep the one they are on in sight; Enter goes to the match they are on, or, from the field, shows every
- * match; Escape, or a click outside, puts the window away. Its field is empty each time it opens. A `?` beside the
- * field shows how a query is written, in a sentence and a handful of queries ([QueryHelp]), each of which is typed
- * into the field when clicked.
+ * window, the query coloured as it is read (each part by what it is, and what is wrong underlined); under it what it
+ * found, a few in sight at once ([ResultList]): prism's own things the query asks for, and then the matches; and
+ * along the bottom how many there are and what the keys do. The arrows, and Page Up and Down, go through what is
+ * listed from the field, which keeps the keyboard throughout, the list scrolling to keep the one they are on in
+ * sight; Enter goes to the one they are on, or, from the field, shows every match in the listing; Escape, or a click
+ * outside, puts the window away. Its field is empty each time it opens, and then the window says what can be typed.
+ *
+ * A `?` beside the field shows how a query is written ([QueryHelpPanel]) in place of all of that, and not over it:
+ * left by its × or by Escape, or by clicking one of its queries, which is typed into the field.
  */
 
 /** The search's window over the picker, for [search] as it stands; where a match is said from `~`, [home]. */
@@ -77,6 +82,7 @@ internal fun SearchLayer(search: Search, home: Path, onEvent: (BrowserEvent) -> 
 	val field = remember { FocusRequester() }
 	val shape = RoundedCornerShape(Radius.large)
 	val bindings = LocalBindings.current
+	val helping = (search as? Search.Ready)?.help == true
 
 	Popup(
 		alignment = Alignment.TopCenter,
@@ -95,40 +101,50 @@ internal fun SearchLayer(search: Search, home: Path, onEvent: (BrowserEvent) -> 
 			) {
 				Column(
 					Modifier
-						.padding(top = 72.dp, start = Space.xl, end = Space.xl)
+						.padding(top = 72.dp, bottom = Space.xl, start = Space.xl, end = Space.xl)
 						.width(680.dp)
 						.shadow(24.dp, shape, ambientColor = palette.shadow, spotColor = palette.shadow)
-						.background(palette.overlay, shape)
+						.clip(shape)
+						.background(palette.overlay)
 						.border(1.dp, palette.border, shape)
 						// A tap inside is not a tap outside.
 						.pointerInput(Unit) { detectTapGestures { } }
-						// Escape puts the window away, whatever in it has the keyboard. The chord that opens it, pressed
-						// while it is open (the window holds the keyboard, so the browser behind it is not told), starts
-						// the search again: the field emptied, and the keyboard in it.
+						// Escape leaves how a query is written for the search, and the search for the browser,
+						// whatever in the window has the keyboard. The chord that opens it, pressed while it is open
+						// (the window holds the keyboard, so the browser behind it is not told), starts the search
+						// again: the field emptied, and the keyboard in it.
 						.onPreviewKeyEvent {
 							val down = it.type == KeyEventType.KeyDown
 							val escape = down && it.key == Key.Escape
 							val again = down && Chord.of(it)?.let(bindings::window) == Action.SearchIndex
 
 							when {
+								escape && helping -> onEvent(BrowserEvent.ToggledSearchHelp)
 								escape -> onEvent(BrowserEvent.ClosedSearch)
-								again -> {
-									onEvent(BrowserEvent.OpenedSearch)
-									field.requestFocus()
-								}
+								again -> onEvent(BrowserEvent.OpenedSearch)
 							}
 
 							escape || again
-						}.padding(Space.l),
-					verticalArrangement = Arrangement.spacedBy(Space.m),
+						},
 				) {
 					when (search) {
 						is Search.Unavailable -> Unavailable(search, field, onEvent)
-						is Search.Ready -> Searching(search, home, field, onEvent)
+						is Search.Ready ->
+							if (search.help)
+								QueryHelpPanel(
+									onTry = { onEvent(BrowserEvent.SearchTyped(it)) },
+									onClose = { onEvent(BrowserEvent.ToggledSearchHelp) },
+								)
+							else
+								Searching(search, home, field, onEvent)
 					}
 				}
 			}
-			LaunchedEffect(Unit) { field.requestFocus() }
+			// The keyboard in the field whenever the field is what is shown: as the window opens, and back from the help.
+			LaunchedEffect(helping) {
+				if (!helping)
+					field.requestFocus()
+			}
 		}
 	}
 }
@@ -142,9 +158,11 @@ private fun Unavailable(
 ) {
 	val type = LocalType.current
 
-	Text("There is no index to search", style = type.title)
-	Text(search.why, style = type.body)
-	ButtonRow(Act("OK", "search-ok", focus = focus) { onEvent(BrowserEvent.ClosedSearch) })
+	Column(Modifier.padding(Space.l), verticalArrangement = Arrangement.spacedBy(Space.m)) {
+		Text("There is no index to search", style = type.title)
+		Text(search.why, style = type.body)
+		ButtonRow(Act("OK", "search-ok", focus = focus) { onEvent(BrowserEvent.ClosedSearch) })
+	}
 }
 
 @Composable
@@ -158,6 +176,7 @@ private fun Searching(
 	val type = LocalType.current
 	val read = search.read
 	val colouring = remember(read, palette) { QueryColouring(read, palette) }
+	val tall = type.control + Space.s
 
 	fun key(key: KeyEvent): Boolean {
 		if (key.type != KeyEventType.KeyDown)
@@ -178,14 +197,18 @@ private fun Searching(
 		return event != null
 	}
 
-	Row(verticalAlignment = Alignment.CenterVertically) {
+	Row(
+		Modifier.padding(start = Space.l, end = Space.l, top = Space.l, bottom = Space.m),
+		horizontalArrangement = Arrangement.spacedBy(Space.s),
+		verticalAlignment = Alignment.CenterVertically,
+	) {
 		Field(
 			search.text,
 			{ onEvent(BrowserEvent.SearchTyped(it)) },
 			Modifier.weight(1f).testTag("search-query"),
-			hint = "Search everything: report, .pdf, dir:photos, ~/Documents/",
+			hint = "Search everything",
 			leading = Glyph.Search,
-			height = type.control + Space.s,
+			height = tall,
 			focus = field,
 			// The keyboard arrives at the end of what was typed, to go on typing it.
 			selecting = {
@@ -196,72 +219,204 @@ private fun Searching(
 			colouring = colouring,
 			style = type.body.times(1.15f),
 		)
-		Spacer(Modifier.width(Space.s))
-		// The field keeps the keyboard, whatever is clicked beside it.
-		PushButton("?", Emphasis.Quiet, enabled = true, Modifier.testTag("search-help")) {
-			onEvent(BrowserEvent.ToggledSearchHelp)
-			field.requestFocus()
-		}
-		Spacer(Modifier.width(Space.xs))
-		PushButton(
-			"Search",
-			Emphasis.Primary,
-			enabled = search.searchable,
-			Modifier.testTag("search-go"),
-		) { onEvent(BrowserEvent.ShowedResults) }
+		HelpButton(tall) { onEvent(BrowserEvent.ToggledSearchHelp) }
 	}
 
 	read.problems.firstOrNull { it.kind == Problem.Kind.Invalid }?.let {
 		Text(
 			it.message,
 			style = type.muted.copy(color = palette.dangerText),
-			modifier = Modifier.testTag("search-problem"),
+			modifier =
+				Modifier
+					.padding(horizontal = Space.l)
+					.padding(bottom = Space.m)
+					.testTag("search-problem"),
 		)
 	}
 
-	when (val found = search.found) {
-		null -> Unit
-		is Finding.Refused ->
-			Text(found.why, style = type.muted, modifier = Modifier.testTag("search-refused"))
-		is Finding.Failed -> {
-			Text(
-				"The search failed. That is a mistake of prism's, not of what you typed.",
-				style = type.body.copy(color = palette.dangerText),
-				modifier = Modifier.testTag("search-failed"),
-			)
-			Text(
-				"${found.fault.line}. It is said in full in prism's log.",
-				style = type.muted,
-				modifier = Modifier.testTag("search-failure"),
-			)
-		}
-		is Finding.Matched -> {
-			val matches = found.matches
+	val found = search.found
 
-			ResultList(
-				search.listed,
-				search.highlighted,
-				rowHeight = type.row + Space.xs,
-				height = (type.row + Space.xs) * Search.SHOWN,
-				tag = "matches",
-				rowTag = { "match:${matches.rank(it)?.let(matches::nameOf).orEmpty()}" },
-				onChoose = { onEvent(BrowserEvent.MatchChosen(it)) },
-			) { at -> matches.rank(at)?.let { Match(matches.rowOf(it, null), home) } }
-			Text(
-				when (matches.size) {
-					0 -> "Nothing matches"
-					1 -> "1 match"
-					else -> "${"%,d".format(matches.size)} matches · Enter shows them all"
-				},
-				style = type.muted,
-				modifier =
-					Modifier
-						.padding(
-							horizontal = Space.s,
-							vertical = Space.xxs,
-						).testTag("search-count"),
+	when {
+		found is Finding.Refused ->
+			Said(found.why, type.muted, "search-refused")
+		found is Finding.Failed -> {
+			Said(
+				"The search failed. That is a mistake of prism's, not of what you typed.",
+				type.body.copy(color = palette.dangerText),
+				"search-failed",
+			)
+			Said(
+				"${found.fault.line}. It is said in full in prism's log.",
+				type.muted,
+				"search-failure",
 			)
 		}
+		search.text.isBlank() -> Beginning(onEvent)
+	}
+
+	if (search.listed > 0)
+		ResultList(
+			search.listed,
+			search.highlighted,
+			rowHeight = type.row + Space.xs,
+			height = (type.row + Space.xs) * Search.SHOWN,
+			modifier = Modifier.padding(horizontal = Space.s).padding(bottom = Space.s),
+			tag = "matches",
+			rowTag = { at ->
+				when (val listed = search.listedAt(at)) {
+					null -> "match:"
+					is Search.Listed.Prisms -> "own:${listed.own.title}"
+					is Search.Listed.Match -> "match:${listed.matches.nameOf(listed.rank)}"
+				}
+			},
+			onChoose = { onEvent(BrowserEvent.MatchChosen(it)) },
+		) { at ->
+			when (val listed = search.listedAt(at)) {
+				null -> Unit
+				is Search.Listed.Prisms -> OwnResult(listed.own)
+				is Search.Listed.Match -> Match(listed.matches.rowOf(listed.rank, null), home)
+			}
+		}
+
+	Footer(search, onEvent)
+}
+
+/** A line the window says in place of what it would list. */
+@Composable
+private fun Said(text: String, style: androidx.compose.ui.text.TextStyle, tag: String) {
+	Text(
+		text,
+		style = style,
+		modifier =
+			Modifier
+				.padding(horizontal = Space.l)
+				.padding(bottom = Space.m)
+				.testTag(tag),
+	)
+}
+
+/**
+ * The button beside the field that shows how a query is written: as tall as the field and as wide as it is tall,
+ * with an edge of its own, so that it is seen to be something to press.
+ */
+@Composable
+private fun HelpButton(size: androidx.compose.ui.unit.Dp, onClick: () -> Unit) {
+	val palette = LocalPalette.current
+	val source = remember { MutableInteractionSource() }
+	val hovered by source.collectIsHoveredAsState()
+	val shape = RoundedCornerShape(Radius.medium)
+
+	Tip("How to search") {
+		Box(
+			Modifier
+				.size(size)
+				.clip(shape)
+				.background(if (hovered) palette.hover else palette.sunken)
+				.border(
+					1.dp,
+					if (hovered)
+						palette.borderStrong
+					else
+						palette.border,
+					shape,
+				)
+				// The field keeps the keyboard, whatever is clicked beside it.
+				.focusProperties { canFocus = false }
+				.hoverable(source)
+				.clickable(
+					source,
+					indication = null,
+					onClickLabel = "How to search",
+					onClick = onClick,
+				).testTag("search-help"),
+			contentAlignment = Alignment.Center,
+		) {
+			GlyphIcon(
+				Glyph.Help,
+				if (hovered) palette.text else palette.textMuted,
+				LocalType.current.icon + Space.xxs,
+			)
+		}
+	}
+}
+
+/**
+ * What the window says before anything is typed: what it searches, and a few things to type, each typed into the
+ * field when clicked, the last two of them prism's own.
+ */
+@Composable
+private fun Beginning(onEvent: (BrowserEvent) -> Unit) {
+	val type = LocalType.current
+
+	Column(
+		Modifier
+			.padding(horizontal = Space.l)
+			.padding(bottom = Space.l)
+			.testTag("search-beginning"),
+		verticalArrangement = Arrangement.spacedBy(Space.s),
+	) {
+		Text(
+			"Every file and folder prism has indexed, by name as you type. Try one of these:",
+			style = type.muted,
+		)
+		Row(horizontalArrangement = Arrangement.spacedBy(Space.xs)) {
+			for (example in BEGINNINGS)
+				Chip(example, Modifier.testTag("try:$example")) {
+					onEvent(BrowserEvent.SearchTyped(example))
+				}
+		}
+	}
+}
+
+/** What the window offers to type before anything is: a word, an extension, a folder, what is new, and prism's own. */
+private val BEGINNINGS =
+	listOf("report .pdf", "dir:photos .jpg", "new:2d", "~/Documents/", "prism", "?")
+
+/**
+ * Along the bottom: how much was found, and what the keys do now: Enter to what the arrows are on, or from the field
+ * to every match in the listing.
+ */
+@Composable
+private fun Footer(search: Search.Ready, onEvent: (BrowserEvent) -> Unit) {
+	val palette = LocalPalette.current
+	val type = LocalType.current
+	val matches = (search.found as? Finding.Matched)?.matches
+
+	Divider()
+	Row(
+		Modifier
+			.fillMaxWidth()
+			.background(palette.pane)
+			.padding(horizontal = Space.l, vertical = Space.s),
+		horizontalArrangement = Arrangement.spacedBy(Space.l),
+		verticalAlignment = Alignment.CenterVertically,
+	) {
+		Text(
+			when {
+				!search.searchable || matches == null -> ""
+				// Something of prism's own is listed: it is only among files that nothing was found.
+				matches.size == 0 && search.own.isNotEmpty() -> "No files match"
+				matches.size == 0 -> "Nothing matches"
+				matches.size == 1 -> "1 match"
+				else -> "${"%,d".format(matches.size)} matches"
+			},
+			style = type.muted,
+			maxLines = 1,
+			modifier = Modifier.weight(1f).testTag("search-count"),
+		)
+		if (search.listed > 0)
+			KeyHint("Move", listOf("↑", "↓"))
+		when {
+			search.highlighted != null -> KeyHint("Open", listOf("↵"))
+			matches != null && matches.size > 0 && search.searchable ->
+				Box(
+					Modifier
+						.clip(RoundedCornerShape(Radius.small))
+						.clickable { onEvent(BrowserEvent.ShowedResults) }
+						.testTag("search-go"),
+				) { KeyHint("Show all in the listing", listOf("↵")) }
+		}
+		KeyHint("Close", listOf("Esc"))
 	}
 }
 

@@ -41,5 +41,6 @@ object QueryHelp {
 			Example("new:2d", "what turned up in the last two days"),
 			Example("recent:1w", "what you picked in the last week"),
 			Example("r/^img_\\d{4}/", "a regular expression"),
+			Example(Own.WORD, "prism's own: its settings, its key bindings, the system's page"),
 		)
 }
