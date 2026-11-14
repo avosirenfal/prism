@@ -2,10 +2,13 @@
 # prism as it runs for a session, end to end, on a virtual display (docs/running.md): a prism started alone, a second
 # handed to it, a daemon started meanwhile waiting its turn and taking the session's windows when the first prism's
 # last window closes; the daemon started apart from the terminal, started twice, asked for windows, and stopped with
-# its index written and its socket taken away.
+# its index written and its socket taken away; and `prism search` answered by the daemon, and from the index's file
+# once the daemon is gone.
 #
 # It needs Xvfb and xdotool, and prism's app image (./gradlew :app:createDistributable), or another prism named by
-# $PRISM (a Nix build's result/bin/prism). It touches nothing of yours: every folder it uses is one it made.
+# $PRISM: a Nix build's result/bin/prism, which is the client compiled ahead of time, handing to the Java prism beside
+# it what the prism running does not answer; or that client built here (client/build/native/prism), with the Java
+# prism it hands to named by $PRISM_JAVA. It touches nothing of yours: every folder it uses is one it made.
 set -u
 
 here="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -140,6 +143,25 @@ check "it is the daemon's one window" "windows: 1 open" "$(windows)"
 eventually "asked for again, it is put away" 10 have_windows "none open"
 check "the daemon is still there" "prism daemon" "$(who)"
 
+echo "--- prism search is answered by the daemon, of its index"
+tree="$(cd tree && pwd)"
+check "a search prints what the index holds for it" "$tree/docs/a.txt" "$("$PRISM" search a.txt)"
+check "the best alone, and a word with a dash that is no option is the query's" "$tree/docs/a.txt" \
+	"$("$PRISM" search -b a -nothing)"
+check "what a term leaves out is left out" "1" "$("$PRISM" search a.txt -ext:txt > /dev/null; echo $?)"
+check "nothing found is status 1" "1" "$("$PRISM" search zzzz > /dev/null; echo $?)"
+check "a query that cannot be searched for is status 2" "2" "$("$PRISM" search foo:bar 2> /dev/null; echo $?)"
+check "goto says the folder of the one match" "$tree/docs" "$("$PRISM" search --goto a.txt)"
+# The function `prism shell` prints, read by a shell of its own (with prism named by its place, which that shell does
+# not have on its path), and where that shell is after a search told to go.
+went() {
+	PRISM="$PRISM" bash -c '
+		eval "$("$PRISM" shell bash | sed "s|command prism|\"\$PRISM\"|g")"
+		prism search --goto "$1" > /dev/null && pwd' _ "$1"
+}
+check "and the shell's function goes there" "$tree/docs" "$(went a.txt)"
+check "a NUL after each path" "$tree/docs/a.txt" "$("$PRISM" search -0 a.txt | tr -d '\0')"
+
 echo "--- stopped, it writes its index and takes its socket away"
 daemon="$(cat "$XDG_STATE_HOME/prism/daemon.pid")"
 kill "$daemon"
@@ -149,6 +171,7 @@ check "the socket is gone" "0" "$(find "$XDG_RUNTIME_DIR/prism" -name prism.sock
 check "the index was written, and reads back" "1" \
 	"$("$PRISM" index --file "$XDG_CACHE_HOME/prism/index.prism" | grep -c '3 entries')"
 check "it said it stopped" "1" "$(grep -c '^stopped: 3 entries' "$XDG_STATE_HOME/prism/daemon.log")"
+check "with no prism running a search reads the index's file" "$tree/docs/a.txt" "$("$PRISM" search a.txt)"
 
 echo
 [ "$failed" -eq 0 ] && echo PASSED || echo FAILED

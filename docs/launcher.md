@@ -82,10 +82,11 @@ The launcher's keys are its own, kept under `launcher.bindings`, each action by 
 ## Showing it
 
 `prism launcher` is asked of the prism already running, as `prism explore` is (docs/running.md): a short-lived process
-writes the daemon what was asked, the daemon shows the window, and the process ends. So it is on the screen in about
-the time a JVM takes to start and say six words (a fifth of a second, from the Nix package), and its results are
-there with it: the daemon read what is installed when it last showed the launcher, keeps the pictures it drew, and
-has the index in memory. Asked for while it is shown, it is put away, so one key shows and hides it.
+writes the daemon what was asked, the daemon shows the window, and the process ends. In the flake's package that
+process is the client, compiled ahead of time (docs/shell.md, "The client"), so the asking takes a few thousandths of
+a second, and what is left is the daemon making a window; its results are there with it, since the daemon read what
+is installed when it last showed the launcher, keeps the pictures it drew, and has the index in memory. Asked for
+while it is shown, it is put away, so one key shows and hides it.
 
 With no prism running, `prism launcher` shows the launcher in its own process, with the applications but no index
 (`--index [FILE]` gives it one read from a file), and the process ends when the launcher is put away.
@@ -164,8 +165,6 @@ nothing else with it.
 - **A layer-shell surface on Wayland.** The launcher is a toplevel window, so it is not above a fullscreen window, and
   where it sits is the window manager's to say. Vicinae uses `wlr-layer-shell`, which SDL does not speak; prism speaks
   Wayland itself for drags, and could for this.
-- **A native client.** The process that asks the daemon is a JVM, a fifth of a second to start. A few lines of C that
-  write the same request to the socket would make that nothing.
 - **Kept warm.** The window is made each time it is shown; kept hidden between, it would be there sooner still.
 - **More to find.** A calculator, windows to switch to, the clipboard's history: what Vicinae and Raycast do beyond
   applications and files.

@@ -9,7 +9,8 @@ docs/nixos.md says how NixOS sets all of it up; docs/daemon.md says how the inde
 
 Say you are logged in, the daemon was started with your session, and you press the key your launcher binds to prism.
 
-1. The launcher runs `prism`. That is a new process, and a small one: it reads its words (none, which means
+1. The launcher runs `prism`. That is a new process, and a small one (in the flake's package, a program compiled
+   ahead of time that does nothing but this: docs/shell.md, "The client"): it takes its words (none, which means
    `prism explore`, on your home folder), and looks for a socket at `$XDG_RUNTIME_DIR/prism/prism.sock`.
 2. The daemon is listening there. The new process writes it what it was asked: the words `explore`, the folder it
    was started in, and the token the launcher gave it for the window to be given the keyboard. Then it waits.
@@ -18,9 +19,9 @@ Say you are logged in, the daemon was started with your session, and you press t
 4. The new process prints what it was answered (nothing), exits with the status it was answered (0), and is gone.
 
 The window is the daemon's. It searches the daemon's index, as it is at that moment. The process the launcher started
-lived for a fraction of a second and never loaded a window toolkit, which is the point: starting a Java program that
-opens windows takes a second or two, and asking one that is already running takes a fraction of that (the numbers
-are below).
+lived for a few thousandths of a second and never loaded a window toolkit, which is the point: starting a Java
+program that opens windows takes a second or two, and asking one that is already running takes next to nothing (the
+numbers are below).
 
 Now say something goes wrong in that window: a mistake in prism's drawing code throws while the window is being
 laid out. The window is closed. A small window opens in its place, which says what was closed, what went wrong in a
@@ -41,6 +42,8 @@ The rest of this document is each of those parts in turn.
 | `prism daemon` | the daemon, started apart from the terminal; returns once it has said it started |
 | `prism daemon --foreground` | the daemon, run in place, saying what it does on the terminal until stopped: how systemd runs it, and how to watch it |
 | `prism status` | what the prism already running says of itself; status 1 where none is |
+| `prism search QUERY...` | the paths the index holds that fit a query, best first, printed; `-g` goes to what it finds, `-i` chooses from a menu (docs/shell.md); answered by the prism already running, of its live index, or from the index's file where none is |
+| `prism shell bash\|zsh\|fish` | the function that lets `prism search -g` change that shell's folder |
 
 `prism --help` lists the rest. A word after `prism` that names no command is `prism explore`'s, so `prism ~/Documents`
 is `prism explore ~/Documents`; a folder whose name is a command's is written with a path (`prism ./index`).
@@ -69,10 +72,16 @@ no display, its windows have failed, it is another version and reads the words d
 start the asker would have paid anyway. A prism that listens but does not answer within twenty seconds is treated as
 not there.
 
-**Which commands are asked.** `explore`, `launcher` and `status`. Every other command runs in the process that was started.
-`prism explore` given anything that says how its windows should be (`--theme`, `--decorated`, `--index`) is one of
+**Which commands are asked.** `explore`, `launcher`, `status`, and `matches`, which is what `prism search` asks for
+what the index holds (docs/shell.md). Every other command runs in the process that was started. `prism explore` or
+`prism launcher` given anything that says how its windows should be (`--theme`, `--decorated`, `--index`) is one of
 those too: a running prism's windows are as it was started, so asking it would ignore what you said. It opens in a
 process of its own, as `--isolated` does.
+
+**Who decides.** The prism that is asked. The client sends a command line's words as they were typed, without reading
+them; the prism running reads them as its own, and a command it does for others says which of its invocations ask
+for a process of their own (`Served.apart`). Those it refuses, as it refuses a command it does not do for others, and
+whoever asked does them itself.
 
 **Without a daemon.** The first `prism` finds nobody listening. It takes the place, opens its own window, and is the
 session's prism for as long as it has a window open: a second `prism` hands it its words, and its window opens in the
@@ -95,15 +104,18 @@ when the daemon has opened the window:
 | | time |
 |---|---|
 | `prism FOLDER` with no prism running: a prism of its own, until its window is on the screen | about 2.2 s |
-| `prism FOLDER` handed to an idle daemon, from the app image (`createDistributable`) | about 0.35 s |
-| the same, from the Nix package, whose Java has a cache of the classes a start loads | about 0.2 s |
-| `prism status` from the Nix package: the asking alone, with nothing for the daemon to do | about 0.14 s |
+| `prism FOLDER` handed to an idle daemon by the Java prism, from the app image (`createDistributable`) | about 0.35 s |
+| the same, by the Nix package's Java prism, whose Java has a cache of the classes a start loads | about 0.16 s |
+| the same, by the Nix package's `prism`, which is the client compiled ahead of time | about 12 ms |
+| `prism status` by the client: the asking alone, with nothing for the daemon to do | about 5 ms |
+| `prism status` by the Nix package's Java prism | about 0.15 s |
 | `java -version`, for scale: the least a Java program can take | about 0.04 s |
 
-So a window from the daemon comes about ten times sooner than one from a prism of its own. Of the 0.2 s, about 0.14 s
-is Java starting in the process that asks, which loads a few hundred classes, none of them a window's; the rest is
-the daemon making the window. What is left of the first part is the virtual machine itself, and going below it means
-a program that is not Java for this one job, a few dozen lines of C that speak the socket, which is not written yet.
+So a window from the daemon comes more than ten times sooner than one from a prism of its own, even asked for by
+Java; and nearly all of that 0.16 s was Java starting in the process that asks, which loads a few hundred classes,
+none of them a window's. The client is that process without Java: the same Kotlin, compiled ahead of time into a
+program that starts in a few thousandths of a second (docs/shell.md, "The client"). What is left, about a hundredth
+of a second, is the daemon being asked and making the window. Each is the middle of seven runs.
 
 ## The daemon
 
@@ -335,7 +347,8 @@ own mark, reads no configuration and fails.
 - **The loader's service on a real machine**: the reading of a pinned program by an unprivileged user has been done
   on a real kernel with a program that loads in the development container, and the watcher itself has been loaded on
   a real one by root; the two together, under systemd, have not.
-- **A client that is not Java**, for the 0.14 s of Java starting that is left in every window asked for.
+- **The client outside the flake's package.** The app image (`createDistributable`) is the Java prism alone; the
+  client is built beside it by `./gradlew :client:nativeImage`, where there is a GraalVM, and not put in it.
 - **Restarting the daemon after an upgrade.** A daemon started before prism was upgraded goes on running the old
   prism until it is restarted or you log in again; a new `prism` asks it all the same, and the two understand each
   other for as long as the words mean the same to both. Where they do not, the old one answers that it cannot, and the

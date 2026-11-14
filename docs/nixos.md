@@ -241,7 +241,7 @@ it.
     wantedBy = [ "graphical-session.target" ];
     enableDefaultPath = false;
     serviceConfig = {
-      ExecStart = "${prismPackage}/bin/prism daemon --foreground";
+      ExecStart = "${prismPackage}/libexec/prism/prism daemon --foreground";
       Restart = "on-failure";
       RestartSec = 2;
       # Java, told to stop, ends with status 143: its having been stopped, and no failure.
@@ -267,9 +267,10 @@ The module adds one more small thing: a D-Bus service file for `org.freedesktop.
 
 | path | what |
 |---|---|
-| `bin/prism` | a wrapper: nixpkgs' Java 25, prism's jars, and the libraries prism loads by name on the loader's path |
+| `bin/prism` | the client: the `prism` a shell or a launcher starts, compiled ahead of time by GraalVM, which asks the prism already running and is done in a few thousandths of a second, and starts the Java prism with its words where nobody answers (docs/shell.md, "The client") |
+| `libexec/prism/prism` | the Java prism, which does everything: a wrapper with nixpkgs' Java 25, prism's jars, and the libraries prism loads by name on the loader's path. What stays is run as this directly: the units below, and the daemon when it starts itself |
 | `share/prism/lib/*.jar` | prism and what it runs with |
-| `share/prism/prism.aot` | Java's cache of the classes a start loads, already read and linked, which takes about a third off the time `prism` takes to hand its words to the daemon |
+| `share/prism/prism.aot` | Java's cache of the classes a start loads, already read and linked, which takes about a third off the time the Java prism takes to start |
 | `share/applications/prism.desktop` | the desktop entry, "Prism": what a launcher lists and what opens `inode/directory`, run by its place in the store, with its icon and two actions (a new window; a new window in a process of its own). Its name is its windows' app id, so a compositor shows the icon and the name for prism's windows |
 | `share/icons/hicolor/scalable/apps/prism.svg` | its icon |
 | `share/xdg-desktop-portal/portals/prism.portal` | the portal backend's description |
@@ -302,7 +303,7 @@ store. It also keeps what `LD_LIBRARY_PATH` was, and prism gives that back to ev
 | `overlays.default` | the package as `pkgs.prism` |
 | `nixosModules.prism`, `.default` | the module above |
 | `apps.x86_64-linux.default` | `nix run github:avosirenfal/prism` |
-| `devShells.x86_64-linux.default` | what building with Gradle needs: `nix develop`, or direnv |
+| `devShells.x86_64-linux.default` | what building with Gradle needs: `nix develop`, or direnv; `GRAALVM_HOME` among it, for `./gradlew :client:nativeImage` |
 | `checks.x86_64-linux` | the package built; the module evaluated as it is by default, with the portal off, and with the daemon and the file manager off, and what it then says checked |
 | `formatter.x86_64-linux` | `nix fmt` |
 
