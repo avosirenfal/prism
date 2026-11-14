@@ -188,6 +188,13 @@ data class Services(
 	val temps: Temps = SHARED_TEMPS,
 	/** What says the folder shown has changed on disk; nothing does, unless whoever runs the browser gives one. */
 	val watcher: FolderWatcher = FolderWatcher.NONE,
+	/**
+	 * Where what goes wrong that should not have is said, with what was being done: standard error, unless told
+	 * otherwise. What a window shows of it is a line; this is the whole of it.
+	 */
+	val report: (String, Throwable) -> Unit = { doing, failure ->
+		System.err.println("prism: $doing failed: ${failure.stackTraceToString().trimEnd()}")
+	},
 ) {
 	/** What conditions are decided by: the desktop's types, the `PATH`, and the disk. */
 	val world: World by lazy { SystemWorld(home, desktop?.types) }

@@ -6,6 +6,8 @@ import java.time.ZoneOffset
 import kotlin.io.path.createDirectories
 import kotlin.io.path.deleteExisting
 import kotlin.io.path.writeText
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.first
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertInstanceOf
@@ -515,6 +517,66 @@ class FindTest {
 		assertFalse(gone.search.open)
 		assertEquals(root.resolve("notes"), gone.folder)
 	}
+
+	@Test
+	fun aSearchThatGoesWrongSaysItIsPrismsMistakeAndIsReportedInFull() =
+		kotlinx.coroutines.runBlocking {
+			made("notes.md")
+
+			val reported = java.util.concurrent.CopyOnWriteArrayList<Pair<String, Throwable>>()
+			val broken =
+				object : Finder {
+					override fun find(query: prism.index.query.Query): prism.index.Searched =
+						throw ArrayIndexOutOfBoundsException("Index -1 out of bounds for length 0")
+
+					override fun picked(paths: List<Path>, at: java.time.Instant) = Unit
+				}
+
+			val scope =
+				kotlinx.coroutines.CoroutineScope(
+					kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Default,
+				)
+
+			val session =
+				Session(
+					opened(
+						Choosing.OneFile(),
+						root,
+						root,
+						sidebarOf(XdgPlaces(), root),
+						search = Search.Ready(),
+					),
+					Services(disk, broken, report = { doing, failure -> reported += doing to failure }),
+					scope,
+				)
+
+			try {
+				kotlinx.coroutines.withTimeout(15_000) {
+					session.send(BrowserEvent.OpenedSearch)
+					session.send(BrowserEvent.SearchTyped("notes"))
+
+					val failed =
+						session.state
+							.first { (it.search as? Search.Ready)?.found is Finding.Failed }
+							.ready.found as Finding.Failed
+
+					// The window is told what kind of thing went wrong, in a line; all of it is where prism says
+					// what goes wrong, with what was being done.
+					assertEquals("notes", failed.text)
+					assertEquals(
+						"ArrayIndexOutOfBoundsException: Index -1 out of bounds for length 0",
+						failed.failure,
+					)
+					assertEquals(listOf("searching for “notes”"), reported.map { it.first })
+					assertTrue(reported.single().second is ArrayIndexOutOfBoundsException)
+					// Nothing is listed, and the window stays, to be typed into again.
+					assertEquals(0, session.state.value.ready.listed)
+					assertTrue(session.state.value.search.open)
+				}
+			} finally {
+				scope.cancel()
+			}
+		}
 
 	@Test
 	fun askedForAgainWhileOpenTheSearchStartsAgain() {

@@ -71,388 +71,6 @@ sealed interface Searched {
 	) : Searched
 }
 
-/**
- * The entries a search found, best first: by their scores ([Ranking]), and among equals by name, from A to Z but with
- * a name's numbers from the greatest down, so that names that differ by a date or a number (`backup_2026_11_13`,
- * `IMG_1002`) come the latest first; among equal names, by path. Each is made into an [Entry] when it is asked for, so
- * a search that finds a million entries keeps a few million numbers, not a million paths; [nameOf] and [kindOf] say
- * what a result is without making its path.
- */
-class Results internal constructor(
-	private val parts: List<Part>,
-) : AbstractList<Entry>() {
-	/** The entries found in one placed block of an index, by their places in it, and their scores. */
-	internal class Part(
-		val index: Index,
-		val placed: Int,
-		val entries: IntArray,
-		val scores: IntArray,
-	) {
-		val block: Block get() = index.placed[placed].block
-	}
-
-	private val starts: IntArray =
-		parts
-			.runningFold(
-				0,
-			) { at, it -> at + it.entries.size }
-			.toIntArray()
-
-	/** Each result's place among the parts' entries, one part after another, best first. */
-	private val order: IntArray = ranked()
-
-	override val size: Int get() = starts.last()
-
-	override fun get(index: Int): Entry =
-		at(index) { part, found -> part.index.entryAt(part.placed, part.entries[found]) }
-
-	/** The name of the [index]th result, as text. */
-	fun nameOf(index: Int): String =
-		at(index) { part, found ->
-			val block = part.block
-			val entry = part.entries[found]
-
-			String(block.names, block.nameAt[entry], block.nameLength(entry), Charsets.UTF_8)
-		}
-
-	fun kindOf(index: Int): Kind =
-		at(index) { part, found -> part.block.kindOf(part.entries[found]) }
-
-	/** The [index]th result's score: what put it where it is. */
-	fun scoreOf(index: Int): Int = at(index) { part, found -> part.scores[found] }
-
-	/** What [read] makes of the [index]th result: its part, and where among that part's results it is. */
-	private inline fun <T> at(index: Int, read: (Part, Int) -> T): T {
-		if (index !in 0 until size)
-			throw IndexOutOfBoundsException("$index of $size")
-
-		return placed(order[index], read)
-	}
-
-	/** What [read] makes of the result at [position] among the parts' entries: its part, and where in it. */
-	private inline fun <T> placed(position: Int, read: (Part, Int) -> T): T {
-		// The last part that starts at or before the position, and holds anything: parts that found nothing start
-		// where the next does. An index much changed since it was compacted has thousands of parts, so by halving.
-		val found = java.util.Arrays.binarySearch(starts, position + 1)
-		val part =
-			(
-				if (found >= 0)
-					found
-				else
-					-found - 1
-			) - 1
-
-		return read(parts[part], position - starts[part])
-	}
-
-	/**
-	 * Every result's position, in order of score from the highest: a counting sort, which leaves equals in the order
-	 * they are taken in, which is that of their paths, since a block holds its entries so. The first [EXACT] results
-	 * are then put in the order of their names among equals ([byName]), which is a sort, and so is not done for every
-	 * one of a million: past them, equals stay in the order of their paths.
-	 */
-	private fun ranked(): IntArray {
-		val counts = IntArray(Ranking.MOST + 1)
-
-		for (part in parts)
-			for (score in part.scores)
-				counts[score]++
-
-		// Where each score's results begin: the best score's first.
-		val begins = IntArray(Ranking.MOST + 1)
-		var at = 0
-
-		for (score in Ranking.MOST downTo 0) {
-			begins[score] = at
-			at += counts[score]
-		}
-
-		val order = IntArray(at)
-		val next = begins.copyOf()
-		var position = 0
-
-		for (part in parts)
-			for (score in part.scores)
-				order[next[score]++] = position++
-
-		// Equals, from the best down, until the first [EXACT] results are in the order of their names.
-		var left = EXACT
-
-		for (score in Ranking.MOST downTo 0) {
-			val count = counts[score]
-
-			if (left <= 0)
-				break
-			if (count > 1)
-				byName(order, begins[score], begins[score] + count, score, left)
-			left -= count
-		}
-
-		return order
-	}
-
-	/**
-	 * The positions of [order] from [from] up to [to], which are those of [score], with the first [most] of them by
-	 * name ([byNameOrder]; by path, among equal names) put first, in that order, and the rest after them as they were.
-	 * Where there are more than [most], those are picked out in one pass over what was found ([firstByName]), each
-	 * result looked at once against the last of those kept, which is why a million equals cost a million looks and
-	 * not a sort.
-	 */
-	private fun byName(
-		order: IntArray,
-		from: Int,
-		to: Int,
-		score: Int,
-		most: Int,
-	) {
-		/** Two positions in the order of their names, and of the positions themselves among equal names. */
-		fun named(one: Int, other: Int): Int =
-			placed(one) { a, aFound ->
-				placed(other) { b, bFound ->
-					val order = named(a, a.entries[aFound], b, b.entries[bFound])
-
-					if (order != 0)
-						order
-					else
-						one.compareTo(other)
-				}
-			}
-
-		if (to - from <= most) {
-			order
-				.asList()
-				.subList(from, to)
-				.sortedWith(::named)
-				.forEachIndexed { at, position -> order[from + at] = position }
-
-			return
-		}
-
-		// What was found, in slices, each gone through on whatever core is free: the first of each by name, and then
-		// the first of those.
-		val slice = maxOf(SLICE, size / Runtime.getRuntime().availableProcessors() + 1)
-
-		val slices =
-			parts.indices.flatMap { at ->
-				val found = parts[at].scores.size
-
-				(0 until found step slice).map { Triple(at, it, minOf(it + slice, found)) }
-			}
-
-		val first =
-			slices
-				.parallelStream()
-				.map { (at, start, end) -> firstByName(at, start, end, score, most) }
-				.toList()
-				.flatten()
-				.sortedWith(::named)
-				.take(most)
-
-		val picked = java.util.BitSet(size).also { first.forEach(it::set) }
-		val rest = IntArray(to - from - first.size)
-		var filled = 0
-
-		for (at in from until to)
-			if (!picked[order[at]])
-				rest[filled++] = order[at]
-
-		first.forEachIndexed { at, position -> order[from + at] = position }
-		rest.copyInto(order, from + first.size)
-	}
-
-	/**
-	 * The positions of the first [most] by name of the results of [score] among those the [at]th part found from
-	 * [start] up to [end], in no order. Run for every one of a million equals, so it keeps what it finds in an array
-	 * twice as long as it needs, and cuts that back to the first [most] each time it fills ([cut]): a result that
-	 * comes after the last of those is passed over with one look, and one that does not costs a few more, however the
-	 * names happen to be ordered.
-	 */
-	private fun firstByName(
-		at: Int,
-		start: Int,
-		end: Int,
-		score: Int,
-		most: Int,
-	): List<Int> {
-		val part = parts[at]
-		val scores = part.scores
-		val entries = part.entries
-
-		// Two of this part's results, by where among them each is: by name, and by path among equal names.
-		val order = { one: Int, other: Int ->
-			val named = named(part, entries[one], part, entries[other])
-
-			if (named != 0)
-				named
-			else
-				one.compareTo(other)
-		}
-
-		val kept = IntArray(most * 2)
-		var count = 0
-		// The last of the first [most] found so far, once there have been more than that.
-		var last = -1
-
-		for (found in start until end) {
-			if (scores[found] != score || (last >= 0 && order(found, last) > 0))
-				continue
-
-			kept[count++] = found
-			if (count == kept.size) {
-				last = cut(kept, count, most, order)
-				count = most
-			}
-		}
-		if (count > most) {
-			cut(kept, count, most, order)
-			count = most
-		}
-
-		return List(count) { starts[at] + kept[it] }
-	}
-
-	/** The names of [aEntry] of [a]'s block and [bEntry] of [b]'s, in the order equals are given in. */
-	private fun named(a: Part, aEntry: Int, b: Part, bEntry: Int): Int {
-		val aBlock = a.block
-		val bBlock = b.block
-
-		return byNameOrder(
-			aBlock.folded,
-			aBlock.nameAt[aEntry],
-			aBlock.nameAt[aEntry + 1],
-			bBlock.folded,
-			bBlock.nameAt[bEntry],
-			bBlock.nameAt[bEntry + 1],
-		)
-	}
-
-	companion object {
-		/** Nothing found. */
-		val NONE = Results(emptyList())
-
-		/**
-		 * How many of the first results are in the order of their names among equals, whatever was found: as many as
-		 * anybody reads down a listing for the order's sake, and few enough that picking them out of a million equals
-		 * is one look at each.
-		 */
-		internal const val EXACT = 1_000
-
-		/** The fewest of a part's results that are worth a core of their own, for the first of them by name. */
-		private const val SLICE = 1 shl 16
-
-		/**
-		 * The first [size] of [values] rearranged so that the first [first] of them are those that come first by
-		 * [order], in no order among themselves; the last of those is given. A quickselect: it halves what it looks
-		 * at each time round, so it looks at each value a few times, where sorting them would look at each a dozen.
-		 */
-		private fun cut(
-			values: IntArray,
-			size: Int,
-			first: Int,
-			order: (Int, Int) -> Int,
-		): Int {
-			val wanted = first - 1
-			var low = 0
-			var high = size - 1
-
-			while (low < high) {
-				val pivot = values[(low + high) ushr 1]
-				var up = low
-				var down = high
-
-				while (up <= down) {
-					while (order(values[up], pivot) < 0)
-						up++
-					while (order(values[down], pivot) > 0)
-						down--
-					if (up <= down) {
-						val swapped = values[up]
-
-						values[up++] = values[down]
-						values[down--] = swapped
-					}
-				}
-
-				when {
-					wanted <= down -> high = down
-					wanted >= up -> low = up
-					else -> break
-				}
-			}
-
-			return values[wanted]
-		}
-
-		/**
-		 * The order of two names among results otherwise equal: byte by byte from the least, which is from A to Z,
-		 * but a run of digits as the number it is, and from the greatest: `a_2026` before `a_2025` before `b_2027`,
-		 * and `img_10` before `img_9`. So what differs by a date or a count comes the latest first, and everything
-		 * else as a listing has it. Bytes are compared unsigned, which is the order of UTF-8's characters.
-		 */
-		internal fun byNameOrder(
-			a: ByteArray,
-			aFrom: Int,
-			aTo: Int,
-			b: ByteArray,
-			bFrom: Int,
-			bTo: Int,
-		): Int {
-			fun digit(byte: Byte) = byte in ZERO..NINE
-
-			tailrec fun from(i: Int, j: Int): Int {
-				if (i == aTo || j == bTo)
-					return (aTo - i).compareTo(bTo - j)
-
-				if (!digit(a[i]) || !digit(b[j]))
-					return if (a[i] == b[j])
-						from(i + 1, j + 1)
-					else
-						(a[i].toInt() and 0xFF).compareTo(b[j].toInt() and 0xFF)
-
-				// Two numbers: without the zeros before them, the longer is the greater, and of two as long, the
-				// one greater at the first digit they differ in.
-				val aDigits = pastWhile(a, i, aTo, ::digit)
-				val bDigits = pastWhile(b, j, bTo, ::digit)
-				val aFirst = pastWhile(a, i, aDigits) { it == ZERO }
-				val bFirst = pastWhile(b, j, bDigits) { it == ZERO }
-
-				val greater =
-					(aDigits - aFirst).compareTo(bDigits - bFirst).takeIf { it != 0 }
-						?: java.util.Arrays.compare(a, aFirst, aDigits, b, bFirst, bDigits)
-
-				// The greater number is the first.
-				return if (greater != 0)
-					-greater
-				else
-					from(aDigits, bDigits)
-			}
-
-			return from(aFrom, bFrom)
-		}
-
-		/** The first place from [from] up to [to] whose byte [holds] does not take; [to] where it takes them all. */
-		private inline fun pastWhile(
-			bytes: ByteArray,
-			from: Int,
-			to: Int,
-			holds: (Byte) -> Boolean,
-		): Int {
-			var at = from
-
-			while (at < to && holds(bytes[at]))
-				at++
-
-			return at
-		}
-
-		private const val ZERO = '0'.code.toByte()
-		private const val NINE = '9'.code.toByte()
-
-		/** The results of several searches as one, best first among them all: an index's and those of places beside it. */
-		fun of(results: List<Results>): Results = Results(results.flatMap { it.parts })
-	}
-}
-
 /** The entries [query] finds, in [context]. */
 fun Index.search(query: Query, context: SearchContext = SearchContext()): Searched =
 	when (val plan = Plan.of(query, context, this)) {
@@ -579,18 +197,8 @@ private class Plan(
 						)
 					}.toList()
 
-		return Results.Part(
-			index,
-			placed,
-			joined(slices.map { it.entries }),
-			joined(slices.map { it.scores }),
-		)
+		return Results.Part(index, placed, Hits.joined(slices))
 	}
-
-	private fun joined(slices: List<IntArray>): IntArray =
-		slices.singleOrNull() ?: IntArray(slices.sumOf { it.size }).also { all ->
-			slices.fold(0) { at, slice -> slice.copyInto(all, at).let { at + slice.size } }
-		}
 
 	companion object {
 		/** How many entries a walk takes at a time, a slice of a block walked on one core. */
@@ -1192,12 +800,6 @@ private class Walk(
 	private val checks: List<Check>,
 	private val ranker: Ranker,
 ) {
-	/** The entries a walk found, and each one's score. */
-	class Found(
-		val entries: IntArray,
-		val scores: IntArray,
-	)
-
 	private val ancestral: List<AncestralCheck> = checks.filterIsInstance<AncestralCheck>()
 	private val slots = (ancestral.maxOfOrNull { it.slot } ?: -1) + 1
 
@@ -1217,9 +819,9 @@ private class Walk(
 	/** An [AncestralCheck]'s state at [level]. */
 	fun state(slot: Int, level: Int): Long = states[slot][level]
 
-	fun run(from: Int, to: Int): Found {
-		val found = IntBuilder()
-		val scores = IntBuilder()
+	/** The entries from [from] up to [to] that pass every check, each with its score, in the block's order. */
+	fun run(from: Int, to: Int): Hits {
+		val found = LongBuilder()
 
 		depth = 0
 		ends[0] = Int.MAX_VALUE
@@ -1252,8 +854,7 @@ private class Walk(
 				depth--
 
 			if (block.nameLength(entry) > 0 && checks.all { it.test(this, entry) != it.negated }) {
-				found.add(entry)
-				scores.add(ranker.score(entry, depth + 1, hiddenAt[depth]))
+				found.add(Hit.of(entry, ranker.score(entry, depth + 1, hiddenAt[depth])).packed)
 			}
 
 			if (block.end[entry] > entry + 1 && block.nameLength(entry) > 0)
@@ -1261,7 +862,7 @@ private class Walk(
 			entry++
 		}
 
-		return Found(found.toArray(), scores.toArray())
+		return Hits(found.toArray())
 	}
 
 	/** Into the folder [entry]. */

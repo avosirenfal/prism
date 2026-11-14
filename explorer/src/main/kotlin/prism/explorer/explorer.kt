@@ -246,7 +246,15 @@ class Explorer(
 	val icons = IconImages(desktop.icons)
 
 	private val services =
-		Services(disk, finder, desktop, clipboard, preferences, watcher = watcher)
+		Services(
+			disk,
+			finder,
+			desktop,
+			clipboard,
+			preferences,
+			watcher = watcher,
+			report = report,
+		)
 
 	/** What the user's actions are decided by: the types of files, the programs installed. */
 	val world: World get() = services.world

@@ -229,6 +229,18 @@ private fun Searching(
 		null -> Unit
 		is Finding.Refused ->
 			Text(found.why, style = type.muted, modifier = Modifier.testTag("search-refused"))
+		is Finding.Failed -> {
+			Text(
+				"The search failed. That is a mistake of prism's, not of what you typed.",
+				style = type.body.copy(color = palette.dangerText),
+				modifier = Modifier.testTag("search-failed"),
+			)
+			Text(
+				"${found.failure}. It is said in full in prism's log.",
+				style = type.muted,
+				modifier = Modifier.testTag("search-failure"),
+			)
+		}
 		is Finding.Matched -> {
 			val matches = found.matches
 

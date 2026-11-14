@@ -276,6 +276,17 @@ class Session(
 		} catch (failed: RuntimeException) {
 			val why = failed.message ?: failed.toString()
 
+			// What the disk refused is said in the window, where it happened. Anything else was not meant to be
+			// possible: said in full where prism says what goes wrong, since a window has room for a line of it.
+			if (failed !is java.io.UncheckedIOException)
+				services.report(
+					when (asking) {
+						is Effect.Search -> "searching for “${asking.text}”"
+						else -> "answering ${asking.toString().take(160)}"
+					},
+					failed,
+				)
+
 			when (asking) {
 				is Effect.Read -> Answer.Arrived(asking.folder, Listing.Unreadable(why))
 				is Effect.Look -> Answer.Looked(asking.lookup, emptyMap())
@@ -288,7 +299,17 @@ class Session(
 				is Effect.Erase -> Answer.Erased(asking.erasing, why)
 				Effect.ReadTrash -> Answer.TrashRead(Listing.Unreadable(why))
 				Effect.ReadStorage -> Answer.StorageRead(Storage(emptyList()))
-				is Effect.Search -> Answer.Searched(Finding.Refused(asking.text, why), asking.purpose)
+				is Effect.Search ->
+					Answer.Searched(
+						Finding.Failed(
+							asking.text,
+							listOfNotNull(
+								failed.javaClass.simpleName.ifEmpty { failed.javaClass.name },
+								failed.message,
+							).joinToString(": "),
+						),
+						asking.purpose,
+					)
 				is Effect.Stat ->
 					Answer.Stated(
 						asking.matches,

@@ -11,6 +11,7 @@ import kotlin.io.path.writeText
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertInstanceOf
+import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
@@ -315,6 +316,101 @@ class RankTest {
 				+word("plan")
 			},
 		)
+	}
+
+	@Test
+	fun whatPartsOfAnIndexFoundNothingAreInNoResultsWay() {
+		made(
+			"docs/plan.txt",
+			"docs/plan-b.txt",
+			"docs/plan-c.txt",
+			"a/x.txt",
+			"b/y.txt",
+			"c/z.txt",
+		)
+
+		// An index much changed is many blocks, and most of them find nothing of what is searched for: here the
+		// root's block finds three, and three grafts after it none.
+		val index =
+			listOf("a", "b", "c").fold(indexed()) { index, folder ->
+				index.with(indexer().reread(where(folder))!!)
+			}
+		val found = (index.search(query { +word("plan") }, context()) as Searched.Found).results
+
+		assertEquals(3, found.size)
+		// Every result is read, by every way there is to read one.
+		assertEquals(
+			listOf("plan.txt", "plan-b.txt", "plan-c.txt"),
+			found.indices.map(found::nameOf),
+		)
+		assertEquals(
+			listOf("docs/plan.txt", "docs/plan-b.txt", "docs/plan-c.txt"),
+			found.map { it.where.toString().removePrefix("$root/") },
+		)
+		assertEquals(List(3) { Kind.File }, found.indices.map(found::kindOf))
+
+		// And where the parts that found nothing come first, and between.
+		val none = (index.search(query { +word("zzz") }, context()) as Searched.Found).results
+		val together = Results.of(listOf(none, none, found, none, none, found, none))
+
+		assertEquals(6, together.size)
+		assertEquals(
+			listOf("plan.txt", "plan.txt", "plan-b.txt", "plan-b.txt", "plan-c.txt", "plan-c.txt"),
+			together.indices.map(together::nameOf),
+		)
+	}
+
+	@Test
+	fun aPositionIsInTheLastPartThatStartsAtOrBeforeItWhateverPartsAreEmpty() {
+		val random = java.util.Random(7)
+
+		repeat(500) {
+			// Parts of every size, a good half of them empty, in runs and alone, first, last and between.
+			val sizes =
+				List(1 + random.nextInt(12)) {
+					if (random.nextBoolean())
+						0
+					else
+						random.nextInt(5)
+				}
+			val laid = Laid(sizes)
+			val expected = sizes.flatMapIndexed { part, size -> List(size) { part to it } }
+
+			assertEquals(expected.size, laid.total)
+			assertEquals(
+				expected,
+				List(laid.total) { position ->
+					laid.at(Position(position)) { part, within ->
+						part to
+							within
+					}
+				},
+				"$sizes",
+			)
+			expected.forEachIndexed { position, (part, within) ->
+				assertEquals(Position(position), laid.positionOf(part, within), "$sizes")
+			}
+		}
+		// A position there is none of is refused, and never read as some other.
+		assertThrows(IllegalArgumentException::class.java) {
+			Laid(listOf(0, 0)).at(Position(0)) { _, _ -> }
+		}
+		assertThrows(IllegalArgumentException::class.java) {
+			Laid(listOf(2)).at(Position(2)) { _, _ -> }
+		}
+		assertThrows(IllegalArgumentException::class.java) {
+			Laid(listOf(2)).at(Position(-1)) { _, _ -> }
+		}
+		// An entry and its score are one number, and come apart as they went together.
+		for ((entry, score) in listOf(
+			0 to 0,
+			5 to Ranking.MOST,
+			Int.MAX_VALUE to 1,
+			123_456_789 to 4321,
+		)) {
+			assertEquals(entry, Hit.of(entry, score).entry)
+			assertEquals(score, Hit.of(entry, score).score)
+		}
 	}
 
 	@Test

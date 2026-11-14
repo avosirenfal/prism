@@ -95,7 +95,8 @@ object IndexFile {
 
 		if (version != VERSION)
 			return IndexRead.Unreadable(
-				"$file is an index of version $version; this reads version $VERSION",
+				"$file is an index of version $version, and this prism reads version $VERSION. " +
+					"The daemon writes it anew as it starts; without one, `prism index --fresh` does",
 			)
 
 		var index = Index.EMPTY

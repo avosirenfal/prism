@@ -131,9 +131,19 @@ sealed interface Finding {
 		override fun toString(): String = "Matched($text, ${matches.size})"
 	}
 
+	/** The query cannot be run where it was asked: an alias that is not defined, no index to search. */
 	data class Refused(
 		override val text: String,
 		val why: String,
+	) : Finding
+
+	/**
+	 * The search itself went wrong, which is a mistake of prism's and nothing the query did: what it was, in a line
+	 * ([failure]), as it was said in full where prism says what goes wrong (standard error, the daemon's log).
+	 */
+	data class Failed(
+		override val text: String,
+		val failure: String,
 	) : Finding
 }
 
