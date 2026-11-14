@@ -506,17 +506,18 @@ sealed interface Answer : Input {
 		val times: Map<String, Instant?>,
 	) : Answer
 
-	/** What reading some of [matches] on disk said of each, by its place among them. */
+	/** What reading the results at [ranks] among [matches] on disk said of each, one for one ([Stats.read]). */
 	data class Stated(
 		val matches: Matches,
-		val stats: Map<Int, Stat>,
+		val ranks: Ranks,
+		val stats: List<Stat>,
 	) : Answer
 
-	/** [matches]' places ordered by [column], from the least, as [orderOf] works it out. */
+	/** [matches] in order by [column], from the least, as [Matches.orderedBy] works it out. */
 	data class Ordered(
 		val matches: Matches,
 		val column: ColumnId,
-		val order: IntArray,
+		val order: Permutation,
 	) : Answer
 
 	/** What opening files with their applications came to. */
@@ -1053,10 +1054,10 @@ sealed interface Effect {
 		val names: List<String>,
 	) : Asking
 
-	/** The results at [places] among [matches] read on disk, and what was read sent back as [Answer.Stated]. */
+	/** The results at [ranks] among [matches] read on disk, and what was read sent back as [Answer.Stated]. */
 	data class Stat(
 		val matches: Matches,
-		val places: List<Int>,
+		val ranks: Ranks,
 	) : Asking
 
 	/** [matches] ordered by [column] off the picker's thread, sent back as [Answer.Ordered]. */

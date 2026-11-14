@@ -277,16 +277,17 @@ fun Services.answer(
 		is Effect.Stat ->
 			Answer.Stated(
 				asking.matches,
+				asking.ranks,
 				if (asking.matches.tree != null)
-					asking.places.associateWith(asking.matches::listedStat)
+					asking.ranks.map(asking.matches::listedStat)
 				else
-					asking.places.zip(disk.stat(asking.places.map(asking.matches::pathOf))).toMap(),
+					disk.stat(asking.ranks.map(asking.matches::pathOf)),
 			)
 		is Effect.Order ->
 			Answer.Ordered(
 				asking.matches,
 				asking.column,
-				orderOf(asking.matches, Stats.none(asking.matches.size), asking.column),
+				asking.matches.orderedBy(asking.column, Stats.none(asking.matches.size)),
 			)
 		is Effect.Open ->
 			Answer.Opened(

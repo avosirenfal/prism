@@ -160,6 +160,139 @@ enum class Purpose {
 }
 
 /**
+ * Which of a search's matches a result is, counting from the best, which is the first: its rank. A number of its own
+ * kind, so that it cannot be given where a row's place in the listing is wanted, or the other way about: the listing
+ * shows the matches filtered and in another order, and the two numbers are the same only by chance. Given out by the
+ * [Matches] it is a rank in ([Matches.rank], [Matches.ranks]), so one in hand is one of that search's results.
+ */
+@JvmInline
+value class Rank internal constructor(
+	val at: Int,
+)
+
+/**
+ * Some of a search's results, by their ranks, in an order: numbers kept as numbers, so that the ranks of a million
+ * results are four million bytes and none of them is boxed to be put in a list.
+ */
+class Ranks internal constructor(
+	private val ranks: IntArray,
+) {
+	val size: Int get() = ranks.size
+
+	fun isEmpty(): Boolean = ranks.isEmpty()
+
+	operator fun get(index: Int): Rank = Rank(ranks[index])
+
+	inline fun forEach(each: (Rank) -> Unit) {
+		for (index in 0 until size)
+			each(this[index])
+	}
+
+	fun <T> map(of: (Rank) -> T): List<T> = List(size) { of(this[it]) }
+
+	/** Those [keeps] keeps, in the order they are in. */
+	inline fun filter(keeps: (Rank) -> Boolean): Ranks {
+		val kept = Building(size)
+
+		forEach {
+			if (keeps(it))
+				kept += it
+		}
+
+		return kept.built()
+	}
+
+	/** These from [from] up to [to], as far as there are any. */
+	fun between(from: Int, to: Int): Ranks =
+		(from.coerceAtLeast(0) to to.coerceAtMost(size)).let { (first, end) ->
+			if (first >= end)
+				NONE
+			else
+				Ranks(ranks.copyOfRange(first, end))
+		}
+
+	/** These, and then those of [others] that are not among these: each once, the first place it is in kept. */
+	fun then(others: Ranks): Ranks {
+		val seen = java.util.BitSet()
+		val all = Building(size + others.size)
+
+		for (each in listOf(this, others))
+			each.forEach {
+				if (!seen[it.at]) {
+					seen.set(it.at)
+					all += it
+				}
+			}
+
+		return all.built()
+	}
+
+	/** These, at most [most] at a time, in order. */
+	fun chunked(most: Int): List<Ranks> =
+		(0 until size step most).map { Ranks(ranks.copyOfRange(it, minOf(it + most, size))) }
+
+	override fun equals(other: Any?): Boolean =
+		other is Ranks && ranks.contentEquals(other.ranks)
+
+	override fun hashCode(): Int = ranks.contentHashCode()
+
+	override fun toString(): String = "Ranks(${ranks.joinToString()})"
+
+	/** Ranks put together one at a time, at most as many as it was made for. */
+	class Building(
+		most: Int,
+	) {
+		private val ranks = IntArray(most)
+		private var count = 0
+
+		operator fun plusAssign(rank: Rank) {
+			ranks[count++] = rank.at
+		}
+
+		/** What was put in, in the order it was. */
+		fun built(): Ranks = Ranks(ranks.copyOf(count))
+
+		/** What was put in, and then what was put in [after]. */
+		fun then(after: Building): Ranks =
+			Ranks(
+				ranks.copyOf(count + after.count).also {
+					after.ranks.copyInto(it, count, 0, after.count)
+				},
+			)
+	}
+
+	companion object {
+		val NONE = Ranks(IntArray(0))
+	}
+}
+
+/**
+ * Every one of a search's results, each once, in an order: by a column, from the least. Made only by putting every
+ * rank in order ([sorted]), so it can leave no result out and hold none twice, and a listing drawn through one shows
+ * what was found and nothing else.
+ */
+class Permutation private constructor(
+	private val ranks: IntArray,
+) {
+	val size: Int get() = ranks.size
+
+	/** The rank that is [index]th in this order. */
+	operator fun get(index: Int): Rank = Rank(ranks[index])
+
+	override fun toString(): String = "Permutation($size)"
+
+	companion object {
+		/** Every rank below [size], in the order [by] puts them in. */
+		fun sorted(size: Int, by: Comparator<Rank>): Permutation =
+			Permutation(
+				(0 until size)
+					.sortedWith { a, b -> by.compare(Rank(a), Rank(b)) }
+					.toIntArray(),
+			)
+	}
+}
+
+/**
  * What a search of the index found, best first, as the picker shows it. A result's row is made when it is asked for
  * ([rowOf]); what the listing's filters need of every result (what kind of row it is, whether it is hidden) is worked
  * out here, once, on whatever thread the search was run on, never the picker's. So a million results are a few
@@ -190,52 +323,98 @@ class Matches(
 			}
 		}
 
-	fun nameOf(at: Int): String = results.nameOf(at)
+	/** The [index]th result's rank, counting from the best; none where there are not so many. */
+	fun rank(index: Int): Rank? = index.takeIf { it in 0 until size }?.let(::Rank)
 
-	fun categoryOf(at: Int): Category = CATEGORIES[facts[at].toInt() and HIDDEN.inv()]
+	/** Every result's rank, best first. */
+	val ranks: Ranks get() = Ranks(IntArray(size) { it })
 
-	fun isFolder(at: Int): Boolean = categoryOf(at) == Category.Folder
+	fun nameOf(rank: Rank): String = results.nameOf(rank.at)
 
-	fun isHidden(at: Int): Boolean = facts[at].toInt() and HIDDEN != 0
+	fun categoryOf(rank: Rank): Category =
+		CATEGORIES[facts[rank.at].toInt() and HIDDEN.inv()]
 
-	/** What the type column says of the [at]th result. */
-	fun typeOf(at: Int): String =
-		categoryOf(at).let {
+	fun isFolder(rank: Rank): Boolean = categoryOf(rank) == Category.Folder
+
+	fun isHidden(rank: Rank): Boolean = facts[rank.at].toInt() and HIDDEN != 0
+
+	/** What the type column says of the result at [rank]. */
+	fun typeOf(rank: Rank): String =
+		categoryOf(rank).let {
 			if (it == Category.Folder)
 				"Folder"
 			else
-				typeOf(nameOf(at), it)
+				typeOf(nameOf(rank), it)
 		}
 
-	/** Where the [at]th result is. A name that is not UTF-8 is written as near as Java can, and found missing on disk. */
-	fun pathOf(at: Int): Path = results[at].where.let { it.path ?: Path(it.toString()) }
+	/** Where the result at [rank] is. A name that is not UTF-8 is written as near as Java can, and found missing on disk. */
+	fun pathOf(rank: Rank): Path =
+		results[rank.at].where.let {
+			it.path
+				?: Path(it.toString())
+		}
 
-	/** The [at]th result's row, with what [stat] says of it on disk, where it has been read. */
-	fun rowOf(at: Int, stat: Stat?): Row {
+	/** The row of the result at [rank], with what [stat] says of it on disk, where it has been read. */
+	fun rowOf(rank: Rank, stat: Stat?): Row {
+		val id = RowId.Found(this, rank)
+
 		// A result of a search in a place is that place's entry, which may be on disk or not, as the place has it.
-		entryOf(at)?.let { return it.copy(id = RowId.Found(at)) }
+		entryOf(rank)?.let { return it.copy(id = id) }
 
-		val category = categoryOf(at)
+		val category = categoryOf(rank)
 		val read = stat as? Stat.Read
 
 		return Row(
-			id = RowId.Found(at),
-			item = Item.OnDisk(pathOf(at)),
-			name = nameOf(at),
+			id = id,
+			item = Item.OnDisk(pathOf(rank)),
+			name = nameOf(rank),
 			category = category,
-			type = typeOf(at),
+			type = typeOf(rank),
 			size = read?.size,
 			modified = read?.modified,
-			hidden = isHidden(at),
+			hidden = isHidden(rank),
 		)
 	}
 
-	/** The entry of the place searched that the [at]th result is, as its row there. */
-	fun entryOf(at: Int): Row? = tree?.row(pathOf(at).map { it.toString() })
+	/** The entry of the place searched that the result at [rank] is, as its row there. */
+	fun entryOf(rank: Rank): Row? = tree?.row(pathOf(rank).map { it.toString() })
 
-	/** What is known of the [at]th result of a search in a place, which the place's listing said: nothing is read. */
-	fun listedStat(at: Int): Stat =
-		entryOf(at)?.let { Stat.Read(it.size, it.modified) } ?: Stat.Gone
+	/** What is known of the result at [rank] of a search in a place, which the place's listing said: nothing is read. */
+	fun listedStat(rank: Rank): Stat =
+		entryOf(rank)?.let { Stat.Read(it.size, it.modified) } ?: Stat.Gone
+
+	/**
+	 * Every result in order by [column], from the least (A, the oldest, the smallest), by name among equals. Size and
+	 * date are as [stats] read them; a result not read is after every one that was.
+	 */
+	fun orderedBy(column: ColumnId, stats: Stats): Permutation {
+		val names = Array(size) { results.nameOf(it) }
+		val byName = Comparator<Rank> { a, b -> naturalOrder(names[a.at], names[b.at]) }
+
+		fun read(rank: Rank) = stats[rank] as? Stat.Read
+
+		fun byText(text: (Rank) -> String): Comparator<Rank> {
+			val texts = Array(size) { text(Rank(it)) }
+
+			return Comparator<Rank> { a, b -> naturalOrder(texts[a.at], texts[b.at]) }.then(byName)
+		}
+
+		return Permutation.sorted(
+			size,
+			when (column) {
+				ColumnId.Name -> byName
+				ColumnId.Type -> byText { typeOf(it).lowercase() }
+				ColumnId.Extension -> byText { extensionOf(names[it.at]).orEmpty() }
+				ColumnId.Location -> byText { pathOf(it).parent?.toString().orEmpty() }
+				ColumnId.Modified ->
+					compareBy<Rank, Instant?>(nullsLast()) { read(it)?.modified }.then(byName)
+				ColumnId.Size ->
+					compareBy<Rank, Long?>(nullsLast()) { read(it)?.size?.value }.then(byName)
+				// Results are never ordered by when they were made or trashed (Found.orders): by name, if asked.
+				ColumnId.Created, ColumnId.Deleted -> byName
+			},
+		)
+	}
 
 	override fun toString(): String = "Matches($size)"
 
@@ -270,7 +449,7 @@ sealed interface Stat {
 }
 
 /**
- * What has been read on disk of each of a search's [size] results, by its place among them: nothing at first. Kept in
+ * What has been read on disk of each of a search's [size] results, by its rank: nothing at first. Kept in
  * chunks, so that taking in what a read said copies only the chunks it touched, however many results there are.
  */
 @Immutable
@@ -280,50 +459,61 @@ class Stats private constructor(
 	/** How many are read, found gone, or not to be known: every one, where [complete]. */
 	val known: Int,
 ) {
-	operator fun get(at: Int): Stat? = chunks[at shr SHIFT]?.get(at and MASK)
+	operator fun get(rank: Rank): Stat? = chunks[rank.at shr SHIFT]?.get(rank.at and MASK)
 
 	/** Whether every result has been read, which ordering by size or date needs. */
 	val complete: Boolean get() = known == size
 
-	/** These, with what [read] says of each result it names. */
-	fun with(read: Map<Int, Stat>): Stats {
+	/** These, with what [stat] says of each of [ranks], by where it is among them. */
+	private fun with(ranks: Ranks, stat: (Int) -> Stat): Stats {
 		val copied = chunks.copyOf()
 		val fresh = BooleanArray(chunks.size)
 		var known = known
 
 		fun counts(stat: Stat?) = stat != null && stat != Stat.Asked
 
-		for ((at, stat) in read) {
+		for (which in 0 until ranks.size) {
+			val at = ranks[which].at
 			val index = at shr SHIFT
 			val chunk =
-				if (fresh[index])
-					copied[index]!!
-				else
-					(chunks[index]?.copyOf() ?: arrayOfNulls(CHUNK)).also {
-						copied[index] = it
-						fresh[index] = true
-					}
-			val was = chunk[at and MASK]
+				(
+					copied[index].takeIf { fresh[index] } ?: chunks[index]?.copyOf()
+						?: arrayOfNulls(CHUNK)
+				).also {
+					copied[index] = it
+					fresh[index] = true
+				}
+			val now = stat(which)
 
-			if (counts(was))
+			if (counts(chunk[at and MASK]))
 				known--
-			if (counts(stat))
+			if (counts(now))
 				known++
-			chunk[at and MASK] = stat
+			chunk[at and MASK] = now
 		}
 
 		return Stats(size, copied, known)
 	}
 
-	/** Of [places], those not yet asked about, in the order given. */
-	fun unasked(places: Iterable<Int>): List<Int> =
-		places.filter {
-			it in 0 until size &&
+	/**
+	 * These, with what was [read] of [ranks], one for one. A result nothing was read of (fewer were read than were
+	 * asked for) is not known, which is what is so.
+	 */
+	fun read(ranks: Ranks, read: List<Stat>): Stats =
+		with(ranks) { read.getOrElse(it) { Stat.Unknown } }
+
+	/** Of [ranks], those not yet asked about, in the order given. */
+	fun unasked(ranks: Ranks): Ranks =
+		ranks.filter {
+			it.at in 0 until size &&
 				get(it) == null
 		}
 
-	/** These, with each of [places] asked about. */
-	fun asking(places: List<Int>): Stats = with(places.associateWith { Stat.Asked })
+	/** These, with each of [ranks] asked about. */
+	fun asking(ranks: Ranks): Stats = with(ranks) { Stat.Asked }
+
+	/** These, with each of [ranks] not to be known: asked about, and prism went wrong reading it. */
+	fun unknown(ranks: Ranks): Stats = with(ranks) { Stat.Unknown }
 
 	override fun toString(): String = "Stats($known of $size)"
 
@@ -343,47 +533,3 @@ class Stats private constructor(
  * in the background; by size or date, which only the disk knows, not at all.
  */
 const val FEW_RESULTS = 10_000
-
-/**
- * [matches]' places ordered by [column], from the least (A, the oldest, the smallest), by name among equals. Size and
- * date are as [stats] read them; a result not read yet is after every one that was.
- */
-fun orderOf(matches: Matches, stats: Stats, column: ColumnId): IntArray {
-	val names = Array(matches.size, matches::nameOf)
-	val byName = Comparator<Int> { a, b -> naturalOrder(names[a], names[b]) }
-
-	fun read(at: Int) = stats[at] as? Stat.Read
-
-	fun byText(text: (Int) -> String): Comparator<Int> {
-		val texts = Array(matches.size, text)
-
-		return Comparator<Int> { a, b -> naturalOrder(texts[a], texts[b]) }.then(byName)
-	}
-
-	val by: Comparator<Int> =
-		when (column) {
-			ColumnId.Name -> byName
-			ColumnId.Type -> byText { matches.typeOf(it).lowercase() }
-			ColumnId.Extension -> byText { extensionOf(names[it]).orEmpty() }
-			ColumnId.Location ->
-				byText {
-					matches
-						.pathOf(it)
-						.parent
-						?.toString()
-						.orEmpty()
-				}
-			ColumnId.Modified ->
-				compareBy<Int, Instant?>(nullsLast()) {
-					read(it)?.modified
-				}.then(byName)
-			ColumnId.Size ->
-				compareBy<Int, Long?>(nullsLast()) {
-					read(it)?.size?.value
-				}.then(byName)
-			// A search's results are never ordered by when they were made or trashed (Found.orders): by name, if asked.
-			ColumnId.Created, ColumnId.Deleted -> byName
-		}
-
-	return (0 until matches.size).sortedWith(by).toIntArray()
-}

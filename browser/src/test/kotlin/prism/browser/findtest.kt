@@ -79,7 +79,7 @@ class FindTest {
 	private fun BrowserState.listed(): List<String> {
 		val found = ready.found as Finding.Matched
 
-		return (0 until ready.listed).map { found.matches.nameOf(it) }
+		return found.matches.ranks.map(found.matches::nameOf)
 	}
 
 	private fun BrowserState.shown(): List<String> = rows.list.map { it.name }
@@ -578,6 +578,99 @@ class FindTest {
 			}
 		}
 
+	@Test
+	fun aResultChosenIsNoRowOfTheSameSearchMadeAgainAndIsLetGoWithoutBeingToldTo() {
+		made("a/plan.txt", "b/plan.md", "c/plans/")
+
+		val shown =
+			after(searched(picker(Choosing.Exploring()), "plan"), BrowserEvent.ShowedResults)
+		val row = shown.rows.list.single { it.name == "plan.md" }
+		val chosen = after(shown, BrowserEvent.Clicked(row.id, Click.Only))
+
+		assertEquals(listOf("plan.md"), chosen.chosenRows.map { it.name })
+
+		// The same search, made again: other matches, however alike, and so other rows.
+		val again =
+			finder.findingOf(Effect.Search("plan", QueryText.read("plan").query, Purpose.Refresh))
+
+		val refreshed =
+			step(
+				chosen,
+				Answer.Searched(again, Purpose.Refresh),
+			).settled(disk, finder)
+
+		val old = row.id as RowId.Found
+		val now =
+			refreshed.rows.list
+				.single { it.name == "plan.md" }
+				.id as RowId.Found
+
+		assertEquals(chosen.shown(), refreshed.shown())
+		// The same rank of other matches is another id: the old one is not a row shown, and names nothing.
+		assertEquals(old.rank, now.rank)
+		assertTrue(old.of !== now.of)
+		assertFalse(old in refreshed.rows)
+		assertNull(refreshed.rows[old])
+		assertTrue(now in refreshed.rows)
+		// So what was chosen, and where the cursor was, went with the old results, nothing having let them go.
+		assertEquals(emptyList<Row>(), refreshed.chosenRows)
+		assertNull(refreshed.cursor)
+	}
+
+	@Test
+	fun anOrderOfResultsHoldsEveryOneOfThemOnceAndRanksAreKeptAsNumbers() {
+		made("b.txt", "a.txt", "c.png", "d.md", "e/f.kt")
+
+		val matches =
+			(
+				finder.findingOf(
+					Effect.Search("", QueryText.read("ext:*").query, Purpose.Show),
+				) as Finding.Matched
+			).matches
+
+		val none = Stats.none(matches.size)
+
+		for (column in ColumnId.entries) {
+			val order = matches.orderedBy(column, none)
+
+			assertEquals(matches.size, order.size, "$column")
+			assertEquals(
+				matches.ranks.map { it },
+				(0 until order.size).map { order[it] }.sortedBy { it.at },
+				"$column",
+			)
+		}
+		assertEquals(
+			matches.ranks.map(matches::nameOf).sorted(),
+			matches.orderedBy(ColumnId.Name, none).let { order ->
+				(0 until order.size).map { matches.nameOf(order[it]) }
+			},
+		)
+
+		// Ranks: a stretch of them, some and then the rest each once, a few at a time; and none past the last.
+		val all = matches.ranks
+
+		assertEquals(matches.size, all.size)
+		assertEquals(all, all.between(-5, all.size + 5))
+		assertEquals(Ranks.NONE, all.between(2, 2))
+		assertEquals(
+			listOf(2, 3, 0, 1),
+			all
+				.between(2, 4)
+				.then(all)
+				.map { it.at }
+				.take(4),
+		)
+		assertEquals(all, all.chunked(3).fold(Ranks.NONE, Ranks::then))
+		assertNull(matches.rank(matches.size))
+		assertNull(matches.rank(-1))
+
+		// What was read of fewer than were asked for leaves the rest not known, which is so.
+		val read = none.read(all.between(0, 2), listOf(Stat.Gone))
+
+		assertEquals(listOf(Stat.Gone, Stat.Unknown, null), all.between(0, 3).map { read[it] })
+	}
+
 	private val fault = Fault.of(IllegalStateException("no such column"))
 
 	@Test
@@ -591,8 +684,8 @@ class FindTest {
 		val listing = broke.state.listing as Listing.Found
 
 		// Nothing is made up of them: each is not known, which is not a size and a date read as none.
-		assertEquals(stat.places.map { Stat.Unknown }, stat.places.map { listing.stats[it] })
-		assertEquals(emptyList<Int>(), listing.stats.unasked(stat.places))
+		assertEquals(stat.ranks.map { Stat.Unknown }, stat.ranks.map { listing.stats[it] })
+		assertEquals(Ranks.NONE, listing.stats.unasked(stat.ranks))
 		assertTrue(listing.stats.complete)
 		assertEquals(emptyList<Effect>(), broke.effects)
 		assertEquals(

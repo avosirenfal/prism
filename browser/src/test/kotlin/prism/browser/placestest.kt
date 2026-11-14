@@ -599,7 +599,7 @@ class PlacesTest {
 			val typed = top.then(BrowserEvent.OpenedSearch).then(BrowserEvent.SearchTyped("a.txt"))
 			val found = (typed.search as Search.Ready).matched!!.matches
 
-			assertEquals(listOf("a.txt"), (0 until found.size).map(found::nameOf), archive)
+			assertEquals(listOf("a.txt"), found.ranks.map(found::nameOf), archive)
 
 			// Every match shown: results that are the archive's entries, with the archive's actions.
 			val shown = typed.then(BrowserEvent.ShowedResults)

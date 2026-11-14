@@ -44,9 +44,14 @@ sealed interface RowId {
 		val name: String,
 	) : RowId
 
-	/** A result of the search shown, by its place among the results, best first from 0. */
+	/**
+	 * A result of a search, by its rank among that search's matches: of [of], and of no other search's. Matches are
+	 * equal only to themselves, so the same search made again gives other ids, and one kept from before names no row
+	 * of the new results: it is simply not among them, without anybody having to let it go.
+	 */
 	data class Found(
-		val at: Int,
+		val of: Matches,
+		val rank: Rank,
 	) : RowId
 
 	/** An entry of the place shown, by what the place's command called it. */
@@ -431,44 +436,37 @@ sealed class Rows {
 		override fun toString(): String = "Rows(${rows.map { it.name }})"
 	}
 
-	/** A search's rows: the results at [order]'s places, each made from [matches] and [stats] as it is asked for. */
+	/** A search's rows: the results at [order]'s ranks, each made from [matches] and [stats] as it is asked for. */
 	class Found(
 		private val matches: Matches,
 		private val stats: Stats,
-		private val order: IntArray,
+		private val order: Ranks,
 	) : Rows() {
-		/** Where each result is shown, by its place among the results; -1 for one not shown. */
+		/** Where each result is shown, by its rank; -1 for one not shown. */
 		private val shownAt: IntArray by lazy {
 			IntArray(matches.size) { -1 }.also { at ->
-				order.forEachIndexed { index, place ->
-					at[place] =
-						index
-				}
+				for (index in 0 until order.size)
+					at[order[index].at] = index
 			}
 		}
 
 		override val size: Int get() = order.size
 
-		override fun get(index: Int): Row = matches.rowOf(order[index], stats[order[index]])
+		override fun get(index: Int): Row = order[index].let { matches.rowOf(it, stats[it]) }
 
-		override fun idAt(index: Int): RowId = RowId.Found(order[index])
+		override fun idAt(index: Int): RowId = RowId.Found(matches, order[index])
 
 		override fun nameAt(index: Int): String = matches.nameOf(order[index])
 
+		/** Where a result of these matches is shown; nowhere, for a result of any other search's. */
 		override fun indexOf(id: RowId): Int? =
 			(id as? RowId.Found)
-				?.at
-				?.takeIf {
-					it in 0 until matches.size
-				}?.let { shownAt[it] }
-				?.takeIf {
-					it >=
-						0
-				}
+				?.takeIf { it.of === matches }
+				?.let { shownAt[it.rank.at] }
+				?.takeIf { it >= 0 }
 
-		/** The places among the results of the rows from [from] up to [to]. */
-		fun placesBetween(from: Int, to: Int): List<Int> =
-			(from.coerceAtLeast(0) until to.coerceAtMost(size)).map { order[it] }
+		/** The ranks of the rows from [from] up to [to], as far as there are rows. */
+		fun ranksBetween(from: Int, to: Int): Ranks = order.between(from, to)
 
 		override fun toString(): String = "Rows($size of ${matches.size} results)"
 	}
@@ -539,14 +537,14 @@ sealed interface Listing {
 	class Found(
 		val finding: Finding.Matched,
 		val stats: Stats,
-		val orders: Map<ColumnId, IntArray> = emptyMap(),
+		val orders: Map<ColumnId, Permutation> = emptyMap(),
 	) : Listing {
 		val matches: Matches get() = finding.matches
 
 		/** Whether they are few enough to be read every one, and ordered by any column at once ([FEW_RESULTS]). */
 		val few: Boolean get() = matches.size <= FEW_RESULTS
 
-		private val sortedBy = Memo<ColumnId, IntArray> { orderOf(matches, stats, it) }
+		private val sortedBy = Memo<ColumnId, Permutation> { matches.orderedBy(it, stats) }
 		private val arranged = Memo<Arrangement, Rows> { arrange(it) }
 
 		fun rows(arrangement: Arrangement): Rows = arranged(arrangement)
@@ -564,16 +562,12 @@ sealed interface Listing {
 				ColumnId.Created, ColumnId.Deleted -> false
 			}
 
-		/** The order [order] asks for, where it is worked out; for too many results, once it is worked out behind. */
-		fun placesBy(order: Order): IntArray? =
-			when (order) {
-				Order.Relevance -> null
-				is Order.By ->
-					when {
-						!orders(order.sort.by) -> null
-						few -> sortedBy(order.sort.by)
-						else -> orders[order.sort.by]
-					}
+		/** The results in order by [column], where that is worked out; for too many, once it is worked out behind. */
+		private fun orderedBy(column: ColumnId): Permutation? =
+			when {
+				!orders(column) -> null
+				few -> sortedBy(column)
+				else -> orders[column]
 			}
 
 		/** The column [order] asks for that is still being worked out behind, if it is. */
@@ -583,42 +577,41 @@ sealed interface Listing {
 				?.by
 				?.takeIf { orders(it) && !few && it !in orders }
 
-		/** The rows shown: filtered as a folder's are, then in [Arrangement.results]' order, folders first. */
+		/**
+		 * The rows shown: filtered as a folder's are, then in the arrangement's order (best first, where that is not
+		 * an order these can be had in), folders first.
+		 */
 		private fun arrange(arrangement: Arrangement): Rows {
-			val order = arrangement.order
-			val sorted = placesBy(order)
-			val places =
-				when {
-					sorted == null -> IntArray(matches.size) { it }
-					(order as Order.By).sort.ascending -> sorted
-					else -> sorted.reversedArray()
-				}
+			val sort = (arrangement.order as? Order.By)?.sort
+			val sorted = sort?.let { orderedBy(it.by) }
+			val descending = sort?.ascending == false
 
 			// There can be millions, arranged again as each batch of them is read: so into arrays, nothing boxed.
-			val folders = IntArray(places.size)
-			val files = IntArray(places.size)
-			var folderCount = 0
-			var fileCount = 0
+			val folders = Ranks.Building(matches.size)
+			val files = Ranks.Building(matches.size)
 
-			for (at in places) {
+			for (index in 0 until matches.size) {
+				val rank =
+					when {
+						sorted == null -> matches.rank(index) ?: continue
+						descending -> sorted[matches.size - 1 - index]
+						else -> sorted[index]
+					}
+
 				val kept =
-					stats[at] != Stat.Gone &&
-						arrangement.admits(matches.categoryOf(at), matches.isHidden(at)) {
-							matches.nameOf(at)
+					stats[rank] != Stat.Gone &&
+						arrangement.admits(matches.categoryOf(rank), matches.isHidden(rank)) {
+							matches.nameOf(rank)
 						}
 
 				when {
 					!kept -> Unit
-					matches.isFolder(at) -> folders[folderCount++] = at
-					else -> files[fileCount++] = at
+					matches.isFolder(rank) -> folders += rank
+					else -> files += rank
 				}
 			}
 
-			return Rows.Found(
-				matches,
-				stats,
-				folders.copyOf(folderCount) + files.copyOf(fileCount),
-			)
+			return Rows.Found(matches, stats, folders.then(files))
 		}
 
 		override fun toString(): String = "Found(${matches.size} results, $stats)"

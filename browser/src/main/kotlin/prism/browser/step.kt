@@ -605,14 +605,16 @@ private fun BrowserState.showingResults(finding: Finding.Matched): Step {
 			listing = listing,
 		)
 
-	val rows = shown.rows as Rows.Found
+	// What is shown is the listing just made's, whatever else: with none of it shown, those found, best first.
+	val rows = shown.rows as? Rows.Found
+	val inSight = rows?.ranksBetween(0, if (listing.few) rows.size else PAGE) ?: Ranks.NONE
 	val first =
 		if (listing.few)
-			rows.placesBetween(0, rows.size) + (0 until listing.matches.size)
+			inSight.then(listing.matches.ranks)
 		else
-			rows.placesBetween(0, PAGE)
+			inSight
 
-	return shown.stating(first.distinct()).let {
+	return shown.stating(first).let {
 		Step(
 			it.state,
 			it.effects + it.state.ordering(),
@@ -620,10 +622,10 @@ private fun BrowserState.showingResults(finding: Finding.Matched): Step {
 	}
 }
 
-/** The results at [places] asked to be read on disk, those not asked for already, in batches. */
-private fun BrowserState.stating(places: List<Int>): Step {
+/** The results at [ranks] asked to be read on disk, those not asked for already, in batches. */
+private fun BrowserState.stating(ranks: Ranks): Step {
 	val listing = listing as? Listing.Found ?: return Step(this)
-	val asked = listing.stats.unasked(places)
+	val asked = listing.stats.unasked(ranks)
 
 	if (asked.isEmpty())
 		return Step(this)
@@ -640,7 +642,7 @@ private fun BrowserState.stating(places: List<Int>): Step {
 private fun BrowserState.scrolled(first: Int, last: Int): Step {
 	val rows = rows as? Rows.Found ?: return Step(this)
 
-	return stating(rows.placesBetween(first - BEHIND, last + 1 + AHEAD))
+	return stating(rows.ranksBetween(first - BEHIND, last + 1 + AHEAD))
 }
 
 /** The order the arrangement asks of a search's results, asked to be worked out behind where it is not yet. */
@@ -1130,7 +1132,11 @@ private fun answered(state: BrowserState, answer: Answer): Step =
 					Step(
 						if (listing.matches === answer.matches)
 							state.relisted(
-								Listing.Found(listing.finding, listing.stats.with(answer.stats), listing.orders),
+								Listing.Found(
+									listing.finding,
+									listing.stats.read(answer.ranks, answer.stats),
+									listing.orders,
+								),
 							)
 						else
 							state,
@@ -1219,7 +1225,7 @@ private fun BrowserState.broke(asking: Effect.Asking, fault: Fault): Step {
 						relisted(
 							Listing.Found(
 								it.finding,
-								it.stats.with(asking.places.associateWith { Stat.Unknown }),
+								it.stats.unknown(asking.ranks),
 								it.orders,
 							),
 						),
@@ -1450,10 +1456,8 @@ private fun BrowserState.chosenMatch(at: Int): Step {
 	val search = search as? Search.Ready ?: return Step(this)
 	val matches = (search.found as? Finding.Matched)?.matches ?: return Step(this)
 
-	if (at !in 0 until search.listed)
-		return Step(this)
-
-	val path = matches.pathOf(at)
+	val rank = matches.rank(at) ?: return Step(this)
+	val path = matches.pathOf(rank)
 	val closed = copy(search = search.closed())
 
 	// A match of a search in a place is gone to in the place: into a folder, or to the folder an entry sits in.
@@ -1461,7 +1465,7 @@ private fun BrowserState.chosenMatch(at: Int): Step {
 		val sits = path.map { it.toString() }
 		val row = tree.row(sits)?.id ?: return Step(closed)
 
-		if (matches.isFolder(at))
+		if (matches.isFolder(rank))
 			return closed.wentWithin(sits)
 
 		val gone = closed.wentWithin(sits.dropLast(1), Landing.On(row, choose = true))
@@ -1473,7 +1477,7 @@ private fun BrowserState.chosenMatch(at: Int): Step {
 			gone
 	}
 
-	return if (matches.isFolder(at))
+	return if (matches.isFolder(rank))
 		closed.went(path)
 	else
 		path.parent?.let {
@@ -1543,17 +1547,12 @@ private fun BrowserState.searched(finding: Finding, purpose: Purpose): Step {
 		Purpose.Refresh -> {
 			val shown = results
 
-			// The new results' places are not the old ones': what was chosen by its place among them is let go.
+			// What was chosen was a result of the old search, and is none of the new one's ([RowId.Found]): it is not
+			// among the rows shown, and is let go with them.
 			if (shown == null || finding !is Finding.Matched || finding.text != shown.text)
 				Step(this)
 			else
-				copy(
-					at = Location.Results(finding, inPlace),
-					listing = Listing.Reading,
-					choosing = choosing.unchosen(),
-					cursor = null,
-					renaming = null,
-				).showingResults(finding)
+				copy(at = Location.Results(finding, inPlace)).showingResults(finding)
 		}
 	}
 }

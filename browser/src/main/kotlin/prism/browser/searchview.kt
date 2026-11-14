@@ -250,9 +250,9 @@ private fun Searching(
 				rowHeight = type.row + Space.xs,
 				height = (type.row + Space.xs) * Search.SHOWN,
 				tag = "matches",
-				rowTag = { "match:${matches.nameOf(it)}" },
+				rowTag = { "match:${matches.rank(it)?.let(matches::nameOf).orEmpty()}" },
 				onChoose = { onEvent(BrowserEvent.MatchChosen(it)) },
-			) { Match(matches.rowOf(it, null), home) }
+			) { at -> matches.rank(at)?.let { Match(matches.rowOf(it, null), home) } }
 			Text(
 				when (matches.size) {
 					0 -> "Nothing matches"
