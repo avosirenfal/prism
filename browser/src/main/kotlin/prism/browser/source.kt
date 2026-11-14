@@ -753,30 +753,43 @@ private fun followed(link: Path): BasicFileAttributes? =
  * and not kept by every file system), those not known are last whichever way, by name among themselves.
  */
 fun sorted(rows: List<Row>, order: Order): List<Row> {
-	val folders = compareBy<Row> { !it.isFolder }
-	val sort = order.sort ?: return rows.sortedWith(folders)
-	val byName = Comparator<Row> { a, b -> naturalOrder(a.name, b.name) }
+	val sort = order.sort ?: return rows.sortedWith(compareBy { !it.isFolder })
+	val folders = compareBy<Keyed> { !it.row.isFolder }
+	val byName = Comparator<Keyed> { a, b -> naturalOrder(a.row.name, b.row.name) }
 
+	/** By what each row holds, as it is. */
+	fun byRow(compare: Comparator<Row>) =
+		ByColumn(
+			{ "" },
+			Comparator<Keyed> {
+				a,
+				b,
+				->
+				compare.compare(a.row, b.row)
+			}.then(byName),
+		)
+
+	/** By a text made of each row: made once a row, where a sort compares each a dozen times and more. */
 	fun byText(text: (Row) -> String) =
-		Comparator<Row> { a, b -> naturalOrder(text(a), text(b)) }.then(byName)
+		ByColumn(text, Comparator<Keyed> { a, b -> naturalOrder(a.key, b.key) }.then(byName))
 
-	val byColumn: Comparator<Row> =
+	val byColumn =
 		when (sort.by) {
-			ColumnId.Name -> byName
-			ColumnId.Modified -> compareBy<Row> { it.modified }.then(byName)
-			ColumnId.Type -> byText { it.type.lowercase() }
-			ColumnId.Size -> compareBy<Row> { it.size }.then(byName)
-			ColumnId.Created -> compareBy<Row> { it.created.at }.then(byName)
-			ColumnId.Deleted -> compareBy<Row> { it.deleted }.then(byName)
+			ColumnId.Name -> ByColumn({ "" }, byName)
+			ColumnId.Modified -> byRow(compareBy { it.modified })
+			ColumnId.Type -> byText { it.type }
+			ColumnId.Size -> byRow(compareBy { it.size })
+			ColumnId.Created -> byRow(compareBy { it.created.at })
+			ColumnId.Deleted -> byRow(compareBy { it.deleted })
 			ColumnId.Extension -> byText { extensionOf(it.name).orEmpty() }
 			ColumnId.Location -> byText { it.location.orEmpty() }
 		}
 
 	val directed =
 		if (sort.ascending)
-			byColumn
+			byColumn.compare
 		else
-			byColumn.reversed()
+			byColumn.compare.reversed()
 
 	val known: ((Row) -> Boolean)? =
 		when (sort.by) {
@@ -787,18 +800,34 @@ fun sorted(rows: List<Row>, order: Order): List<Row> {
 
 	val ordered =
 		known?.let {
-			Comparator<Row> { a, b ->
+			Comparator<Keyed> { a, b ->
 				when {
-					known(a) && known(b) -> directed.compare(a, b)
-					known(a) -> -1
-					known(b) -> 1
+					known(a.row) && known(b.row) -> directed.compare(a, b)
+					known(a.row) -> -1
+					known(b.row) -> 1
 					else -> byName.compare(a, b)
 				}
 			}
 		} ?: directed
 
-	return rows.sortedWith(folders.then(ordered))
+	return rows
+		.map {
+			Keyed(it, byColumn.key(it))
+		}.sortedWith(folders.then(ordered))
+		.map { it.row }
 }
+
+/** A row, with the text it is sorted by where its column is sorted by one. */
+private class Keyed(
+	val row: Row,
+	val key: String,
+)
+
+/** How a column puts rows in order: the text it makes of each ([key]; nothing, for a column that compares the rows themselves), and the order. */
+private class ByColumn(
+	val key: (Row) -> String,
+	val compare: Comparator<Keyed>,
+)
 
 /**
  * Two names in the order people read them: letters without case, and runs of digits by their value. It is the
@@ -868,9 +897,11 @@ private fun String.digitsEnd(from: Int): Int {
 	return at
 }
 
+private val SIZE_UNITS = listOf("bytes", "KB", "MB", "GB", "TB")
+
 /** "4.2 KB", by the binary units Windows and most file managers show. */
 fun sizeOf(bytes: Long): String {
-	val units = listOf("bytes", "KB", "MB", "GB", "TB")
+	val units = SIZE_UNITS
 	var value = bytes.toDouble()
 	var unit = 0
 
