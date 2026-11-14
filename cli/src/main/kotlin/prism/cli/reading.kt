@@ -76,7 +76,12 @@ private fun read(command: Command, words: List<String>): Parsed<Args> {
 	val byName = opts.flatMap { opt -> opt.names.map { it to opt } }.toMap()
 	val positional = command.params.filterIsInstance<Positional<*, *>>()
 
-	return options(words, byName, Read(emptyMap(), emptyList())).then { read ->
+	return options(
+		words,
+		byName,
+		Read(emptyMap(), emptyList()),
+		command.dashedArguments,
+	).then { read ->
 		optionValues(opts, read.options).then { options ->
 			positionalValues(positional, read.positional).then { Parsed.Value(Args(options + it)) }
 		}
@@ -93,18 +98,30 @@ private fun <T> value(type: ParamType<T>, word: String, of: String): Parsed<T> =
 		is Parsed.Invalid -> Parsed.Invalid("$of: ${parsed.reason}")
 	}
 
-/** [words] read from the first on, options by [byName], into [read]. */
+/**
+ * [words] read from the first on, options by [byName], into [read]. Where [dashed], a word that looks like an option
+ * and names none is an argument ([Command.dashedArguments]).
+ */
 private tailrec fun options(
 	words: List<String>,
 	byName: Map<String, Opt<*>>,
 	read: Read,
+	dashed: Boolean,
 ): Parsed<Read> {
 	val word = words.firstOrNull() ?: return Parsed.Value(read)
 
 	if (word == "--")
 		return Parsed.Value(read.copy(positional = read.positional + words.drop(1)))
-	if (!isOption(word))
-		return options(words.drop(1), byName, read.copy(positional = read.positional + word))
+	// A word that is one of the command's options is that option, whatever it looks like (`-0`, which would
+	// otherwise be a number); any other is an option only where it looks like one, and the command takes none such
+	// for arguments.
+	if (word.substringBefore('=') !in byName && (!isOption(word) || dashed))
+		return options(
+			words.drop(1),
+			byName,
+			read.copy(positional = read.positional + word),
+			dashed,
+		)
 
 	val name = word.substringBefore('=')
 	val inline = word.substringAfter('=', "").takeIf { '=' in word }
@@ -164,6 +181,7 @@ private tailrec fun options(
 					options =
 						read.options + (opt to given + value),
 				),
+				dashed,
 			)
 		}
 	}

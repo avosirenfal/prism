@@ -123,6 +123,47 @@ class CliTest {
 		)
 	}
 
+	/** A command whose arguments are in a language of their own, in which a dash means something. */
+	private object Seek : Command("seek", "arguments that may start with a dash") {
+		val words = arguments("WORD", ParamType.TEXT)
+		val best = flag("-b", "--best", help = "")
+		val count = option("-n", "--count", type = ParamType.INT, default = 20, help = "")
+
+		override val dashedArguments: Boolean get() = true
+
+		override fun run(args: Args) = Outcome("")
+	}
+
+	@Test
+	fun aDashedWordThatNamesNoOptionIsAnArgumentWhereACommandSaysSo() {
+		fun read(vararg words: String): Args =
+			assertInstanceOf(Invocation.Run::class.java, invocation(Seek, words.toList())).args
+
+		// A word that is exactly an option is the option; any other is an argument, dash and all.
+		val mixed = read("report", "-draft", "-b", "-ext:pdf", "--count", "3", "--bestest")
+
+		assertEquals(listOf("report", "-draft", "-ext:pdf", "--bestest"), mixed[Seek.words])
+		assertEquals(true, mixed[Seek.best])
+		assertEquals(3, mixed[Seek.count])
+		// After two dashes every word is an argument, the options' own words among them.
+		assertEquals(listOf("-b", "-n"), read("--", "-b", "-n")[Seek.words])
+		assertEquals(false, read("--", "-b")[Seek.best])
+		// An option's value is still refused where it is not one, and help is still help.
+		assertEquals(
+			"--count: 'x' is not a whole number",
+			assertInstanceOf(
+				Invocation.Wrong::class.java,
+				invocation(Seek, listOf("--count=x")),
+			).message.substringBefore(" (").let { it },
+		)
+		assertInstanceOf(
+			Invocation.Help::class.java,
+			invocation(Seek, listOf("-draft", "--help")),
+		)
+		// A command that does not say so refuses them, as ever.
+		assertEquals("unknown option -draft", wrong("probe", "-draft"))
+	}
+
 	@Test
 	fun mistakesAreRefusedNotReadAnotherWay() {
 		assertEquals("unknown option --nope", wrong("probe", "in", "--need", "1", "--nope"))

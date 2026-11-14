@@ -72,6 +72,14 @@ abstract class Command(
 	/** Its parameters, in the order declared: what it reads, and what its help lists. */
 	val params: List<Param<*>> get() = declared.toList()
 
+	/**
+	 * Whether a word that starts with a dash and names none of its options is an argument, rather than a mistake:
+	 * for a command whose arguments are in a language of their own in which a dash means something (`prism search
+	 * report -draft`, where `-draft` is "not draft"). A word that is exactly one of its options is still that option;
+	 * what follows `--` is arguments, as everywhere.
+	 */
+	open val dashedArguments: Boolean get() = false
+
 	/** What it prints for [args], and its exit status; a problem with what it was given is an [InputError]. */
 	abstract fun run(args: Args): Outcome
 
