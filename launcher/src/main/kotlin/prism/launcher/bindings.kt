@@ -28,13 +28,13 @@ enum class LauncherAction(
 	Open("Open it", LauncherGroups.Result, "Enter"),
 	Reveal("Show it in its folder", LauncherGroups.Result, "Ctrl+Enter"),
 	CopyPath("Copy its path", LauncherGroups.Result, "Ctrl+Shift+C"),
-	Down("Down a result", LauncherGroups.Moving, "Down", "Ctrl+N", "Ctrl+J", "Tab"),
-	Up("Up a result", LauncherGroups.Moving, "Up", "Ctrl+P", "Ctrl+K", "Shift+Tab"),
+	Down("Down a result", LauncherGroups.Moving, "Down", "Ctrl+J", "Tab"),
+	Up("Up a result", LauncherGroups.Moving, "Up", "Ctrl+K", "Shift+Tab"),
 	PageDown("Down a page", LauncherGroups.Moving, "PageDown"),
 	PageUp("Up a page", LauncherGroups.Moving, "PageUp"),
 	First("The first result", LauncherGroups.Moving, "Ctrl+Home"),
 	Last("The last result", LauncherGroups.Moving, "Ctrl+End"),
-	Settings("Its settings", LauncherGroups.Launcher, "Ctrl+Comma"),
+	Settings("Its settings", LauncherGroups.Launcher, "Ctrl+P"),
 	Dismiss("Clear what is typed, or close", LauncherGroups.Launcher, "Escape"),
 	;
 

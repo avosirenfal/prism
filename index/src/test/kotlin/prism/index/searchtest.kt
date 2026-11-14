@@ -309,14 +309,14 @@ class SearchTest {
 
 	@Test
 	fun aGlobIsFoundAnywhereInTheStemOrNameAsAWordIsUnlessAnAnchorHoldsIt() {
-		// .*g: a dot, then anything, then a g, wherever in the name they are; never only a name that starts with one.
+		// .*g: an extension with a g after its dot; held at its end, one that ends in it; held at both, one that
+		// is a dot and a g and whatever comes between.
 		assertTrue("q4-report.pdf" !in found { +word(".*g") })
 		assertTrue(
 			found { +word(".*g") }.containsAll(jpgs + setOf("img_abcd.png", "img_2025.jpeg")),
 		)
-		// .*g$, and the same held at both ends, which is a whole name: one that starts with a dot.
 		assertTrue("img_2025.jpeg" in found { +word(".*g", end = true) })
-		assertEquals(emptySet<String>(), found { +exactly(".*g") })
+		assertEquals(jpgs, found { +exactly(".jpg") })
 		// *.jpg
 		assertEquals(jpgs, found { +word("*.jpg") })
 		// *.{jpg,png}

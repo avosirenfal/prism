@@ -147,7 +147,7 @@ class LauncherStateTest {
 		val all = state("prism")
 
 		assertEquals(
-			listOf("Settings", "Key bindings", "System", "How to search", "Files"),
+			listOf("Settings", "Key bindings", "System", "Search help", "Files"),
 			all.titles("Prism"),
 		)
 		assertEquals("Prism", all.headingAt(0))
@@ -159,7 +159,7 @@ class LauncherStateTest {
 		assertEquals(listOf("Settings"), state("Settings PRISM").titles("Prism"))
 		assertEquals(listOf("Key bindings"), state("prism bindings").titles("Prism"))
 		assertEquals(listOf("System"), state("prism system").titles("Prism"))
-		assertEquals(listOf("How to search"), state("prism help").titles("Prism"))
+		assertEquals(listOf("Search help"), state("prism help").titles("Prism"))
 		assertEquals(emptyList<String>(), state("prism nothing").titles("Prism"))
 		// Only the word itself: not a word it begins, or that holds it.
 		assertEquals(emptyList<String>(), state("prisms").titles("Prism"))
@@ -600,7 +600,8 @@ class LauncherStateTest {
 
 		assertEquals(LauncherAction.Open, defaults.action(chord("Enter")))
 		assertEquals(LauncherAction.Reveal, defaults.action(chord("Ctrl+Enter")))
-		assertEquals(LauncherAction.Down, defaults.action(chord("Ctrl+N")))
+		assertEquals(LauncherAction.Down, defaults.action(chord("Ctrl+J")))
+		assertEquals(LauncherAction.Settings, defaults.action(chord("Ctrl+P")))
 		assertNull(defaults.action(chord("Ctrl+Q")))
 		// Each is in a group, in the order the page that binds them lists them.
 		assertEquals(
@@ -610,13 +611,13 @@ class LauncherStateTest {
 
 		// Bound to another action's chord, it is taken from that action; what differs is what the preferences keep,
 		// by each action's name, and what is read back from them.
-		val bound = defaults.bound(LauncherAction.Settings, 0, chord("Ctrl+N"))
+		val bound = defaults.bound(LauncherAction.Settings, 0, chord("Ctrl+J"))
 		val written = LauncherPreferences(bindings = bound.differences())
 
 		assertEquals(
 			mapOf(
-				"Settings" to listOf("Ctrl+N"),
-				"Down" to listOf("Down", "Ctrl+J", "Tab"),
+				"Settings" to listOf("Ctrl+J"),
+				"Down" to listOf("Down", "Tab"),
 			),
 			written.bindings,
 		)
@@ -624,7 +625,7 @@ class LauncherStateTest {
 		val read = launcherBindings(written)
 
 		assertEquals(bound, read)
-		assertEquals(LauncherAction.Settings, read.action(chord("Ctrl+N")))
+		assertEquals(LauncherAction.Settings, read.action(chord("Ctrl+J")))
 		// Reset, each has its defaults again, and nothing is written.
 		assertEquals(
 			emptyMap<String, List<String>>(),

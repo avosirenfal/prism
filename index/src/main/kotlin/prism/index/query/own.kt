@@ -6,10 +6,12 @@ package prism.index.query
  * and the launcher each have their own), and gets back those the text asks for, to show before what the index found
  * and to do what each means there when it is chosen.
  *
- * They are asked for by the word `prism`: a query with that word in it, whole and alone (`prism`, `prism settings`,
- * `settings prism`), finds those whose words its other words begin (`prism set` finds Settings), and all of them
- * where it has no other word. The one exception is [Help], which a bare `?` finds too, since `?` is what asks how.
- * The index is searched for the same text all the same: a file named `prism settings.txt` is still found, after.
+ * They are found by their own words: a text whose every word begins one of an item's [words] finds it (`settings`,
+ * `set`, `key bind`), once it is [LEAST] letters long, so that a letter or two typed on the way to a file's name
+ * finds none of them. The word `prism` scopes a search to them: with it, whole and alone, the other words need be
+ * no longer than they are, and with no other word every one offered is found. A bare `?` finds [Help], since `?` is
+ * what asks how. The index is searched for the same text all the same: a file named `settings.json` is still found,
+ * after.
  */
 sealed interface Own {
 	/** What it is called, where it is listed. */
@@ -25,13 +27,13 @@ sealed interface Own {
 	data object Settings : Own {
 		override val title = "Settings"
 		override val does = "Open prism's settings"
-		override val words = listOf("settings", "preferences", "options", "configuration")
+		override val words = listOf("settings", "preferences", "options")
 	}
 
 	/** The settings' page of key bindings. */
 	data object Bindings : Own {
 		override val title = "Key bindings"
-		override val does = "Change what each key does"
+		override val does = "Change keyboard shortcuts"
 		override val words =
 			listOf("key", "bindings", "keys", "keybinds", "keyboard", "shortcuts", "hotkeys")
 	}
@@ -39,16 +41,15 @@ sealed interface Own {
 	/** The page of the system's drives and what they hold. */
 	data object System : Own {
 		override val title = "System"
-		override val does = "This computer's drives, and what is on them"
-		override val words = listOf("system", "drives", "disks", "storage", "computer")
+		override val does = "Drives and storage on this computer"
+		override val words = listOf("system", "drives", "disks", "storage")
 	}
 
 	/** How a query is written ([QueryHelp]). */
 	data object Help : Own {
-		override val title = "How to search"
-		override val does = "How a query is written, with examples to try"
-		override val words =
-			listOf("how", "to", "search", "help", "syntax", "query", "examples")
+		override val title = "Search help"
+		override val does = "Search syntax, with examples"
+		override val words = listOf("help", "search", "syntax")
 	}
 
 	companion object {
@@ -61,25 +62,33 @@ sealed interface Own {
 		/** Every one there is, in the order they are listed in where nothing says otherwise. */
 		val ALL: List<Own> = listOf(Settings, Bindings, System, Help)
 
+		/** How many letters a text without the word `prism` has before it finds anything of prism's. */
+		const val LEAST = 3
+
+		private val SPACES = Regex("\\s+")
+
 		/**
-		 * Those of [offered] that [text] asks for, the best first: none, for a text without the word `prism` (and
-		 * that is not a bare `?`); otherwise each whose words the text's other words each begin, those whose title
-		 * they begin before those found by another of their words, and in [offered]'s order among equals.
+		 * Those of [offered] that [text] asks for, the best first: each whose words the text's words each begin
+		 * (the word `prism` aside, which only says that prism's own are meant), those whose title they begin before
+		 * those found by another of their words, and in [offered]'s order among equals. None, for a text of fewer
+		 * than [LEAST] letters that does not say `prism`; all of them, for `prism` alone; [Help], for a bare `?`.
 		 */
 		fun found(text: String, offered: List<Own>): List<Own> {
 			val said =
 				text
 					.trim()
 					.lowercase()
-					.split(Regex("\\s+"))
+					.split(SPACES)
 					.filter { it.isNotEmpty() }
 
 			if (said == listOf(HOW))
 				return offered.filter { it == Help }
-			if (WORD !in said)
-				return emptyList()
 
+			val scoped = WORD in said
 			val others = said - WORD
+
+			if (!scoped && others.sumOf { it.length } < LEAST)
+				return emptyList()
 
 			fun begun(words: List<String>) =
 				others.all { other ->

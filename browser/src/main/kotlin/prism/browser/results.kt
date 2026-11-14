@@ -68,10 +68,13 @@ fun ResultList(
 
 	LaunchedEffect(highlighted, count) { state.show(highlighted, rowPixels) }
 
-	Box(modifier.fillMaxWidth().heightIn(max = height)) {
+	// Scrolled by the wheel a few rows a notch, as every list is ([wheelScrolled]), and not by a distance that knows
+	// nothing of the rows: a notch of a few pixels is no scroll at all.
+	Box(modifier.fillMaxWidth().heightIn(max = height).wheelScrolled(state, rowHeight)) {
 		LazyColumn(
 			Modifier.fillMaxWidth().testTag(tag),
 			state,
+			userScrollEnabled = false,
 			contentPadding =
 				PaddingValues(
 					end =

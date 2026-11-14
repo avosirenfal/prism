@@ -254,7 +254,7 @@ class LauncherViewTest {
 		}
 		launching { _, _, host, _ ->
 			onNodeWithTag("launcher-query").performKeyInput {
-				withKeyDown(Key.CtrlLeft) { pressKey(Key.Comma) }
+				withKeyDown(Key.CtrlLeft) { pressKey(Key.P) }
 			}
 			until { "close" in host.asked }
 			assertEquals(listOf("settings", "close"), host.asked.toList())
@@ -279,7 +279,7 @@ class LauncherViewTest {
 			waitForIdle()
 			// Every one of them, first, the arrows on the first.
 			assertEquals(
-				listOf("Settings", "Key bindings", "System", "How to search"),
+				listOf("Settings", "Key bindings", "System", "Search help"),
 				session.state.value.entries
 					.filterIsInstance<Entry.Prism>()
 					.map { it.title },
@@ -315,7 +315,7 @@ class LauncherViewTest {
 
 			onNodeWithTag("launcher-query").performTextInput("?")
 			waitForIdle()
-			onNodeWithTag("entry:own:How to search").assertIsSelected()
+			onNodeWithTag("entry:own:Search help").assertIsSelected()
 			assertEquals(0, shown("search-help-shown"))
 			press(Key.Enter)
 			until { session.state.value.help }

@@ -68,18 +68,31 @@ sealed interface TextPattern {
 	}
 }
 
-/** Which part of a name a term matches: its stem (the name without its extension), or the whole name. */
+/**
+ * Which part of a name a term matches: its stem (the name without its extension); the whole name; or its extension
+ * with the dot before it, which for a name that begins with a dot (a hidden file's) is the whole of the name.
+ */
 enum class NamePart {
 	Stem,
 	Whole,
+	Extension,
 	;
 
 	companion object {
 		/**
-		 * The part a term typed as [text] matches: the whole name where it has a `.` in it (`report.pdf`, `*.jpg`, and
-		 * `.jpg`, which so finds the extension and a hidden file's name alike), and otherwise the stem (`report`).
+		 * The part a term typed as [text] matches, by where its `.` is:
+		 *
+		 * - none (`report`, `jpg`, `img_*`): the stem, so `jpg` is not found in `photo.jpg`, and is in `jpg.png`;
+		 * - one at its start (`.jpg`, `.*metis`): the extension, or a name that begins with a dot: `photo.jpg`, and a
+		 *   file named `.jpg`;
+		 * - one anywhere else (`report.pdf`, `awoo.z`): the whole name, so `awoo.z` is found in `lets_awoo.zip`.
 		 */
-		fun of(text: String): NamePart = if ('.' in text) Whole else Stem
+		fun of(text: String): NamePart =
+			when {
+				text.startsWith('.') -> Extension
+				'.' in text -> Whole
+				else -> Stem
+			}
 	}
 }
 

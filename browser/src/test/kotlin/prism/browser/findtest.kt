@@ -461,36 +461,41 @@ class FindTest {
 	}
 
 	@Test
-	fun theWordPrismFindsPrismsOwnFirstAndTheArrowsStartOnTheFirstOfThem() {
-		made("Projects/prism/notes.md", "prism settings.txt", "report.pdf")
+	fun prismsOwnAreFoundByTheirWordsFirstAndTheArrowsStartOnTheFirstOfThem() {
+		made("Projects/prism/notes.md", "settings.json", "report.pdf")
 
 		val explorer = picker(Choosing.Exploring())
-		val all = searched(explorer, "prism")
+		val settings = searched(explorer, "settings")
 
 		// Prism's own, and then what the index found for the same words; the arrows on the first.
-		assertEquals(Own.ALL, all.ready.own)
-		assertEquals(0, all.ready.highlighted)
-		assertEquals(Own.ALL.size + all.listed().size, all.ready.listed)
-		assertEquals(Search.Listed.Prisms(Own.Settings), all.ready.listedAt(0))
-		assertTrue(all.ready.listedAt(Own.ALL.size) is Search.Listed.Match)
-		assertNull(all.ready.listedAt(all.ready.listed))
-
-		// The other words begin the words of what is found; a file of those words is still found, after.
-		val settings = searched(explorer, "prism set")
-
 		assertEquals(listOf(Own.Settings), settings.ready.own)
-		assertEquals(listOf("prism settings.txt"), settings.listed())
+		assertEquals(0, settings.ready.highlighted)
+		assertEquals(listOf("settings.json"), settings.listed())
+		assertEquals(2, settings.ready.listed)
+		assertEquals(Search.Listed.Prisms(Own.Settings), settings.ready.listedAt(0))
+		assertTrue(settings.ready.listedAt(1) is Search.Listed.Match)
+		assertNull(settings.ready.listedAt(2))
+		// Found as they are typed, once a few letters are.
+		assertEquals(emptyList<Own>(), searched(explorer, "se").ready.own)
+		assertEquals(listOf(Own.Settings), searched(explorer, "set").ready.own)
+
+		// The word prism scopes a search to them: alone, every one.
+		val all = searched(explorer, "prism")
+
+		assertEquals(Own.ALL, all.ready.own)
+		assertEquals(Own.ALL.size + all.listed().size, all.ready.listed)
 
 		// A picker is another application's window: it has no preferences to open.
+		assertEquals(emptyList<Own>(), searched(picker(), "settings").ready.own)
 		assertEquals(listOf(Own.System, Own.Help), searched(picker(), "prism").ready.own)
 
-		// Without the word, nothing of prism's is found, and the arrows are in the field.
-		val plain = searched(explorer, "settings")
+		// What is no word of theirs finds nothing of prism's, and the arrows are in the field.
+		val plain = searched(explorer, "report")
 
 		assertEquals(emptyList<Own>(), plain.ready.own)
 		assertNull(plain.ready.highlighted)
 		// Up from the first is the field again, from which Enter shows every match and opens nothing of prism's.
-		assertNull(after(all, BrowserEvent.MatchMoved(-1)).ready.highlighted)
+		assertNull(after(settings, BrowserEvent.MatchMoved(-1)).ready.highlighted)
 	}
 
 	@Test
@@ -502,18 +507,18 @@ class FindTest {
 		fun entered(text: String): Step =
 			step(searched(explorer, text), BrowserEvent.SearchEntered)
 
-		val settings = entered("prism settings")
+		val settings = entered("settings")
 
 		assertEquals(listOf<Effect>(Effect.Ask(Request.Preferences)), settings.effects)
 		assertFalse(settings.state.search.open)
 
-		val bindings = entered("prism key")
+		val bindings = entered("key bind")
 
 		assertEquals(listOf<Effect>(Effect.Ask(Request.KeyBindings)), bindings.effects)
 		assertFalse(bindings.state.search.open)
 
 		// The system's page, whether or not it is pinned: gone to in this window.
-		val system = entered("prism system").settled(disk, finder)
+		val system = entered("system").settled(disk, finder)
 
 		assertTrue(system.system != null)
 		assertFalse(system.search.open)
@@ -596,7 +601,7 @@ class FindTest {
 				"search-empty" to after(picker(), BrowserEvent.OpenedSearch),
 				"search-nothing" to searched(picker(), "nothing-is-named-this"),
 				"search-own" to searched(picker(Choosing.Exploring()), "prism"),
-				"search-own-one" to searched(picker(Choosing.Exploring()), "prism set"),
+				"search-own-one" to searched(picker(Choosing.Exploring()), "settings"),
 				"search-how" to searched(picker(Choosing.Exploring()), "?"),
 				"gallery" to gallery,
 			)

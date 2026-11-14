@@ -1049,11 +1049,25 @@ private class NameCheck(
 
 	companion object {
 		fun matches(matching: Matching, part: NamePart, block: Block, entry: Int): Boolean {
-			val from = block.nameAt[entry]
+			val start = block.nameAt[entry]
+			val end = block.nameAt[entry + 1]
+			val stem = start + block.stem[entry]
+
+			val from =
+				when (part) {
+					NamePart.Stem, NamePart.Whole -> start
+					// The extension, from its dot; all of a name that begins with a dot, which is all stem.
+					NamePart.Extension ->
+						if (start < end && block.names[start] == DOT)
+							start
+						else
+							stem
+				}
+
 			val to =
 				when (part) {
-					NamePart.Stem -> from + block.stem[entry]
-					NamePart.Whole -> block.nameAt[entry + 1]
+					NamePart.Stem -> stem
+					NamePart.Whole, NamePart.Extension -> end
 				}
 
 			return matching.match.matches(

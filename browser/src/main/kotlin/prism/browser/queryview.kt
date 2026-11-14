@@ -10,6 +10,7 @@ import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
@@ -17,9 +18,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -118,11 +117,9 @@ fun QueryHelpPanel(
 					).padding(top = Space.xs, bottom = Space.m),
 		)
 		Divider()
-		Column(
-			Modifier
-				.weight(1f, fill = fills)
-				.verticalScroll(rememberScrollState())
-				.padding(horizontal = Space.s, vertical = Space.s),
+		ScrollArea(
+			Modifier.weight(1f, fill = fills),
+			padding = PaddingValues(start = Space.s, top = Space.s, bottom = Space.s),
 		) {
 			for (example in QueryHelp.EXAMPLES)
 				Example(example) { onTry(example.text) }

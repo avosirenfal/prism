@@ -69,7 +69,7 @@ import prism.window.WindowLocals
  * along the bottom how many there are and what the keys do. The arrows, and Page Up and Down, go through what is
  * listed from the field, which keeps the keyboard throughout, the list scrolling to keep the one they are on in
  * sight; Enter goes to the one they are on, or, from the field, shows every match in the listing; Escape, or a click
- * outside, puts the window away. Its field is empty each time it opens, and then the window says what can be typed.
+ * outside, puts the window away. Its field is empty each time it opens.
  *
  * A `?` beside the field shows how a query is written ([QueryHelpPanel]) in place of all of that, and not over it:
  * left by its × or by Escape, or by clicking one of its queries, which is typed into the field.
@@ -251,7 +251,6 @@ private fun Searching(
 				"search-failure",
 			)
 		}
-		search.text.isBlank() -> Beginning(onEvent)
 	}
 
 	if (search.listed > 0)
@@ -341,38 +340,6 @@ private fun HelpButton(size: androidx.compose.ui.unit.Dp, onClick: () -> Unit) {
 }
 
 /**
- * What the window says before anything is typed: what it searches, and a few things to type, each typed into the
- * field when clicked, the last two of them prism's own.
- */
-@Composable
-private fun Beginning(onEvent: (BrowserEvent) -> Unit) {
-	val type = LocalType.current
-
-	Column(
-		Modifier
-			.padding(horizontal = Space.l)
-			.padding(bottom = Space.l)
-			.testTag("search-beginning"),
-		verticalArrangement = Arrangement.spacedBy(Space.s),
-	) {
-		Text(
-			"Every file and folder prism has indexed, by name as you type. Try one of these:",
-			style = type.muted,
-		)
-		Row(horizontalArrangement = Arrangement.spacedBy(Space.xs)) {
-			for (example in BEGINNINGS)
-				Chip(example, Modifier.testTag("try:$example")) {
-					onEvent(BrowserEvent.SearchTyped(example))
-				}
-		}
-	}
-}
-
-/** What the window offers to type before anything is: a word, an extension, a folder, what is new, and prism's own. */
-private val BEGINNINGS =
-	listOf("report .pdf", "dir:photos .jpg", "new:2d", "~/Documents/", "prism", "?")
-
-/**
  * Along the bottom: how much was found, and what the keys do now: Enter to what the arrows are on, or from the field
  * to every match in the listing.
  */
@@ -406,16 +373,21 @@ private fun Footer(search: Search.Ready, onEvent: (BrowserEvent) -> Unit) {
 		)
 		if (search.listed > 0)
 			KeyHint("Move", listOf("↑", "↓"))
-		when {
-			search.highlighted != null -> KeyHint("Open", listOf("↵"))
-			matches != null && matches.size > 0 && search.searchable ->
-				Box(
-					Modifier
-						.clip(RoundedCornerShape(Radius.small))
-						.clickable { onEvent(BrowserEvent.ShowedResults) }
-						.testTag("search-go"),
-				) { KeyHint("Show all in the listing", listOf("↵")) }
-		}
+		if (search.highlighted != null)
+			KeyHint("Open", listOf("↵"))
+		// Every match in the listing: what Enter does from the field, and a click does wherever the arrows are.
+		if (matches != null && matches.size > 0 && search.searchable)
+			Box(
+				Modifier
+					.clip(RoundedCornerShape(Radius.small))
+					.clickable { onEvent(BrowserEvent.ShowedResults) }
+					.testTag("search-go"),
+			) {
+				KeyHint(
+					"Explore results",
+					listOf("↵").takeIf { search.highlighted == null }.orEmpty(),
+				)
+			}
 		KeyHint("Close", listOf("Esc"))
 	}
 }

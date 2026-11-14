@@ -28,10 +28,16 @@ A name has a stem and an extension. The extension starts at the last `.`, so `v1
 - `.tar.` followed by anything is one extension: `archive.tar.gz` has the stem `archive` and the extension `tar.gz`;
 - a leading `.` belongs to the stem, so `.gitignore` is all stem, and has no extension.
 
-A term matches the stem, unless it has a `.` in it, in which case it matches the whole name. So `report` looks in
-stems, and `report.pdf` looks in whole names. So does `.pdf`: it finds `q4-report.pdf` by its extension, and would
-find a hidden `.pdfrc` by its name, as `.git` finds `.gitignore` and `.github`. Typed as far as `.jp`, it finds
-`.jpg` and `.jpeg` alike. `pdf`, with no dot, looks in stems, and finds neither.
+Which part of a name a term is matched against is decided by where the term's own `.` is:
+
+| the term | is matched against | so |
+|---|---|---|
+| has no `.` (`report`, `jpg`, `asdf*`) | the stem | `jpg` does not find `photo.jpg`, and does find `jpg.png`; `asdf*` and `*asdf` do not find `whatever.asdf` |
+| starts with a `.` (`.jpg`, `.*metis`) | the extension, with its dot; or the whole of a name that begins with a dot | `.jpg` finds `photo.jpg` and a file named `.jpg`; `.git` finds `.gitignore`; `.2` does not find `v1.2 notes.txt` |
+| has a `.` elsewhere (`report.pdf`, `awoo.z`) | the whole name | `awoo.z` finds `lets_awoo.zip` |
+
+Typed as far as `.jp`, a term finds `.jpg` and `.jpeg` alike, and `.gz` and `.tar` both find `archive.tar.gz`.
+`ext:` (below) is stricter: it is the whole of an extension, and a hidden name has none.
 
 A bare word with no glob characters is found anywhere in what it matches: `report` finds `q4-report.pdf`, and `notes`
 finds `v1.2 notes.txt`. Two anchors hold it in place: `^` before a term holds it to the start (`^report`), and `$`
@@ -54,8 +60,9 @@ plain word is:
 | `{a,b}` | one of several; they may hold globs of their own |
 | `\` | the next character as itself |
 
-So `.*metis` is a dot, then anything, then `metis`, wherever in a name they come (`whatever.ngfx-metis`);
-`*.{jpg,png}` a name with `.jpg` or `.png` in it; `img_????` a stem with `img_` and four characters in it; and
+So `.*metis` is an extension, or a hidden name, with `metis` after its dot (`whatever.ngfx-metis`,
+`.whatever-metis`); `*.{jpg,png}` a name with `.jpg` or `.png` in it; `img_????` a stem with `img_` and four
+characters in it; and
 `\[draft\]*` a stem with the literal `[draft]` in it. The anchors hold a glob as they hold a word: `*.jpg$` is a
 name that ends in `.jpg` (as `ext:jpg` is), `^img_*` a stem that starts with `img_`, and `=img_????` a stem that is
 `img_` and four characters and nothing else. A `*` at an end that nothing holds says nothing: `*.jpg` and `.jpg`
@@ -402,9 +409,11 @@ index is not asked for them: they are `Own` (`index/query/own.kt`), a sealed typ
 choosing it does, and the words it is found by, and `Own.found(text, offered)` says which of those a window offers
 the text asks for:
 
-- a text with the word `prism` in it, whole and alone, finds each one whose words its other words begin: `prism`
-  finds them all, `prism settings` and `prism set` the settings, `prism key` the key bindings;
-- a bare `?` finds how a query is written, and nothing else does without the word.
+- a text whose every word begins one of an item's words finds it (`settings`, `set`, `key bind`), once it is
+  three letters long, so that a letter or two typed on the way to a file's name finds none;
+- the word `prism` scopes a search to them: with it, whole and alone, a letter is enough (`prism s`), and with no
+  other word every one offered is found;
+- a bare `?` finds how a query is written.
 
 They are listed before what the index found for the same text, which is searched for all the same. Each window has
 its own: an explorer's search, a picker's and the launcher's each say which they offer and what choosing one does

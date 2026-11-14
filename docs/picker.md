@@ -416,8 +416,7 @@ file the index holds, wherever it is. Its key is F2, from anywhere. Here is one 
 **The window opens.** F2 is `BrowserEvent.OpenedSearch`. The state's `search` is `Search.Ready` when the
 picker was given an index, and `Search.Unavailable(why)` when it was not. Opening makes a `Search.Ready` afresh, with
 nothing typed, and the view draws a window over the picker: a field with a `?` button beside it, what the field found
-under them, and along the bottom how many matches there are and what the keys do now. With nothing typed yet, it says
-what it searches and offers a few things to type, each typed into the field when clicked. Without an index, the window
+under them, and along the bottom how many matches there are and what the keys do now. Without an index, the window
 says why instead.
 
 ![The search's window, with nothing typed](picker-search-empty.png)
@@ -473,7 +472,7 @@ Nothing is accepted for you. Going to a match is only going there; the picker's 
 match does the same as Enter on it.
 
 **Or you press Enter in the field.** That is `SearchEntered` with nothing highlighted (the hint along the bottom,
-"Show all in the listing", clicked, is `ShowedResults`): every match is shown in the listing. Where the picker is, `at`, becomes `Location.Results` in place
+"Explore results", clicked, is `ShowedResults`): every match is shown in the listing. Where the picker is, `at`, becomes `Location.Results` in place
 of `Location.Folder`, and the folder left goes into the history, so Back returns to it. The path across the top says
 "Search results" and what was searched for; clicking it opens the window again with that in its field
 (`EditedSearch`), to be changed. The window closes; the next F2 opens it empty, since what was searched for last
@@ -488,22 +487,24 @@ keyboard while it is open, so it reads the binding itself.
 ### Prism's own things
 
 A search finds a few things that are not files: prism's settings, its key bindings, the page of the system's drives,
-and how a query is written. They are asked for by the word `prism`:
+and how a query is written. They are found by their own words:
 
 ![What the word prism finds, in an explorer](picker-search-own.png)
 
 | typed | finds first |
 |---|---|
+| `settings`, `set`, `preferences` | Settings: the preferences window |
+| `key bindings`, `keys`, `shortcuts` | Key bindings: the preferences window, at its key bindings |
+| `system`, `drives`, `storage` | System: the system's page, in this window, whether or not it is pinned |
+| `help`, or `?` alone | Search help: the page the `?` button shows |
 | `prism` | all of them |
-| `prism settings`, `prism set`, `prism pref` | Settings: the preferences window |
-| `prism bindings`, `prism keys` | Key bindings: the preferences window, at its key bindings |
-| `prism system`, `prism drives` | System: the system's page, in this window, whether or not it is pinned |
-| `prism help`, or `?` alone | How to search: the page the `?` button shows |
 
-The word has to be there whole and alone (`prisms` and `prism.md` are names), and each other word has to begin a word
-of what it finds. They are listed before the matches, and the arrows start on the first of them, so `prism set` and
-Enter opens the settings; Down goes past them to the files, which are searched for all the same (a file named
-`prism settings.txt` is found, after). A bare `?` is the one thing found without the word.
+Each word typed has to begin a word of what it finds, and nothing of prism's is found until three letters are typed,
+so a letter or two on the way to a file's name finds none. They are listed before the matches, and the arrows start
+on the first of them, so `settings` and Enter opens the settings; Down goes past them to the files, which are
+searched for all the same (a file named `settings.json` is found, after), and "Explore results" along the bottom
+shows every match in the listing whatever the arrows are on. The word `prism` scopes a search to them: alone it
+lists them all, and with it a letter is enough (`prism s`). A bare `?` finds the help.
 
 They are `Own` (`index/query/own.kt`), a sealed type beside the search language: whoever searches says which of them
 it offers, and `Own.found(text, offered)` gives back those the text asks for, best first. An explorer offers them all;

@@ -21,7 +21,7 @@ Bind `prism launcher` to a key in your window manager (below). Press the key, an
   in the search's own language (docs/search.md), so `report .pdf`, `~/Documents/`, `new:1d` and the rest all work
   here.
 - **The arrows** move through the results, the list scrolling to keep the one they are on in sight; Page Up and Page
-  Down move a page; Tab and Shift+Tab, Ctrl+N and Ctrl+P, Ctrl+J and Ctrl+K move as Down and Up do.
+  Down move a page; Tab and Shift+Tab, and Ctrl+J and Ctrl+K, move as Down and Up do.
 - **Enter** starts an application, opens a file with whatever opens its kind, and opens a folder in an explorer's
   window. **Ctrl+Enter** shows the result in its folder instead, chosen. **Ctrl+Shift+C** copies its path.
 - **Escape** empties the field, and with the field empty puts the launcher away. So does pressing your key again, and
@@ -36,23 +36,22 @@ why.
 
 ![The launcher with prism typed](launcher-prism.png)
 
-The word `prism`, whole and anywhere in what is typed, lists what is prism's own before the applications and the
-files, which are still looked for, for the same text, and come after:
+What is prism's own is found by its own words, and listed before the applications and the files, which are still
+looked for, for the same text, and come after:
 
 | typed | first result | chosen, it |
 |---|---|---|
-| `prism settings` | Settings | opens the launcher's settings, as Ctrl+comma does |
-| `prism bindings` | Key bindings | opens the launcher's settings at its keys, or turns their window to them where it is open |
-| `prism system` | System | opens an explorer's window on the System page, pinned to quick access or not |
-| `prism help`, or `?` alone | How to search | shows how a query is written |
+| `settings`, `set`, `preferences` | Settings | opens the launcher's settings, as Ctrl+P does |
+| `key bindings`, `keys`, `shortcuts` | Key bindings | opens the launcher's settings at its keys, or turns their window to them where it is open |
+| `system`, `drives`, `storage` | System | opens an explorer's window on the System page, pinned to quick access or not |
+| `help`, or `?` alone | Search help | shows how a query is written |
 | `prism` | all four, and "Files" | |
 
-The other words need only begin a word of what they are after: `prism set` is Settings, `prism key` the key
-bindings, `prism dri` the System page (its drives). They are the same items an explorer's search finds
-(docs/search.md, `Own`); what each does is whoever lists it's own, so here Settings is the launcher's.
-
-"Settings" is found by its own words too, with no `prism` (`settings`, `preferences`), after the applications, as
-"Files" is; the rest only by `prism`, so that `system` is still your System Monitor first.
+Each word typed need only begin a word of what it is after, once three letters are typed (`set` is Settings, `se`
+is not yet). The word `prism` scopes a search to them: `prism` alone lists them all, and with it a letter is enough
+(`prism s`). They are the same items an explorer's search finds (docs/search.md, `Own`); what each does is whoever
+lists it's own, so here Settings is the launcher's. With nothing typed, "Settings" and "Files" are listed after the
+applications.
 
 ![How to search, in the launcher](launcher-help.png)
 
@@ -92,7 +91,7 @@ nothing else.
 
 ## Settings
 
-"Settings" in the launcher (or Ctrl+comma) opens them in a window of their own, made as the explorer's preferences
+"Settings" in the launcher (or Ctrl+P) opens them in a window of their own, made as the explorer's preferences
 are: its pages down the left, the one chosen beside them, and nothing written until Apply (docs/explorer.md, "The
 bindings window"). They are kept in `~/.config/prism/preferences.json` under `launcher`, and the launcher is as they
 say from then on.

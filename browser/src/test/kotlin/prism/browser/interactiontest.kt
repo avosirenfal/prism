@@ -1718,7 +1718,7 @@ class InteractionTest {
 			waitForIdle()
 			field("search-query").performTextReplacement("?")
 			waitForIdle()
-			onNodeWithTag("own:How to search").assertExists()
+			onNodeWithTag("own:Search help").assertExists()
 			press(Key.Enter)
 			waitForIdle()
 			onNodeWithTag("search-help-shown").assertExists()
