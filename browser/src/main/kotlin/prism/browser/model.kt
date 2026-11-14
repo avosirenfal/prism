@@ -913,7 +913,8 @@ data class Fault private constructor(
 		get() = "$MISTAKE\n$line. It is said in full in prism's log."
 
 	companion object {
-		const val MISTAKE = "prism itself went wrong: a mistake of prism's, not of anything you did."
+		const val MISTAKE =
+			"prism itself went wrong: a mistake of prism's, not of anything you did."
 
 		fun of(failure: Throwable): Fault =
 			Fault(

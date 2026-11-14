@@ -1248,8 +1248,8 @@ private fun BrowserState.broke(asking: Effect.Asking, fault: Fault): Step {
 				?: Step(this)
 		// It is no longer under way, and what it may have half done is read again; nothing follows it.
 		is Effect.Run -> ran(asking.job, fault.said).said()
-		is Effect.Open, is Effect.Terminal, is Effect.ReadClip, is Effect.Launch, is Effect.Scratch,
-		is Effect.Temp,
+		is Effect.Open, is Effect.Terminal, is Effect.ReadClip, is Effect.Launch,
+		is Effect.Scratch, is Effect.Temp,
 		-> Step(this).said()
 	}
 }
@@ -1265,7 +1265,8 @@ internal fun failingOf(asking: Effect.Asking): String =
 		Effect.ReadStorage -> "Couldn't read the machine's storage"
 		is Effect.Search -> "Couldn't search for “${asking.text}”"
 		is Effect.Stat -> "Couldn't read the results' sizes and dates"
-		is Effect.Born -> "Couldn't read when what “${asking.folder.fileName ?: asking.folder}” holds was made"
+		is Effect.Born ->
+			"Couldn't read when what “${asking.folder.fileName ?: asking.folder}” holds was made"
 		is Effect.Order -> "Couldn't put the results in order"
 		is Effect.Open -> "Couldn't open ${countOf(asking.paths)}"
 		is Effect.Terminal -> "Couldn't open a terminal"
