@@ -3,8 +3,11 @@ package prism.probe
 import prism.ebpf.Body
 import prism.ebpf.Counters
 import prism.ebpf.Expr
+import prism.ebpf.KernelFunction
+import prism.ebpf.ProgramBuilder
 import prism.ebpf.Ptr
 import prism.ebpf.Record
+import prism.ebpf.Returned
 import prism.ebpf.RingBuffer
 import prism.ebpf.S32
 import prism.ebpf.U32
@@ -105,53 +108,31 @@ val FsWatch =
 		val lost by counters(Lost.entries)
 		val maps = FsWatchMaps(changes, lost)
 
-		fexit(VfsMkdir) {
-			val made = VfsMkdir.returns.value()
+		// Each function in every shape the kernel has had it in (kernel.kt): one of each is attached, the one that
+		// is the running kernel's.
+		directoryMade(maps, VfsMkdir, VfsMkdir.returns)
+		directoryMade(maps, VfsMkdirDelegated, VfsMkdirDelegated.returns)
 
-			stopIf(made.isErrorOrNull())
-			sent(maps, Change.DirectoryMade, VfsMkdir.dir.value(), made, present = true)
-		}
+		changed(maps, VfsRmdir, Change.DirectoryRemoved, present = false)
+		changed(maps, VfsRmdirDelegated, Change.DirectoryRemoved, present = false)
+		changed(maps, VfsUnlink, Change.FileRemoved, present = false)
+		changed(maps, VfsCreate, Change.FileMade, present = true)
+		changed(maps, VfsSymlink, Change.SymlinkMade, present = true)
+		changed(maps, VfsSymlinkDelegated, Change.SymlinkMade, present = true)
+		changed(maps, VfsMknod, Change.NodeMade, present = true)
+		changed(maps, VfsMknodDelegated, Change.NodeMade, present = true)
 
-		fexit(VfsRmdir) {
-			stopIf(VfsRmdir.returns.value() ne (S32 of 0))
-			sent(
-				maps,
-				Change.DirectoryRemoved,
-				VfsRmdir.dir.value(),
-				VfsRmdir.dentry.value(),
-				present = false,
-			)
-		}
+		fexit(VfsCreateDelegated) {
+			stopIf(VfsCreateDelegated.returns.value() ne (S32 of 0))
 
-		fexit(VfsUnlink) {
-			stopIf(VfsUnlink.returns.value() ne (S32 of 0))
-			sent(
-				maps,
-				Change.FileRemoved,
-				VfsUnlink.dir.value(),
-				VfsUnlink.dentry.value(),
-				present = false,
-			)
-		}
+			val entry by local(VfsCreateDelegated.dentry.value())
 
-		fexit(VfsCreate) {
-			stopIf(VfsCreate.returns.value() ne (S32 of 0))
+			// Given no directory since 6.19: it is the entry's parent.
 			sent(
 				maps,
 				Change.FileMade,
-				VfsCreate.dir.value(),
-				VfsCreate.dentry.value(),
-				present = true,
-			)
-		}
-
-		fexit(VfsSymlink) {
-			stopIf(VfsSymlink.returns.value() ne (S32 of 0))
-			sent(
-				maps,
-				Change.SymlinkMade,
-				VfsSymlink.dir.value(),
-				VfsSymlink.dentry.value(),
+				entry[Dentry.dParent][Dentry.dInode],
+				entry,
 				present = true,
 			)
 		}
@@ -161,33 +142,8 @@ val FsWatch =
 			sent(maps, Change.Linked, VfsLink.dir.value(), VfsLink.made.value(), present = true)
 		}
 
-		fexit(VfsMknod) {
-			stopIf(VfsMknod.returns.value() ne (S32 of 0))
-			sent(
-				maps,
-				Change.NodeMade,
-				VfsMknod.dir.value(),
-				VfsMknod.dentry.value(),
-				present = true,
-			)
-		}
-
-		fexit(DoFilpOpen) {
-			val opened = DoFilpOpen.returns.value()
-
-			stopIf(opened.isErrorOrNull())
-			stopUnless(opened[File.fMode] hasBits DoFilpOpen.CREATED)
-
-			val entry by local(opened[File.fPath][Path.dentry])
-
-			sent(
-				maps,
-				Change.FileMade,
-				entry[Dentry.dParent][Dentry.dInode],
-				entry,
-				present = true,
-			)
-		}
+		opened(maps, DoFilpOpen)
+		opened(maps, DoFileOpen)
 
 		fexit(VfsRename) {
 			stopIf(VfsRename.returns.value() ne (S32 of 0))
@@ -206,6 +162,50 @@ val FsWatch =
 		}
 
 		maps
+	}
+
+/** A hook on the way out of [function], which made a directory and gives it back ([made]), or an error. */
+private fun <F> ProgramBuilder.directoryMade(
+	maps: FsWatchMaps,
+	function: F,
+	made: Returned<F, Ptr<Dentry>>,
+) where F : KernelFunction<F>, F : OfEntry<F> =
+	fexit(function) {
+		val directory = made.value()
+
+		stopIf(directory.isErrorOrNull())
+		sent(maps, Change.DirectoryMade, function.dir.value(), directory, present = true)
+	}
+
+/**
+ * A hook on the way out of [function], which made [change] to an entry of a directory, where it says it did: the
+ * entry [present] after it, or gone.
+ */
+private fun <F> ProgramBuilder.changed(
+	maps: FsWatchMaps,
+	function: F,
+	change: Change,
+	present: Boolean,
+) where F : KernelFunction<F>, F : OfEntry<F>, F : GivesStatus<F> =
+	fexit(function) {
+		stopIf(function.returns.value() ne (S32 of 0))
+		sent(maps, change, function.dir.value(), function.dentry.value(), present)
+	}
+
+/** A hook on the way out of [function], which opens files: the ones it made in opening them are sent. */
+private fun <F> ProgramBuilder.opened(
+	maps: FsWatchMaps,
+	function: F,
+) where F : KernelFunction<F>, F : Opens<F> =
+	fexit(function) {
+		val opened = function.returns.value()
+
+		stopIf(opened.isErrorOrNull())
+		stopUnless(opened[File.fMode] hasBits FMODE_CREATED)
+
+		val entry by local(opened[File.fPath][Path.dentry])
+
+		sent(maps, Change.FileMade, entry[Dentry.dParent][Dentry.dInode], entry, present = true)
 	}
 
 /**

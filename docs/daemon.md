@@ -28,7 +28,10 @@ The rest of this document is why each of those steps is right, and what the part
 
 The watcher (`probe/fswatch.kt`, declared in Kotlin and compiled to BPF by the build) hooks the exit of each VFS
 function that adds an entry to a directory or takes one away: `vfs_mkdir`, `vfs_rmdir`, `vfs_unlink`, `vfs_create`,
-`vfs_symlink`, `vfs_link`, `vfs_mknod`, `vfs_rename`, and `do_filp_open` for files made by `open(O_CREAT)`. Hooking the
+`vfs_symlink`, `vfs_link`, `vfs_mknod`, `vfs_rename`, and `do_filp_open` (`do_file_open` since Linux 7.0) for files made
+by `open(O_CREAT)`. The kernel changes these functions' parameters from one version to the next, so each is declared
+in every shape it has had since 6.17, and the one that is the running kernel's is attached (`prism probe check` says
+which, or what a kernel newer than any declared differs on). Hooking the
 VFS rather than system calls sees every way of making a change (io_uring's, nfsd's, overlayfs's); hooking the exit
 sends only changes the kernel made. Each change is sent through a ring buffer as: the device of the folder's file
 system, the folder's inode (and for a move, the inode of the folder it went to), the entry's name (after a move, its new

@@ -114,6 +114,35 @@ fun kernelMismatches(hook: Hook, btf: Btf): List<Mismatch> {
 	).distinctBy { it.message }
 }
 
+/**
+ * One place in the kernel a program hooks (`vfs_mkdir`, on the way out), and how its hooks stand to a kernel: the
+ * one that fits, where one does, and what each of the others differs on.
+ */
+data class Coverage(
+	/** The place, as its first declared shape's section names it: `fexit/vfs_mkdir`. */
+	val section: String,
+	/** The hook that is attached: the first declared whose shape is this kernel's. Null where none is. */
+	val fits: Hook?,
+	/** Every other hook of the place, with what it and the kernel differ on. */
+	val misfits: Map<Hook, List<Mismatch>>,
+)
+
+/**
+ * Each place [program] hooks, in the order first declared, against [btf]. A place is covered where one of the
+ * shapes declared for it fits; a kernel whose shape of it nobody has declared yet costs that place, and says what
+ * each declared shape differs on, which is what the next shape is written from.
+ */
+fun kernelCoverage(program: Program, btf: Btf): List<Coverage> =
+	program.hooks.groupBy { it.kind to it.callable.place }.values.map { hooks ->
+		val differing = hooks.associateWith { kernelMismatches(it, btf) }
+
+		Coverage(
+			hooks.first().section,
+			hooks.firstOrNull { differing.getValue(it).isEmpty() },
+			differing.filterValues { it.isNotEmpty() },
+		)
+	}
+
 private fun structMismatches(struct: KernelStruct<*>, btf: Btf): List<Mismatch> {
 	val kernel = btf.struct(struct.cName) ?: return listOf(Mismatch.NoSuchStruct(struct))
 

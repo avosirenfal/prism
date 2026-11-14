@@ -19,14 +19,14 @@ sealed interface HookKind {
 	data object Entry : HookKind {
 		override fun section(callable: Callable<*>) = "fentry/${callable.cName}"
 
-		override fun function(callable: Callable<*>) = "entry_${callable.cName}"
+		override fun function(callable: Callable<*>) = "entry_${shaped(callable)}"
 	}
 
 	/** On the way out of a kernel function, where what it did and what it gave back are both known. */
 	data object Exit : HookKind {
 		override fun section(callable: Callable<*>) = "fexit/${callable.cName}"
 
-		override fun function(callable: Callable<*>) = "exit_${callable.cName}"
+		override fun function(callable: Callable<*>) = "exit_${shaped(callable)}"
 	}
 
 	/** A kernel tracepoint, reached through BTF so its arguments are typed. */
@@ -42,6 +42,20 @@ sealed interface HookKind {
 
 		override fun function(callable: Callable<*>) = "sys_${callable.cName}"
 	}
+
+	companion object {
+		/**
+		 * [callable]'s name with its shape, as a C function's name may have it: two shapes of one kernel function
+		 * are two C functions in one section's name, told apart by this.
+		 */
+		private fun shaped(callable: Callable<*>): String =
+			callable.cName +
+				callable.shape
+					?.let { shape ->
+						"_" +
+							shape.map { if (it.isLetterOrDigit()) it else '_' }.joinToString("")
+					}.orEmpty()
+	}
 }
 
 /** One hook of a program: where it sits, what it hooks, and what it says. */
@@ -55,7 +69,7 @@ class Hook internal constructor(
 	val section: String get() = kind.section(callable)
 	val cName: String get() = kind.function(callable)
 
-	override fun toString(): String = section
+	override fun toString(): String = section + callable.shape?.let { " ($it)" }.orEmpty()
 }
 
 /** A Kotlin enum a program's records carry, so the emitted C names each entry and the host reads the same names. */
@@ -140,7 +154,13 @@ class ProgramBuilder internal constructor(
 
 		val body = said()
 
-		if (hooks.any { it.kind == kind && it.callable === callable })
+		// Twice is the same declaration again, or two declarations the C could not tell apart (two shapes of one
+		// function under one name).
+		if (hooks.any {
+				it.kind == kind &&
+					(it.callable === callable || it.cName == kind.function(callable))
+			}
+		)
 			errors += ProgramError.HookedTwice(kind.section(callable))
 		if (stackBytes > STACK_BYTES)
 			errors += ProgramError.StackTooLarge(kind.section(callable), stackBytes)

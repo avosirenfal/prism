@@ -11,11 +11,26 @@ package prism.ebpf
  * [Inode]'s fields is a compile error, because a field carries the structure that declared it in its type.
  */
 
-/** Something with parameters a hook's body reads: a kernel function, or a tracepoint. */
+/**
+ * Something with parameters a hook's body reads: a kernel function, or a tracepoint.
+ *
+ * The kernel promises nothing about its functions from one version to the next: a parameter is added, one is taken
+ * away, a function is renamed. So one place in the kernel can be declared more than once, each declaration a [shape]
+ * of it ("since 6.19"), with a hook for each; the loader attaches the one that fits the kernel it is run on and
+ * leaves the others out ([kernelCoverage]). Shapes of one place are those of one name, and those declared to be
+ * what another was renamed to ([place]).
+ */
 sealed class Callable<Self : Callable<Self>>(
 	/** The name the kernel knows it by, which the hook's section names. */
 	val cName: String,
+	/** Which of the kernel's shapes of it this declares, where more than one is declared; null where one is. */
+	val shape: String? = null,
+	/** What this was called before the kernel renamed it, where it was: the two are one place, in two shapes. */
+	formerly: Callable<*>? = null,
 ) {
+	/** The place in the kernel this is a shape of: its name, or the name it first had here. */
+	val place: String = formerly?.place ?: cName
+
 	private val declared = ArrayList<Parameter<Self, *>>()
 
 	/** Its parameters, in the order declared, which is the order the kernel passes them. */
@@ -60,7 +75,9 @@ class Parameter<out F : Callable<*>, out T : BpfType> internal constructor(
  */
 abstract class KernelFunction<Self : KernelFunction<Self>>(
 	cName: String,
-) : Callable<Self>(cName) {
+	shape: String? = null,
+	formerly: KernelFunction<*>? = null,
+) : Callable<Self>(cName, shape, formerly) {
 	/** What it gives back: [returning] for a value, [NoReturn] for a `void` function. */
 	abstract val returns: Returns
 }

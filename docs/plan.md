@@ -122,7 +122,10 @@ once, and a frame read twice does no harm.
 
 The watcher (`probe/fswatch.kt`, run by the `watcher` module) is an eBPF program with a hook on the exit of each VFS
 function that adds an entry to a directory or takes one away: `vfs_mkdir`, `vfs_rmdir`, `vfs_unlink`, `vfs_create`,
-`vfs_symlink`, `vfs_link`, `vfs_mknod`, `vfs_rename`, and `do_filp_open` for files made by `open(O_CREAT)`. Hooking the
+`vfs_symlink`, `vfs_link`, `vfs_mknod`, `vfs_rename`, and `do_filp_open` (`do_file_open` since Linux 7.0) for files made
+by `open(O_CREAT)`. The kernel changes these functions' parameters from one version to the next, so each is declared
+in every shape it has had since 6.17, and the one that is the running kernel's is attached (`prism probe check` says
+which, or what a kernel newer than any declared differs on). Hooking the
 VFS rather than the system calls means every way of making a change is seen (io_uring's, nfsd's, overlayfs's), and
 hooking the exit means only a change the kernel made is sent. Each change goes to the host through a ring buffer as
 the device, the inode of the directory it is in, the entry's name and inode, and what happened.

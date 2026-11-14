@@ -8,7 +8,7 @@ import prism.cli.Outcome
 import prism.cli.ParamType
 import prism.ebpf.Btf
 import prism.ebpf.emittedOrThrow
-import prism.ebpf.kernelMismatches
+import prism.ebpf.kernelCoverage
 import prism.ebpfloader.Attachment
 import prism.linux.Sys
 import prism.linux.Wait
@@ -43,23 +43,30 @@ object ProbeCheck : Command(
 			Btf.ofRunningKernel()
 				?: return Outcome("this kernel publishes no BTF at ${Btf.RUNNING_KERNEL}", status = 1)
 
-		val lines =
-			FsWatch.program.hooks.map { hook ->
-				val mismatches = kernelMismatches(hook, btf)
+		// A function is declared in each shape the kernel has had it in, and is watched where one of them is this
+		// kernel's: what is said is which, or what each declared shape and this kernel differ on.
+		val coverage = kernelCoverage(FsWatch.program, btf)
 
-				if (mismatches.isEmpty())
-					"  ok    $hook"
-				else
-					"  moved $hook: ${mismatches.joinToString("; ")}"
+		val lines =
+			coverage.flatMap { place ->
+				when (val fits = place.fits) {
+					null ->
+						listOf("  moved ${place.section}") +
+							place.misfits.map { (hook, differs) ->
+								"          as declared${hook.callable.shape?.let { " $it" }.orEmpty()}: " +
+									differs.joinToString("; ")
+							}
+					else -> listOf("  ok    $fits")
+				}
 			}
 
-		val moved = FsWatch.program.hooks.count { kernelMismatches(it, btf).isNotEmpty() }
+		val moved = coverage.count { it.fits == null }
 		val allMatch = moved == 0
 		val verdict =
 			if (allMatch)
-				"every hook matches this kernel"
+				"every hook has a shape that matches this kernel"
 			else
-				"$moved hooks would be left out"
+				"$moved of ${coverage.size} hooks would be left out: this kernel's shape of each is not declared yet"
 		val said = listOf("${btf.typeCount} types in this kernel's BTF") + lines + "" + verdict
 
 		return Outcome(said.joinToString("\n"), status = if (allMatch) 0 else 1)
@@ -100,16 +107,24 @@ object ProbeWatch : Command(
 			}
 
 		watch.use {
+			// A shape left out beside one that is watching is another kernel's, and nothing to say.
+			val watched =
+				it.hooks
+					.filterValues { attachment ->
+						attachment == Attachment.Attached
+					}.keys
+					.map { hook ->
+						hook.callable.place
+					}
+
 			for ((hook, attachment) in it.hooks)
-				println(
-					when (attachment) {
-						Attachment.Attached -> "  watching $hook"
-						is Attachment.Mismatched ->
-							"  left out $hook: " +
-								attachment.mismatches.joinToString("; ")
-						is Attachment.Refused -> "  refused  $hook: ${attachment.failure}"
-					},
-				)
+				when (attachment) {
+					Attachment.Attached -> println("  watching $hook")
+					is Attachment.Mismatched ->
+						if (hook.callable.place !in watched)
+							println("  left out $hook: " + attachment.mismatches.joinToString("; "))
+					is Attachment.Refused -> println("  refused  $hook: ${attachment.failure}")
+				}
 
 			val until = args[seconds]?.let { System.nanoTime() + it * 1_000_000_000L }
 
