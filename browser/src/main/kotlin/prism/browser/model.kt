@@ -102,6 +102,9 @@ sealed interface Created {
 
 	data object Unkept : Created
 
+	/** Asked for, and prism went wrong reading it ([Answer.Broke]): not known, and not asked for again. */
+	data object Unknown : Created
+
 	data class At(
 		val time: Instant,
 	) : Created
@@ -520,7 +523,7 @@ sealed interface Listing {
 		override fun toString(): String = "Shown(${entries.size} entries)"
 	}
 
-	/** The folder could not be read: what the system said. */
+	/** The folder could not be read: what the system said, or that prism went wrong reading it ([Fault.said]). */
 	data class Unreadable(
 		val why: String,
 	) : Read
@@ -800,11 +803,30 @@ sealed interface Notice {
 		val wary: Boolean get() = noTrash != null || erasing == Erasing.Everything
 	}
 
-	/** Something the user asked for could not be done: what ("Couldn't rename “a.txt”"), and why. */
+	/** Something could not be done: what ("Couldn't rename “a.txt”"), and what is said of why ([detail]). */
+	sealed interface Trouble : Notice {
+		val doing: String
+		val detail: String
+	}
+
+	/** Something the user asked for could not be done: what, and why, as the system or the command said it. */
 	data class Failed(
-		val doing: String,
+		override val doing: String,
 		val why: String,
-	) : Notice
+	) : Trouble {
+		override val detail: String get() = why
+	}
+
+	/**
+	 * Something could not be done because prism itself went wrong doing it ([Answer.Broke]): what, and what went
+	 * wrong, which is nothing the system said and nothing the user did, and is said to be neither.
+	 */
+	data class Broke(
+		override val doing: String,
+		val fault: Fault,
+	) : Trouble {
+		override val detail: String get() = fault.said
+	}
 
 	/** A name was typed among a search's results, which are in no one folder, with no result chosen to go beside. */
 	data class NoFolder(
@@ -822,6 +844,33 @@ sealed interface Notice {
 		val label: String,
 		val question: String,
 	) : Notice
+}
+
+/**
+ * What went wrong inside prism, in a line: the kind of failure it was, and what it said. Made only from the failure
+ * ([of]), so nothing can be shown as prism's mistake that was not one, and it is never the system's words or the
+ * user's: what the disk or a command refused is said as that ([Notice.Failed], [Listing.Unreadable]).
+ */
+@Immutable
+@ConsistentCopyVisibility
+data class Fault private constructor(
+	val line: String,
+) {
+	/** What a window says of it: whose mistake it is, the line, and where all of it is. */
+	val said: String
+		get() = "$MISTAKE\n$line. It is said in full in prism's log."
+
+	companion object {
+		const val MISTAKE = "prism itself went wrong: a mistake of prism's, not of anything you did."
+
+		fun of(failure: Throwable): Fault =
+			Fault(
+				listOfNotNull(
+					failure.javaClass.simpleName.ifEmpty { failure.javaClass.name },
+					failure.message,
+				).joinToString(": "),
+			)
+	}
 }
 
 /** The button that accepts: what it says, and whether what has been chosen is enough to press it. */

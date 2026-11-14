@@ -2482,7 +2482,9 @@ private fun EntryRow(
 								cell,
 							)
 						// Read behind, those in sight first: blank until it is; a dash where the file system keeps none.
-						Created.Unread -> DateCell(null, null, column.aligned, dates, muted, cell)
+						// Not known, prism having gone wrong reading it, is blank too: nothing is said that is not so.
+						Created.Unread, Created.Unknown ->
+							DateCell(null, null, column.aligned, dates, muted, cell)
 						Created.Unkept -> DateCell(null, "—", column.aligned, dates, muted, cell)
 					}
 				ColumnId.Location -> TextCell(whereOf(row, home), column.aligned, muted, cell)
@@ -2876,7 +2878,7 @@ private fun wordsOf(notice: Notice): Words =
 				"Delete permanently",
 				"Cancel",
 			)
-		is Notice.Failed -> Words(notice.doing, notice.why, "OK", null)
+		is Notice.Trouble -> Words(notice.doing, notice.detail, "OK", null)
 		is Notice.NoFolder ->
 			Words(
 				"Search results aren't a folder",
@@ -2964,13 +2966,13 @@ private fun NoticeLayer(notice: Notice, onEvent: (BrowserEvent) -> Unit) {
 	// Deleting for good that was not what was asked for starts with the keyboard on the way out of it, so Enter alone
 	// does nothing; what was asked for outright starts on Yes.
 	val wary = (notice as? Notice.ConfirmErase)?.wary == true
-	val trouble = notice is Notice.Failed || notice is Notice.ConfirmErase
+	val trouble = notice is Notice.Trouble || notice is Notice.ConfirmErase
 
 	Modal(
 		words.title,
 		onDismiss = { onEvent(BrowserEvent.Dismissed) },
 		width =
-			if (notice is Notice.Failed)
+			if (notice is Notice.Trouble)
 				ModalWidth.Large
 			else
 				ModalWidth.Small,
@@ -3009,11 +3011,11 @@ private fun NoticeLayer(notice: Notice, onEvent: (BrowserEvent) -> Unit) {
 				// What failed, and why, copied whole, to be pasted where it is wanted.
 				aside =
 					listOfNotNull(
-						(notice as? Notice.Failed)?.let {
+						(notice as? Notice.Trouble)?.let {
 							Act(
 								"Copy",
 								"copy",
-							) { onEvent(BrowserEvent.CopiedText("${it.doing}\n\n${it.why}")) }
+							) { onEvent(BrowserEvent.CopiedText("${it.doing}\n\n${it.detail}")) }
 						},
 					),
 				danger = wary,
@@ -3021,7 +3023,7 @@ private fun NoticeLayer(notice: Notice, onEvent: (BrowserEvent) -> Unit) {
 		},
 	) {
 		// Why something failed can be all a command wrote: in a box of its own, which scrolls, the end in sight.
-		if (notice is Notice.Failed && words.detail.lines().size > 2) {
+		if (notice is Notice.Trouble && words.detail.lines().size > 2) {
 			val scroll = rememberScrollState()
 
 			LaunchedEffect(words.detail) { scroll.scrollTo(scroll.maxValue) }

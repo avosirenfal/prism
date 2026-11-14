@@ -236,7 +236,7 @@ private fun Searching(
 				modifier = Modifier.testTag("search-failed"),
 			)
 			Text(
-				"${found.failure}. It is said in full in prism's log.",
+				"${found.fault.line}. It is said in full in prism's log.",
 				style = type.muted,
 				modifier = Modifier.testTag("search-failure"),
 			)

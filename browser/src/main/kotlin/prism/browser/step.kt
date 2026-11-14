@@ -430,7 +430,7 @@ private fun noticed(state: BrowserState, notice: Notice, event: BrowserEvent): S
 						state.copy(notice = null),
 						listOf(Effect.Erase(notice.erasing)),
 					)
-				is Notice.NotFound, is Notice.NotAFolder, is Notice.Failed, is Notice.NoFolder ->
+				is Notice.NotFound, is Notice.NotAFolder, is Notice.Trouble, is Notice.NoFolder ->
 					Step(
 						state.copy(notice = null),
 					)
@@ -1050,6 +1050,7 @@ private fun answered(state: BrowserState, answer: Answer): Step =
 						Notice.Failed("Couldn't open ${launched.what}", launched.why),
 					)
 			}
+		is Answer.Broke -> state.broke(answer.asking, answer.fault)
 		is Answer.Clipped -> state.pasted(answer.into, answer.clip, answer.carried)
 		is Answer.Listed -> state.listed(answer.placed, answer.listing)
 		is Answer.Ran -> state.ran(answer.job, answer.failure)
@@ -1083,7 +1084,12 @@ private fun answered(state: BrowserState, answer: Answer): Step =
 				Step(state)
 		is Answer.Born ->
 			if (answer.folder == state.folder)
-				state.born(answer.times).bornNext()
+				state
+					.born(
+						answer.times.mapValues { (_, time) ->
+							time?.let(Created::At) ?: Created.Unkept
+						},
+					).bornNext()
 			else
 				Step(state)
 		is Answer.Changed -> state.changed(answer.change, answer.result, answer.doing)
@@ -1157,6 +1163,124 @@ private fun answered(state: BrowserState, answer: Answer): Step =
 				}
 			else
 				Step(state)
+	}
+
+/**
+ * prism went wrong answering [asking] ([fault]). Whatever waited for the answer is told there is none, each in the way
+ * that is true of it (a folder not read is shown as that; what was being read of a result is not known, and is not
+ * asked again; an order that cannot be had is given up), and nothing is put in an answer's place. It is said as
+ * prism's mistake: in the listing, where that is where it shows; in the search's window, for a search; and otherwise
+ * as a notice. An answer too late to matter (for a folder since left) changes nothing, as any such answer.
+ */
+private fun BrowserState.broke(asking: Effect.Asking, fault: Fault): Step {
+	fun Step.said() =
+		Step(state.copy(notice = Notice.Broke(failingOf(asking), fault)), effects)
+
+	val unread = Listing.Unreadable(fault.said)
+
+	return when (asking) {
+		is Effect.Read ->
+			if (asking.folder == folder)
+				Step(arrived(unread).copy(bornReading = emptySet()))
+			else
+				Step(this)
+		Effect.ReadTrash ->
+			if (inTrash)
+				Step(arrived(unread))
+			else
+				Step(this)
+		is Effect.ListPlace -> listed(asking.placed, PlaceListing.Failed(fault.said))
+		is Effect.Look ->
+			if (asking.lookup == waiting)
+				Step(copy(waiting = null)).said()
+			else
+				Step(this)
+		// A change half done is a change: what is shown is read again, and nothing is kept to undo.
+		is Effect.Make, is Effect.Erase -> reread().said()
+		// What was last read of the machine's storage stays, which is what it is.
+		Effect.ReadStorage ->
+			if (system != null)
+				Step(this).said()
+			else
+				Step(this)
+		// The search's window says so itself; results shown that were to be searched again stay, and it is said.
+		is Effect.Search ->
+			searched(Finding.Failed(asking.text, fault), asking.purpose).let {
+				if (asking.purpose == Purpose.Refresh && results?.text == asking.text)
+					it.said()
+				else
+					it
+			}
+		is Effect.Stat ->
+			(listing as? Listing.Found)
+				?.takeIf { it.matches === asking.matches }
+				?.let {
+					Step(
+						relisted(
+							Listing.Found(
+								it.finding,
+								it.stats.with(asking.places.associateWith { Stat.Unknown }),
+								it.orders,
+							),
+						),
+					).said()
+				}
+				?: Step(this)
+		// Every time not read yet is given up, not only those asked for: the next would be asked the same way.
+		is Effect.Born ->
+			if (asking.folder == folder)
+				Step(
+					born(
+						(listing as? Listing.Shown)
+							?.entries
+							.orEmpty()
+							.filter { it.created == Created.Unread }
+							.associate { it.name to Created.Unknown },
+					).copy(bornReading = emptySet()),
+				).said()
+			else
+				Step(this)
+		// The order that could not be worked out is given up: the results are best first, as they are before any.
+		is Effect.Order ->
+			(listing as? Listing.Found)
+				?.takeIf {
+					it.matches === asking.matches &&
+						it.pending(arrangement.order) == asking.column
+				}?.let {
+					Step(
+						rearranged(looks = looks.looking(kind, look.copy(order = Order.Relevance))),
+					).said()
+				}
+				?: Step(this)
+		// It is no longer under way, and what it may have half done is read again; nothing follows it.
+		is Effect.Run -> ran(asking.job, fault.said).said()
+		is Effect.Open, is Effect.Terminal, is Effect.ReadClip, is Effect.Launch, is Effect.Scratch,
+		is Effect.Temp,
+		-> Step(this).said()
+	}
+}
+
+/** What could not be done, [asking] having gone wrong, as what is said of it names it. */
+internal fun failingOf(asking: Effect.Asking): String =
+	when (asking) {
+		is Effect.Read -> "Couldn't read “${asking.folder.fileName ?: asking.folder}”"
+		is Effect.Look -> "Couldn't look for what was typed"
+		is Effect.Make -> failingOf(asking.change, asking.doing)
+		is Effect.Erase -> "Couldn't delete ${erasedOf(asking.erasing)}"
+		Effect.ReadTrash -> "Couldn't read the trash"
+		Effect.ReadStorage -> "Couldn't read the machine's storage"
+		is Effect.Search -> "Couldn't search for “${asking.text}”"
+		is Effect.Stat -> "Couldn't read the results' sizes and dates"
+		is Effect.Born -> "Couldn't read when what “${asking.folder.fileName ?: asking.folder}” holds was made"
+		is Effect.Order -> "Couldn't put the results in order"
+		is Effect.Open -> "Couldn't open ${countOf(asking.paths)}"
+		is Effect.Terminal -> "Couldn't open a terminal"
+		is Effect.ReadClip -> "Couldn't read what was copied"
+		is Effect.ListPlace -> "Couldn't list “${asking.placed.title}”"
+		is Effect.Run -> "“${asking.job.label}” failed"
+		is Effect.Launch -> "Couldn't open ${asking.job.label}"
+		is Effect.Scratch -> "“${asking.pending.action.label}” couldn't be done"
+		is Effect.Temp -> "“${asking.carried.pending.action.label}” couldn't be done"
 	}
 
 /**
@@ -1878,19 +2002,14 @@ internal fun BrowserState.bornNext(): Step {
 	)
 }
 
-/** The folder's rows with when they were made, as [times] says of those it names: each time, or none kept. */
-private fun BrowserState.born(times: Map<String, Instant?>): BrowserState {
+/** The folder's rows with when they were made, as [times] says of those it names. */
+private fun BrowserState.born(times: Map<String, Created>): BrowserState {
 	val listing = listing as? Listing.Shown ?: return copy(bornReading = emptySet())
 
 	val entries =
 		listing.entries.map { row ->
-			if (!times.containsKey(row.name))
-				row
-			else
-				row.copy(
-					created =
-						times[row.name]?.let(Created::At) ?: Created.Unkept,
-				)
+			times[row.name]?.let { row.copy(created = it) }
+				?: row
 		}
 
 	return relisted(Listing.Shown(entries)).copy(

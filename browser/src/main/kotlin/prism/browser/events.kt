@@ -551,6 +551,16 @@ sealed interface Answer : Input {
 		val failure: String?,
 	) : Answer
 
+	/**
+	 * prism itself went wrong answering [asking]: not what the disk, the desktop or a command refused, which each
+	 * answer says in its own way, but a mistake of prism's ([fault]). There is no answer, and none is made up: what
+	 * waited for one is told there is none.
+	 */
+	data class Broke(
+		val asking: Effect.Asking,
+		val fault: Fault,
+	) : Answer
+
 	/** What [folder] holds changed on disk, as whatever watches it says: made by anything, prism or not. */
 	data class Touched(
 		val folder: Path,

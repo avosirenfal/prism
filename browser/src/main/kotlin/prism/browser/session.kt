@@ -31,7 +31,6 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import prism.desktop.Launched
 import prism.desktop.Opening
-import prism.desktop.Storage
 import prism.window.ClipOffer
 import prism.window.SystemClipboard
 
@@ -165,9 +164,15 @@ class Session(
 		// file system filling up, are seen without asking.
 		scope.launch(io) {
 			state.map { it.system != null }.distinctUntilChanged().collectLatest { shown ->
+				// Read until it is left, or until prism goes wrong reading it: that is said once, not every few seconds.
 				while (shown) {
 					delay(STORAGE_MILLIS)
-					inputs.send(answerOf(Effect.ReadStorage))
+
+					val answer = answerOf(Effect.ReadStorage)
+
+					inputs.send(answer)
+					if (answer is Answer.Broke)
+						break
 				}
 			}
 		}
@@ -247,6 +252,13 @@ class Session(
 		}
 	}
 
+	/** prism went wrong answering [asking]: [failed] said in full, and the answer that there is none. */
+	private fun broke(asking: Effect.Asking, failed: Exception): Answer {
+		services.report(failingOf(asking), failed)
+
+		return Answer.Broke(asking, Fault.of(failed))
+	}
+
 	/**
 	 * Who watches [task]'s command: this session, which keeps how to stop it while it runs (and stops it at once where
 	 * that was already asked), and is told what it writes. A listing's output is its entries, which are not for
@@ -266,77 +278,26 @@ class Session(
 			}
 		}
 
-	/** The answer to [asking], or, where it failed outright, the answer that says nothing could be had. */
+	/**
+	 * The answer to [asking]. What the system refused outright, thrown past whatever answers (an I/O failure), is
+	 * that effect's own failure, in the system's words, where it has one to say it with. Anything else thrown is a
+	 * mistake of prism's: said in full where prism says what goes wrong, and answered as that ([Answer.Broke]), never
+	 * as an answer made up to look like one.
+	 */
 	private fun answerOf(asking: Effect.Asking): Answer =
 		try {
 			services.answer(asking, ::watching).also {
 				if (it is Answer.TempMade)
 					temps.add(it.folder)
 			}
+		} catch (stopped: kotlinx.coroutines.CancellationException) {
+			throw stopped
+		} catch (failed: java.io.IOException) {
+			refusedOf(asking, failed.message ?: failed.toString()) ?: broke(asking, failed)
 		} catch (failed: RuntimeException) {
-			val why = failed.message ?: failed.toString()
-
-			// What the disk refused is said in the window, where it happened. Anything else was not meant to be
-			// possible: said in full where prism says what goes wrong, since a window has room for a line of it.
-			if (failed !is java.io.UncheckedIOException)
-				services.report(
-					when (asking) {
-						is Effect.Search -> "searching for “${asking.text}”"
-						else -> "answering ${asking.toString().take(160)}"
-					},
-					failed,
-				)
-
-			when (asking) {
-				is Effect.Read -> Answer.Arrived(asking.folder, Listing.Unreadable(why))
-				is Effect.Look -> Answer.Looked(asking.lookup, emptyMap())
-				is Effect.Make ->
-					Answer.Changed(
-						asking.change,
-						ChangeResult.Failed(why),
-						asking.doing,
-					)
-				is Effect.Erase -> Answer.Erased(asking.erasing, why)
-				Effect.ReadTrash -> Answer.TrashRead(Listing.Unreadable(why))
-				Effect.ReadStorage -> Answer.StorageRead(Storage(emptyList()))
-				is Effect.Search ->
-					Answer.Searched(
-						Finding.Failed(
-							asking.text,
-							listOfNotNull(
-								failed.javaClass.simpleName.ifEmpty { failed.javaClass.name },
-								failed.message,
-							).joinToString(": "),
-						),
-						asking.purpose,
-					)
-				is Effect.Stat ->
-					Answer.Stated(
-						asking.matches,
-						asking.places.associateWith {
-							Stat.Read(null, null)
-						},
-					)
-				is Effect.Born -> Answer.Born(asking.folder, asking.names.associateWith { null })
-				is Effect.Order ->
-					Answer.Ordered(asking.matches, asking.column, IntArray(asking.matches.size) { it })
-				is Effect.Open ->
-					Answer.Opened(
-						Opening(listOf(Launched.Failed(countOf(asking.paths), why)), emptyList()),
-					)
-				is Effect.Terminal -> Answer.Started(Launched.Failed("a terminal", why))
-				is Effect.ReadClip -> Answer.Clipped(asking.into, null)
-				is Effect.ListPlace -> Answer.Listed(asking.placed, PlaceListing.Failed(why))
-				is Effect.Run -> Answer.Ran(asking.job, why)
-				is Effect.Launch -> Answer.Started(Launched.Failed(asking.job.label, why))
-				// With no folder to bring them out into, nothing is opened: the action is let go.
-				is Effect.Scratch -> Answer.Ran(Job(asking.pending.action.label, emptyList()), why)
-				is Effect.Temp ->
-					Answer.Ran(
-						Job(asking.carried.pending.action.label, emptyList()),
-						why,
-					)
-			}
+			(failed as? java.io.UncheckedIOException)
+				?.let { refusedOf(asking, it.message ?: it.toString()) }
+				?: broke(asking, failed)
 		} finally {
 			when (asking) {
 				is Effect.Run -> Task.Running(asking.job)
@@ -348,6 +309,33 @@ class Session(
 			}
 		}
 }
+
+/**
+ * What says the system refused [asking], for [why]: the failure each effect that has one answers with. None for an
+ * effect whose answer has no way to say so (what it gives back is what was read, or nothing): a failure of one of
+ * those is not one prism knows how to tell, and is told as its own mistake.
+ */
+private fun refusedOf(asking: Effect.Asking, why: String): Answer? =
+	when (asking) {
+		is Effect.Read -> Answer.Arrived(asking.folder, Listing.Unreadable(why))
+		is Effect.Make -> Answer.Changed(asking.change, ChangeResult.Failed(why), asking.doing)
+		is Effect.Erase -> Answer.Erased(asking.erasing, why)
+		Effect.ReadTrash -> Answer.TrashRead(Listing.Unreadable(why))
+		is Effect.Open ->
+			Answer.Opened(
+				Opening(listOf(Launched.Failed(countOf(asking.paths), why)), emptyList()),
+			)
+		is Effect.Terminal -> Answer.Started(Launched.Failed("a terminal", why))
+		is Effect.ListPlace -> Answer.Listed(asking.placed, PlaceListing.Failed(why))
+		is Effect.Run -> Answer.Ran(asking.job, why)
+		is Effect.Launch -> Answer.Started(Launched.Failed(asking.job.label, why))
+		// With no folder to bring them out into, nothing is opened: the action is let go.
+		is Effect.Scratch -> Answer.Ran(Job(asking.pending.action.label, emptyList()), why)
+		is Effect.Temp -> Answer.Ran(Job(asking.carried.pending.action.label, emptyList()), why)
+		is Effect.Look, Effect.ReadStorage, is Effect.Search, is Effect.Stat, is Effect.Born,
+		is Effect.Order, is Effect.ReadClip,
+		-> null
+	}
 
 /** [text] on the system's clipboard, where there is one: a picker with no display has none, and copies nothing. */
 fun toClipboard(text: String) {

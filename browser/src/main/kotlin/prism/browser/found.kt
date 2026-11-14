@@ -138,12 +138,12 @@ sealed interface Finding {
 	) : Finding
 
 	/**
-	 * The search itself went wrong, which is a mistake of prism's and nothing the query did: what it was, in a line
-	 * ([failure]), as it was said in full where prism says what goes wrong (standard error, the daemon's log).
+	 * The search itself went wrong, which is a mistake of prism's and nothing the query did: what it was ([fault]),
+	 * as it was said in full where prism says what goes wrong (standard error, the daemon's log).
 	 */
 	data class Failed(
 		override val text: String,
-		val failure: String,
+		val fault: Fault,
 	) : Finding
 }
 
@@ -261,6 +261,12 @@ sealed interface Stat {
 
 	/** Not there any more: left out of the results shown. */
 	data object Gone : Stat
+
+	/**
+	 * Asked of the disk, and prism went wrong reading it ([Answer.Broke]): nothing is known of it, and it is not
+	 * asked again. Shown with no size and no date, and after every result read where they are ordered by those.
+	 */
+	data object Unknown : Stat
 }
 
 /**
@@ -271,7 +277,7 @@ sealed interface Stat {
 class Stats private constructor(
 	val size: Int,
 	private val chunks: Array<Array<Stat?>?>,
-	/** How many are read, or found gone: every one, where [complete]. */
+	/** How many are read, found gone, or not to be known: every one, where [complete]. */
 	val known: Int,
 ) {
 	operator fun get(at: Int): Stat? = chunks[at shr SHIFT]?.get(at and MASK)
@@ -285,7 +291,7 @@ class Stats private constructor(
 		val fresh = BooleanArray(chunks.size)
 		var known = known
 
-		fun counts(stat: Stat?) = stat is Stat.Read || stat is Stat.Gone
+		fun counts(stat: Stat?) = stat != null && stat != Stat.Asked
 
 		for ((at, stat) in read) {
 			val index = at shr SHIFT

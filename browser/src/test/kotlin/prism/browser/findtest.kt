@@ -565,13 +565,189 @@ class FindTest {
 					assertEquals("notes", failed.text)
 					assertEquals(
 						"ArrayIndexOutOfBoundsException: Index -1 out of bounds for length 0",
-						failed.failure,
+						failed.fault.line,
 					)
-					assertEquals(listOf("searching for “notes”"), reported.map { it.first })
+					assertEquals(listOf("Couldn't search for “notes”"), reported.map { it.first })
 					assertTrue(reported.single().second is ArrayIndexOutOfBoundsException)
 					// Nothing is listed, and the window stays, to be typed into again.
 					assertEquals(0, session.state.value.ready.listed)
 					assertTrue(session.state.value.search.open)
+				}
+			} finally {
+				scope.cancel()
+			}
+		}
+
+	private val fault = Fault.of(IllegalStateException("no such column"))
+
+	@Test
+	fun whatPrismGotWrongReadingResultsIsNotKnownAndNotAskedAgainAndIsSaidAsItsMistake() {
+		made("a/plan.txt", "b/plans/", "c/the-plan.md")
+
+		// The results shown, and what they ask of the disk not yet answered.
+		val asked = step(searched(picker(), "plan"), BrowserEvent.SearchEntered)
+		val stat = asked.effects.filterIsInstance<Effect.Stat>().single()
+		val broke = step(asked.state, Answer.Broke(stat, fault))
+		val listing = broke.state.listing as Listing.Found
+
+		// Nothing is made up of them: each is not known, which is not a size and a date read as none.
+		assertEquals(stat.places.map { Stat.Unknown }, stat.places.map { listing.stats[it] })
+		assertEquals(emptyList<Int>(), listing.stats.unasked(stat.places))
+		assertTrue(listing.stats.complete)
+		assertEquals(emptyList<Effect>(), broke.effects)
+		assertEquals(
+			listOf(null, null, null),
+			broke.state.rows.list
+				.map { it.size },
+		)
+		assertEquals(
+			Notice.Broke("Couldn't read the results' sizes and dates", fault),
+			broke.state.notice,
+		)
+		assertTrue(Fault.MISTAKE in (broke.state.notice as Notice.Trouble).detail)
+		assertTrue(
+			"IllegalStateException: no such column" in
+				(broke.state.notice as Notice.Trouble).detail,
+		)
+
+		// An answer for results no longer shown is too late to say anything of.
+		val left = after(asked.state, BrowserEvent.Back)
+
+		assertEquals(left, step(left, Answer.Broke(stat, fault)).state)
+	}
+
+	@Test
+	fun aFolderPrismGotWrongReadingIsShownAsNotReadAndItsTimesAreNotAskedAgain() {
+		made("a.txt", "b.txt")
+
+		val state = picker()
+		val unread = step(state, Answer.Broke(Effect.Read(root), fault)).state
+
+		// Said where the folder would be, as a folder that cannot be read is: there is no notice over it as well.
+		assertEquals(Listing.Unreadable(fault.said), unread.listing)
+		assertNull(unread.notice)
+
+		// When its entries were made, asked for and not answered: every time not read is given up, and none asked.
+		val reading = step(state, Answer.Arrived(root, disk.read(root)))
+		val born = reading.effects.filterIsInstance<Effect.Born>().single()
+		val broke = step(reading.state, Answer.Broke(born, fault))
+
+		assertEquals(
+			listOf(Created.Unknown, Created.Unknown),
+			broke.state.rows.list
+				.map { it.created },
+		)
+		assertEquals(emptySet<RowId>(), broke.state.bornReading)
+		assertEquals(emptyList<Effect>(), broke.effects + broke.state.bornNext().effects)
+		assertInstanceOf(Notice.Broke::class.java, broke.state.notice)
+	}
+
+	@Test
+	fun aChangePrismGotWrongMakingIsNotKeptToUndoAndWhatIsShownIsReadAgain() {
+		made("a.txt")
+
+		val change = Change.MakeFolder(root.resolve("new"))
+		val broke = step(picker(), Answer.Broke(Effect.Make(change), fault))
+
+		assertEquals(Notice.Broke("Couldn't make a folder", fault), broke.state.notice)
+		assertEquals(Changes(), broke.state.changes)
+		assertEquals(listOf<Effect>(Effect.Read(root)), broke.effects)
+	}
+
+	@Test
+	fun aDiskThatThrowsIsToldAsWhatItRefusedWhereThatCanBeSaidAndAsPrismsMistakeWhereItCannot() =
+		kotlinx.coroutines.runBlocking {
+			made("a/plan.txt", "b/plan.md")
+
+			val reported = java.util.concurrent.CopyOnWriteArrayList<Pair<String, Throwable>>()
+			val real = disk
+
+			val throwing =
+				object : Disk by real {
+					// The system's refusal, thrown past what reads: the folder's own way of saying it cannot be read.
+					override fun read(folder: Path): Listing.Read =
+						if (folder.fileName.toString() == "a")
+							throw java.io.UncheckedIOException(java.io.IOException("a: Input/output error"))
+						else
+							real.read(folder)
+
+					// A mistake of prism's: nothing a result's size and date can say.
+					override fun stat(paths: List<Path>): List<Stat> = error("no such column")
+				}
+
+			val scope =
+				kotlinx.coroutines.CoroutineScope(
+					kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Default,
+				)
+
+			val session =
+				Session(
+					opened(
+						Choosing.OneFile(),
+						root,
+						root,
+						sidebarOf(XdgPlaces(), root),
+						search = Search.Ready(),
+					),
+					Services(throwing, finder, report = {
+						doing,
+						failure,
+						->
+						reported += doing to failure
+					}),
+					scope,
+				)
+
+			try {
+				kotlinx.coroutines.withTimeout(15_000) {
+					session.state.first { it.listing is Listing.Shown }
+					session.send(BrowserEvent.Opened(root.resolve("a")))
+
+					val refused = session.state.first { it.listing is Listing.Unreadable }
+
+					assertEquals(
+						Listing.Unreadable("java.io.IOException: a: Input/output error"),
+						refused.listing,
+					)
+					assertEquals(emptyList<Pair<String, Throwable>>(), reported.toList())
+
+					session.send(BrowserEvent.OpenedSearch)
+					session.send(BrowserEvent.SearchTyped("plan"))
+					session.state.first { it.ready.matched != null }
+					session.send(BrowserEvent.SearchEntered)
+
+					val broke =
+						try {
+							session.state.first { it.notice is Notice.Broke }
+						} catch (late: kotlinx.coroutines.TimeoutCancellationException) {
+							val at = session.state.value
+
+							throw AssertionError(
+								"no notice: at ${at.at}, ${at.listing}, ${at.search}, reported $reported",
+								late,
+							)
+						}
+
+					assertEquals(
+						Notice.Broke(
+							"Couldn't read the results' sizes and dates",
+							Fault.of(IllegalStateException("no such column")),
+						),
+						broke.notice,
+					)
+					assertEquals(
+						listOf("Couldn't read the results' sizes and dates"),
+						reported.map { it.first },
+					)
+					assertTrue(reported.single().second is IllegalStateException)
+					// The results are shown all the same, with nothing said of what could not be read of them.
+					assertEquals(
+						listOf("plan.md", "plan.txt"),
+						broke.rows.list
+							.map { it.name }
+							.sorted(),
+					)
+					assertEquals(listOf(null, null), broke.rows.list.map { it.size })
 				}
 			} finally {
 				scope.cancel()
