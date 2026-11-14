@@ -201,6 +201,12 @@ asked for, by a token (`XDG_ACTIVATION_TOKEN`) a launcher gives the program it s
 for another has the other's token, so `Window` takes one (`activation`), and puts it where SDL looks as it shows the
 window.
 
+## A window that floats
+
+`Window(resizable = false)` makes a window whose size the user cannot change. To a window manager that tiles (niri,
+sway, Hyprland), a window that says its smallest and largest sizes are the same is a dialog: it is left floating
+over the tiles at the size it asked for, rather than made a tile. The launcher's window is one (docs/launcher.md).
+
 ## When no window opens
 
 `PRISM_WINDOW_LOG=1` says on standard error which display server SDL speaks to, what OpenGL's renderer is (or that

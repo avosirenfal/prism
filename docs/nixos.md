@@ -82,6 +82,20 @@ is simply whichever program has the name. The daemon takes it.
 
 The folder picker is not a fourth thing: choosing a folder is the file chooser asked for a directory.
 
+## The launcher's key
+
+The module puts `prism` on the path and runs the daemon, which is everything `prism launcher` needs
+(docs/launcher.md): what is left is the key, which is your window manager's to bind. In niri:
+
+```kdl
+binds {
+    Mod+Space { spawn "prism" "launcher"; }
+}
+```
+
+Pressed, it shows the launcher; pressed again, it puts it away. niri leaves it floating in the middle of the screen
+without being told to, since its size cannot be changed; docs/launcher.md has a window rule that rounds its corners.
+
 ## The options
 
 | option | default | what it does |

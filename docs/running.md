@@ -36,6 +36,7 @@ The rest of this document is each of those parts in turn.
 | command | what it is |
 |---|---|
 | `prism`, `prism FOLDER`, `prism explore FOLDER...` | an explorer window on a folder (your home, with none named), or on a file's folder with the file chosen; opened by the prism already running where there is one |
+| `prism launcher` | the launcher: applications, then files, found as you type (docs/launcher.md); shown by the prism already running where there is one, and put away where it is shown already, so one key bound to it shows and hides it |
 | `prism --isolated`, `prism explore --isolated` | the same, in a process of its own, whether or not a prism is running: it asks nobody, and nobody asks it |
 | `prism daemon` | the daemon, started apart from the terminal; returns once it has said it started |
 | `prism daemon --foreground` | the daemon, run in place, saying what it does on the terminal until stopped: how systemd runs it, and how to watch it |
@@ -68,7 +69,7 @@ no display, its windows have failed, it is another version and reads the words d
 start the asker would have paid anyway. A prism that listens but does not answer within twenty seconds is treated as
 not there.
 
-**Which commands are asked.** `explore` and `status`. Every other command runs in the process that was started.
+**Which commands are asked.** `explore`, `launcher` and `status`. Every other command runs in the process that was started.
 `prism explore` given anything that says how its windows should be (`--theme`, `--decorated`, `--index`) is one of
 those too: a running prism's windows are as it was started, so asking it would ignore what you said. It opens in a
 process of its own, as `--isolated` does.

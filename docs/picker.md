@@ -440,7 +440,8 @@ Answer.Searched(Finding.Matched("report -ext:pdf", matches), Purpose.Preview)
 ```
 
 The reducer keeps it, if it is for what is typed now; an answer for an older text, overtaken as you typed, is dropped.
-The window lists the first eight matches, best first, each with the folder it is in. The field colours the text as it
+The window lists the matches, best first, each with the folder it is in: eight in sight at once, and every one of
+them reached by scrolling. The field colours the text as it
 reads it, each part by what it is (the `-` red, `ext:` blue, `pdf` green), with what is wrong underlined and the reason
 written under the field.
 
@@ -449,7 +450,10 @@ asked for meanwhile takes the place of the one waiting. So typing quickly runs a
 pause, not one for every letter.
 
 **You press Down twice, then Enter.** Down is `MatchMoved(1)`: from the field to the first match, then to the second.
-Up from the first goes back to the field. Enter is `SearchEntered`, and with a match highlighted, that match is gone
+Up from the first goes back to the field. Down goes on past the eight in sight, through every match, the list
+scrolling to keep the one the arrows are on in sight (the wheel scrolls it too), and Page Down and Page Up move eight
+at a time. The list is `ResultList` (`browser/results.kt`), which the launcher's results are drawn with as well
+(docs/launcher.md). Enter is `SearchEntered`, and with a match highlighted, that match is gone
 to, as the picker's kind says:
 
 | the picker | a file chosen | a folder chosen |

@@ -131,6 +131,15 @@ eventually "the window closes" 10 have_windows "none open"
 check "the daemon is still there" "prism daemon" "$(who)"
 check "its index holds the tree" "1" "$("$PRISM" status | grep -c 'index: 3 entries')"
 
+echo "--- the launcher is shown by the daemon, and put away by being asked for again"
+launcher_shown() { xdotool search --onlyvisible --name '^Prism Launcher$' > /dev/null 2>&1; }
+check "the launcher is asked for and the asker exits 0" "0" "$("$PRISM" launcher > /dev/null 2>&1; echo $?)"
+eventually "its window is on the screen" 10 launcher_shown
+check "it is the daemon's one window" "windows: 1 open" "$(windows)"
+"$PRISM" launcher
+eventually "asked for again, it is put away" 10 have_windows "none open"
+check "the daemon is still there" "prism daemon" "$(who)"
+
 echo "--- stopped, it writes its index and takes its socket away"
 daemon="$(cat "$XDG_STATE_HOME/prism/daemon.pid")"
 kill "$daemon"
