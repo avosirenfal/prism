@@ -3,13 +3,20 @@ package prism.browser
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.toAwtImage
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performKeyInput
+import androidx.compose.ui.test.performMouseInput
 import androidx.compose.ui.test.pressKey
 import androidx.compose.ui.test.runComposeUiTest
+import androidx.compose.ui.test.runSkikoComposeUiTest
+import androidx.compose.ui.unit.Density
 import java.nio.file.Files
 import java.nio.file.Path
 import java.time.Clock
@@ -980,6 +987,59 @@ class RecentsTest {
 		)
 	}
 
+	/**
+	 * A heading under the pointer: its button alone is lit, and nothing across the row. Drawn in a window of the
+	 * test's, since only there is there a pointer to rest on it; what it draws is kept where the pictures are.
+	 */
+	@OptIn(ExperimentalTestApi::class)
+	@Test
+	fun aHeadingsButtonAloneIsLitUnderThePointer() {
+		val picker = drawn(Choosing.OneFile(), asker)
+		val one = step(picker, Answer.RecentsFolded(setOf(RecentSection.NewFiles))).state
+
+		for ((tone, palette) in listOf("light" to Palette.Light, "dark" to Palette.Dark))
+			runSkikoComposeUiTest(Size(2200f, 1520f), Density(2f)) {
+				setContent {
+					BrowserTheme(palette) {
+						CompositionLocalProvider(LocalMotion provides false) { FileBrowser(one) }
+					}
+				}
+				waitForIdle()
+
+				// On the button: lit, and what it does said.
+				onNodeWithTag("recent-fold:Recent folders in Firefox").performMouseInput {
+					moveTo(center)
+				}
+				waitForIdle()
+				screenshot(
+					"recents-heading-hovered-button-$tone",
+					onRoot().captureToImage().toAwtImage().let { image ->
+						java.io
+							.ByteArrayOutputStream()
+							.also {
+								javax.imageio.ImageIO.write(image, "png", it)
+							}.toByteArray()
+					},
+				)
+
+				// On the title: only darker.
+				onNodeWithTag("recent-section:Recent folders in Firefox").performMouseInput {
+					moveTo(center)
+				}
+				waitForIdle()
+				screenshot(
+					"recents-heading-hovered-title-$tone",
+					onRoot().captureToImage().toAwtImage().let { image ->
+						java.io
+							.ByteArrayOutputStream()
+							.also {
+								javax.imageio.ImageIO.write(image, "png", it)
+							}.toByteArray()
+					},
+				)
+			}
+	}
+
 	// ---- in the browser ----------------------------------------------------------------------------------------
 
 	private fun picker(
@@ -1253,9 +1313,10 @@ class RecentsTest {
 				},
 			)
 
-			// A heading pressed collapses its section: the rows go, the heading stays and says how many it holds,
-			// and it is kept where every window reads it. Pressed again, they are back.
-			onNodeWithTag("recent-section:Recent folders").performClick()
+			// A heading's button pressed collapses its section: the rows go, the heading stays and says how many
+			// it holds, and it is kept where every window reads it. Its title pressed does as the button does: they
+			// are back.
+			onNodeWithTag("recent-fold:Recent folders").performClick()
 			waitUntil(timeoutMillis = 5_000) { session.state.value.rows.size == 1 }
 			waitForIdle()
 			onNodeWithTag("row:used").assertDoesNotExist()

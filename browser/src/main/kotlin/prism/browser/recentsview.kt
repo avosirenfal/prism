@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -24,7 +23,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.isPrimaryPressed
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
@@ -126,9 +124,11 @@ internal fun RecentHeadings(
 }
 
 /**
- * A section's heading: an arrow (down where the section is open, across where it is collapsed), its title, and,
- * collapsed, how many entries it holds. All of it is pressed to collapse the section or open it, and says so under
- * the pointer. The arrow sits where the rows' icons do, and the title where their names start.
+ * A section's heading: the button that folds it (the System page's, for its stores: an arrow down where the section
+ * is open, across where it is collapsed), its title, and, collapsed, how many entries it holds. The button is
+ * pressed to collapse the section or open it, and so is the title, which is the larger thing to press; the button
+ * alone is lit under the pointer, and the title only darkens. The button sits over the rows' icons, and the title
+ * where their names start.
  */
 @Composable
 private fun RecentHeading(
@@ -144,68 +144,79 @@ private fun RecentHeading(
 	val toggle by rememberUpdatedState { onToggle(heading.kind.section) }
 	val does =
 		if (heading.collapsed)
-			"Expand"
+			"Show ${heading.kind.holds}"
 		else
-			"Collapse"
+			"Hide ${heading.kind.holds}"
+	// The rows' icons, which the button is centred over, and what is between an icon and its row's name.
+	val icon = rowIconOf(LocalRows.current, type) * zoom
+	val button = type.control
+	val named = (Space.s + Space.xxs) * zoom
 
 	Row(
 		Modifier
 			.padding(top = over)
 			.fillMaxWidth()
-			.background(
-				if (hovered)
-					palette.hover
-				else
-					Color.Transparent,
-				RoundedCornerShape(Radius.medium),
-			).hoverable(hover)
-			// Pressed as a row is: taken as it goes down, so that it is no press of the space between the rows.
-			.pointerInput(Unit) {
-				awaitEachGesture {
-					val down = awaitFirstDown()
-
-					if (currentEvent.buttons.isPrimaryPressed) {
-						down.consume()
-						waitForUpOrCancellation()?.let {
-							it.consume()
-							toggle()
-						}
-					}
-				}
-			}.semantics {
-				role = Role.Button
-				onClick(does) {
-					toggle()
-
-					true
-				}
-			}.testTag("recent-section:${heading.kind.title}")
-			.padding(horizontal = Dims.edge + Dims.cell, vertical = Space.s),
+			.padding(start = (Dims.edge + Dims.cell + (icon - button) / 2).coerceAtLeast(0.dp)),
 		verticalAlignment = Alignment.CenterVertically,
 	) {
-		Box(
-			Modifier.width(rowIconOf(LocalRows.current, type) * zoom),
-			contentAlignment = Alignment.Center,
+		ToolButton(
+			if (heading.collapsed)
+				Glyph.Chevron
+			else
+				Glyph.ChevronDown,
+			does,
+			enabled = true,
+			Modifier.testTag("recent-fold:${heading.kind.title}"),
+			onClick = toggle,
+		)
+		Spacer(Modifier.width((icon / 2 + named - button / 2).coerceAtLeast(Space.xs)))
+		Row(
+			Modifier
+				.hoverable(hover)
+				// Pressed as a row is: taken as it goes down, so that it is no press of the space between the rows.
+				.pointerInput(Unit) {
+					awaitEachGesture {
+						val down = awaitFirstDown()
+
+						if (currentEvent.buttons.isPrimaryPressed) {
+							down.consume()
+							waitForUpOrCancellation()?.let {
+								it.consume()
+								toggle()
+							}
+						}
+					}
+				}.semantics {
+					role = Role.Button
+					onClick(does) {
+						toggle()
+
+						true
+					}
+				}.testTag("recent-section:${heading.kind.title}")
+				.padding(vertical = Space.xs),
+			verticalAlignment = Alignment.CenterVertically,
 		) {
-			GlyphIcon(
-				if (heading.collapsed)
-					Glyph.Chevron
-				else
-					Glyph.ChevronDown,
-				palette.textMuted,
-				type.icon * 0.8f * zoom,
-			)
-		}
-		Spacer(Modifier.width((Space.s + Space.xxs) * zoom))
-		Text(heading.kind.title, style = type.heading.times(zoom), maxLines = 1)
-		if (heading.collapsed) {
-			Spacer(Modifier.width(Space.s))
 			Text(
-				heading.count.toString(),
-				style = type.muted.times(zoom),
+				heading.kind.title,
+				style =
+					type.heading.times(zoom).let {
+						if (hovered)
+							it.copy(color = palette.text)
+						else
+							it
+					},
 				maxLines = 1,
-				modifier = Modifier.testTag("recent-count:${heading.kind.title}"),
 			)
+			if (heading.collapsed) {
+				Spacer(Modifier.width(Space.s))
+				Text(
+					heading.count.toString(),
+					style = type.muted.times(zoom),
+					maxLines = 1,
+					modifier = Modifier.testTag("recent-count:${heading.kind.title}"),
+				)
+			}
 		}
 	}
 }

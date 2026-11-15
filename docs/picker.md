@@ -185,8 +185,10 @@ dragged, renamed and given a menu as a folder's are (the menu adds "Show in fold
 too); a folder is gone into, and a file is opened, chosen, or asked to be replaced, as the picker is for. The page is
 always a list, in its own order.
 
-Each section's heading has an arrow before its title, and the whole heading is pressed to collapse the section to the
-heading alone, or to open it again. Collapsed, the heading says how many entries the section holds ("New files 10"),
+Each section's heading has, before its title, the button that folds a store on the System page (an arrow down where
+the section is open, across where it is collapsed; "Hide files", "Show folders"). The button is pressed to collapse
+the section to the heading alone, or to open it again, and so is the title; under the pointer the button alone is
+lit, and the title only darkens. Collapsed, the heading says how many entries the section holds ("New files 10"),
 and those entries are not rows of the listing: the cursor, Select all, a name typed and the status line's count pass
 them by, and a cursor or a selection that was on them leaves (the cursor to the nearest row left). Which sections are
 collapsed is the user's, not a window's: it is kept in the preferences (`recentsCollapsed`, by the kind of section,

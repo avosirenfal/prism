@@ -315,10 +315,14 @@ class RecentPage(
 		/** Which section it is, whoever the page is for: what the user collapses, and what is kept of that. */
 		val section: RecentSection
 
+		/** What its entries are, as what folds it says: "Hide files". */
+		val holds: String
+
 		/** The files the index saw made last. */
 		data object NewFiles : Kind {
 			override val title: String get() = "New files"
 			override val section: RecentSection get() = RecentSection.NewFiles
+			override val holds: String get() = "files"
 		}
 
 		/** The folders the application that asked was last answered from. */
@@ -327,12 +331,14 @@ class RecentPage(
 		) : Kind {
 			override val title: String get() = "Recent folders in $name"
 			override val section: RecentSection get() = RecentSection.Application
+			override val holds: String get() = "folders"
 		}
 
 		/** The folders any application was last answered from. */
 		data object Folders : Kind {
 			override val title: String get() = "Recent folders"
 			override val section: RecentSection get() = RecentSection.Folders
+			override val holds: String get() = "folders"
 		}
 	}
 
