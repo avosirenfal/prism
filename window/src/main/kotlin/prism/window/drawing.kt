@@ -382,6 +382,7 @@ internal sealed interface Pixels : AutoCloseable {
  * given an `eglQueryString` that is not, would call it.
  */
 private object GlLookup {
+	// A flag or a number of one word, set by one thread and read by others: volatile is all it needs, unboxed.
 	@Volatile
 	var egl: Boolean = false
 

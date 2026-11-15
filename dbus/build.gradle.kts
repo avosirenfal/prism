@@ -11,6 +11,8 @@ plugins {
 dependencies {
 	api(libs.kotlinx.serialization.core)
 	api(libs.kotlinx.coroutines.core)
+	// State shared between threads, each kind as the type that says what it guarantees (Guarded, Published).
+	implementation(project(":shared"))
 
 	testImplementation(libs.kotlinx.coroutines.test)
 	// The test fixtures start a private bus for this module's tests and the portal's.

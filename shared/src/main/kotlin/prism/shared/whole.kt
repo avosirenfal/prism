@@ -20,8 +20,27 @@ import kotlin.random.Random
  * which read, change and write as one step; a file its one writer never reads back is a [Snapshot].
  */
 internal object WholeFile {
-	/** One writer at a time in this process: a file lock is the process's, and two of its threads would share it. */
-	private val here = Any()
+	/**
+	 * The locks files are written under, which are files' own (a lock file beside each): taken only by the one
+	 * thread of this process that has this, since a file's lock is the process's, and two of its threads would
+	 * share it.
+	 */
+	private object FileLocks {
+		fun <T> among(file: Path, body: () -> T): T {
+			val folder = file.toAbsolutePath().parent
+
+			Files.createDirectories(folder)
+
+			return FileChannel
+				.open(
+					folder.resolve("${file.fileName}.lock"),
+					StandardOpenOption.CREATE,
+					StandardOpenOption.WRITE,
+				).use { channel -> channel.lock().use { body() } }
+		}
+	}
+
+	private val writing = Guarded(FileLocks)
 
 	/**
 	 * [file] made to hold what [write] puts in the channel it is given, and nothing else, in one step: where [write]
@@ -71,20 +90,10 @@ internal object WholeFile {
 	 * replaced by each write.
 	 */
 	fun <T> locked(file: Path, writers: Writers, body: () -> T): T =
-		synchronized(here) {
+		writing.guarded {
 			when (writers) {
 				Writers.Anyone -> body()
-				Writers.Prisms -> {
-					val folder = file.toAbsolutePath().parent
-
-					Files.createDirectories(folder)
-					FileChannel
-						.open(
-							folder.resolve("${file.fileName}.lock"),
-							StandardOpenOption.CREATE,
-							StandardOpenOption.WRITE,
-						).use { channel -> channel.lock().use { body() } }
-				}
+				Writers.Prisms -> among(file, body)
 			}
 		}
 

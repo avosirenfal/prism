@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import prism.preferences.LauncherPreferences
+import prism.shared.Guarded
 
 /*
  * The launcher's window as dmenu is used: given lines, it shows them, narrows them to what is typed, and answers
@@ -332,8 +333,15 @@ class DmenuSession(
 	/** What it came to: the first answer there is. */
 	val answer: Deferred<DmenuAnswer> get() = answered
 
-	/** The looking under way, which the next takes the place of. */
-	private var looking: Job? = null
+	/**
+	 * What one event at a time changes: the state ([held], which anything reads), and the looking under way, which
+	 * the next takes the place of. An event is taken in, and a looking begun, as the one thread that has this.
+	 */
+	private class Turn {
+		var looking: Job? = null
+	}
+
+	private val turn = Guarded(Turn())
 
 	init {
 		first.effects.forEach(::carryOut)
@@ -342,7 +350,7 @@ class DmenuSession(
 	/** [event] taken in: the state changed as the reducer says, and what it asks for done. */
 	fun send(event: DmenuEvent) {
 		val effects =
-			synchronized(this) {
+			turn.guarded {
 				step(held.value, event).also { held.value = it.state }.effects
 			}
 
@@ -352,7 +360,7 @@ class DmenuSession(
 	private fun carryOut(effect: DmenuEffect) {
 		when (effect) {
 			is DmenuEffect.Match ->
-				synchronized(this) {
+				turn.guarded {
 					looking?.cancel()
 					looking =
 						scope.launch(matching) {

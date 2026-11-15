@@ -34,6 +34,8 @@ import prism.index.query.Query
 import prism.index.search
 import prism.linux.Mount
 import prism.linux.Mounts
+import prism.shared.Guarded
+import prism.shared.Published
 
 /**
  * A change something saw on the disk, as a live index takes it: the [folder] it happened in, by the kernel's device and
@@ -161,30 +163,113 @@ class LiveIndex private constructor(
 		val used: Instant,
 	)
 
-	/** The indexer, as what is mounted now makes it: another each time the mounts change. */
-	@Volatile
-	private var indexer: Indexer = indexer
-
-	/** Which file system is mounted at each place the index holds one, as last seen. Under [lock]. */
-	private var mounted: Map<Where, VolumeId> = away.mounted()
-
-	/** The mounts as they were when last looked at; null before the first look. Under [lock]. */
-	private var looked: List<Mount>? = null
+	/**
+	 * The indexer, as what is mounted now makes it: another each time the mounts change. Set as a change is made
+	 * ([changing]); read without waiting for one, by a scan and by a search.
+	 */
+	private var indexer: Indexer by Published(indexer)
 
 	/**
-	 * Which file system each mount there is now is of, as it was found when the mount was first seen: asked once a
-	 * mount, so that a mount whose file system cannot be asked for a moment is not taken for another's. Under [lock].
+	 * The places read for searches alone. Set as a change is made ([changing]); read without waiting for one by a
+	 * search, which so need not wait for a change being made.
 	 */
-	private var known: Map<Mount, Volume> = emptyMap()
+	private var adHoc: Map<Where, AdHoc> by Published(emptyMap())
 
-	/** What every change is made under, one at a time. */
-	private val lock = Any()
 	private val scanIds = AtomicInteger()
-	private var scans: Map<Int, Scan> = emptyMap()
 
-	/** Written under [lock]; read without it by a search, which so need not wait for a change being made. */
-	@Volatile
-	private var adHoc: Map<Where, AdHoc> = emptyMap()
+	/**
+	 * What a change to the index is made with, and what else changes with it: reached only as a change is made, one
+	 * at a time ([changing]). What is done to the index under it is done here, so that it cannot be done outside it.
+	 */
+	private inner class Changing {
+		/** Which file system is mounted at each place the index holds one, as last seen. */
+		var mounted: Map<Where, VolumeId> = away.mounted()
+
+		/** The mounts as they were when last looked at; null before the first look. */
+		var looked: List<Mount>? = null
+
+		/**
+		 * Which file system each mount there is now is of, as it was found when the mount was first seen: asked once
+		 * a mount, so that a mount whose file system cannot be asked for a moment is not taken for another's.
+		 */
+		var known: Map<Mount, Volume> = emptyMap()
+
+		/** The scans in flight, and what has changed while each read. */
+		var scans: Map<Int, Scan> = emptyMap()
+
+		/**
+		 * Which file system is mounted at each place, of those that say which they are; the later, of two at one place.
+		 * A mount seen before is of what it was then; one not yet known is asked again, each time.
+		 */
+		fun volumesOf(mounts: List<Mount>): Map<Where, Volume> {
+			val volumes =
+				mounts.mapNotNull { mount ->
+					(known[mount] ?: settings.volumes(mount))?.let { mount to it }
+				}
+
+			known = volumes.toMap()
+
+			return volumes.associate { (mount, volume) -> Where.of(mount.at) to volume }
+		}
+
+		/**
+		 * [changes] made in the index, the tree of every file system they would take out of it kept first: one the index
+		 * holds at or under a place they change, and that is no longer mounted there.
+		 */
+		fun make(changes: List<Change>) {
+			val under = mounted.filterKeys { place -> changes.any { place.within(it.at) } }
+
+			if (under.isNotEmpty()) {
+				val now = volumesOf(settings.mounts())
+				val gone = under.filter { (place, volume) -> now[place]?.id != volume }
+
+				gone.forEach { (place, volume) -> keep(place, volume) }
+				if (gone.isNotEmpty()) {
+					mounted = mounted - gone.keys
+					away.note(mounted)
+				}
+			}
+			store.make(changes)
+		}
+
+		/** The place read for searches alone that holds [place]: one already, or one begun now. */
+		fun adHocFor(place: Where, now: Instant): AdHoc {
+			adHoc.values.firstOrNull { place.within(it.place) }?.let { held ->
+				return held.copy(used = now).also { adHoc = adHoc + (held.place to it) }
+			}
+
+			val rules = indexer.rules.notIgnoring(indexer.rules.matching(place))
+			val own = indexer.ruled(rules)
+			val begun = AdHoc(place, own, null, Meanwhile.NONE, CompletableFuture(), now)
+
+			adHoc = adHoc + (place to begun)
+			adHocScanning.execute {
+				try {
+					val read = Index.EMPTY.with(own.index(place))
+
+					changing.guarded {
+						adHoc[place]?.let { asked ->
+							val held = read.with(made(asked.changed.all(), read, own))
+
+							// A place read now holds any read before under it: those are let go.
+							adHoc =
+								adHoc.filterKeys { !it.within(place) } +
+								(place to asked.copy(index = held, changed = Meanwhile.NONE))
+						}
+					}
+					begun.ready.complete(Unit)
+				} catch (failed: Throwable) {
+					changing.guarded { adHoc = adHoc - place }
+					begun.ready.completeExceptionally(failed)
+				}
+			}
+
+			return begun
+		}
+	}
+
+	/** Every change to the index is made under this, one at a time. */
+	private val changing = Guarded(Changing())
 
 	private val scanning: ExecutorService =
 		Executors.newSingleThreadExecutor(
@@ -207,7 +292,7 @@ class LiveIndex private constructor(
 	/** What is being read now: places scanned again, roots, and places read for searches alone. */
 	val reading: Set<Where>
 		get() =
-			synchronized(lock) {
+			changing.guarded {
 				scans.values.flatMap { it.places }.toSet() +
 					adHoc.values.filter { it.index == null }.map { it.place }
 			}
@@ -220,7 +305,7 @@ class LiveIndex private constructor(
 		val places = paths.map(Where::of).toSet()
 
 		// Asked for outright, they are read whatever is mounted there.
-		synchronized(lock) { indexer = indexer.mounted(indexer.mounts, index.roots + places) }
+		changing.guarded { indexer = indexer.mounted(indexer.mounts, index.roots + places) }
 
 		return scan(places) { places.map(indexer::index) }
 	}
@@ -241,7 +326,7 @@ class LiveIndex private constructor(
 		val mounts = settings.mounts()
 		val read = LinkedHashSet<Where>()
 
-		synchronized(lock) {
+		changing.guarded {
 			val before = looked
 
 			if (mounts != before) {
@@ -289,21 +374,6 @@ class LiveIndex private constructor(
 	fun expire(): List<Kept> =
 		away.expire(settings.clock().minus(settings.keepAway.toJavaDuration()))
 
-	/**
-	 * Which file system is mounted at each place, of those that say which they are; the later, of two at one place.
-	 * A mount seen before is of what it was then; one not yet known is asked again, each time. Under [lock].
-	 */
-	private fun volumesOf(mounts: List<Mount>): Map<Where, Volume> {
-		val volumes =
-			mounts.mapNotNull { mount ->
-				(known[mount] ?: settings.volumes(mount))?.let { mount to it }
-			}
-
-		known = volumes.toMap()
-
-		return volumes.associate { (mount, volume) -> Where.of(mount.at) to volume }
-	}
-
 	/** Whether the index holds [place], or would hold what is put there: a root, or in a folder it holds. */
 	private fun holds(place: Where): Boolean =
 		place in index.roots ||
@@ -316,26 +386,6 @@ class LiveIndex private constructor(
 				place,
 			)?.takeIf { it.size > 1 }
 			?.let { away.keep(volume, it, settings.clock()) }
-	}
-
-	/**
-	 * [changes] made in the index, the tree of every file system they would take out of it kept first: one the index
-	 * holds at or under a place they change, and that is no longer mounted there. Under [lock].
-	 */
-	private fun make(changes: List<Change>) {
-		val under = mounted.filterKeys { place -> changes.any { place.within(it.at) } }
-
-		if (under.isNotEmpty()) {
-			val now = volumesOf(settings.mounts())
-			val gone = under.filter { (place, volume) -> now[place]?.id != volume }
-
-			gone.forEach { (place, volume) -> keep(place, volume) }
-			if (gone.isNotEmpty()) {
-				mounted = mounted - gone.keys
-				away.note(mounted)
-			}
-		}
-		store.make(changes)
 	}
 
 	/** Every root read again, as it is now: what is done where changes may have been missed. */
@@ -359,7 +409,7 @@ class LiveIndex private constructor(
 		if (changes.isEmpty())
 			return
 
-		synchronized(lock) {
+		changing.guarded {
 			scans = scans.mapValues { (_, scan) -> scan.copy(changed = scan.changed + changes) }
 			make(made(changes, store.index, indexer))
 			adHoc =
@@ -400,7 +450,7 @@ class LiveIndex private constructor(
 			if (leftOut.isEmpty())
 				emptyList()
 			else
-				synchronized(lock) { leftOut.map { adHocFor(it, now) }.distinctBy { it.place } }
+				changing.guarded { leftOut.map { adHocFor(it, now) }.distinctBy { it.place } }
 
 		val alone =
 			asked
@@ -422,7 +472,7 @@ class LiveIndex private constructor(
 	fun tidy(now: Instant = Instant.now()) {
 		val since = now.minus(settings.keepAdHoc.toJavaDuration())
 
-		synchronized(lock) {
+		changing.guarded {
 			adHoc = adHoc.filterValues { it.index == null || !it.used.isBefore(since) }
 		}
 	}
@@ -446,7 +496,7 @@ class LiveIndex private constructor(
 
 		val id = scanIds.incrementAndGet()
 
-		synchronized(lock) { scans = scans + (id to Scan(places, Meanwhile.NONE)) }
+		changing.guarded { scans = scans + (id to Scan(places, Meanwhile.NONE)) }
 
 		return CompletableFuture
 			.supplyAsync({
@@ -454,12 +504,12 @@ class LiveIndex private constructor(
 					try {
 						read().also { beforeMaking(places) }
 					} catch (failed: Throwable) {
-						synchronized(lock) { scans = scans - id }
+						changing.guarded { scans = scans - id }
 
 						throw failed
 					}
 
-				synchronized(lock) {
+				changing.guarded {
 					val meanwhile = scans.getValue(id).changed.all()
 
 					make(changes)
@@ -474,41 +524,6 @@ class LiveIndex private constructor(
 					Unit
 				}
 			}, scanning)
-	}
-
-	/** The place read for searches alone that holds [place]: one already, or one begun now. Under [lock]. */
-	private fun adHocFor(place: Where, now: Instant): AdHoc {
-		adHoc.values.firstOrNull { place.within(it.place) }?.let { held ->
-			return held.copy(used = now).also { adHoc = adHoc + (held.place to it) }
-		}
-
-		val rules = indexer.rules.notIgnoring(indexer.rules.matching(place))
-		val own = indexer.ruled(rules)
-		val begun = AdHoc(place, own, null, Meanwhile.NONE, CompletableFuture(), now)
-
-		adHoc = adHoc + (place to begun)
-		adHocScanning.execute {
-			try {
-				val read = Index.EMPTY.with(own.index(place))
-
-				synchronized(lock) {
-					adHoc[place]?.let { asked ->
-						val held = read.with(made(asked.changed.all(), read, own))
-
-						// A place read now holds any read before under it: those are let go.
-						adHoc =
-							adHoc.filterKeys { !it.within(place) } +
-							(place to asked.copy(index = held, changed = Meanwhile.NONE))
-					}
-				}
-				begun.ready.complete(Unit)
-			} catch (failed: Throwable) {
-				synchronized(lock) { adHoc = adHoc - place }
-				begun.ready.completeExceptionally(failed)
-			}
-		}
-
-		return begun
 	}
 
 	companion object {

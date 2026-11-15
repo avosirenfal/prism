@@ -362,6 +362,7 @@ object ProcessCommands : Commands {
 			}
 
 			// Both read at once: a command that fills one pipe while the other is read would wait for ever.
+			// Set by the one thread that reads it, and read once that thread is done: a place to put what it read.
 			val errors = AtomicReference(StringBuilder())
 			val reader =
 				Thread { errors.set(read(process.errorStream, error = true)) }.apply {

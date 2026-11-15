@@ -11,6 +11,7 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ExecutionException
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
+import prism.shared.Published
 
 /*
  * Surfaces in the compositor's overlay layer, as wlr-layer-shell has them: what an overlay is on Wayland (role.kt).
@@ -234,8 +235,7 @@ internal class LayerSurface(
 	 * How it stands with the keyboard (grip.kt), and whether it still is at all: the one thing about it that changes,
 	 * written on the windows' thread alone.
 	 */
-	@Volatile
-	var grip: Grip = first
+	var grip: Grip by Published(first)
 		private set
 
 	/**
@@ -255,8 +255,7 @@ internal class LayerSurface(
 	val first = CompletableFuture<Unit>()
 
 	/** The size the compositor first said, where it said one: what the window is made, before it draws. */
-	@Volatile
-	var size: Pair<Int, Int>? = null
+	var size: Pair<Int, Int>? by Published(null)
 		private set
 
 	/** A request of this surface's sent: [arguments] as [marshal] takes them. */

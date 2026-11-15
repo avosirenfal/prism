@@ -12,6 +12,8 @@ import java.lang.foreign.ValueLayout.ADDRESS
 import java.lang.foreign.ValueLayout.JAVA_INT
 import java.lang.invoke.MethodHandles
 import kotlin.math.ceil
+import prism.shared.Guarded
+import prism.shared.Published
 
 /*
  * Drags out of a window on Wayland, by Wayland's own drag and drop: a `wl_data_source` offering what is dragged, as
@@ -124,17 +126,25 @@ internal class WaylandDrags private constructor(
 		val icon: Icon?,
 		val onEnd: (DragEnd) -> Unit,
 	) {
+		// A flag or a number of one word, set by one thread and read by others: volatile is all it needs, unboxed.
 		@Volatile
 		var dropped: Boolean = false
 
-		// Changed on the seat's thread (what the compositor says) and the windows' (what the place says), so only as
-		// the drag is held: what is seen and what is shown change together.
-		var seen = DragSeen()
-		var shown: CursorShape? = null
+		/**
+		 * What decides the pointer, and the pointer shown for it: changed on the seat's thread (what the compositor
+		 * says) and the windows' (what the place says), and together.
+		 */
+		class Showing {
+			var seen = DragSeen()
+			var shown: CursorShape? = null
+		}
+
+		val showing = Guarded(Showing())
 	}
 
-	@Volatile
-	private var under: Under? = null
+	/** The drag under way, set as one begins and let go by whichever thread ends it first ([ended]). */
+	private val held = Published<Under?>(null)
+	private var under: Under? by held
 
 	override fun start(
 		window: NativeWindow,
@@ -264,14 +274,14 @@ internal class WaylandDrags private constructor(
 
 	/** What [drag]'s pointer is decided by, changed as [change] says, and the cursor it comes to shown, if it is another. */
 	private fun seen(drag: Under, change: (DragSeen) -> DragSeen) =
-		synchronized(drag) {
-			drag.seen = change(drag.seen)
+		drag.showing.guarded {
+			seen = change(seen)
 
-			val shape = drag.seen.cursor(manager.version)
+			val shape = seen.cursor(manager.version)
 
-			if (shape != null && shape != drag.shown) {
-				drag.shown = shape
-				Log.say { "drag: the pointer shows $shape, as ${drag.seen}" }
+			if (shape != null && shape != shown) {
+				shown = shape
+				Log.say { "drag: the pointer shows $shape, as $seen" }
 				seat.show(shape)
 			}
 		}
@@ -348,11 +358,9 @@ internal class WaylandDrags private constructor(
 
 	/** [drag] over: its source and its picture let go of, and who began it told how it ended, on the windows' thread. */
 	private fun ended(drag: Under, how: DragEnd) {
-		synchronized(this) {
-			if (under !== drag)
-				return
-			under = null
-		}
+		// Ended once, by whichever of the seat's thread and the windows' comes first.
+		if (!held.swapped(drag, null))
+			return
 		Log.say { "drag: ended, $how" }
 		Wl.marshalNone.invokeExact(
 			drag.source,

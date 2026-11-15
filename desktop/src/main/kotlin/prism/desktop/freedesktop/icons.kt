@@ -11,6 +11,7 @@ import kotlin.io.path.isRegularFile
 import kotlin.math.abs
 import prism.desktop.Icons
 import prism.desktop.asChildOfPrism
+import prism.shared.Published
 
 /*
  * Icons as freedesktop.org's Icon Theme specification says them. An application names its icon (`firefox`), and the
@@ -51,8 +52,7 @@ class IconThemes(
 		val scale: Int,
 	)
 
-	@Volatile
-	private var kept = Kept(::chain)
+	private var kept by Published(Kept(::chain))
 
 	/** The folders themes are in, the user's first. */
 	private val bases: List<Path>

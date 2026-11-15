@@ -12,6 +12,7 @@ import prism.desktop.FileTypes
 import prism.desktop.MimeType
 import prism.shared.Format
 import prism.shared.OnDisk
+import prism.shared.Published
 import prism.shared.Writers
 
 /*
@@ -30,8 +31,7 @@ class DesktopEntries(
 	private val types: FileTypes,
 ) : Applications {
 	/** Every application installed, by id, whether a person is shown it or not; read once, again after a change. */
-	@Volatile
-	private var installed: Map<String, Installed> = read()
+	private var installed: Map<String, Installed> by Published(read())
 
 	/**
 	 * What is installed: each id's entry in the first data folder that has one, the user's first, and what that

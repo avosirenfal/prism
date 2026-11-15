@@ -7,11 +7,10 @@ import java.net.UnixDomainSocketAddress
 import java.nio.ByteBuffer
 import java.nio.channels.ClosedChannelException
 import java.nio.channels.SocketChannel
+import java.nio.channels.WritableByteChannel
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicInteger
-import java.util.concurrent.locks.ReentrantLock
-import kotlin.concurrent.withLock
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.CompletableDeferred
@@ -28,6 +27,8 @@ import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import prism.shared.Guarded
+import prism.shared.Published
 
 /*
  * A connection to a bus. Opening one connects to the bus's socket, makes the handshake and calls the bus's `Hello`,
@@ -89,10 +90,11 @@ internal class Link(
 	private val pending = ConcurrentHashMap<UInt, CompletableDeferred<Message>>()
 	private val subscribers = CopyOnWriteArrayList<Subscriber>()
 	private val routes = ConcurrentHashMap<Route, Handler>()
-	private val writing = ReentrantLock()
 
-	@Volatile
-	var closedBecause: String? = null
+	/** The channel, to write to: one message at a time, each whole. Reading it is the reader thread's alone. */
+	private val writing = Guarded<WritableByteChannel>(channel)
+
+	var closedBecause: String? by Published(null)
 		private set
 
 	/** Where served methods run, and where a closed subscription tells the bus it is done; cancelled on close. */
@@ -116,10 +118,10 @@ internal class Link(
 	fun send(message: Message): Boolean {
 		val bytes = ByteBuffer.wrap(message.encoded())
 
-		return writing.withLock {
+		return writing.guarded {
 			try {
 				while (bytes.hasRemaining())
-					channel.write(bytes)
+					write(bytes)
 				true
 			} catch (failed: IOException) {
 				false

@@ -27,6 +27,7 @@ import prism.index.Searched
 import prism.index.query.Aliases
 import prism.index.query.Query
 import prism.preferences.LauncherPreferences
+import prism.shared.Guarded
 import prism.window.OpenWindows
 
 /*
@@ -127,8 +128,15 @@ class LauncherSession(
 
 	val state: StateFlow<LauncherState> = held.asStateFlow()
 
-	/** The search of the index under way, which the next one takes the place of. */
-	private var searching: Job? = null
+	/**
+	 * What one event at a time changes: the state ([held], which anything reads), and the search under way, which
+	 * the next takes the place of. An event is taken in, and a search begun, as the one thread that has this.
+	 */
+	private class Turn {
+		var searching: Job? = null
+	}
+
+	private val turn = Guarded(Turn())
 
 	init {
 		// What is installed is shown as it was last read, at once, and read again behind: an application installed
@@ -142,7 +150,7 @@ class LauncherSession(
 	/** [event] taken in: the state changed as the reducer says, and what it asks for done. */
 	fun send(event: LauncherEvent) {
 		val effects =
-			synchronized(this) {
+			turn.guarded {
 				step(held.value, event).also { held.value = it.state }.effects
 			}
 
@@ -206,7 +214,7 @@ class LauncherSession(
 	private fun search(text: String, query: Query, most: Int) {
 		val finder = services.finder ?: return
 
-		synchronized(this) {
+		turn.guarded {
 			searching?.cancel()
 			searching =
 				scope.launch(Dispatchers.Default) {

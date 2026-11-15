@@ -1,6 +1,8 @@
 package prism.index
 
 import java.nio.file.Path
+import prism.shared.Guarded
+import prism.shared.Published
 
 /**
  * An index and its file, kept in step. Changes are made to the index in memory at once, and kept until [flush] appends
@@ -17,9 +19,9 @@ class IndexStore private constructor(
 	val file: Path?,
 	index: Index,
 	/** How much of the file is good: what the next frame is written after; 0 for a file not written yet. */
-	private var length: Long,
+	length: Long,
 	/** How much of the file is changes after its snapshot. */
-	private var changes: Long,
+	changes: Long,
 	/** How the store came to hold what it does. */
 	val origin: Origin,
 ) {
@@ -43,57 +45,77 @@ class IndexStore private constructor(
 	}
 
 	/** The index as it is now, every change made. */
-	@Volatile
-	var index: Index = index
+	var index: Index by Published(index)
 		private set
 
-	/** The changes made since the last flush. */
-	private var pending: List<Change> = emptyList()
+	/**
+	 * What is written of the index, and what is not yet: reached only by one writer at a time ([writing]), which is
+	 * also what sets [index], so that the index and what is to be written of it change together.
+	 */
+	private inner class Writing(
+		/** How much of the file is good: what the next frame is written after; 0 for a file not written yet. */
+		var length: Long,
+		/** How much of the file is changes after its snapshot. */
+		var changes: Long,
+	) {
+		/** The changes made since the last flush. */
+		var pending: List<Change> = emptyList()
+
+		fun compact() {
+			index = index.compacted()
+			file?.let { length = IndexFile.write(it, index) }
+			changes = 0
+			pending = emptyList()
+		}
+
+		/**
+		 * Whether compacting gains enough: the changes on disk are a quarter of the snapshot, or the entries in
+		 * memory that compacting would do away with are an eighth of what is held.
+		 */
+		fun timeToCompact(): Boolean =
+			changes * 4 > length - changes || index.loose * 8L > index.size
+	}
+
+	private val writing = Guarded(Writing(length, changes))
 
 	/** The index with [changes] made, in memory; on disk at the next [flush]. */
-	@Synchronized
 	fun make(changes: List<Change>) {
-		index = index.with(changes)
-		pending = pending + changes
+		writing.guarded {
+			index = index.with(changes)
+			pending = pending + changes
+		}
 	}
 
 	/**
 	 * What was made since the last flush, written to the file: appended, or, where there is no file yet, the whole
 	 * index written as one; and the file compacted, where it is time.
 	 */
-	@Synchronized
 	fun flush() {
-		val file = file ?: return run { pending = emptyList() }
+		writing.guarded {
+			val file = file
 
-		if (length == 0L)
-			return compact()
+			if (file == null) {
+				pending = emptyList()
+			} else if (length == 0L) {
+				compact()
+			} else {
+				if (pending.isNotEmpty()) {
+					val appended = IndexFile.append(file, length, pending)
 
-		if (pending.isNotEmpty()) {
-			val appended = IndexFile.append(file, length, pending)
-
-			changes += appended - length
-			length = appended
-			pending = emptyList()
+					changes += appended - length
+					length = appended
+					pending = emptyList()
+				}
+				if (timeToCompact())
+					compact()
+			}
 		}
-		if (timeToCompact())
-			compact()
 	}
 
 	/** The index compacted, and written anew as one snapshot. */
-	@Synchronized
 	fun compact() {
-		index = index.compacted()
-		file?.let { length = IndexFile.write(it, index) }
-		changes = 0
-		pending = emptyList()
+		writing.guarded { compact() }
 	}
-
-	/**
-	 * Whether compacting gains enough: the changes on disk are a quarter of the snapshot, or the entries in memory
-	 * that compacting would do away with are an eighth of what is held.
-	 */
-	private fun timeToCompact(): Boolean =
-		changes * 4 > length - changes || index.loose * 8L > index.size
 
 	companion object {
 		/** The store whose file is [file]: what the file holds, or an empty index where there is no file it can read. */

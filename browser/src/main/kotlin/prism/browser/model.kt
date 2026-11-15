@@ -3,7 +3,6 @@ package prism.browser
 import androidx.compose.runtime.Immutable
 import java.nio.file.Path
 import java.time.Instant
-import java.util.concurrent.atomic.AtomicReference
 import prism.desktop.Place
 import prism.desktop.Storage
 import prism.desktop.StoreKind
@@ -26,6 +25,7 @@ import prism.preferences.QuickItem
 import prism.preferences.RecentSection
 import prism.preferences.Role
 import prism.preferences.Sort
+import prism.shared.Published
 
 /*
  * What the picker shows, as immutable data. The view (view.kt) is a pure function of a [BrowserState]: it draws what
@@ -522,13 +522,13 @@ internal class Memo<K, V>(
 	had: Pair<K, V>? = null,
 	private val compute: (K) -> V,
 ) {
-	private val last = AtomicReference(had)
+	private val last = Published(had)
 
 	/** The answer kept, and the key it is for; none, where it has not been asked. */
-	val kept: Pair<K, V>? get() = last.get()
+	val kept: Pair<K, V>? get() = last.now
 
 	operator fun invoke(key: K): V =
-		last.get()?.takeIf { it.first == key }?.second
+		last.now?.takeIf { it.first == key }?.second
 			?: compute(key).also { last.set(key to it) }
 }
 
@@ -1311,7 +1311,7 @@ class Marked {
 		val marks: Marks,
 	)
 
-	private val last = AtomicReference<Read?>(null)
+	private val last = Published<Read?>(null)
 
 	internal fun of(
 		rows: Rows,
@@ -1319,8 +1319,7 @@ class Marked {
 		cursor: Cursor?,
 		renaming: Renaming?,
 	): Marks =
-		last
-			.get()
+		last.now
 			?.takeIf {
 				it.rows === rows && it.choosing === choosing && it.cursor === cursor &&
 					it.renaming === renaming

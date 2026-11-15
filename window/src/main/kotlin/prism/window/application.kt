@@ -28,6 +28,7 @@ import org.lwjgl.sdl.SDLProperties.SDL_GetGlobalProperties
 import org.lwjgl.sdl.SDLProperties.SDL_GetPointerProperty
 import org.lwjgl.sdl.SDLVideo.SDL_PROP_GLOBAL_VIDEO_WAYLAND_WL_DISPLAY_POINTER
 import org.lwjgl.sdl.SDL_Event
+import prism.shared.Published
 
 /*
  * An application of windows, as Compose's own `application` and `Window` are used, on SDL's windows: a composition
@@ -297,8 +298,7 @@ internal class Application(
 		private const val IDLE_MILLIS = 250
 
 		/** The application running, of which there is one at a time ([Ui] has one thread); null where none is. */
-		@Volatile
-		var current: Application? = null
+		var current: Application? by Published(null)
 			private set
 	}
 }

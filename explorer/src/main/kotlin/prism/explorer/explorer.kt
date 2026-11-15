@@ -744,6 +744,8 @@ class Explorer(
 	 */
 	private inner class Making {
 		val id = WindowId(ids.incrementAndGet())
+
+		// Changed in one atomic step that also says what it was (getAndUpdate, getAndSet): an AtomicReference's own.
 		private val birth = AtomicReference<Birth>(Birth.Unborn(null))
 
 		val scope =

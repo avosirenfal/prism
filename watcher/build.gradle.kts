@@ -24,6 +24,8 @@ dependencies {
 	api(project(":probe"))
 	api(project(":ebpf-loader"))
 	api(project(":linux"))
+	// State shared between threads, each kind as the type that says what it guarantees (Published).
+	implementation(project(":shared"))
 	add(probeEmitter.name, project(":probe"))
 }
 

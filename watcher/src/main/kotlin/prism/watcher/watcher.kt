@@ -4,6 +4,7 @@ import prism.ebpf.Hook
 import prism.ebpfloader.Attachment
 import prism.linux.Sys
 import prism.linux.Wait
+import prism.shared.Published
 
 /**
  * The watcher, running: its program loaded and attached, and its ring read on a thread of its own, whose every batch
@@ -17,12 +18,12 @@ class Watcher private constructor(
 	private val watch: Watch,
 	private val seen: (List<Observed>) -> Unit,
 ) : AutoCloseable {
+	// A flag or a number of one word, set by one thread and read by others: volatile is all it needs, unboxed.
 	@Volatile
 	private var running = true
 
 	/** Why the thread stopped reading, if it did before it was closed. */
-	@Volatile
-	var stopped: String? = null
+	var stopped: String? by Published(null)
 		private set
 
 	private val thread: Thread =

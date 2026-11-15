@@ -3,7 +3,6 @@ package prism.browser
 import androidx.compose.runtime.Immutable
 import java.nio.file.Path
 import java.time.Instant
-import java.util.concurrent.atomic.AtomicReference
 import java.util.stream.IntStream
 import kotlin.io.path.Path
 import prism.index.Index
@@ -27,6 +26,7 @@ import prism.index.query.completing
 import prism.index.search
 import prism.preferences.ColumnId
 import prism.preferences.Order
+import prism.shared.Published
 import prism.index.Kind as EntryKind
 
 /*
@@ -63,13 +63,13 @@ class StaticFinder(
 	usage: Usage = Usage.NONE,
 	private val home: Path = Path(System.getProperty("user.home")),
 ) : Finder {
-	private val usage = AtomicReference(usage)
+	private val usage = Published(usage)
 
 	override fun find(query: Query): Searched =
-		index.search(query, SearchContext(home = home, usage = usage.get()))
+		index.search(query, SearchContext(home = home, usage = usage.now))
 
 	override fun picked(paths: List<Path>, at: Instant) {
-		usage.updateAndGet { it.picked(paths.map(Where::of), at) }
+		usage.update { picked(paths.map(Where::of), at) }
 	}
 
 	override fun newest(count: Int, named: (String) -> Boolean): List<Sighting> =

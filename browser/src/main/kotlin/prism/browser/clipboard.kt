@@ -2,7 +2,7 @@ package prism.browser
 
 import java.net.URI
 import java.nio.file.Path
-import java.util.concurrent.atomic.AtomicReference
+import prism.shared.Published
 import prism.window.ClipOffer
 import prism.window.SystemClipboard
 
@@ -23,11 +23,11 @@ interface FileClipboard {
 
 /** A clipboard of this process's alone: the tests', and a picker's with no display. */
 class MemoryFileClipboard : FileClipboard {
-	private val held = AtomicReference<FileClip?>(null)
+	private val held = Published<FileClip?>(null)
 
 	override fun put(clip: FileClip) = held.set(clip)
 
-	override fun read(): FileClip? = held.get()
+	override fun read(): FileClip? = held.now
 }
 
 /** The desktop's clipboard, through the window's (prism.window), by MIME type. */

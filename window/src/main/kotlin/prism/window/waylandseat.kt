@@ -11,6 +11,7 @@ import java.lang.invoke.MethodHandles
 import java.lang.invoke.MethodType
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.ConcurrentHashMap
+import prism.shared.Published
 
 /*
  * prism's own connection to the compositor, beside SDL's: on SDL's display, but on an event queue of its own,
@@ -81,24 +82,25 @@ internal class WaylandSeat private constructor(
 	/** Other applications' windows, where the compositor tells of them: listed, and brought forward on this seat. */
 	val toplevels: Toplevels? = toplevelManager?.let { Toplevels(display, it, seat, arena) }
 
+	// A flag or a number of one word, set by one thread and read by others: volatile is all it needs, unboxed.
 	@Volatile
 	private var running = true
 
 	/** The serial of the pointer's last press of a button: what a drag is begun from. */
-	@Volatile
-	var pressed: Int? = null
+	var pressed: Int? by Published(null)
 		private set
 
 	/** The user's last press of a button or a key, and where: what a token for activation is made from. */
-	@Volatile
-	var lastPress: Press? = null
+	var lastPress: Press? by Published(null)
 		private set
 
 	/** The serial of the pointer's last entering one of this process's windows: what its cursor is set by. */
-	@Volatile
-	private var entered: Int? = null
+	private var entered: Int? by Published(null)
 
-	/** Where the pointer and the keyboard are, as the compositor says: the address of the surface each is in; 0 for none. */
+	/**
+	 * Where the pointer and the keyboard are, as the compositor says: the address of the surface each is in; 0 for
+	 * none. Each a number of one word, set by the seat's thread and read by others: volatile is all it needs, unboxed.
+	 */
 	@Volatile
 	private var pointerIn: Long = 0
 
@@ -106,14 +108,11 @@ internal class WaylandSeat private constructor(
 	private var keyboardIn: Long = 0
 
 	// Made and let go of on this one's thread, as the seat says it has them; read from others.
-	@Volatile
-	private var pointer: MemorySegment? = null
+	private var pointer: MemorySegment? by Published(null)
 
-	@Volatile
-	private var cursor: MemorySegment? = null
+	private var cursor: MemorySegment? by Published(null)
 
-	@Volatile
-	private var keyboard: MemorySegment? = null
+	private var keyboard: MemorySegment? by Published(null)
 
 	/** The tokens asked for and not yet given, by their proxies' addresses. */
 	private val asked = ConcurrentHashMap<Long, CompletableFuture<String>>()

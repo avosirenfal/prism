@@ -73,7 +73,7 @@ how it is meant to work; docs/inprogress.md says where it stands.
 |---|---|---|
 | `cli` | nothing | the command line: typed parameters, a one-pass reader that refuses what it cannot read, help from the same declarations |
 | `linux` | nothing | libc through the FFM API: openat, getdents64 read in place, statx, mmap, epoll, each with its errno |
-| `shared` | coroutines | what is shared and how it stays whole: a value kept in a file, read, changed and written as one step and handed to its readers (`Stored`, `OnDisk`, `Format`) |
+| `shared` | coroutines | what is shared and how it stays whole: a value kept in a file, read, changed and written as one step and handed to its readers (`Stored`, `OnDisk`, `Format`), and state shared between threads as the type that says what it guarantees: reached only under its lock (`Guarded`), read whole without one (`Published`), or set once (`Once`) |
 | `ebpf` | nothing | the eBPF DSL: programs in typed Kotlin, emitted as C for clang's BPF target, checked against the kernel's BTF |
 | `ebpf-loader` | ebpf, linux | a compiled program loaded and attached through libbpf, its ring buffer read in place |
 | `probe` | ebpf | the watcher: hooks on the exits of the VFS functions that change a directory |

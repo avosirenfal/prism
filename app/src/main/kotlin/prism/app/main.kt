@@ -8,6 +8,7 @@ import kotlin.system.exitProcess
 import prism.cli.Category
 import prism.cli.Group
 import prism.cli.execute
+import prism.shared.Published
 
 /**
  * The command line: every command, in its category, in the order `prism --help` lists them. `prism` with no command
@@ -43,8 +44,7 @@ internal const val APP_ID = "prism"
 /** How this prism was started, for starting another like it: a daemon apart from its terminal, an installed service. */
 internal object Self {
 	/** The words this process was given, after `prism`. */
-	@Volatile
-	var words: List<String> = emptyList()
+	var words: List<String> by Published(emptyList())
 
 	/**
 	 * What runs prism as this process was run, to be followed by a command line's words: the launcher a package says

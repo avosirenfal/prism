@@ -29,6 +29,7 @@ import prism.client.Reply
 import prism.client.Request
 import prism.client.Wire
 import prism.client.ask
+import prism.shared.Guarded
 
 /*
  * The session's prism, as the one that is it: listening at the place others ask at (the asking, and what is asked
@@ -108,25 +109,31 @@ internal class Listening private constructor(
 		}
 	}
 
-	@Synchronized
-	override fun close() {
-		if (!server.isOpen)
-			return
+	/** Closing is one thread's at a time: the second to ask waits for the first, and finds it done. */
+	private val closing = Guarded(Closing)
 
-		try {
-			server.close()
-			Files.deleteIfExists(place.socket)
-		} catch (failed: IOException) {
-			Report.problem("closing ${place.socket} failed", failed)
-		} finally {
-			// Let go last: whoever takes the lock next finds no socket of this one's to mistake for its own.
-			if (held.isValid)
-				held.release()
-			held.channel().close()
+	private object Closing
+
+	override fun close() {
+		closing.guarded {
+			if (!server.isOpen)
+				return
+
 			try {
-				Runtime.getRuntime().removeShutdownHook(atExit)
-			} catch (ending: IllegalStateException) {
-				// Closed by the hook itself, as the process ends.
+				server.close()
+				Files.deleteIfExists(place.socket)
+			} catch (failed: IOException) {
+				Report.problem("closing ${place.socket} failed", failed)
+			} finally {
+				// Let go last: whoever takes the lock next finds no socket of this one's to mistake for its own.
+				if (held.isValid)
+					held.release()
+				held.channel().close()
+				try {
+					Runtime.getRuntime().removeShutdownHook(atExit)
+				} catch (ending: IllegalStateException) {
+					// Closed by the hook itself, as the process ends.
+				}
 			}
 		}
 	}

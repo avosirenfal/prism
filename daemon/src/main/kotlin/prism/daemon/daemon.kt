@@ -15,6 +15,8 @@ import kotlin.time.Duration.Companion.seconds
 import prism.index.Indexer
 import prism.index.Name
 import prism.index.Where
+import prism.shared.Once
+import prism.shared.Published
 import prism.watcher.Done
 import prism.watcher.Observed
 import prism.watcher.Watcher
@@ -142,8 +144,7 @@ class Daemon private constructor(
 		) : Watching
 	}
 
-	@Volatile
-	private var feeding: Feeding = feeding
+	private var feeding: Feeding by Published(feeding)
 
 	/** What the changes come through, while they are watched. */
 	val through: String? get() = (feeding as? Feeding.On)?.through
@@ -276,16 +277,18 @@ class Daemon private constructor(
 	) : AutoCloseable {
 		private val queue = LinkedBlockingQueue<List<Changed>>()
 
+		// A flag or a number of one word, set by one thread and read by others: volatile is all it needs, unboxed.
 		@Volatile
 		private var running = true
 
-		private var thread: Thread? = null
+		/** The thread that makes what is queued: begun once ([into]), and waited for by whoever closes this. */
+		private val thread = Once<Thread>()
 
 		fun seen(batch: List<Changed>) = queue.put(batch)
 
 		/** Begins making what is queued, and what will be, in [live]. */
 		fun into(live: LiveIndex) {
-			thread =
+			thread.set(
 				Thread.ofPlatform().name("prism-changes").daemon().start {
 					while (running) {
 						val first = queue.poll(100, TimeUnit.MILLISECONDS) ?: continue
@@ -307,12 +310,13 @@ class Daemon private constructor(
 							}
 						}
 					}
-				}
+				},
+			)
 		}
 
 		override fun close() {
 			running = false
-			thread?.join()
+			thread.value?.join()
 		}
 	}
 

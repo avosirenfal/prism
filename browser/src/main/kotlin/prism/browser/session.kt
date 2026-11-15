@@ -8,7 +8,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import java.time.Instant
 import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
@@ -33,6 +32,8 @@ import kotlinx.coroutines.launch
 import prism.desktop.Launched
 import prism.desktop.Opening
 import prism.preferences.preferences
+import prism.shared.Guarded
+import prism.shared.Published
 import prism.window.ClipOffer
 import prism.window.SystemClipboard
 
@@ -71,9 +72,17 @@ class Session(
 
 	private val inputs = Channel<Input>(Channel.UNLIMITED)
 
-	// How to stop each task under way, once its command has started; and the tasks asked to stop before theirs had.
-	private val stops = ConcurrentHashMap<Task, () -> Unit>()
-	private val stopped: MutableSet<Task> = ConcurrentHashMap.newKeySet()
+	/**
+	 * How to stop each task under way, once its command has started ([running]); and the tasks asked to stop before
+	 * theirs had ([asked]). They change together: a task is stopped as it starts where that was asked, and asked to
+	 * where it has not started, and looking at one and then changing the other would lose a stop that came between.
+	 */
+	private class Stops {
+		val running = HashMap<Task, () -> Unit>()
+		val asked = HashSet<Task>()
+	}
+
+	private val stops = Guarded(Stops())
 
 	// The folders made for this browser, to open a place's entries from: gone when it is.
 	private val temps: MutableSet<java.nio.file.Path> = ConcurrentHashMap.newKeySet()
@@ -93,7 +102,7 @@ class Session(
 
 	// The state as it last was made, for whatever carries out an effect to read: set before the state's effects are
 	// begun, and there from the first, which [state] is not while this is being made.
-	private val latest = AtomicReference(first.state)
+	private val latest = Published(first.state)
 
 	val state: StateFlow<BrowserState> =
 		inputs
@@ -214,7 +223,7 @@ class Session(
 			try {
 				awaitCancellation()
 			} finally {
-				stops.values.forEach { it() }
+				stops.guarded { running.values.toList() }.forEach { it() }
 				temps.forEach(services.temps::remove)
 			}
 		}
@@ -268,7 +277,19 @@ class Session(
 					services.clipboard.put(effect.clip)
 				}
 			is Effect.Carry -> services.carried.set(effect.carried)
-			is Effect.Stop -> stops[effect.task]?.invoke() ?: stopped.add(effect.task).let {}
+			// Stopped, where its command has started; asked to be as it does, where it has not.
+			is Effect.Stop -> {
+				val stop =
+					stops.guarded {
+						running[effect.task].also {
+							if (it == null)
+								asked += effect.task
+						}
+					}
+
+				stop?.invoke()
+				Unit
+			}
 			is Effect.Arrange ->
 				scope.launch(io) {
 					services.preferences.update { arranging(effect.quick) }
@@ -293,7 +314,7 @@ class Session(
 					services.finder?.let { scope.launch(io) { it.picked(chosen.paths, clock()) } }
 
 					// A picker answered: the folders it was answered from are the latest used, by whoever asked.
-					val state = latest.get()
+					val state = latest.now
 					val folders = foldersUsed(chosen.paths, state.choosing)
 
 					if (folders.isNotEmpty())
@@ -319,8 +340,13 @@ class Session(
 	private fun watching(task: Task): Watch =
 		object : Watch {
 			override fun started(stop: () -> Unit) {
-				stops[task] = stop
-				if (stopped.remove(task))
+				val unwanted =
+					stops.guarded {
+						running[task] = stop
+						asked.remove(task)
+					}
+
+				if (unwanted)
 					stop()
 			}
 
@@ -347,7 +373,7 @@ class Session(
 				// draws nothing while it does. The listing keeps them; arranged otherwise by then, it arranges again.
 				val read = (it as? Answer.Arrived)?.read as? Listing.Shown
 
-				read?.rows(latest.get().arrangement)?.ready()
+				read?.rows(latest.now.arrangement)?.ready()
 			}
 		} catch (stopped: kotlinx.coroutines.CancellationException) {
 			throw stopped
@@ -363,8 +389,10 @@ class Session(
 				is Effect.ListPlace -> Task.Listing(asking.placed)
 				else -> null
 			}?.let {
-				stops.remove(it)
-				stopped.remove(it)
+				stops.guarded {
+					running.remove(it)
+					asked.remove(it)
+				}
 			}
 		}
 }

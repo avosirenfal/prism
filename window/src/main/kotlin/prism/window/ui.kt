@@ -11,6 +11,7 @@ import kotlinx.coroutines.CoroutineDispatcher
 import org.lwjgl.sdl.SDLEvents.SDL_PushEvent
 import org.lwjgl.sdl.SDLEvents.SDL_RegisterEvents
 import org.lwjgl.sdl.SDL_Event
+import prism.shared.Published
 
 /*
  * The one thread every window lives on. SDL wants its windows and its events handled on one thread (on macOS, the
@@ -39,8 +40,7 @@ object Ui : CoroutineDispatcher() {
 	 * The windows' thread and what wakes it, while there is one: the two as one value, so that no other thread sees
 	 * a thread that is there with nothing yet to wake it by, or the other way about.
 	 */
-	@Volatile
-	private var claimed: Claimed? = null
+	private var claimed: Claimed? by Published(null)
 
 	/** The event type that wakes the thread; none until one is the windows' own. */
 	internal val wakeType: Int? get() = claimed?.wakes

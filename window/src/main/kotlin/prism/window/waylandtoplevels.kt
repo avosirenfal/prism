@@ -5,6 +5,8 @@ import java.lang.foreign.FunctionDescriptor
 import java.lang.foreign.MemorySegment
 import java.lang.foreign.ValueLayout.ADDRESS
 import java.lang.invoke.MethodHandles
+import prism.shared.Guarded
+import prism.shared.Published
 
 /*
  * Other applications' windows, as wlr-foreign-toplevel-management tells of them: what [OpenWindows] is on Wayland.
@@ -38,11 +40,10 @@ internal class Toplevels(
 	)
 
 	/** Every handle there is, by its address: changed on the seat's thread, and read by [focus] from another. */
-	private val handles = HashMap<Long, Telling>()
+	private val handles = Guarded(HashMap<Long, Telling>())
 
 	/** The windows that have said `done`, by their handles' addresses, in the order they were first told of in. */
-	@Volatile
-	private var listed: Map<Long, OpenWindow> = emptyMap()
+	private var listed: Map<Long, OpenWindow> by Published(emptyMap())
 
 	private val lookup = MethodHandles.lookup()
 
@@ -72,11 +73,11 @@ internal class Toplevels(
 	override fun now(): List<OpenWindow> = listed.values.toList()
 
 	override fun focus(window: OpenWindow) {
-		synchronized(this) {
+		handles.guarded {
 			// The window that had this address when it was listed, and not another opened at it since. Its title may
 			// well have changed meanwhile (a terminal's does with every command), and it is the same window still.
 			val telling =
-				handles[window.id]?.takeIf { listed[window.id]?.appId == window.appId } ?: return
+				this[window.id]?.takeIf { listed[window.id]?.appId == window.appId } ?: return
 
 			Wl.marshalNone.invokeExact(
 				telling.handle,
@@ -93,8 +94,8 @@ internal class Toplevels(
 
 	/** What [handle] says of its window, kept until it says `done`. */
 	private fun said(handle: MemorySegment, change: (Telling) -> Telling) {
-		synchronized(this) {
-			handles.computeIfPresent(handle.address()) { _, telling -> change(telling) }
+		handles.guarded {
+			computeIfPresent(handle.address()) { _, telling -> change(telling) }
 		}
 	}
 
@@ -106,7 +107,7 @@ internal class Toplevels(
 	/** `zwlr_foreign_toplevel_manager_v1.toplevel`: a window there is, by a new handle, heard from here on. */
 	@Suppress("unused", "UNUSED_PARAMETER")
 	fun toplevel(data: MemorySegment, manager: MemorySegment, handle: MemorySegment) {
-		synchronized(this) { handles[handle.address()] = Telling(handle) }
+		handles.guarded { this[handle.address()] = Telling(handle) }
 		Wl.addListener.invokeExact(handle, handleListener, MemorySegment.NULL) as Int
 	}
 
@@ -140,16 +141,16 @@ internal class Toplevels(
 	fun done(data: MemorySegment, handle: MemorySegment) {
 		val id = handle.address()
 
-		synchronized(this) {
-			handles[id]?.let { listed = listed + (id to OpenWindow(id, it.appId, it.title)) }
+		handles.guarded {
+			this[id]?.let { listed = listed + (id to OpenWindow(id, it.appId, it.title)) }
 		}
 	}
 
 	/** `closed`: the window is gone, and its handle is given up, as the protocol asks. */
 	@Suppress("unused", "UNUSED_PARAMETER")
 	fun closed(data: MemorySegment, handle: MemorySegment) {
-		synchronized(this) {
-			if (handles.remove(handle.address()) == null)
+		handles.guarded {
+			if (remove(handle.address()) == null)
 				return
 
 			listed = listed - handle.address()

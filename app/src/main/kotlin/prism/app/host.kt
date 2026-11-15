@@ -63,6 +63,7 @@ import prism.portal.own
 import prism.portal.serveFileChooser
 import prism.portal.serveFileManager
 import prism.preferences.PreferenceStore
+import prism.shared.Guarded
 import prism.window.NoDisplay
 import prism.window.WindowsFailed
 import prism.window.application
@@ -126,16 +127,31 @@ internal class Windows(
 		private val work: suspend (Explorer) -> T,
 	) {
 		val answer = CompletableDeferred<T>()
-		private val running = AtomicReference<Job?>()
 
-		@Volatile
-		private var unwanted = false
+		/**
+		 * Whether it is still wanted, and what is doing it: looked at and changed together, so that one cancelled as
+		 * it begins is either not begun or is stopped, and never begun unseen by what cancelled it.
+		 */
+		private class Wanted {
+			var unwanted = false
+			var running: Job? = null
+		}
+
+		private val wanted = Guarded(Wanted())
 
 		suspend fun run(explorer: Explorer) {
-			if (unwanted)
+			val job = currentCoroutineContext()[Job]
+
+			val begun =
+				wanted.guarded {
+					if (!unwanted)
+						running = job
+					!unwanted
+				}
+
+			if (!begun)
 				return
 
-			running.set(currentCoroutineContext()[Job])
 			try {
 				answer.complete(work(explorer))
 			} catch (stopped: CancellationException) {
@@ -151,8 +167,11 @@ internal class Windows(
 		}
 
 		fun cancel() {
-			unwanted = true
-			running.get()?.cancel()
+			wanted
+				.guarded {
+					unwanted = true
+					running
+				}?.cancel()
 		}
 
 		fun refuse(why: String) {
@@ -190,7 +209,10 @@ internal class Windows(
 		) : Standing
 	}
 
-	/** Read from any thread (`prism status`, whoever asks for a window); written from the windows'. */
+	/**
+	 * Read from any thread (`prism status`, whoever asks for a window); written from the windows', in one atomic step
+	 * that also says what it was (getAndSet, updateAndGet): an AtomicReference's own.
+	 */
 	private val standing =
 		AtomicReference<Standing>(Standing.Without("none requested yet"))
 

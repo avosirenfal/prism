@@ -188,8 +188,7 @@ class Stored<T> private constructor(
 	 * Why the file could not be read, where it could not when it was last read: the value is then what it was
 	 * before that ([Format.none], as this is made). Null where it could be read, or there was no file.
 	 */
-	@Volatile
-	var problem: String? = problem
+	var problem: String? by Published(problem)
 		private set
 
 	/**

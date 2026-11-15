@@ -11,6 +11,7 @@ import kotlin.io.path.isDirectory
 import kotlin.io.path.listDirectoryEntries
 import kotlin.io.path.name
 import prism.shared.Format
+import prism.shared.Guarded
 import prism.shared.OnDisk
 import prism.shared.Stored
 import prism.shared.orElse
@@ -41,62 +42,65 @@ data class Kept(
 class Away private constructor(
 	private val folder: Path?,
 ) {
-	private val trees = HashMap<VolumeId, Pair<Kept, Block>>()
+	/**
+	 * The trees kept in memory, for an index with no file. What is kept is looked at and changed under it, in a
+	 * folder too, one thread at a time: a tree is not taken while it is being kept.
+	 */
+	private val trees = Guarded(HashMap<VolumeId, Pair<Kept, Block>>())
 
 	/** The file systems whose trees are kept. */
-	@get:Synchronized
 	val kept: List<Kept>
 		get() =
-			folder?.let { stored(it).map { (_, kept) -> kept } }
-				?: trees.values.map { it.first }
+			trees.guarded {
+				folder?.let { stored(it).map { (_, kept) -> kept } } ?: values.map { it.first }
+			}
 
 	/**
 	 * [tree], which is [volume]'s as the index held it where it was mounted, kept from [at] on, in place of any
 	 * kept of it before.
 	 */
-	@Synchronized
 	fun keep(volume: VolumeId, tree: Block, at: Instant) {
 		val kept = Kept(volume, tree.root, at, tree.size)
 
-		if (folder == null) {
-			trees[volume] = kept to tree
-
-			return
-		}
-		try {
-			Files.createDirectories(folder)
-			IndexFile.write(treeOf(folder, volume), Index.of(setOf(tree.root), listOf(tree)))
-			OnDisk(noteOf(folder, volume), NOTE_FORMAT).update { kept }
-		} catch (unwritten: IOException) {
-			forget(volume)
+		trees.guarded {
+			if (folder == null) {
+				this[volume] = kept to tree
+			} else {
+				try {
+					Files.createDirectories(folder)
+					IndexFile.write(treeOf(folder, volume), Index.of(setOf(tree.root), listOf(tree)))
+					OnDisk(noteOf(folder, volume), NOTE_FORMAT).update { kept }
+				} catch (unwritten: IOException) {
+					forget(volume)
+				}
+			}
 		}
 	}
 
 	/**
 	 * [volume]'s tree, rooted at [at], where it is mounted now, and no longer kept; null where none is kept of it.
 	 */
-	@Synchronized
-	fun take(volume: VolumeId, at: Where): Block? {
-		if (folder != null && !treeOf(folder, volume).exists())
-			return null
+	fun take(volume: VolumeId, at: Where): Block? =
+		trees.guarded {
+			if (folder != null && !treeOf(folder, volume).exists())
+				return null
 
-		val tree =
-			if (folder == null)
-				trees[volume]?.second
-			else
-				(IndexFile.read(treeOf(folder, volume)) as? IndexRead.Read)
-					?.index
-					?.let { held -> held.roots.singleOrNull()?.let { held.tree(it) } }
+			val tree =
+				if (folder == null)
+					this[volume]?.second
+				else
+					(IndexFile.read(treeOf(folder, volume)) as? IndexRead.Read)
+						?.index
+						?.let { held -> held.roots.singleOrNull()?.let { held.tree(it) } }
 
-		forget(volume)
+			forget(volume)
 
-		return tree?.let { Index.of(setOf(it.root), listOf(it)).tree(it.root, at) }
-	}
+			tree?.let { Index.of(setOf(it.root), listOf(it)).tree(it.root, at) }
+		}
 
 	/** The trees kept since before [before], let go: which they were. */
-	@Synchronized
 	fun expire(before: Instant): List<Kept> =
-		kept.filter { it.since.isBefore(before) }.onEach { forget(it.volume) }
+		trees.guarded { kept.filter { it.since.isBefore(before) }.onEach { forget(it.volume) } }
 
 	/**
 	 * What was last noted ([note]): kept in a file in the folder, for an index that has one, and held all the same
@@ -118,7 +122,7 @@ class Away private constructor(
 	}
 
 	private fun forget(volume: VolumeId) {
-		trees.remove(volume)
+		trees.guarded { remove(volume) }
 		folder?.let {
 			treeOf(it, volume).deleteIfExists()
 			noteOf(it, volume).deleteIfExists()
