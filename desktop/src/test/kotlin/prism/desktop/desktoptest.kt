@@ -355,6 +355,11 @@ class DesktopTest {
 			command.containsAll(listOf("systemd-run", "--user", "--scope", "--slice=app.slice")),
 			"$command",
 		)
+		// The scope is the application's, by its desktop entry's name (scopetest.kt says how it is read back).
+		assertTrue(
+			command.any { Regex("""--unit=app-prism-viewer-[0-9a-f]{8}\.scope""").matches(it) },
+			"$command",
+		)
 		assertEquals(
 			listOf("viewer") + pictures.map { it.toString() },
 			command

@@ -46,6 +46,15 @@ of its own and leaves it a child of init rather than of prism; where the user's 
 `systemd-run --user --scope --slice=app.slice` too, as desktops start applications, so it is not in prism's group of
 processes either. Closing the window, or stopping the daemon, takes nothing it opened with it.
 
+The scope is named for the application, as systemd's document for desktops names one:
+`app-prism-org.gnome.Evince-1a2b3c4d.scope`, the desktop entry's name (or, for a command no entry starts, its
+program) between the launcher's and eight random digits, with a `-` in it written `\x2d` (`AppScope`,
+`desktop/freedesktop/scope.kt`). The name is what tells xdg-desktop-portal which application is asking for a file
+chooser: it reads the app id it hands the chooser out of the name of the unit the caller is in, and hands an empty
+one for a process in no such unit (one started from a terminal). The launcher starts applications the same way.
+`systemd-cgls --user-unit app.slice` lists the scopes with what runs in each, and
+`systemctl --user list-units 'app-prism-*'` the ones prism started.
+
 **Its window is brought forward.** The launcher gives the command a token of the desktop's in its environment
 (`XDG_ACTIVATION_TOKEN`), made from the double-click itself, which tells the compositor that the user asked for what
 opens. Evince's new window asks with it to be brought forward; an editor running already, given the file by a new start

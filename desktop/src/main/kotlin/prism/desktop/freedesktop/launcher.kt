@@ -4,7 +4,6 @@ import java.io.File
 import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.Path
-import java.util.UUID
 import java.util.concurrent.TimeUnit
 import prism.desktop.Activation
 import prism.desktop.ActivationToken
@@ -23,7 +22,8 @@ import prism.desktop.asChildOfPrism
  * a child of init (or of the user's service manager) rather than of prism. Where the user's systemd is running, it is
  * started in a scope of its own as well (`systemd-run --user --scope`, in `app.slice`, as desktops start
  * applications), so it is not in prism's group of processes either, and a `systemctl --user stop` of prism's service
- * leaves it running.
+ * leaves it running. The scope is named for the application ([AppScope]), which is what tells the desktop's portal
+ * which application a file chooser is for.
  *
  * Once started that way, a command that fails to start fails where prism cannot see it; so the program is looked for
  * on the `PATH` first, and one that is not there is said not to be, rather than started into nothing.
@@ -149,9 +149,8 @@ class DetachedLauncher(
 					"--quiet",
 					"--collect",
 					"--slice=app.slice",
-					"--unit=app-prism-${unitPart(
-						label ?: command.first(),
-					)}-${UUID.randomUUID().toString().take(8)}",
+					// Named for the application, which is how the desktop's portal knows who asks it for a file (scope.kt).
+					"--unit=${AppScope.of(label ?: command.first())}",
 					"--",
 				)
 			else
@@ -159,20 +158,6 @@ class DetachedLauncher(
 
 		return setsid + scope + command
 	}
-
-	/** [text] as a unit name may have it: letters, digits, `:`, `_`, `.` and `-`; anything else made `_`. */
-	private fun unitPart(text: String): String =
-		File(text)
-			.name
-			.removeSuffix(".desktop")
-			.map {
-				if (it.isLetterOrDigit() ||
-					it in ":_.-"
-				)
-					it
-				else
-					'_'
-			}.joinToString("")
 
 	/** [program] where it is, or null where it is not: by its path, or on the `PATH` ([Xdg.program]). */
 	private fun find(program: String): Path? = xdg.program(program)
