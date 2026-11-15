@@ -165,4 +165,16 @@ class FakeHost : LauncherHost {
 	override fun copy(text: String) {
 		asked += "copy $text"
 	}
+
+	override fun openWith(path: Path) {
+		asked += "open with $path"
+	}
+
+	override fun properties(path: Path) {
+		asked += "properties $path"
+	}
+
+	override fun hide(id: String) {
+		asked += "hide $id"
+	}
 }

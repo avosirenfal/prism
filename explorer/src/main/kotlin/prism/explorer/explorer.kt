@@ -238,7 +238,7 @@ sealed interface Choice {
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class Explorer(
-	disk: Disk,
+	private val disk: Disk,
 	finder: Finder?,
 	val desktop: Desktop,
 	clipboard: FileClipboard,
@@ -423,6 +423,15 @@ class Explorer(
 					}
 
 				override fun copy(text: String) = doing { toClipboard(text) }
+
+				override fun openWith(path: Path) = doing { ask(Request.OpenWith(listOf(path))) }
+
+				override fun properties(path: Path) = doing { ask(Request.Properties(listOf(path))) }
+
+				override fun hide(id: String) =
+					preferences.update {
+						it.copy(launcher = it.launcher.copy(hidden = it.launcher.hidden + id))
+					}
 			}
 
 		val session =
@@ -433,6 +442,7 @@ class Explorer(
 					launches,
 					home,
 					terminal = { preferences.preferences.value.terminal },
+					disk = disk,
 					report = report,
 				),
 				host,

@@ -31,9 +31,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isAltPressed
+import androidx.compose.ui.input.key.isCtrlPressed
+import androidx.compose.ui.input.key.isMetaPressed
+import androidx.compose.ui.input.key.isShiftPressed
+import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalDensity
@@ -49,6 +56,8 @@ import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
+import prism.browser.ActionMenuLayer
+import prism.browser.ActionMenuPanel
 import prism.browser.Bindings
 import prism.browser.Chord
 import prism.browser.Divider
@@ -58,6 +67,7 @@ import prism.browser.GlyphIcon
 import prism.browser.KeyHint
 import prism.browser.LocalPalette
 import prism.browser.LocalType
+import prism.browser.MenuLine
 import prism.browser.QueryHelpPanel
 import prism.browser.Radius
 import prism.browser.ResultList
@@ -65,6 +75,7 @@ import prism.browser.ResultText
 import prism.browser.Scaled
 import prism.browser.Space
 import prism.browser.Spinner
+import prism.browser.capsOf
 import prism.browser.glyph
 import prism.browser.times
 import prism.preferences.LauncherPreferences
@@ -78,6 +89,10 @@ import prism.window.LocalNativeWindow
  * keyboard throughout: the arrows move through the results from it, the list scrolling to keep the one they are on in
  * sight, and every key is one the user can bind again (bindings.kt). How a query is written, asked for (a bare `?`),
  * is shown in place of all of that, in the same window, until it is left.
+ *
+ * The right arrow on a result (once the caret is at the end of what is typed), or a right click on one, shows what
+ * can be done to it as a menu by its row, in the same window: the arrows and Enter are the menu's while it is open,
+ * and the left arrow, Escape or a click elsewhere puts it away.
  */
 
 /** How long the launcher's window is without the keyboard before it is taken to have lost it, and put away. */
@@ -213,35 +228,78 @@ fun LauncherPane(
 					RoundedCornerShape(LauncherDims.corner - LauncherDims.edge)
 		}
 
-	Column(
-		Modifier
-			.fillMaxSize()
-			.background(palette.border, outer)
-			.padding(LauncherDims.edge)
-			.clip(inner)
-			.background(palette.overlay)
-			.onPreviewKeyEvent { key ->
-				// While how a query is written is shown, the one key that is the launcher's is the one that leaves
-				// it: the rest are for what is not there, and are the page's own to have (its Escape, its scrolling).
-				val action =
-					(Chord.of(key)?.let(bindings::action) as? LauncherAction)
-						?.takeIf { key.type == KeyEventType.KeyDown }
-						?.takeIf { !state.help || it == LauncherAction.Dismiss }
+	val menu = state.menu
+	// Where the row the arrows are on is, for its menu to be drawn by: not known again until the row they have moved to
+	// says where it is, so a menu is never drawn by the row they were on.
+	var anchor by remember(state.highlighted) { mutableStateOf<Rect?>(null) }
 
-				action?.let { onEvent(eventOf(it, state.preferences.rows.number - 1)) }
+	Box(Modifier.fillMaxSize()) {
+		Column(
+			Modifier
+				.fillMaxSize()
+				.background(palette.border, outer)
+				.padding(LauncherDims.edge)
+				.clip(inner)
+				.background(palette.overlay)
+				.onPreviewKeyEvent { key ->
+					val down = key.type == KeyEventType.KeyDown
+					val plain =
+						!key.isCtrlPressed && !key.isAltPressed && !key.isMetaPressed && !key.isShiftPressed
+					val atEnd = typed.selection.collapsed && typed.selection.end == typed.text.length
 
-				action != null
-			}.testTag("launcher"),
-	) {
-		if (state.help)
-			QueryHelpPanel(
-				onTry = { onEvent(LauncherEvent.Tried(it)) },
-				onClose = { onEvent(LauncherEvent.HelpClosed) },
-				Modifier.weight(1f),
-				fills = true,
-			)
-		else
-			Found(state, bindings, typed, field, onTyped, onEvent)
+					// A menu open: the left arrow puts it away, and is not the caret's.
+					if (down && menu != null && plain && key.key == Key.DirectionLeft) {
+						onEvent(LauncherEvent.MenuClosed)
+
+						return@onPreviewKeyEvent true
+					}
+
+					// While how a query is written is shown, the one key that is the launcher's is the one that
+					// leaves it: the rest are for what is not there, and are the page's own to have (its Escape,
+					// its scrolling). The right arrow is the caret's while the caret has somewhere to go.
+					val action =
+						(Chord.of(key)?.let(bindings::action) as? LauncherAction)
+							?.takeIf { down }
+							?.takeIf { !state.help || it == LauncherAction.Dismiss }
+							?.takeUnless {
+								it == LauncherAction.ShowActions &&
+									plain &&
+									key.key == Key.DirectionRight &&
+									!atEnd
+							}
+
+					action?.let { onEvent(eventOf(it, state.preferences.rows.number - 1)) }
+
+					action != null
+				}.testTag("launcher"),
+		) {
+			if (state.help)
+				QueryHelpPanel(
+					onTry = { onEvent(LauncherEvent.Tried(it)) },
+					onClose = { onEvent(LauncherEvent.HelpClosed) },
+					Modifier.weight(1f),
+					fills = true,
+				)
+			else
+				Found(state, bindings, typed, field, onTyped, { anchor = it }, onEvent)
+		}
+		if (menu != null)
+			ActionMenuLayer(anchor, { onEvent(LauncherEvent.MenuClosed) }) {
+				ActionMenuPanel(
+					menu.actions.actions.map { action ->
+						MenuLine(
+							action.label,
+							action.key
+								?.let(bindings::of)
+								?.firstOrNull()
+								?.let(::capsOf)
+								.orEmpty(),
+						)
+					},
+					menu.actions.on,
+					{ onEvent(LauncherEvent.MenuChosen(it)) },
+				)
+			}
 	}
 
 	// The field has the keyboard as the launcher opens, and again when what was shown in its place is left.
@@ -259,6 +317,7 @@ private fun ColumnScope.Found(
 	typed: TextFieldValue,
 	field: FocusRequester,
 	onTyped: (TextFieldValue) -> Unit,
+	onAnchor: (Rect) -> Unit,
 	onEvent: (LauncherEvent) -> Unit,
 ) {
 	QueryField(state, typed, field, onTyped)
@@ -275,6 +334,8 @@ private fun ColumnScope.Found(
 				tag = "launcher-results",
 				heading = state::headingAt,
 				rowTag = { "entry:${state.entries[it].key}" },
+				onMenu = { onEvent(LauncherEvent.MenuOpened(it)) },
+				onPlaced = onAnchor,
 				onChoose = { onEvent(LauncherEvent.Chosen(it)) },
 			) { at ->
 				val entry = state.entries[at]
@@ -454,12 +515,13 @@ private fun Footer(state: LauncherState, bindings: Bindings) {
 	) {
 		// A search that went wrong is said as what goes wrong with something chosen is.
 		val wrong =
-			state.notice
+			(state.notice as? LauncherNotice.Failed)?.text
 				?: "File search failed. This is a bug in prism; details are in its log."
 					.takeIf { state.files is FilesFound.Failed }
 
 		Text(
 			wrong
+				?: (state.notice as? LauncherNotice.Done)?.text
 				?: when {
 					state.entries.isEmpty() -> ""
 					files != null && files.total > files.files.size ->
@@ -498,5 +560,6 @@ private fun hintsFor(entry: Entry?): List<Pair<LauncherAction, String>> =
 		(LauncherAction.Reveal to "Show in folder").takeIf {
 			entry is Entry.App || entry is Entry.Action || entry is Entry.File
 		},
+		(LauncherAction.ShowActions to "Actions").takeIf { entry != null },
 		LauncherAction.Settings to "Settings",
 	)

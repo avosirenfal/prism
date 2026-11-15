@@ -29,7 +29,14 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.changedToDown
+import androidx.compose.ui.input.pointer.isSecondaryPressed
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.selected
@@ -48,7 +55,9 @@ import androidx.compose.ui.unit.dp
 /**
  * [count] results, each drawn by [row] in a row [rowHeight] tall, at most [height] of them in sight, the rest reached
  * by scrolling: with the wheel, or by moving [highlighted] (the row the arrows are on; none while they are on none),
- * which is kept in sight. [heading] is what is written over a result that begins a group; [onChoose] is a row clicked.
+ * which is kept in sight. [heading] is what is written over a result that begins a group; [onChoose] is a row clicked,
+ * and [onMenu] one clicked with the other button, where that asks for anything. [onPlaced] is told where in the window
+ * the highlighted row is, each time that changes: what a menu of that result is drawn by ([ActionMenuLayer]).
  */
 @Composable
 fun ResultList(
@@ -60,6 +69,8 @@ fun ResultList(
 	tag: String = "results-list",
 	heading: (Int) -> String? = { null },
 	rowTag: (Int) -> String = { "result:$it" },
+	onMenu: ((Int) -> Unit)? = null,
+	onPlaced: ((Rect) -> Unit)? = null,
 	onChoose: (Int) -> Unit,
 	row: @Composable RowScope.(Int) -> Unit,
 ) {
@@ -90,7 +101,19 @@ fun ResultList(
 					ResultRow(
 						at == highlighted,
 						rowHeight,
-						Modifier.testTag(rowTag(at)),
+						Modifier
+							.testTag(rowTag(at))
+							.then(
+								if (onMenu == null)
+									Modifier
+								else
+									Modifier.onSecondaryPress { onMenu(at) },
+							).then(
+								if (onPlaced == null || at != highlighted)
+									Modifier
+								else
+									Modifier.onGloballyPositioned { onPlaced(it.boundsInRoot()) },
+							),
 						{ onChoose(at) },
 					) { row(at) }
 				}
@@ -104,6 +127,26 @@ fun ResultList(
 			)
 	}
 }
+
+/** [onPress] told of each press of the mouse's other button on this. */
+private fun Modifier.onSecondaryPress(onPress: () -> Unit): Modifier =
+	pointerInput(onPress) {
+		// Every press is looked at, since Compose's own wait for a press waits only for the primary button.
+		awaitPointerEventScope {
+			while (true) {
+				val event = awaitPointerEvent()
+				val down = event.changes.firstOrNull { it.changedToDown() }
+
+				if (event.type == PointerEventType.Press &&
+					event.buttons.isSecondaryPressed &&
+					down != null
+				) {
+					down.consume()
+					onPress()
+				}
+			}
+		}
+	}
 
 /** Whether there is more than is in sight, either way. */
 private val LazyListState.canScroll: Boolean get() = canScrollForward || canScrollBackward

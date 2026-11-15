@@ -6,15 +6,19 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.test.ComposeUiTest
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.assertTextContains
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performKeyInput
+import androidx.compose.ui.test.performMouseInput
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.pressKey
+import androidx.compose.ui.test.rightClick
 import androidx.compose.ui.test.runComposeUiTest
 import androidx.compose.ui.test.withKeyDown
 import java.nio.file.Files
@@ -376,7 +380,7 @@ class LauncherViewTest {
 			onNodeWithTag("entry:app:foot.desktop").performClick()
 			until { session.state.value.notice != null }
 			assertEquals(
-				"Couldn't start Foot. It is not installed.",
+				LauncherNotice.Failed("Couldn't start Foot. It is not installed."),
 				session.state.value.notice,
 			)
 			assertEquals(emptyList<String>(), host.asked.toList())
@@ -539,6 +543,30 @@ class LauncherViewTest {
 
 		assertTrue(help.help)
 
+		// A result's menu: an application's, under its row; one at the foot of the window, where it has no room under
+		// its row and is over it; and a file's.
+		val actions =
+			step(step(first, LauncherEvent.MenuOpened()).state, LauncherEvent.Moved(1)).state
+
+		val above = step(typed, LauncherEvent.MenuOpened(8)).state
+
+		val file =
+			step(
+				step(first, LauncherEvent.Typed("quarterly")).state,
+				LauncherEvent.FilesArrived(
+					"quarterly",
+					typed.entries.filterIsInstance<Entry.File>().take(1),
+					1,
+				),
+			).state.let { found ->
+				step(
+					found,
+					LauncherEvent.MenuOpened(found.entries.indexOfFirst { it is Entry.File }),
+				).state
+			}
+
+		assertTrue(file.menu?.entry is Entry.File)
+
 		val drawn =
 			mapOf(
 				"first" to first,
@@ -547,6 +575,9 @@ class LauncherViewTest {
 				"failed" to failed,
 				"prism" to own,
 				"help" to help,
+				"actions" to actions,
+				"actions-above" to above,
+				"actions-file" to file,
 			)
 
 		val (width, height) = LauncherDims.sizeOf(first.preferences)
@@ -572,4 +603,96 @@ class LauncherViewTest {
 				}
 			}
 	}
+
+	@Test
+	fun theRightArrowShowsWhatCanBeDoneToAResultAndLeftAndEscapeLeaveOnlyTheMenu() =
+		launching { session, _, host, _ ->
+			fun shown(tag: String) = onAllNodes(hasTestTag(tag)).fetchSemanticsNodes().isNotEmpty()
+
+			fun bounds(tag: String) = onNodeWithTag(tag).fetchSemanticsNode().boundsInRoot
+
+			// The menu is just under the row it is of, and inside the window.
+			fun under(row: String): Boolean =
+				(bounds("actions").top - bounds(row).bottom) in 0f..8f &&
+					bounds("actions").right <= bounds("launcher").right
+
+			onNodeWithTag("launcher-query").performTextInput("fire")
+			waitForIdle()
+			onNodeWithTag("entry:app:firefox.desktop").assertIsSelected()
+
+			// The caret is at the end of what is typed: the right arrow shows the result's actions, by its row.
+			press(Key.DirectionRight)
+			waitForIdle()
+			onNodeWithTag("actions").assertIsDisplayed()
+			onNodeWithTag("actions:Open").assertIsSelected()
+			assertEquals(
+				"Firefox",
+				session.state.value.menu
+					?.entry
+					?.title,
+			)
+			assertTrue(under("entry:app:firefox.desktop"))
+
+			// The arrows are the menu's while it is open.
+			press(Key.DirectionDown)
+			waitForIdle()
+			onNodeWithTag("actions:New Window").assertIsSelected()
+			onNodeWithTag("entry:app:firefox.desktop").assertIsSelected()
+
+			// The left arrow puts the menu away, and only the menu.
+			press(Key.DirectionLeft)
+			waitForIdle()
+			assertFalse(shown("actions"))
+			assertEquals("fire", session.state.value.query)
+
+			// With the menu away the left arrow is the caret's, and the right arrow too until the caret is at the
+			// end of what is typed again.
+			press(Key.DirectionLeft)
+			waitForIdle()
+			press(Key.DirectionRight)
+			waitForIdle()
+			assertFalse(shown("actions"))
+			press(Key.DirectionRight)
+			waitForIdle()
+			onNodeWithTag("actions").assertIsDisplayed()
+
+			// Escape puts the menu away, and neither clears what is typed nor closes the launcher.
+			press(Key.Escape)
+			waitForIdle()
+			assertFalse(shown("actions"))
+			assertEquals("fire", session.state.value.query)
+			assertEquals(emptyList<String>(), host.asked.toList())
+
+			// A right click on a result shows its actions too, and a click on one does it.
+			onNodeWithTag("entry:app:firewall.desktop").performMouseInput { rightClick() }
+			waitForIdle()
+			assertEquals(
+				"Firewall Configuration",
+				session.state.value.menu
+					?.entry
+					?.title,
+			)
+			assertTrue(under("entry:app:firewall.desktop"))
+			onNodeWithTag("actions:Copy desktop entry path").performClick()
+			until { "close" in host.asked }
+			assertEquals(
+				listOf("copy /usr/share/applications/firewall.desktop", "close"),
+				host.asked.toList(),
+			)
+		}
+
+	@Test
+	fun whatIsDoneFromAMenuAndStaysSaysWhatCameOfIt() =
+		launching { session, _, host, _ ->
+			onNodeWithTag("launcher-query").performTextInput("firefox")
+			waitForIdle()
+			press(Key.DirectionRight)
+			waitForIdle()
+			onNodeWithTag("actions:Hide from launcher").performClick()
+			until { session.state.value.notice != null }
+			waitForIdle()
+			onNodeWithTag("launcher-status")
+				.assertTextEquals("“Firefox” is hidden. Show it again in Settings.")
+			assertEquals(listOf("hide firefox.desktop"), host.asked.toList())
+		}
 }

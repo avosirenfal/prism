@@ -24,17 +24,24 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isAltPressed
+import androidx.compose.ui.input.key.isCtrlPressed
+import androidx.compose.ui.input.key.isMetaPressed
+import androidx.compose.ui.input.key.isShiftPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
@@ -44,6 +51,7 @@ import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.input.OffsetMapping
 import androidx.compose.ui.text.input.TransformedText
@@ -61,6 +69,7 @@ import prism.index.query.QueryText
 import prism.index.query.ReadQuery
 import prism.index.query.Role
 import prism.window.WindowLocals
+import prism.preferences.Role as WindowRole
 
 /*
  * The search of the index, drawn over the picker as Everything's and Listary's are: a field across the top of a
@@ -73,16 +82,32 @@ import prism.window.WindowLocals
  *
  * A `?` beside the field shows how a query is written ([QueryHelpPanel]) in place of all of that, and not over it:
  * left by its × or by Escape, or by clicking one of its queries, which is typed into the field.
+ *
+ * The right arrow on what the arrows are on (once the caret is at the end of what is typed, where it has nowhere to
+ * go), or a right click on anything listed, shows what can be done to it as a menu by its row ([ActionMenuPanel]):
+ * the arrows and Enter are the menu's while it is open, and the left arrow, Escape or a click elsewhere puts it away.
+ * Which chord shows it is the user's to say ([Action.ShowActions]).
  */
 
 /** The search's window over the picker, for [search] as it stands; where a match is said from `~`, [home]. */
 @Composable
-internal fun SearchLayer(search: Search, home: Path, onEvent: (BrowserEvent) -> Unit) {
+internal fun SearchLayer(
+	search: Search,
+	home: Path,
+	role: WindowRole,
+	onEvent: (BrowserEvent) -> Unit,
+) {
 	val palette = LocalPalette.current
 	val field = remember { FocusRequester() }
 	val shape = RoundedCornerShape(Radius.large)
 	val bindings = LocalBindings.current
 	val helping = (search as? Search.Ready)?.help == true
+	val menu = (search as? Search.Ready)?.menu
+	// Where the row the arrows are on is, for its menu to be drawn by: not known again until the row they have moved to
+	// says where it is, so a menu is never drawn by the row they were on.
+	var anchor by remember((search as? Search.Ready)?.highlighted) {
+		mutableStateOf<Rect?>(null)
+	}
 
 	Popup(
 		alignment = Alignment.TopCenter,
@@ -109,8 +134,8 @@ internal fun SearchLayer(search: Search, home: Path, onEvent: (BrowserEvent) -> 
 						.border(1.dp, palette.border, shape)
 						// A tap inside is not a tap outside.
 						.pointerInput(Unit) { detectTapGestures { } }
-						// Escape leaves how a query is written for the search, and the search for the browser,
-						// whatever in the window has the keyboard. The chord that opens it, pressed while it is open
+						// Escape leaves a result's menu for the results, how a query is written for the search, and
+						// the search for the browser, whatever in the window has the keyboard. The chord that opens it, pressed while it is open
 						// (the window holds the keyboard, so the browser behind it is not told), starts the search
 						// again: the field emptied, and the keyboard in it.
 						.onPreviewKeyEvent {
@@ -119,6 +144,7 @@ internal fun SearchLayer(search: Search, home: Path, onEvent: (BrowserEvent) -> 
 							val again = down && Chord.of(it)?.let(bindings::window) == Action.SearchIndex
 
 							when {
+								escape && menu != null -> onEvent(BrowserEvent.MatchMenuClosed)
 								escape && helping -> onEvent(BrowserEvent.ToggledSearchHelp)
 								escape -> onEvent(BrowserEvent.ClosedSearch)
 								again -> onEvent(BrowserEvent.OpenedSearch)
@@ -136,9 +162,20 @@ internal fun SearchLayer(search: Search, home: Path, onEvent: (BrowserEvent) -> 
 									onClose = { onEvent(BrowserEvent.ToggledSearchHelp) },
 								)
 							else
-								Searching(search, home, field, onEvent)
+								Searching(search, home, role, field, { anchor = it }, onEvent)
 					}
 				}
+				// Over the window and not in it: a menu is as tall as it is, however few results there are.
+				if (menu != null)
+					ActionMenuLayer(anchor, { onEvent(BrowserEvent.MatchMenuClosed) }) {
+						ActionMenuPanel(
+							menu.actions.actions.mapIndexed { at, action ->
+								MenuLine(action.label, listOf("↵").takeIf { at == 0 }.orEmpty())
+							},
+							menu.actions.on,
+							{ onEvent(BrowserEvent.MatchActionChosen(it)) },
+						)
+					}
 			}
 			// The keyboard in the field whenever the field is what is shown: as the window opens, and back from the help.
 			LaunchedEffect(helping) {
@@ -169,26 +206,43 @@ private fun Unavailable(
 private fun Searching(
 	search: Search.Ready,
 	home: Path,
+	role: WindowRole,
 	field: FocusRequester,
+	onAnchor: (Rect) -> Unit,
 	onEvent: (BrowserEvent) -> Unit,
 ) {
 	val palette = LocalPalette.current
 	val type = LocalType.current
+	val bindings = LocalBindings.current
 	val read = search.read
 	val colouring = remember(read, palette) { QueryColouring(read, palette) }
 	val tall = type.control + Space.s
+	// What is selected in the field, as it shows it: the right arrow is the caret's until the caret is at the end.
+	var selection by remember { mutableStateOf(TextRange(search.text.length)) }
 
 	fun key(key: KeyEvent): Boolean {
 		if (key.type != KeyEventType.KeyDown)
 			return false
 
+		val menu = search.menu != null
+		val plain =
+			!key.isCtrlPressed && !key.isAltPressed && !key.isMetaPressed && !key.isShiftPressed
+		val atEnd = selection.collapsed && selection.end == search.text.length
+		// The field's own key for moving the caret forward, while it has somewhere to move it.
+		val carets = plain && key.key == Key.DirectionRight && !atEnd
+		val shows = Chord.of(key)?.let(bindings::search) == Action.ShowActions
+
 		val event =
-			when (key.key) {
-				Key.DirectionDown -> BrowserEvent.MatchMoved(1)
-				Key.DirectionUp -> BrowserEvent.MatchMoved(-1)
-				Key.PageDown -> BrowserEvent.MatchMoved(Search.SHOWN)
-				Key.PageUp -> BrowserEvent.MatchMoved(-Search.SHOWN)
-				Key.Enter, Key.NumPadEnter -> BrowserEvent.SearchEntered
+			when {
+				// A menu open: the left arrow puts it away, and the right one has nothing further to show.
+				menu && plain && key.key == Key.DirectionLeft -> BrowserEvent.MatchMenuClosed
+				menu && shows -> return true
+				shows && !carets && search.highlighted != null -> BrowserEvent.MatchMenuOpened()
+				key.key == Key.DirectionDown -> BrowserEvent.MatchMoved(1)
+				key.key == Key.DirectionUp -> BrowserEvent.MatchMoved(-1)
+				key.key == Key.PageDown -> BrowserEvent.MatchMoved(Search.SHOWN)
+				key.key == Key.PageUp -> BrowserEvent.MatchMoved(-Search.SHOWN)
+				key.key == Key.Enter || key.key == Key.NumPadEnter -> BrowserEvent.SearchEntered
 				else -> null
 			}
 
@@ -218,6 +272,7 @@ private fun Searching(
 			onKey = ::key,
 			colouring = colouring,
 			style = type.body.times(1.15f),
+			onSelection = { selection = it },
 		)
 		HelpButton(tall) { onEvent(BrowserEvent.ToggledSearchHelp) }
 	}
@@ -268,6 +323,8 @@ private fun Searching(
 					is Search.Listed.Match -> "match:${listed.matches.nameOf(listed.rank)}"
 				}
 			},
+			onMenu = { onEvent(BrowserEvent.MatchMenuOpened(it)) },
+			onPlaced = onAnchor,
 			onChoose = { onEvent(BrowserEvent.MatchChosen(it)) },
 		) { at ->
 			when (val listed = search.listedAt(at)) {
@@ -277,7 +334,7 @@ private fun Searching(
 			}
 		}
 
-	Footer(search, onEvent)
+	Footer(search, role, onEvent)
 }
 
 /** A line the window says in place of what it would list. */
@@ -344,9 +401,14 @@ private fun HelpButton(size: androidx.compose.ui.unit.Dp, onClick: () -> Unit) {
  * to every match in the listing.
  */
 @Composable
-private fun Footer(search: Search.Ready, onEvent: (BrowserEvent) -> Unit) {
+private fun Footer(
+	search: Search.Ready,
+	role: WindowRole,
+	onEvent: (BrowserEvent) -> Unit,
+) {
 	val palette = LocalPalette.current
 	val type = LocalType.current
+	val bindings = LocalBindings.current
 	val matches = (search.found as? Finding.Matched)?.matches
 
 	Divider()
@@ -371,10 +433,16 @@ private fun Footer(search: Search.Ready, onEvent: (BrowserEvent) -> Unit) {
 			maxLines = 1,
 			modifier = Modifier.weight(1f).testTag("search-count"),
 		)
-		if (search.listed > 0)
+		// Said until the arrows are on something: by then they are known, and the room is for what they are on.
+		if (search.listed > 0 && search.highlighted == null)
 			KeyHint("Move", listOf("↑", "↓"))
-		if (search.highlighted != null)
-			KeyHint("Open", listOf("↵"))
+		// What Enter does to what the arrows are on, said as its menu says it: the first of its actions.
+		search.highlighted?.let(search::listedAt)?.let { listed ->
+			actionsOf(listed, role, terminal = false)
+				.firstOrNull()
+				?.let { KeyHint(it.label, listOf("↵")) }
+			bindings.of(Action.ShowActions).firstOrNull()?.let { KeyHint("Actions", it) }
+		}
 		// Every match in the listing: what Enter does from the field, and a click does wherever the arrows are.
 		if (matches != null && matches.size > 0 && search.searchable)
 			Box(

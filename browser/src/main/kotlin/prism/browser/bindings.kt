@@ -44,6 +44,12 @@ enum class Scope(
 
 	/** Whatever has the keyboard first, and the window where it does not use the key. */
 	Leftover("unless a text field uses the key"),
+
+	/**
+	 * The search's window, which has the keyboard while it is open: what is bound here is heard nowhere else, and
+	 * nothing bound elsewhere is heard here, so a chord can be one thing here and another in the window behind.
+	 */
+	Search("in the search window"),
 }
 
 /**
@@ -147,6 +153,7 @@ enum class Action(
 	EditAddress("Edit location", Scope.Window, KeyGroups.Places, "Ctrl+L", "Alt+D"),
 	SearchFolder("Search in folder", Scope.Window, KeyGroups.Finding, "Ctrl+F", "F3"),
 	SearchIndex("Search everywhere", Scope.Window, KeyGroups.Finding, "F2"),
+	ShowActions("Show actions", Scope.Search, KeyGroups.Finding, "Right"),
 	Refresh("Refresh", Scope.Window, KeyGroups.View, "F5", "Ctrl+R"),
 	ToggleHidden("Show hidden files", Scope.Window, KeyGroups.View, "Ctrl+H"),
 	ViewList("List view", Scope.Window, KeyGroups.View, "Ctrl+1"),
@@ -461,6 +468,9 @@ class Bindings(
 				bound.filter { it.scope == Scope.Window || it.scope == Scope.Leftover }
 		}
 
+	/** What [chord] does in the search's window, which has the keyboard while it is open. */
+	fun search(chord: Chord): Action? = find(chord) { it == Scope.Search } as? Action
+
 	/** The cursor's move [chord] makes, Shift and Ctrl aside. */
 	fun movement(chord: Chord): Action? =
 		find(chord.bare) { it == Scope.Movement } as? Action
@@ -520,13 +530,22 @@ class Bindings(
 	/** These, with every action's chords its defaults again. */
 	fun defaults(): Bindings = Bindings(chords.keys.associateWith { it.defaults })
 
-	/** Whether [its], one of [other]'s chords, is [chord] of [action]'s: the same, or, for a move, the same key. */
+	/**
+	 * Whether [its], one of [other]'s chords, is [chord] of [action]'s: the same, or, for a move, the same key; and
+	 * heard where [action]'s is. What is heard only in the search's window shares no chord with what is heard
+	 * outside it.
+	 */
 	private fun same(action: Bindable, chord: Chord, other: Bindable, its: Chord): Boolean =
-		its == chord ||
+		action.inSearch == other.inSearch &&
 			(
-				(other.moves || action.moves) &&
-					its.bare == chord.bare
+				its == chord ||
+					(
+						(other.moves || action.moves) &&
+							its.bare == chord.bare
+					)
 			)
+
+	private val Bindable.inSearch: Boolean get() = (this as? Scoped)?.scope == Scope.Search
 
 	/** What the preferences say of these: each action whose chords are not its defaults. */
 	fun differences(): Map<String, List<String>> =

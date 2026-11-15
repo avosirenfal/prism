@@ -255,7 +255,14 @@ fun FileBrowser(
 				else
 					Footer(state, stops, onEvent)
 			}
-			state.search.takeIf { it.open }?.let { SearchLayer(it, state.home, onEvent) }
+			state.search.takeIf { it.open }?.let {
+				SearchLayer(
+					it,
+					state.home,
+					state.role,
+					onEvent,
+				)
+			}
 			if (state.arrangingQuick)
 				QuickAccessLayer(state.sidebar, onEvent)
 			state.notice?.let { NoticeLayer(it, onEvent) }

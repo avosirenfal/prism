@@ -225,6 +225,8 @@ fun capsOf(chord: Chord): List<String> =
 			"Comma" -> ","
 			"Up" -> "↑"
 			"Down" -> "↓"
+			"Left" -> "←"
+			"Right" -> "→"
 			else -> it
 		}
 	}

@@ -565,6 +565,242 @@ class FindTest {
 		assertEquals(1, after(asked, BrowserEvent.MatchMoved(1)).ready.highlighted)
 	}
 
+	/** Where the match named [name] is in what the search's window lists. */
+	private fun BrowserState.listedAt(name: String): Int =
+		ready.own.size + listed().indexOf(name)
+
+	/** What the menu of the thing listed [at] says can be done to it. */
+	private fun BrowserState.actions(at: Int): List<String> =
+		after(this, BrowserEvent.MatchMenuOpened(at))
+			.ready.menu!!
+			.actions.actions
+			.map { it.label }
+
+	/** The action labelled [label] of the thing listed [at] done, from its menu. */
+	private fun BrowserState.acting(at: Int, label: String): Step =
+		after(this, BrowserEvent.MatchMenuOpened(at)).let {
+			step(
+				it,
+				BrowserEvent.MatchActionChosen(
+					it.ready.menu!!.actions.actions.indexOfFirst { action ->
+						action.label ==
+							label
+					},
+				),
+			)
+		}
+
+	@Test
+	fun whatCanBeDoneToAMatchIsItsMenuWithWhatEnterDoesFirst() {
+		made("Documents/notes.md", "Documents/Notes/", "settings.json")
+
+		val explorer = searched(picker(Choosing.Exploring()), "notes")
+		val picking = searched(picker(), "notes")
+
+		// An explorer's Enter shows a file where it is, and goes into a folder; everything else follows.
+		assertEquals(
+			listOf(
+				"Show in folder",
+				"Open",
+				"Open with…",
+				"Copy path",
+				"Copy name",
+				"Open terminal here",
+				"Properties",
+				"Move to trash",
+			),
+			explorer.actions(explorer.listedAt("notes.md")),
+		)
+		assertEquals(
+			listOf(
+				"Open",
+				"Show in folder",
+				"Copy path",
+				"Copy name",
+				"Open terminal here",
+				"Properties",
+				"Move to trash",
+			),
+			explorer.actions(explorer.listedAt("Notes")),
+		)
+		// A picker is another application's window: it goes to things, and says what they are called.
+		assertEquals(
+			listOf("Go to", "Copy path", "Copy name"),
+			picking.actions(picking.listedAt("notes.md")),
+		)
+		assertEquals(
+			listOf("Go to", "Show in folder", "Copy path", "Copy name"),
+			picking.actions(picking.listedAt("Notes")),
+		)
+		// One of prism's own is only done, so the right arrow never does nothing.
+		assertEquals(
+			listOf("Open"),
+			searched(picker(Choosing.Exploring()), "settings").actions(0),
+		)
+		// A terminal that cannot be opened in a folder is not offered one to open in.
+		assertFalse(
+			MatchAction.Terminal in
+				actionsOf(
+					explorer.ready.listedAt(explorer.listedAt("Notes"))!!,
+					explorer.role,
+					terminal = false,
+				),
+		)
+	}
+
+	@Test
+	fun theMenuOfAMatchOpensOnItAndTheArrowsAndEnterAreItsOwnWhileItIsOpen() {
+		made("Documents/notes.md", "Documents/Notes/")
+
+		val typed = searched(picker(Choosing.Exploring()), "notes")
+
+		// From the field, with the arrows on nothing, there is nothing to have a menu.
+		assertNull(after(typed, BrowserEvent.MatchMenuOpened()).ready.menu)
+
+		val on = after(typed, BrowserEvent.MatchMoved(1))
+		val opened = after(on, BrowserEvent.MatchMenuOpened())
+		val menu = opened.ready.menu!!
+
+		assertEquals(on.ready.listedAt(0), menu.of)
+		assertEquals(0, menu.actions.on)
+		assertTrue(opened.search.open)
+
+		// The arrows move through its actions, stopping at its ends, and the match stays the one it is.
+		val down = after(opened, BrowserEvent.MatchMoved(1), BrowserEvent.MatchMoved(1))
+
+		assertEquals(
+			2,
+			down.ready.menu
+				?.actions
+				?.on,
+		)
+		assertEquals(0, down.ready.highlighted)
+		assertEquals(
+			menu.actions.actions.lastIndex,
+			after(down, BrowserEvent.MatchMoved(40))
+				.ready.menu
+				?.actions
+				?.on,
+		)
+		assertEquals(
+			0,
+			after(down, BrowserEvent.MatchMoved(-40))
+				.ready.menu
+				?.actions
+				?.on,
+		)
+
+		// Left, the search is as it was; typing leaves it too.
+		val left = after(down, BrowserEvent.MatchMenuClosed)
+
+		assertNull(left.ready.menu)
+		assertTrue(left.search.open)
+		assertEquals(0, left.ready.highlighted)
+		assertNull(after(down, BrowserEvent.SearchTyped("note")).ready.menu)
+
+		// A right click on another match: its menu, and the arrows on it.
+		val other = after(down, BrowserEvent.MatchMenuOpened(1))
+
+		assertEquals(1, other.ready.highlighted)
+		assertEquals(other.ready.listedAt(1), other.ready.menu?.of)
+
+		// Enter does the action the arrows are on, and the window is put away.
+		val entered =
+			step(after(opened, BrowserEvent.MatchMoved(3)), BrowserEvent.SearchEntered)
+
+		assertFalse(entered.state.search.open)
+		assertNull((entered.state.search as Search.Ready).menu)
+		assertEquals(1, entered.effects.count { it is Effect.Copy })
+	}
+
+	@Test
+	fun eachActionOfAMatchIsDoneAndTheWindowPutAway() {
+		made("Documents/notes.md", "Documents/Notes/inside.txt", "settings.json")
+
+		val explorer = searched(picker(Choosing.Exploring()), "notes")
+		val file = explorer.listedAt("notes.md")
+		val folder = explorer.listedAt("Notes")
+		val path = root.resolve("Documents/notes.md")
+
+		fun effects(at: Int, label: String): List<Effect> =
+			explorer.acting(at, label).also { assertFalse(it.state.search.open, label) }.effects
+
+		// What Enter does: a file shown in its folder, selected; a folder gone into.
+		val shown = explorer.acting(file, "Show in folder").settled(disk, finder)
+
+		assertEquals(root.resolve("Documents"), shown.folder)
+		assertEquals(listOf("notes.md"), shown.chosenRows.map { it.name })
+		assertEquals(
+			root.resolve("Documents/Notes"),
+			explorer.acting(folder, "Open").settled(disk, finder).folder,
+		)
+
+		// A folder shown in the folder it is in.
+		val revealed = explorer.acting(folder, "Show in folder").settled(disk, finder)
+
+		assertEquals(root.resolve("Documents"), revealed.folder)
+		assertEquals(listOf("Notes"), revealed.chosenRows.map { it.name })
+
+		assertEquals(listOf<Effect>(Effect.Open(listOf(path))), effects(file, "Open"))
+		assertEquals(
+			listOf<Effect>(Effect.Ask(Request.OpenWith(listOf(path)))),
+			effects(file, "Open with…"),
+		)
+		assertEquals(listOf<Effect>(Effect.Copy("$path")), effects(file, "Copy path"))
+		assertEquals(listOf<Effect>(Effect.Copy("notes.md")), effects(file, "Copy name"))
+		// A terminal in the folder a file is in, and in a folder itself.
+		assertEquals(
+			listOf<Effect>(Effect.Terminal(root.resolve("Documents"))),
+			effects(file, "Open terminal here"),
+		)
+		assertEquals(
+			listOf<Effect>(Effect.Terminal(root.resolve("Documents/Notes"))),
+			effects(folder, "Open terminal here"),
+		)
+		assertEquals(
+			listOf<Effect>(Effect.Ask(Request.Properties(listOf(path)))),
+			effects(file, "Properties"),
+		)
+		// To the trash as the listing's own Delete moves it there, to be undone as that is.
+		assertEquals(
+			listOf<Effect>(Effect.Make(Change.Trash(listOf(path)))),
+			effects(file, "Move to trash"),
+		)
+
+		// One of prism's own, done.
+		assertEquals(
+			listOf<Effect>(Effect.Ask(Request.Preferences)),
+			searched(picker(Choosing.Exploring()), "settings").acting(0, "Open").effects,
+		)
+
+		// A picker goes to a file as its Enter does: its folder, with the file selected.
+		val picking = searched(picker(), "notes")
+		val gone = picking.acting(picking.listedAt("notes.md"), "Go to").settled(disk, finder)
+
+		assertEquals(root.resolve("Documents"), gone.folder)
+		assertEquals(listOf("notes.md"), gone.chosenRows.map { it.name })
+	}
+
+	@Test
+	fun showingActionsIsAChordOfTheSearchWindowsAloneAndTheUsersToBindAgain() {
+		val bindings = Bindings.DEFAULT
+		val right = Chord.parse("Right")!!
+
+		assertEquals(Action.ShowActions, bindings.search(right))
+		// The same key still moves the listing's cursor: the two are never heard in one place.
+		assertEquals(Action.MoveRight, bindings.movement(right))
+		assertEquals(emptyList<Bindable>(), bindings.clashes(Action.ShowActions, right))
+		assertEquals("in the search window", Action.ShowActions.where)
+		// A picker has it too.
+		assertTrue(Action.ShowActions in Action.PICKING)
+
+		val bound = bindings.bound(Action.ShowActions, 0, Chord.parse("Ctrl+O")!!)
+
+		assertEquals(Action.ShowActions, bound.search(Chord.parse("Ctrl+O")!!))
+		assertNull(bound.search(right))
+		assertEquals(mapOf("ShowActions" to listOf("Ctrl+O")), bound.differences())
+	}
+
 	@Test
 	fun theSearchAndItsResultsDraw() {
 		made(
@@ -607,6 +843,19 @@ class FindTest {
 				"search-own" to searched(picker(Choosing.Exploring()), "prism"),
 				"search-own-one" to searched(picker(Choosing.Exploring()), "settings"),
 				"search-how" to searched(picker(Choosing.Exploring()), "?"),
+				"search-actions" to
+					after(
+						searched(picker(Choosing.Exploring()), "report -ext:tmp"),
+						BrowserEvent.MatchMoved(2),
+						BrowserEvent.MatchMenuOpened(),
+						BrowserEvent.MatchMoved(1),
+					),
+				"search-actions-last" to
+					after(
+						searched(picker(), "report -ext:tmp"),
+						BrowserEvent.MatchMoved(5),
+						BrowserEvent.MatchMenuOpened(),
+					),
 				"gallery" to gallery,
 			)
 

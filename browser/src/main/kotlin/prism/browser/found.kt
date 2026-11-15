@@ -89,6 +89,9 @@ sealed interface Search {
 	 *
 	 * What the window lists is prism's own things that [text] asks for ([own], of those this window [offers]), and
 	 * then the matches: one list, which the arrows go through from its first.
+	 *
+	 * [menu] is the menu of what can be done to one of them, while it is open: the arrows and Enter are the menu's
+	 * then, and it is put away by anything that changes what is listed.
 	 */
 	data class Ready(
 		val text: String = "",
@@ -100,6 +103,7 @@ sealed interface Search {
 		val help: Boolean = false,
 		/** Which of prism's own things a search here can find: an explorer's, or a picker's fewer. */
 		val offers: List<Own> = emptyList(),
+		val menu: Menu? = null,
 	) : Search {
 		/** Prism's own things that [text] asks for, the best first. */
 		val own: List<Own> by lazy { Own.found(text, offers) }
@@ -129,10 +133,19 @@ sealed interface Search {
 
 		/** This search with [text] typed into its field: the arrows on the first of prism's own it asks for, if any. */
 		fun typed(text: String): Ready =
-			copy(text = text, showing = false, help = false).let {
+			copy(text = text, showing = false, help = false, menu = null).let {
 				it.copy(highlighted = 0.takeIf { _ -> it.own.isNotEmpty() })
 			}
 	}
+
+	/**
+	 * The menu of what can be done to something the window lists: what it is [of], and its [actions], with the one
+	 * the arrows are on. It holds what it is of, so it is never a menu of nothing, whatever is listed by now.
+	 */
+	data class Menu(
+		val of: Listed,
+		val actions: ActionMenu<MatchAction>,
+	)
 
 	/** One thing a search's window lists. */
 	sealed interface Listed {

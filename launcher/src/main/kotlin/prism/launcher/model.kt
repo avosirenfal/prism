@@ -152,6 +152,20 @@ sealed interface FilesFound {
 	) : FilesFound
 }
 
+/** What the launcher says along its bottom of the last thing done: that it [Failed], or, where it stays to say so, that it was [Done]. */
+@Immutable
+sealed interface LauncherNotice {
+	val text: String
+
+	data class Failed(
+		override val text: String,
+	) : LauncherNotice
+
+	data class Done(
+		override val text: String,
+	) : LauncherNotice
+}
+
 /** The applications installed that a person chooses from, each made ready to be looked through ([Listed]). */
 data class Installed private constructor(
 	internal val listed: List<Listed>,
@@ -185,8 +199,13 @@ data class LauncherState(
 	 * again), and can never be past the end of what is shown.
 	 */
 	val arrowsOn: String? = null,
-	/** What went wrong with the last thing chosen, said until something else is typed or chosen. */
-	val notice: String? = null,
+	/** What came of the last thing chosen, where that is said: until something else is typed or chosen. */
+	val notice: LauncherNotice? = null,
+	/**
+	 * The menu of what can be done to a result, while it is open: the arrows and Enter are the menu's then. It holds
+	 * the result it is of.
+	 */
+	val menu: EntryMenu? = null,
 	/** Whether how a query is written is shown, in place of the field and what was found, until it is left. */
 	val help: Boolean = false,
 	/** When this is, for how lately something was used. */

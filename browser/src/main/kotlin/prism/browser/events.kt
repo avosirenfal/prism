@@ -216,8 +216,27 @@ sealed interface BrowserEvent : Input {
 		val at: Int,
 	) : BrowserEvent
 
-	/** Enter in the search's window: the match the arrows are on gone to, or, from the field, every match shown. */
+	/**
+	 * Enter in the search's window: the match the arrows are on gone to, or, from the field, every match shown; with
+	 * a result's menu open, the action the arrows are on done.
+	 */
 	data object SearchEntered : BrowserEvent
+
+	/**
+	 * What can be done to what the search's window lists [at] shown as a menu by it (a right click); with no [at],
+	 * to what the arrows are on (the right arrow).
+	 */
+	data class MatchMenuOpened(
+		val at: Int? = null,
+	) : BrowserEvent
+
+	/** That menu put away (the left arrow, Escape, a click outside it). */
+	data object MatchMenuClosed : BrowserEvent
+
+	/** The menu's action [at] done (a click on it). */
+	data class MatchActionChosen(
+		val at: Int,
+	) : BrowserEvent
 
 	/** The search's button: every match shown in the listing. */
 	data object ShowedResults : BrowserEvent

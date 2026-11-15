@@ -488,6 +488,35 @@ keyboard while it is open, so it reads the binding itself.
 
 ![A search's results in the listing](picker-results.png)
 
+### What can be done to a match
+
+![A match's actions, in an explorer's search](picker-search-actions.png)
+
+**You press the right arrow on a match** (or right click one). That is `MatchMenuOpened`: a menu by the match's row
+of what can be done to it. The first action is always what Enter does to the match, and the hint along the bottom
+says the same words. Which actions there are depends on the match and on the window (`actionsOf`,
+`browser/matchactions.kt`):
+
+| the window | a file | a folder |
+|---|---|---|
+| an explorer | Show in folder, Open, Open with…, Copy path, Copy name, Open terminal here, Properties, Move to trash | Open, Show in folder, Copy path, Copy name, Open terminal here, Properties, Move to trash |
+| a picker | Go to, Copy path, Copy name | Go to, Show in folder, Copy path, Copy name |
+
+A picker is another application's window for a moment, so it only goes to things and copies what they are called.
+One of prism's own things has the one action, "Open". A match inside an archive has no path on disk, so it has only
+its first action and "Copy name". "Move to trash" is the same change the listing's Delete makes, and Undo puts the
+file back.
+
+While the menu is open (`Search.Ready.menu`, a `Search.Menu` holding the match it is of), Up and Down are
+`MatchMoved` as before, and the reducer moves in the menu and not in the matches; Enter does the action the arrows
+are on. The left arrow, Escape, or a click elsewhere is `MatchMenuClosed`, which leaves the search as it was. Doing
+an action closes the search's window.
+
+The right arrow opens the menu only when the caret is at the end of what is typed, and the arrows are on a match;
+otherwise it moves the caret. The key is the action "Show actions" (`Action.ShowActions`), heard only in the
+search's window, so it can be the right arrow there while the right arrow still moves the listing's cursor
+everywhere else. It is on the key bindings page under Search.
+
 ### Prism's own things
 
 A search finds a few things that are not files: prism's settings, its key bindings, the page of the system's drives,

@@ -1945,6 +1945,84 @@ class InteractionTest {
 	}
 
 	@Test
+	fun theRightArrowShowsWhatCanBeDoneToAMatchAndLeftAndEscapeLeaveOnlyTheMenu() {
+		val home = home()
+
+		picking(folder = home, finder = finderOf(home)) { session ->
+			fun shown(tag: String) = onAllNodes(hasTestTag(tag)).fetchSemanticsNodes().isNotEmpty()
+
+			fun menu() = (session.state.value.search as Search.Ready).menu
+
+			press(Key.F2)
+			waitForIdle()
+			field("search-query").performTextReplacement("letter")
+			waitUntil(timeoutMillis = TIMEOUT) { shown("match:letter.odt") }
+
+			// From the field, with the arrows on nothing, the right arrow has nothing to show the actions of.
+			press(Key.DirectionRight)
+			waitForIdle()
+			assertFalse(shown("actions"))
+
+			// On a match, it shows them, by the match; the keyboard stays in the field.
+			press(Key.DirectionDown)
+			press(Key.DirectionRight)
+			waitForIdle()
+			onNodeWithTag("actions").assertIsDisplayed()
+			onNodeWithTag("actions:Go to").assertIsSelected()
+			focusIsIn("search-query")
+
+			// It is just under the row it is of.
+			val menu = onNodeWithTag("actions").fetchSemanticsNode().boundsInRoot
+			val row = onNodeWithTag("match:letter.odt").fetchSemanticsNode().boundsInRoot
+
+			assertTrue((menu.top - row.bottom) in 0f..8f, "$menu under $row")
+
+			// The arrows are the menu's while it is open.
+			press(Key.DirectionDown)
+			waitForIdle()
+			onNodeWithTag("actions:Copy path").assertIsSelected()
+			onNodeWithTag("match:letter.odt").assertIsSelected()
+
+			// The left arrow puts the menu away, and only the menu.
+			press(Key.DirectionLeft)
+			waitForIdle()
+			assertFalse(shown("actions"))
+			onNodeWithTag("search-layer").assertExists()
+			field("search-query").assertTextEquals("letter")
+
+			// With the menu away, the left arrow is the caret's; and the right arrow is too, until the caret is at
+			// the end of what is typed again, where it has nowhere to go.
+			press(Key.DirectionLeft)
+			waitForIdle()
+			press(Key.DirectionRight)
+			waitForIdle()
+			assertFalse(shown("actions"))
+			press(Key.DirectionRight)
+			waitForIdle()
+			onNodeWithTag("actions").assertIsDisplayed()
+
+			// Escape puts the menu away first, and the search only then.
+			press(Key.Escape)
+			waitForIdle()
+			assertFalse(shown("actions"))
+			onNodeWithTag("search-layer").assertExists()
+
+			// A right click on a match shows its actions too, and a click on one does it.
+			onNodeWithTag("match:letter.odt").performMouseInput { rightClick() }
+			waitForIdle()
+			onNodeWithTag("actions").assertIsDisplayed()
+			assertEquals(MatchAction.GoTo, menu()?.actions?.current)
+			onNodeWithTag("actions:Go to").performClick()
+			waitUntil(timeoutMillis = TIMEOUT) {
+				session.state.value.chosenRows
+					.map { it.name } == listOf("letter.odt")
+			}
+			assertFalse(shown("search-layer"))
+			assertEquals(work.resolve("Documents"), session.state.value.folder)
+		}
+	}
+
+	@Test
 	fun withNoIndexTheSearchSaysSo() {
 		picking { _ ->
 			press(Key.F2)

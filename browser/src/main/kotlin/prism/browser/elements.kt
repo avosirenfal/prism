@@ -366,7 +366,9 @@ fun ToolButton(
  * says what of its text is selected (all of it, by default, as a desktop's fields do), and [onKey] sees each key
  * before the field does, for Enter and Escape and the like. [onLeave] is told when the keyboard leaves it, having
  * been there. Each time [reselect] changes while the keyboard is in it, what [selecting] says is selected again, as
- * though the keyboard had just arrived: a combo box's text clicked, to be typed over.
+ * though the keyboard had just arrived: a combo box's text clicked, to be typed over. [onSelection] is told what is
+ * selected (the caret, where nothing is) as the field shows it, for whoever gives a key a meaning that depends on
+ * where the caret is.
  */
 @Composable
 fun Field(
@@ -385,6 +387,7 @@ fun Field(
 	onKey: (KeyEvent) -> Boolean = { false },
 	colouring: VisualTransformation = VisualTransformation.None,
 	style: TextStyle = LocalType.current.body,
+	onSelection: (TextRange) -> Unit = {},
 ) {
 	val palette = LocalPalette.current
 	val type = LocalType.current
@@ -407,6 +410,7 @@ fun Field(
 	SideEffect {
 		if (text == typed.text || text !in echoes)
 			echoes.clear()
+		onSelection(shown.selection)
 	}
 
 	// What is selected as the keyboard arrives, once the field has settled its own caret from the focus.

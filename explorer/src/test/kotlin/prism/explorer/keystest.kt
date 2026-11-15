@@ -168,6 +168,21 @@ class KeysTest {
 			assertNull(bound.awaited, taken)
 			assertEquals(listOf(chord(taken)), bound.bindings.of(LauncherAction.Settings), taken)
 		}
+
+		// The key that shows a result's actions is bound again as any other is, and the right arrow, which types
+		// nothing, is taken back for it.
+		val shows = first(LauncherAction.ShowActions)
+		val other = rebinding.awaiting(shows).pressed(chord("Ctrl+O"))
+
+		assertEquals(listOf(chord("Ctrl+O")), other.bindings.of(LauncherAction.ShowActions))
+
+		val back =
+			other
+				.awaiting(Slot.Bound(LauncherAction.ShowActions, chord("Ctrl+O")))
+				.pressed(chord("Right"))
+
+		assertNull(back.refused)
+		assertEquals(listOf(chord("Right")), back.bindings.of(LauncherAction.ShowActions))
 		// An explorer's take any: a letter acts from the listing, where nothing is typed.
 		assertEquals(
 			listOf(chord("K")),

@@ -26,6 +26,7 @@ enum class LauncherAction(
 	vararg defaults: String,
 ) : Bindable {
 	Open("Open", LauncherGroups.Result, "Enter"),
+	ShowActions("Show actions", LauncherGroups.Result, "Right"),
 	Reveal("Show in folder", LauncherGroups.Result, "Ctrl+Enter"),
 	CopyPath("Copy path", LauncherGroups.Result, "Ctrl+Shift+C"),
 	Down("Move down", LauncherGroups.Moving, "Down", "Ctrl+J", "Tab"),
@@ -52,6 +53,7 @@ fun launcherBindings(preferences: LauncherPreferences = LauncherPreferences()): 
 internal fun eventOf(action: LauncherAction, page: Int): LauncherEvent =
 	when (action) {
 		LauncherAction.Open -> LauncherEvent.Entered
+		LauncherAction.ShowActions -> LauncherEvent.MenuOpened()
 		LauncherAction.Reveal -> LauncherEvent.Revealed
 		LauncherAction.CopyPath -> LauncherEvent.CopiedPath
 		LauncherAction.Down -> LauncherEvent.Moved(1)

@@ -377,9 +377,22 @@ private fun did(state: BrowserState, event: BrowserEvent): Step =
 		is BrowserEvent.SearchTyped -> state.searchTyped(event.text)
 		is BrowserEvent.MatchMoved -> Step(state.withSearch { moved(event.by) })
 		is BrowserEvent.MatchChosen -> state.chosenMatch(event.at)
+		// With a result's menu open, Enter is the menu's: the action the arrows are on.
 		BrowserEvent.SearchEntered ->
-			(state.search as? Search.Ready)?.highlighted?.let(state::chosenMatch)
-				?: state.showingMatches()
+			(state.search as? Search.Ready)?.let { search ->
+				search.menu?.let { state.acted(search, it.of, it.actions.current) }
+					?: search.highlighted?.let(state::chosenMatch)
+			} ?: state.showingMatches()
+		is BrowserEvent.MatchMenuOpened -> Step(state.menuOpened(event.at))
+		BrowserEvent.MatchMenuClosed -> Step(state.withSearch { copy(menu = null) })
+		is BrowserEvent.MatchActionChosen ->
+			(state.search as? Search.Ready)?.let { search ->
+				search.menu?.let { menu ->
+					menu.actions.actions
+						.getOrNull(event.at)
+						?.let { state.acted(search, menu.of, it) }
+				}
+			} ?: Step(state)
 		BrowserEvent.ShowedResults -> state.showingMatches()
 		BrowserEvent.MadeFile ->
 			state.folder?.let {
@@ -1477,7 +1490,7 @@ private fun BrowserState.previewing(): Step {
 }
 
 private fun Search.Ready.closed(): Search =
-	copy(open = false, highlighted = null, showing = false)
+	copy(open = false, highlighted = null, showing = false, menu = null)
 
 private fun BrowserState.searchTyped(text: String): Step =
 	withSearch {
@@ -1496,8 +1509,13 @@ private val BrowserState.offers: List<Own>
 			Role.Picker -> listOf(Own.System, Own.Help)
 		}
 
-/** The arrows' match [by] down: from the field, the first; up from the first, back to the field. */
+/**
+ * The arrows' match [by] down: from the field, the first; up from the first, back to the field. With a result's menu
+ * open, they move through its actions instead, and the result stays the one it is.
+ */
 private fun Search.Ready.moved(by: Int): Search {
+	if (menu != null)
+		return copy(menu = menu.copy(actions = menu.actions.moved(by)))
 	if (listed == 0)
 		return copy(highlighted = null)
 
@@ -1510,6 +1528,74 @@ private fun Search.Ready.moved(by: Int): Search {
 			else
 				next.coerceAtMost(listed - 1),
 	)
+}
+
+/**
+ * The menu of what can be done to what the window lists [at] opened, the arrows put on that; with no [at], of what
+ * the arrows are on. Nothing, where there is nothing there.
+ */
+private fun BrowserState.menuOpened(at: Int?): BrowserState =
+	withSearch {
+		val on = at ?: highlighted
+
+		on
+			?.let(::listedAt)
+			?.let { listed ->
+				ActionMenu
+					.of(actionsOf(listed, role, terminal.opensInFolder))
+					?.let { copy(highlighted = on, menu = Search.Menu(listed, it)) }
+			} ?: this
+	}
+
+/**
+ * [action] done to [of], which the search's window lists, from its menu: the window put away, as it is for a match
+ * gone to (but for how a query is written, which is shown in it).
+ */
+private fun BrowserState.acted(
+	search: Search.Ready,
+	of: Search.Listed,
+	action: MatchAction,
+): Step {
+	val closed = copy(search = search.closed())
+
+	val (matches, rank) =
+		when (of) {
+			is Search.Listed.Prisms -> return chosenOwn(search.copy(menu = null), of.own)
+			is Search.Listed.Match -> of
+		}
+
+	val path = matches.pathOf(rank)
+	val name = matches.nameOf(rank)
+
+	/** To the folder it is in, with it selected. */
+	fun revealed(): Step =
+		path.parent?.let { closed.went(it, Landing.On(RowId(name), choose = true)) }
+			?: Step(closed)
+
+	return when (action) {
+		MatchAction.GoTo, MatchAction.Enter, MatchAction.Own -> gone(search, of)
+		// A match of a search in a place is shown where it is in the place, which going to it does.
+		MatchAction.Reveal ->
+			if (matches.tree != null || !matches.isFolder(rank))
+				gone(search, of)
+			else
+				revealed()
+		MatchAction.OpenFile -> Step(closed, listOf(Effect.Open(listOf(path))))
+		MatchAction.OpenWith -> Step(closed, listOf(Effect.Ask(Request.OpenWith(listOf(path)))))
+		MatchAction.CopyPath -> Step(closed, listOf(Effect.Copy(path.toString())))
+		MatchAction.CopyName -> Step(closed, listOf(Effect.Copy(name)))
+		MatchAction.Terminal ->
+			Step(
+				closed,
+				listOfNotNull(
+					(if (matches.isFolder(rank)) path else path.parent)?.let(Effect::Terminal),
+				),
+			)
+		MatchAction.Properties ->
+			Step(closed, listOf(Effect.Ask(Request.Properties(listOf(path)))))
+		// As the listing's own Delete does it: to the trash, and undone by an undo.
+		MatchAction.Trash -> closed.making(Change.Trash(listOf(path)))
+	}
 }
 
 /**
@@ -1535,10 +1621,14 @@ private fun BrowserState.chosenOwn(search: Search.Ready, own: Own): Step {
 private fun BrowserState.chosenMatch(at: Int): Step {
 	val search = search as? Search.Ready ?: return Step(this)
 
+	return search.listedAt(at)?.let { gone(search, it) } ?: Step(this)
+}
+
+/** [listed], which the search's window lists, gone to as Enter on it goes: what [chosenMatch] does, for it. */
+private fun BrowserState.gone(search: Search.Ready, listed: Search.Listed): Step {
 	val (matches, rank) =
-		when (val listed = search.listedAt(at)) {
-			null -> return Step(this)
-			is Search.Listed.Prisms -> return chosenOwn(search, listed.own)
+		when (listed) {
+			is Search.Listed.Prisms -> return chosenOwn(search.copy(menu = null), listed.own)
 			is Search.Listed.Match -> listed
 		}
 
@@ -1619,7 +1709,7 @@ private fun BrowserState.searched(finding: Finding, purpose: Purpose): Step {
 
 			// The arrows stay on the match they were on, where the new matches still list that many.
 			val found =
-				search.copy(found = finding).let {
+				search.copy(found = finding, menu = null).let {
 					it.copy(highlighted = it.highlighted?.takeIf { at -> at < it.listed })
 				}
 

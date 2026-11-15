@@ -24,6 +24,8 @@ Bind `prism launcher` to a key in your window manager (below). Press the key, an
   Down move a page; Tab and Shift+Tab, and Ctrl+J and Ctrl+K, move as Down and Up do.
 - **Enter** starts an application, opens a file with whatever opens its kind, and opens a folder in an explorer's
   window. **Ctrl+Enter** shows the result in its folder instead, chosen. **Ctrl+Shift+C** copies its path.
+- **The right arrow**, once the caret is at the end of what is typed, shows what else can be done to the result the
+  arrows are on (below). A right click on a result does the same.
 - **Escape** empties the field, and with the field empty puts the launcher away. So does pressing your key again, and
   so does clicking another window.
 
@@ -31,6 +33,37 @@ Along the bottom is what the keys do to the result the arrows are on, and, where
 why.
 
 ![The launcher as it opens](launcher-light.png)
+
+### A result's actions
+
+![A result's actions, in the launcher](launcher-actions.png)
+
+The right arrow on a result, or a right click on one, opens a menu by its row of what can be done to it. The first
+is always what Enter does. Where the launcher has a key that does the same without the menu, the menu shows it.
+
+| the result | its actions |
+|---|---|
+| an application | Open; each thing its desktop entry says it can be started to do ("New Window"); Show desktop entry in folder; Copy desktop entry path; Hide from launcher |
+| a file | Open; Show in folder; Open with…; Copy path; Copy name; Open terminal here; Properties; Move to trash |
+| a folder | the same, without Open with… |
+| one of prism's own | Open |
+
+While the menu is open, Up and Down move in it and Enter does the action they are on. The left arrow, Escape, or a
+click anywhere else puts the menu away and leaves the launcher as it was, with what was typed still there. Typing
+puts it away too.
+
+Most actions put the launcher away once done. Two leave it open and say what happened along the bottom: "Hide from
+launcher" (which says where to show the application again) and "Move to trash".
+
+The right arrow only opens the menu when the caret is at the end of what is typed, so it still moves the caret
+through the text otherwise. The key is "Show actions" in the launcher's keys, and can be bound to another.
+
+The actions are data: `EntryAction`, and `actionsOf(entry)` which lists them for a result
+(`launcher/actions.kt`). The menu that is open is `LauncherState.menu`, an `EntryMenu` holding the result it is of
+and an `ActionMenu` (`browser/actionmenu.kt`), which always has at least one action and the arrows always on one of
+them. The reducer sends the arrows and Enter to the menu while it is open (`inMenu`, `launcher/step.kt`). The view
+draws it with `ActionMenuLayer`, which puts it under the row, or over the row where there is no room under, and
+never past the window's edge.
 
 ### Prism's own, and how to search
 

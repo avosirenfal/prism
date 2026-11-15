@@ -12,6 +12,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import prism.browser.Category
+import prism.browser.Change
+import prism.browser.ChangeResult
+import prism.browser.Disk
 import prism.browser.Finder
 import prism.browser.categoryOf
 import prism.browser.folderOf
@@ -52,6 +55,15 @@ interface LauncherHost {
 
 	/** [text] put on the clipboard. */
 	fun copy(text: String)
+
+	/** A window to choose what [path] is opened with. */
+	fun openWith(path: Path)
+
+	/** A window of [path]'s properties. */
+	fun properties(path: Path)
+
+	/** The application the desktop calls [id] left out of the launcher from now on, as its settings then say. */
+	fun hide(id: String)
 }
 
 /** What the launcher works with: the desktop's applications, the index (where there is one), and what it started. */
@@ -63,6 +75,8 @@ class LauncherServices(
 	/** The terminal an application that runs in one is started in, as the user has it now. */
 	val terminal: () -> TerminalChoice = { TerminalChoice.Found },
 	val clock: Clock = Clock.systemUTC(),
+	/** What moves a file to the trash: the disk as a browser changes it. None, where nothing here may change it. */
+	val disk: Disk? = null,
 	/** Where what blocks is done: starting programs, searching, reading what is installed. */
 	val io: CoroutineDispatcher = Dispatchers.IO,
 	/**
@@ -131,6 +145,30 @@ class LauncherSession(
 				}
 			is LauncherEffect.Reveal -> host.reveal(effect.path)
 			is LauncherEffect.Copy -> host.copy(effect.text)
+			is LauncherEffect.OpenWith -> host.openWith(effect.path)
+			is LauncherEffect.Properties -> host.properties(effect.path)
+			is LauncherEffect.Terminal ->
+				scope.launch(services.io) {
+					send(
+						LauncherEvent.Acted(
+							failureOf(
+								services.desktop.launcher.terminal(effect.folder, services.terminal()),
+							)?.let(LauncherNotice::Failed),
+						),
+					)
+				}
+			is LauncherEffect.Trash ->
+				scope.launch(services.io) { send(LauncherEvent.Acted(trashed(effect.path))) }
+			is LauncherEffect.Hide -> {
+				host.hide(effect.application.id)
+				send(
+					LauncherEvent.Acted(
+						LauncherNotice.Done(
+							"“${effect.application.name}” is hidden. Show it again in Settings.",
+						),
+					),
+				)
+			}
 			LauncherEffect.Settings -> host.settings()
 			LauncherEffect.Bindings -> host.bindings()
 			LauncherEffect.System -> host.system()
@@ -213,6 +251,29 @@ class LauncherSession(
 						}
 				}
 			is Entry.Command, is Entry.Prism -> null
+		}
+	}
+
+	/** [path] moved to the trash, as a browser moves it there: what is said of how that went. */
+	private fun trashed(path: Path): LauncherNotice {
+		val name = path.fileName?.toString() ?: path.toString()
+		val disk =
+			services.disk
+				?: return LauncherNotice.Failed("Moving to the trash isn't available here.")
+
+		fun failed(why: String) =
+			LauncherNotice.Failed("Couldn't move “$name” to the trash. $why")
+
+		return when (val result = disk.make(Change.Trash(listOf(path)))) {
+			is ChangeResult.Done -> LauncherNotice.Done("Moved “$name” to the trash.")
+			is ChangeResult.Failed -> failed(result.why)
+			is ChangeResult.Trashed ->
+				when {
+					result.failed != null -> failed(result.failed.orEmpty())
+					result.nowhere.isNotEmpty() ->
+						LauncherNotice.Failed("“$name” is on a drive with no trash. It was not deleted.")
+					else -> LauncherNotice.Done("Moved “$name” to the trash.")
+				}
 		}
 	}
 

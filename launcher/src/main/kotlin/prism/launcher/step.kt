@@ -2,6 +2,7 @@ package prism.launcher
 
 import java.nio.file.Path
 import java.time.Instant
+import prism.browser.ActionMenu
 import prism.desktop.Application
 import prism.index.query.Own
 import prism.index.query.Query
@@ -37,6 +38,30 @@ sealed interface LauncherEvent {
 	/** The result at [at] chosen (a click). */
 	data class Chosen(
 		val at: Int,
+	) : LauncherEvent
+
+	/**
+	 * What can be done to the result at [at] shown as a menu by it (a right click); with no [at], to the one the
+	 * arrows are on (the right arrow).
+	 */
+	data class MenuOpened(
+		val at: Int? = null,
+	) : LauncherEvent
+
+	/** That menu put away (the left arrow, a click outside it). */
+	data object MenuClosed : LauncherEvent
+
+	/** The menu's action [at] done (a click on it). */
+	data class MenuChosen(
+		val at: Int,
+	) : LauncherEvent
+
+	/**
+	 * Something done from a result's menu came to this: nothing to say, and the launcher is put away; or [notice],
+	 * said along its bottom, and it stays.
+	 */
+	data class Acted(
+		val notice: LauncherNotice? = null,
 	) : LauncherEvent
 
 	/** The result the arrows are on shown where it is: its folder, in an explorer's window, with it chosen. */
@@ -119,6 +144,31 @@ sealed interface LauncherEffect {
 		val text: String,
 	) : LauncherEffect
 
+	/** A window to choose what [path] is opened with. */
+	data class OpenWith(
+		val path: Path,
+	) : LauncherEffect
+
+	/** A window of [path]'s properties. */
+	data class Properties(
+		val path: Path,
+	) : LauncherEffect
+
+	/** A terminal opened in [folder]: what came of it is told back as [LauncherEvent.Acted]. */
+	data class Terminal(
+		val folder: Path,
+	) : LauncherEffect
+
+	/** [path] moved to the trash: what came of it is told back as [LauncherEvent.Acted]. */
+	data class Trash(
+		val path: Path,
+	) : LauncherEffect
+
+	/** [application] left out of the launcher from now on: its settings kept so. */
+	data class Hide(
+		val application: Application,
+	) : LauncherEffect
+
 	/** The launcher's settings, in their window. */
 	data object Settings : LauncherEffect
 
@@ -152,10 +202,53 @@ data class LauncherStep(
  * results or chooses one of them does nothing: they are not there to be seen.
  */
 fun step(state: LauncherState, event: LauncherEvent): LauncherStep =
-	if (state.help && event.isOfTheResults)
-		LauncherStep(state)
-	else
-		stepped(state, event)
+	when {
+		state.help && event.isOfTheResults -> LauncherStep(state)
+		state.menu != null -> inMenu(state, state.menu, event)
+		else -> stepped(state, event)
+	}
+
+/**
+ * [state] after [event] while [menu] is open: the arrows move through its actions, Enter does the one they are on,
+ * and Escape puts it away and nothing more. What comes back from work under way changes what it would have changed,
+ * the menu staying; anything else the user does puts the menu away first.
+ */
+private fun inMenu(
+	state: LauncherState,
+	menu: EntryMenu,
+	event: LauncherEvent,
+): LauncherStep {
+	fun moved(actions: ActionMenu<EntryAction>) =
+		LauncherStep(state.copy(menu = menu.copy(actions = actions)))
+
+	val closed = state.copy(menu = null)
+
+	return when (event) {
+		is LauncherEvent.Moved -> moved(menu.actions.moved(event.by))
+		is LauncherEvent.MovedTo -> moved(menu.actions.movedTo(event.last))
+		LauncherEvent.Entered -> closed.acted(menu.entry, menu.actions.current)
+		is LauncherEvent.MenuChosen ->
+			menu.actions.actions
+				.getOrNull(event.at)
+				?.let { closed.acted(menu.entry, it) }
+				?: LauncherStep(state)
+		LauncherEvent.MenuClosed, LauncherEvent.Dismissed -> LauncherStep(closed)
+		// Asked for again with no result named: it is open already.
+		is LauncherEvent.MenuOpened ->
+			if (event.at == null)
+				LauncherStep(state)
+			else
+				stepped(closed, event)
+		is LauncherEvent.FilesArrived, is LauncherEvent.SearchFailed,
+		is LauncherEvent.ApplicationsRead, is LauncherEvent.PreferencesChanged,
+		is LauncherEvent.Started, is LauncherEvent.Acted,
+		-> stepped(state, event)
+		is LauncherEvent.Typed, is LauncherEvent.Chosen, LauncherEvent.Revealed,
+		LauncherEvent.CopiedPath, LauncherEvent.AskedForSettings, LauncherEvent.HelpClosed,
+		is LauncherEvent.Tried, LauncherEvent.Closed,
+		-> stepped(closed, event)
+	}
+}
 
 /** Whether this is done to what was found, or to the field: what there is none of while the help is shown. */
 private val LauncherEvent.isOfTheResults: Boolean
@@ -163,12 +256,13 @@ private val LauncherEvent.isOfTheResults: Boolean
 		when (this) {
 			is LauncherEvent.Typed, is LauncherEvent.Moved, is LauncherEvent.MovedTo,
 			LauncherEvent.Entered, is LauncherEvent.Chosen, LauncherEvent.Revealed,
-			LauncherEvent.CopiedPath,
+			LauncherEvent.CopiedPath, is LauncherEvent.MenuOpened, LauncherEvent.MenuClosed,
+			is LauncherEvent.MenuChosen,
 			-> true
 			LauncherEvent.AskedForSettings, LauncherEvent.Dismissed, LauncherEvent.HelpClosed,
 			is LauncherEvent.Tried, LauncherEvent.Closed, is LauncherEvent.FilesArrived,
 			is LauncherEvent.SearchFailed, is LauncherEvent.ApplicationsRead,
-			is LauncherEvent.PreferencesChanged, is LauncherEvent.Started,
+			is LauncherEvent.PreferencesChanged, is LauncherEvent.Started, is LauncherEvent.Acted,
 			-> false
 		}
 
@@ -188,6 +282,18 @@ private fun stepped(state: LauncherState, event: LauncherEvent): LauncherStep =
 			)
 		LauncherEvent.Entered -> state.chosen(state.highlighted)
 		is LauncherEvent.Chosen -> state.chosen(event.at)
+		is LauncherEvent.MenuOpened ->
+			LauncherStep(
+				state.menuOpened(event.at ?: state.highlighted),
+			)
+		// With no menu open, there is none to put away, and nothing in one to choose.
+		LauncherEvent.MenuClosed, is LauncherEvent.MenuChosen -> LauncherStep(state)
+		is LauncherEvent.Acted ->
+			if (event.notice == null)
+				LauncherStep(state, listOf(LauncherEffect.Close))
+			else
+				// What was done may have changed what there is to find: a file in the trash is no longer one.
+				state.copy(notice = event.notice).searching()
 		LauncherEvent.Revealed ->
 			LauncherStep(
 				state,
@@ -256,7 +362,7 @@ private fun stepped(state: LauncherState, event: LauncherEvent): LauncherStep =
 					listOf(LauncherEffect.Remember(event.entry.key, event.at), LauncherEffect.Close),
 				)
 			else
-				LauncherStep(state.copy(notice = event.failed))
+				LauncherStep(state.copy(notice = LauncherNotice.Failed(event.failed)))
 	}
 
 /** This state with the index asked for the files that fit what is typed, where files are found at all. */
@@ -276,10 +382,21 @@ private fun LauncherState.searching(): LauncherStep {
 		)
 }
 
+/** The menu of what can be done to the entry at [at] opened, the arrows put on that entry; nothing, with none there. */
+private fun LauncherState.menuOpened(at: Int): LauncherState =
+	entries.getOrNull(at)?.let { entry ->
+		ActionMenu
+			.of(actionsOf(entry))
+			?.let { copy(arrowsOn = entry.key, notice = null, menu = EntryMenu(entry, it)) }
+	} ?: this
+
 /** The entry at [at] chosen: started or opened, or, for what prism does, done. */
 private fun LauncherState.chosen(at: Int): LauncherStep =
-	when (val entry = entries.getOrNull(at)) {
-		null -> LauncherStep(this)
+	entries.getOrNull(at)?.let(::opened) ?: LauncherStep(this)
+
+/** [entry] started or opened, or, for what prism does, done: what Enter does to it. */
+private fun LauncherState.opened(entry: Entry): LauncherStep =
+	when (entry) {
 		is Entry.Command ->
 			LauncherStep(
 				this,
@@ -306,12 +423,71 @@ private fun LauncherState.chosen(at: Int): LauncherStep =
 				// Shown here, in the launcher's own window, which stays.
 				Own.Help -> LauncherStep(copy(help = true, notice = null))
 			}
-		else ->
+		is Entry.App, is Entry.Action, is Entry.File ->
 			LauncherStep(
 				copy(arrowsOn = entry.key, notice = null),
 				listOf(LauncherEffect.Start(entry)),
 			)
 	}
+
+/**
+ * [action] done to [entry], from its menu. What opens another window, or puts something on the clipboard, puts the
+ * launcher away; what is done here and may fail (a terminal, the trash) is told back, and the launcher goes or stays
+ * by what came of it ([LauncherEvent.Acted]).
+ */
+private fun LauncherState.acted(entry: Entry, action: EntryAction): LauncherStep {
+	val on = copy(arrowsOn = entry.key, notice = null)
+	val path = pathOf(entry)
+
+	/** [effects], and the launcher put away; nothing, for an entry that is nowhere on disk. */
+	fun away(effect: (Path) -> LauncherEffect): LauncherStep =
+		LauncherStep(on, path?.let { listOf(effect(it), LauncherEffect.Close) }.orEmpty())
+
+	return when (action) {
+		EntryAction.Open -> on.opened(entry)
+		is EntryAction.Run ->
+			LauncherStep(
+				on,
+				listOfNotNull(
+					(entry as? Entry.App)?.let {
+						LauncherEffect.Start(Entry.Action(it.application, action.action))
+					},
+				),
+			)
+		is EntryAction.Reveal -> away(LauncherEffect::Reveal)
+		is EntryAction.CopyPath -> away { LauncherEffect.Copy(it.toString()) }
+		EntryAction.CopyName ->
+			LauncherStep(
+				on,
+				listOf(LauncherEffect.Copy(entry.title), LauncherEffect.Close),
+			)
+		EntryAction.OpenWith -> away(LauncherEffect::OpenWith)
+		EntryAction.Properties -> away(LauncherEffect::Properties)
+		EntryAction.Terminal ->
+			LauncherStep(
+				on,
+				listOfNotNull(
+					(entry as? Entry.File)
+						?.let { if (it.isFolder) it.path else it.path.parent }
+						?.let(LauncherEffect::Terminal),
+				),
+			)
+		EntryAction.Trash ->
+			LauncherStep(
+				on,
+				listOfNotNull(
+					(entry as? Entry.File)?.let {
+						LauncherEffect.Trash(it.path)
+					},
+				),
+			)
+		EntryAction.Hide ->
+			LauncherStep(
+				on,
+				listOfNotNull((entry as? Entry.App)?.let { LauncherEffect.Hide(it.application) }),
+			)
+	}
+}
 
 /** Where [entry] is on disk: a file's own path, an application's desktop entry; nowhere, for what prism does. */
 private fun pathOf(entry: Entry): Path? =

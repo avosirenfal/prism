@@ -497,7 +497,7 @@ class LauncherStateTest {
 			)
 
 		assertEquals(emptyList<LauncherEffect>(), failed.effects)
-		assertEquals("no such program", failed.state.notice)
+		assertEquals(LauncherNotice.Failed("no such program"), failed.state.notice)
 		assertNull(
 			failed.state
 				.after(LauncherEvent.Typed("fir"))
