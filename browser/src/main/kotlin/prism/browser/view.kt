@@ -553,7 +553,7 @@ private fun AddressBar(
 				is Location.Place -> PlaceBar(at, modifier, onEvent)
 				Location.Trash -> TrashBar(modifier)
 				is Location.System -> SystemBar(modifier)
-				Location.Recents -> RecentsBar(modifier)
+				Location.Recents -> RecentsBar(state, modifier, onEvent)
 			}
 		is Address.Editing -> {
 			Field(
@@ -759,9 +759,25 @@ private fun SystemBar(modifier: Modifier) {
 
 /** In place of the path, that the window shows the Recents page: files and folders of many places, on no one path. */
 @Composable
-private fun RecentsBar(modifier: Modifier) {
+private fun RecentsBar(
+	state: BrowserState,
+	modifier: Modifier,
+	onEvent: (BrowserEvent) -> Unit,
+) {
 	Bar(Glyph.Recents, modifier.testTag("recents-bar")) {
 		Text("Recents", style = LocalType.current.strong, maxLines = 1)
+		// An explorer's page says, at its far end, that things are hidden from it, and shows them where asked: a
+		// picker is another application's window, and is not where what is hidden is gone through.
+		if (state.recentsHides) {
+			Spacer(Modifier.weight(1f))
+			Chip(
+				if (state.recentsShowHidden)
+					"Hide hidden"
+				else
+					"Show hidden",
+				Modifier.testTag("recent-hidden"),
+			) { onEvent(BrowserEvent.RecentHiddenShown(!state.recentsShowHidden)) }
+		}
 	}
 }
 
@@ -1078,12 +1094,10 @@ private fun ListingPane(
 
 	// Its sections' headings, each over the row it is drawn before; those of sections collapsed after the last row,
 	// past the rows.
-	val headings =
-		(state.listing as? Listing.Recent)
-			?.shown(
-				state.arrangement,
-			)?.over
-			.orEmpty()
+	val pageShown = (state.listing as? Listing.Recent)?.shown(state.arrangement)
+	val headings = pageShown?.over.orEmpty()
+	// Its rows that are hidden from it, and shown all the same: drawn faint.
+	val dimmed = pageShown?.dimmed.orEmpty()
 
 	val paged = state.at == Location.Recents
 	val gallery = state.layout == Layout.Gallery && !paged
@@ -1752,6 +1766,7 @@ private fun ListingPane(
 													before = recent?.marks?.get(rows.idAt((index - 1).coerceAtLeast(0))),
 													first = index == 0,
 													zoom = zoom,
+													dimmed = row.id in dimmed,
 													onToggle = ::fold,
 												) {
 													EntryRow(

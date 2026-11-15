@@ -8,16 +8,19 @@ import java.time.Duration
 import java.time.Instant
 import prism.preferences.RecentSection
 import prism.shared.Format
+import prism.shared.Guarded
 import prism.shared.Stored
+import prism.shared.Uses
 
 /*
- * What is recent: the folders pickers were lately answered from, for every application together and for each one
- * apart, and the files the index lately saw made. The folders are state of prism's own, kept in a file beside what
- * else it keeps (`$XDG_STATE_HOME/prism/recent-folders`); the files are asked of the index each time, and kept
- * nowhere, so a file made and deleted since is simply not among them the next time they are asked for.
+ * What is recent: the folders and the files pickers were lately answered with, for every application together and
+ * for each one apart; how much each folder is gone to; and the files the index lately saw made. The first three are
+ * state of prism's own, each kept in a file beside what else it keeps (`$XDG_STATE_HOME/prism/recent-folders`,
+ * `recent-files`, `folder-accesses`); the new files are asked of the index each time, and kept nowhere, so a file
+ * made and deleted since is simply not among them the next time they are asked for.
  *
- * The Recents page ([RecentPage]) shows both, and a picker whose application names no folder opens in the folder that
- * application was last answered from ([RecentFolders.last]).
+ * The Recents page ([RecentPage]) shows them all, and a picker whose application names no folder opens where that
+ * application was last answered from ([Recents.start]).
  */
 
 /** An application that asks for pickers, by the id the desktop portal knows it by. Never blank: one unknown is none. */
@@ -41,34 +44,34 @@ data class NewFile(
 	val at: Instant,
 )
 
-/** A folder a picker was answered from, and when it last was. */
+/** Something a picker was answered with (a file, or a folder), and when it last was. */
 @Immutable
 data class Recent(
-	val folder: Path,
+	val path: Path,
 	val at: Instant,
 )
 
 /**
- * The folders last used, the latest first: each once, and no more than [MOST]. Made only by [of], which keeps it so
- * whatever it is given, so a use ([used]) lets the oldest go where there is no room, and two lists read at once are
- * one ([plus]).
+ * The files, or the folders, last used, the latest first: each once, and no more than [MOST]. Made only by [of],
+ * which keeps it so whatever it is given, so a use ([used]) lets the oldest go where there is no room, and two lists
+ * read at once are one ([plus]).
  */
 @Immutable
 class RecentList private constructor(
 	val entries: List<Recent>,
 ) {
-	val folders: List<Path> get() = entries.map { it.folder }
+	val paths: List<Path> get() = entries.map { it.path }
 
-	/** These, with [folders] used at [at]: each first among them, in the order given. */
-	fun used(folders: List<Path>, at: Instant): RecentList =
-		of(folders.map { Recent(it, at) } + entries)
+	/** These, with [paths] used at [at]: each first among them, in the order given. */
+	fun used(paths: List<Path>, at: Instant): RecentList =
+		of(paths.map { Recent(it, at) } + entries)
 
-	/** These and [other], each folder as it was last used in either. */
+	/** These and [other], each as it was last used in either. */
 	operator fun plus(other: RecentList): RecentList = of(entries + other.entries)
 
-	/** These, without the folders [gone] says are not there any more. */
+	/** These, without what [gone] says is not there any more. */
 	fun without(gone: (Path) -> Boolean): RecentList =
-		RecentList(entries.filterNot { gone(it.folder) })
+		RecentList(entries.filterNot { gone(it.path) })
 
 	override fun equals(other: Any?): Boolean =
 		other is RecentList && other.entries == entries
@@ -78,57 +81,51 @@ class RecentList private constructor(
 	override fun toString(): String = "RecentList($entries)"
 
 	companion object {
-		/** How many folders a list keeps. */
+		/** How many a list keeps. */
 		const val MOST = 10
 
 		val NONE = RecentList(emptyList())
 
-		/** [entries] as a list: the latest use of each folder, the latest first, the first [MOST] of them. */
+		/** [entries] as a list: the latest use of each, the latest first, the first [MOST] of them. */
 		fun of(entries: List<Recent>): RecentList =
 			RecentList(
 				entries
 					.sortedByDescending { it.at }
-					.distinctBy { it.folder }
+					.distinctBy { it.path }
 					.take(MOST),
 			)
 	}
 }
 
 /**
- * The folders pickers were answered from: by any application ([all]), and by each that could be told apart
- * ([apps]). A use by an application is a use in both; one by nobody that can be told is in [all] alone.
+ * What pickers were answered with, of one kind (the files, or the folders): by any application ([all]), and by each
+ * that could be told apart ([apps]). A use by an application is a use in both; one by nobody that can be told is in
+ * [all] alone.
  */
 @Immutable
-data class RecentFolders(
+data class Recently(
 	val all: RecentList = RecentList.NONE,
 	val apps: Map<AppKey, RecentList> = emptyMap(),
 ) {
-	/** The folders [app] was answered from; none, for nobody. */
+	/** What [app] was answered with; nothing, for nobody. */
 	fun of(app: AppKey?): RecentList = app?.let(apps::get) ?: RecentList.NONE
 
-	/** These, with [folders] used by [app] at [at]. */
-	fun used(folders: List<Path>, app: AppKey?, at: Instant): RecentFolders =
-		if (folders.isEmpty())
+	/** These, with [paths] used by [app] at [at]. */
+	fun used(paths: List<Path>, app: AppKey?, at: Instant): Recently =
+		if (paths.isEmpty())
 			this
 		else
-			RecentFolders(
-				all.used(folders, at),
-				app?.let { capped(apps + (it to of(it).used(folders, at))) } ?: apps,
+			Recently(
+				all.used(paths, at),
+				app?.let { capped(apps + (it to of(it).used(paths, at))) } ?: apps,
 			)
 
-	/**
-	 * Where a picker for [app] opens when it is not told where: the folder that application was last answered from
-	 * that is still [there]; for nobody that can be told, the one any was. None, where there is none.
-	 */
-	fun last(app: AppKey?, there: (Path) -> Boolean): Path? =
-		(app?.let(::of) ?: all).folders.firstOrNull(there)
-
-	/** These, without the folders [gone] says are not there any more. */
-	fun without(gone: (Path) -> Boolean): RecentFolders =
-		RecentFolders(all.without(gone), apps.mapValues { it.value.without(gone) })
+	/** These, without what [gone] says is not there any more. */
+	fun without(gone: (Path) -> Boolean): Recently =
+		Recently(all.without(gone), apps.mapValues { it.value.without(gone) })
 
 	companion object {
-		/** How many applications' folders are kept: those used latest. */
+		/** How many applications' lists are kept: those used latest. */
 		const val MOST_APPS = 200
 
 		private fun capped(apps: Map<AppKey, RecentList>): Map<AppKey, RecentList> =
@@ -146,80 +143,194 @@ data class RecentFolders(
 }
 
 /**
- * Where the recent folders are kept: a value kept in a file ([Stored]), or in memory alone, read as it is wanted and
- * added to as a picker is answered. Each use is added to the file as it then is, so that every prism of the session
- * (the daemon's pickers, and a picker run on its own) keeps the others' uses; folders that are gone ([there] says
- * which are not) are left out of what is kept from then on.
+ * Everything kept of what is recent: the [folders] folder pickers were answered with, the [files] file pickers were
+ * (to open, or to save), and how much each folder has been gone to or picked from ([accesses]). A file picked is not
+ * its folder picked: its folder is only gone to.
  */
-class RecentStore private constructor(
-	private val kept: Stored<RecentFolders>,
-	private val there: (Path) -> Boolean,
+@Immutable
+data class Recents(
+	val folders: Recently = Recently(),
+	val files: Recently = Recently(),
+	val accesses: Uses<Path> = Uses(),
 ) {
-	/** The folders as they are now. */
-	fun read(): RecentFolders = kept.value.value
+	/**
+	 * Where a picker for [app] opens when it is not told where. One that picks files ([picksFiles]): in the folder
+	 * of the file that application was last answered with, and failing that the folder it last was; then the same
+	 * of any application's. A folder picker goes by the folders alone. Only a folder that is still [there]; none,
+	 * where there is none.
+	 */
+	fun start(app: AppKey?, picksFiles: Boolean, there: (Path) -> Boolean): Path? {
+		fun of(who: (Recently) -> RecentList): Path? =
+			(
+				who(files)
+					.paths
+					.takeIf { picksFiles }
+					.orEmpty()
+					.mapNotNull { it.parent } + who(folders).paths
+			).firstOrNull(there)
 
-	/** [folders] were what a picker for [app] was answered from, at [at]. */
-	fun used(folders: List<Path>, app: AppKey?, at: Instant) {
-		kept.update { used(folders, app, at).without { !there(it) } }
-	}
-
-	companion object {
-		/** Recent folders kept in memory alone: a browser run without a file of them, and the tests. */
-		fun inMemory(first: RecentFolders = RecentFolders()): RecentStore =
-			RecentStore(Stored.inMemory(first)) { true }
-
-		/**
-		 * Recent folders kept in [file] ([RecentFormat]). A file that cannot be read is no folders; one that cannot
-		 * be written is said to [report], and the use is kept for as long as this prism runs.
-		 */
-		fun inFile(file: Path, report: (String, Throwable) -> Unit = { _, _ -> }): RecentStore =
-			RecentStore(
-				Stored.of(file, RecentFormat) {
-					report("keeping the folders lately used in $file", it)
-				},
-				Files::isDirectory,
-			)
+		return app?.let { known -> of { it.of(known) } } ?: of { it.all }
 	}
 }
 
-/** Recent folders kept in memory alone. */
-@Suppress("FunctionName")
-fun MemoryRecents(first: RecentFolders = RecentFolders()): RecentStore =
-	RecentStore.inMemory(first)
+/**
+ * Where what is recent is kept: the folders and the files each a value kept in a file ([Stored]) of its own, and the
+ * folders' accesses another; or all in memory alone. Read as it is wanted and added to as a picker is answered or a
+ * folder gone to. Each use is added to the file as it then is, so that every prism of the session (the daemon's
+ * pickers, and a picker run on its own) keeps the others' uses.
+ *
+ * A folder is gone to far more often than a picker is answered, and nothing waits to know it was: accesses are held
+ * as they are told ([went]) and written together, no oftener than every [WRITE_EVERY], and when asked ([flush]).
+ */
+class RecentStore private constructor(
+	private val folders: Stored<Recently>,
+	private val files: Stored<Recently>,
+	private val accesses: Stored<Uses<Path>>,
+	private val folderThere: (Path) -> Boolean,
+	private val fileThere: (Path) -> Boolean,
+) {
+	/** The accesses told and not yet written, and when they were last written. */
+	private class Waiting(
+		var told: List<Pair<Path, Instant>> = emptyList(),
+		var written: Instant = Instant.MIN,
+	)
 
-/** Recent folders kept in [file]. */
+	private val waiting = Guarded(Waiting())
+
+	/** What is recent as it is now, with the accesses told and not yet written. */
+	fun read(): Recents =
+		Recents(
+			folders.value.value,
+			files.value.value,
+			waiting.guarded { told }.fold(accesses.value.value) { uses, (folder, at) ->
+				uses.used(folder, at)
+			},
+		)
+
+	/**
+	 * A picker that was [choosing], for [app], was answered with [chosen] at [at]: a folder picker's answer is the
+	 * latest of the recent folders, a file picker's the latest of the recent files; and the folder each was picked
+	 * from (a folder picked, itself) was gone to. Exploring answers nobody.
+	 */
+	fun picked(chosen: List<Path>, choosing: Choosing, app: AppKey?, at: Instant) {
+		when (choosing) {
+			is Choosing.Folder -> {
+				folders.update { used(chosen, app, at).without { !folderThere(it) } }
+				chosen.forEach { went(it, at) }
+			}
+			is Choosing.OneFile, is Choosing.Files, is Choosing.SaveAs -> {
+				files.update { used(chosen, app, at).without { !fileThere(it) } }
+				chosen.mapNotNull { it.parent }.distinct().forEach { went(it, at) }
+			}
+			is Choosing.Exploring -> Unit
+		}
+	}
+
+	/** [folder] was gone to, or picked from, at [at]: held, and written with the rest when it is time. */
+	fun went(folder: Path, at: Instant) {
+		val due =
+			waiting.guarded {
+				told = told + (folder to at)
+				written == Instant.MIN || Duration.between(written, at) >= WRITE_EVERY
+			}
+
+		if (due)
+			flush(at)
+	}
+
+	/** The accesses told so far written, as of [at]: all but the [MOST_ACCESSED] most used are let go. */
+	fun flush(at: Instant) {
+		val told =
+			waiting.guarded {
+				told.also {
+					told = emptyList()
+					written = at
+				}
+			}
+
+		if (told.isNotEmpty())
+			accesses.update {
+				told
+					.fold(this) { uses, (folder, at) -> uses.used(folder, at) }
+					.capped(MOST_ACCESSED, at)
+			}
+	}
+
+	companion object {
+		/** How many folders' accesses are kept: those used most. */
+		const val MOST_ACCESSED = 500
+
+		/** How long accesses are held before they are written. */
+		val WRITE_EVERY: Duration = Duration.ofSeconds(5)
+
+		/** What is recent kept in memory alone: a browser run without files of it, and the tests. */
+		fun inMemory(first: Recents = Recents()): RecentStore =
+			RecentStore(
+				Stored.inMemory(first.folders),
+				Stored.inMemory(first.files),
+				Stored.inMemory(first.accesses),
+				{ true },
+				{ true },
+			)
+
+		/**
+		 * What is recent kept in [folder]: the folders in `recent-folders`, the files in `recent-files`
+		 * ([RecentFormat]) and the accesses in `folder-accesses` ([AccessFormat]). A file that cannot be read is
+		 * nothing recent; one that cannot be written is said to [report], and the use is kept for as long as this
+		 * prism runs.
+		 */
+		fun inFolder(
+			folder: Path,
+			report: (String, Throwable) -> Unit = { _, _ -> },
+		): RecentStore {
+			fun <T> kept(name: String, format: Format<T>, what: String): Stored<T> =
+				folder.resolve(name).let { file ->
+					Stored.of(file, format) { report("keeping $what in $file", it) }
+				}
+
+			return RecentStore(
+				kept("recent-folders", RecentFormat, "the folders lately picked"),
+				kept("recent-files", RecentFormat, "the files lately picked"),
+				kept("folder-accesses", AccessFormat, "how much each folder is used"),
+				Files::isDirectory,
+				Files::exists,
+			)
+		}
+	}
+}
+
+/** What is recent kept in memory alone. */
 @Suppress("FunctionName")
-fun RecentsFile(
-	file: Path,
+fun MemoryRecents(first: Recents = Recents()): RecentStore = RecentStore.inMemory(first)
+
+/** What is recent kept in files of [folder]. */
+@Suppress("FunctionName")
+fun RecentsFiles(
+	folder: Path,
 	report: (String, Throwable) -> Unit = { _, _ -> },
-): RecentStore = RecentStore.inFile(file, report)
+): RecentStore = RecentStore.inFolder(folder, report)
 
 /**
- * Recent folders as a file: a line a use, the millisecond it was at, the application it was by (nothing, for the
- * list of every application's), and the folder, between tabs. A line that does not say a use is left out.
+ * Recent files, or folders, as a file: a line a use, the millisecond it was at, the application it was by (nothing,
+ * for the list of every application's), and the path, between tabs. A line that does not say a use is left out.
  */
-val RecentFormat: Format<RecentFolders> =
+val RecentFormat: Format<Recently> =
 	Format.lines(
-		RecentFolders(),
+		Recently(),
 		read = { lines ->
 			val uses =
 				lines.mapNotNull { line ->
 					val parts = line.split('\t', limit = 3)
 					val at = parts.getOrNull(0)?.toLongOrNull()
-					val folder = parts.getOrNull(2)?.takeIf { it.startsWith("/") }
+					val path = parts.getOrNull(2)?.let(::pathRead)
 
-					if (at == null || folder == null)
+					if (at == null || path == null)
 						null
 					else
-						try {
-							AppKey.of(parts[1]) to
-								Recent(Path.of(unescaped(folder)), Instant.ofEpochMilli(at))
-						} catch (unspellable: InvalidPathException) {
-							null
-						}
+						AppKey.of(parts[1]) to Recent(path, Instant.ofEpochMilli(at))
 				}
 
-			RecentFolders(
+			Recently(
 				RecentList.of(uses.filter { it.first == null }.map { it.second }),
 				uses
 					.mapNotNull { (app, recent) -> app?.let { it to recent } }
@@ -227,17 +338,30 @@ val RecentFormat: Format<RecentFolders> =
 					.mapValues { RecentList.of(it.value) },
 			)
 		},
-		written = { folders ->
+		written = { kept ->
 			fun lines(app: AppKey?, list: RecentList): List<String> =
 				list.entries.map {
-					"${it.at.toEpochMilli()}\t${app?.id.orEmpty()}\t${escaped(it.folder.toString())}"
+					"${it.at.toEpochMilli()}\t${app?.id.orEmpty()}\t${escaped(it.path.toString())}"
 				}
 
-			lines(null, folders.all) + folders.apps.flatMap { (app, list) -> lines(app, list) }
+			lines(null, kept.all) + kept.apps.flatMap { (app, list) -> lines(app, list) }
 		},
 	)
 
-// A folder's name can hold a new line, which would end its line here: written as two characters.
+/** How much each folder is used, as a file ([Uses.format]), each by its path. */
+val AccessFormat: Format<Uses<Path>> = Uses.format(::pathRead) { escaped(it.toString()) }
+
+/** The absolute path a line's [text] says, as [escaped] wrote it; none, where it says none. */
+private fun pathRead(text: String): Path? =
+	text.takeIf { it.startsWith("/") }?.let {
+		try {
+			Path.of(unescaped(it))
+		} catch (unspellable: InvalidPathException) {
+			null
+		}
+	}
+
+// A path can hold a new line, which would end its line here: written as two characters.
 private fun escaped(path: String): String =
 	path.replace("\\", "\\\\").replace("\n", "\\n")
 
@@ -250,19 +374,20 @@ private fun unescaped(text: String): String =
 	}
 
 /**
- * The folders [chosen] were picked from, as a picker that is [choosing] was answered with them: a folder picker's
- * answer is the folder itself; anything else's is each file's folder, once, in the order chosen.
+ * What of the Recents page an arrangement leaves out, and puts away: the sections [folded] to their headings, and
+ * the paths the user has [hidden] from it, which are left out of every section unless they are asked to be shown
+ * all the same ([showsHidden]). Nothing, of any other listing.
  */
-fun foldersUsed(chosen: List<Path>, choosing: Choosing): List<Path> =
-	when (choosing) {
-		is Choosing.Folder -> chosen
-		is Choosing.OneFile, is Choosing.Files, is Choosing.SaveAs ->
-			chosen.mapNotNull {
-				it.parent
-			}
-		// Exploring answers nobody.
-		is Choosing.Exploring -> emptyList()
-	}.distinct()
+@Immutable
+data class RecentArranged(
+	val folded: Set<RecentSection> = emptySet(),
+	val hidden: Set<Path> = emptySet(),
+	val showsHidden: Boolean = false,
+) {
+	companion object {
+		val NONE = RecentArranged()
+	}
+}
 
 /**
  * The Recents page as it was [read]: its [sections], each with something in it, in the order they are shown. Its
@@ -274,36 +399,41 @@ class RecentPage(
 	val sections: List<Section>,
 	val read: Instant,
 ) {
-	/** What a section holds. */
-	sealed interface Kind {
-		val title: String
-
-		/** Which section it is, whoever the page is for: what the user collapses, and what is kept of that. */
-		val section: RecentSection
-
+	/** What a section holds: which of the page's it is, whoever the page is for. */
+	enum class Kind(
+		val title: String,
+		/** What the user collapses, and what is kept of that. */
+		val section: RecentSection,
 		/** What its entries are, as what folds it says: "Hide files". */
-		val holds: String
-
+		val holds: String,
+		/** Whether its entries are in the order they were given in, and none of them long before another. */
+		val ranked: Boolean = false,
+	) {
 		/** The files the index saw made last. */
-		data object NewFiles : Kind {
-			override val title: String get() = "New files"
-			override val section: RecentSection get() = RecentSection.NewFiles
-			override val holds: String get() = "files"
-		}
+		NewFiles("New files", RecentSection.NewFiles, "files"),
 
-		/** The folders the application that asked was last answered from. */
-		data object Application : Kind {
-			override val title: String get() = "Recent folders for this application"
-			override val section: RecentSection get() = RecentSection.Application
-			override val holds: String get() = "folders"
-		}
+		/** The files the application that asked was last answered with. */
+		ApplicationFiles(
+			"Recent files for this application",
+			RecentSection.ApplicationFiles,
+			"files",
+		),
 
-		/** The folders any application was last answered from. */
-		data object Folders : Kind {
-			override val title: String get() = "Recent folders"
-			override val section: RecentSection get() = RecentSection.Folders
-			override val holds: String get() = "folders"
-		}
+		/** The files any application was last answered with. */
+		Files("Recent files", RecentSection.Files, "files"),
+
+		/** The folders the application that asked was last answered with. */
+		Application(
+			"Recent folders for this application",
+			RecentSection.Application,
+			"folders",
+		),
+
+		/** The folders any application was last answered with. */
+		Folders("Recent folders", RecentSection.Folders, "folders"),
+
+		/** The folders gone to and picked from most, the most first. */
+		Frequent("Frequently accessed", RecentSection.Frequent, "folders", ranked = true),
 	}
 
 	/**
@@ -323,38 +453,57 @@ class RecentPage(
 	/**
 	 * What the page shows, arranged: the [rows] of its open sections, in order, and every section's heading
 	 * ([headings]), each where it is drawn among them. A collapsed section's entries are no rows of the listing, so
-	 * nothing that goes by its rows (the cursor, what is chosen, a name typed, their count) knows of them.
+	 * nothing that goes by its rows (the cursor, what is chosen, a name typed, their count) knows of them. The rows
+	 * that are hidden from the page and shown all the same are [dimmed].
 	 */
 	@Immutable
 	class Shown(
 		val rows: Rows,
 		val headings: List<Heading>,
+		val dimmed: Set<RowId>,
 	) {
 		/** The headings drawn over each row, by the row's place; over nothing, those after the last row. */
 		val over: Map<Int, List<Heading>> = headings.groupBy { it.before }
+
+		/** How many entries the open sections show. */
+		val listed: Int get() = headings.filterNot { it.collapsed }.sumOf { it.count }
 	}
 
 	/**
-	 * The page as [arrangement] shows it: of each section, the entries it admits; a section with none is left
-	 * out, heading and all, and one it folds is its heading alone.
+	 * The page as [arrangement] shows it: of each section, the entries it admits, without those hidden from the
+	 * page (unless it shows them); a section with none is left out, heading and all, and one it folds is its
+	 * heading alone.
 	 */
 	fun shown(arrangement: Arrangement): Shown {
+		val recent = arrangement.recent
 		val rows = ArrayList<Row>()
 		val headings = ArrayList<Heading>()
+		val dimmed = HashSet<RowId>()
 
 		for (section in sections) {
-			val admitted = section.entries.map { it.row }.filter(arrangement::admits)
-			val collapsed = section.kind.section in arrangement.folded
+			val admitted =
+				section.entries
+					.map { it.row }
+					.filter { row ->
+						arrangement.admits(row) && (recent.showsHidden || row.path !in recent.hidden)
+					}
+			val collapsed = section.kind.section in recent.folded
 
 			if (admitted.isNotEmpty()) {
 				headings += Heading(section.kind, admitted.size, collapsed, before = rows.size)
-				if (!collapsed)
+				if (!collapsed) {
 					rows += admitted
+					admitted.filter { it.path in recent.hidden }.mapTo(dimmed) { it.id }
+				}
 			}
 		}
 
-		return Shown(Rows(rows), headings)
+		return Shown(Rows(rows), headings, dimmed)
 	}
+
+	/** Whether anything on the page is among [hidden]: whether there is anything to show that is not shown. */
+	fun hides(hidden: Set<Path>): Boolean =
+		hidden.isNotEmpty() && rows.any { it.path in hidden }
 
 	/** A row of the page: when it was made (a file) or last used (a folder), and whether that is [stale]. */
 	@Immutable
@@ -365,20 +514,36 @@ class RecentPage(
 		val stale: Boolean,
 	)
 
-	/** One section: never empty, its entries the newest first. Made by [of]. */
+	/** One section: never empty, its entries the newest first, or as they were given ([Kind.ranked]). Made by [of]. */
 	@Immutable
 	class Section private constructor(
 		val kind: Kind,
 		val entries: List<Entry>,
 	) {
 		companion object {
-			/** The section of [kind] holding [dated], the newest first; none, where there is nothing to hold. */
+			/**
+			 * The section of [kind] holding [dated], each a row of that section's own ([RowId.Recent]); none, where
+			 * there is nothing to hold.
+			 */
 			fun of(kind: Kind, dated: List<Pair<Row, Instant>>): Section? {
-				val ordered = dated.sortedByDescending { it.second }
-				val newest = ordered.firstOrNull()?.second ?: return null
+				val ordered =
+					if (kind.ranked)
+						dated
+					else
+						dated.sortedByDescending { it.second }
+				val newest = ordered.maxOfOrNull { it.second } ?: return null
 				val fresh = newest.minus(STALE_AFTER)
 
-				return Section(kind, ordered.map { (row, at) -> Entry(row, at, at < fresh) })
+				return Section(
+					kind,
+					ordered.map { (row, at) ->
+						Entry(
+							row.path?.let { row.copy(id = RowId.Recent(it, kind.section)) } ?: row,
+							at,
+							stale = !kind.ranked && at < fresh,
+						)
+					},
+				)
 			}
 		}
 	}
@@ -411,28 +576,41 @@ class RecentPage(
 		/** How many new files the page shows: the newest that are still there. */
 		const val NEW_SHOWN = 10
 
+		/** How many of the folders used most the page shows. */
+		const val FREQUENT_SHOWN = 10
+
 		/** How much older than its section's newest an entry is before it is drawn quieter. */
 		val STALE_AFTER: Duration = Duration.ofDays(10)
 
 		/**
-		 * The page of the [newest] files (the newest first, as the index saw them made) and the [folders] lately
-		 * used, for [asker] where the picker is some application's, as [row] reads each on disk: what it does not
-		 * find is not shown. The newest [NEW_SHOWN] files that are there; the folders [asker] was answered from; and
-		 * the folders anybody was, without those already shown as the application's.
+		 * The page of the [newest] files (the newest first, as the index saw them made) and what is [recent], for
+		 * [asker] where the picker is some application's, as [row] reads each on disk: what it does not find is not
+		 * shown. In order: the newest [NEW_SHOWN] files that are there; the files [asker] was answered with; the
+		 * files anybody was, without those already shown as the application's; the folders, the same two ways; and
+		 * the [FREQUENT_SHOWN] folders used most as of [now]. A page that shows no [files] (a folder picker's) has
+		 * the folders' sections alone.
 		 */
 		fun of(
 			newest: List<NewFile>,
-			folders: RecentFolders,
+			recent: Recents,
 			asker: AppKey?,
 			now: Instant,
+			files: Boolean = true,
 			row: (Path) -> Row?,
 		): RecentPage {
-			fun dated(recent: List<Recent>): List<Pair<Row, Instant>> =
-				recent.mapNotNull { used ->
-					row(used.folder)?.takeIf { it.isFolder }?.let { it to used.at }
+			fun dated(used: List<Recent>, folders: Boolean): List<Pair<Row, Instant>> =
+				used.mapNotNull { entry ->
+					row(entry.path)?.takeIf { it.isFolder == folders }?.let { it to entry.at }
 				}
 
-			val files =
+			/** The application's of [kept], and everyone's without those: none of either, where there is no [asker]. */
+			fun split(kept: Recently): Pair<List<Recent>, List<Recent>> {
+				val own = kept.of(asker).entries
+
+				return own to kept.all.entries.filterNot { used -> own.any { it.path == used.path } }
+			}
+
+			val made =
 				newest
 					.asSequence()
 					.mapNotNull { made ->
@@ -440,17 +618,22 @@ class RecentPage(
 					}.take(NEW_SHOWN)
 					.toList()
 
-			val own = folders.of(asker).entries
-			val others =
-				folders.all.entries.filterNot { used ->
-					own.any { it.folder == used.folder }
-				}
+			val (ownFiles, otherFiles) = split(recent.files)
+			val (ownFolders, otherFolders) = split(recent.folders)
+
+			val frequent =
+				recent.accesses
+					.most(FREQUENT_SHOWN, now) { row(it)?.isFolder == true }
+					.mapNotNull { (folder, used) -> row(folder)?.let { it to used.at } }
 
 			return RecentPage(
 				listOfNotNull(
-					Section.of(Kind.NewFiles, files),
-					asker?.let { Section.of(Kind.Application, dated(own)) },
-					Section.of(Kind.Folders, dated(others)),
+					Section.of(Kind.NewFiles, made).takeIf { files },
+					Section.of(Kind.ApplicationFiles, dated(ownFiles, folders = false)).takeIf { files },
+					Section.of(Kind.Files, dated(otherFiles, folders = false)).takeIf { files },
+					Section.of(Kind.Application, dated(ownFolders, folders = true)),
+					Section.of(Kind.Folders, dated(otherFolders, folders = true)),
+					Section.of(Kind.Frequent, frequent),
 				),
 				now,
 			)
@@ -459,12 +642,11 @@ class RecentPage(
 }
 
 /** [path] as a row of the Recents page, as it is on disk now; none, where it is not there. */
-internal fun recentRowOf(path: Path): Row? =
-	rowOf(path)?.copy(id = RowId.Recent(path), hidden = false)
+internal fun recentRowOf(path: Path): Row? = rowOf(path)?.copy(hidden = false)
 
 /**
- * The Recents page for [asking], read from these: the newest files the index knows that are still there, and the
- * recent folders. The index can be a moment behind the disk, and what it lists newest can since have been deleted
+ * The Recents page for [asking], read from these: the newest files the index knows that are still there, and what
+ * is recent. The index can be a moment behind the disk, and what it lists newest can since have been deleted
  * (programs write a file where a person would see it, and take it away again): so [RecentPage.NEW_KEPT] are asked
  * for, to show the first [RecentPage.NEW_SHOWN] of them that are there, and, where too few of them are, as many
  * again, until there are enough or the index has no more.
@@ -501,6 +683,7 @@ internal fun Services.recentPage(asking: Effect.ReadRecents): RecentPage {
 		recents.read(),
 		asking.asker,
 		clock(),
+		files = asking.files != null,
 		row,
 	)
 }

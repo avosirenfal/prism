@@ -269,6 +269,21 @@ private fun rowsSlots(
 					item("Show in folder", BrowserEvent.Revealed(row.id), id = "builtin.show-in-folder")
 				}
 			}
+		// A row of the Recents page is left out of it from now on, or, hidden and shown all the same, put back.
+		if (state.at == Location.Recents && paths != null) {
+			val hidden = paths.all { it in state.recentsHidden }
+
+			slot("builtin.hide-from-recent") {
+				item(
+					if (hidden)
+						"Show in recent"
+					else
+						"Hide from recent",
+					BrowserEvent.RecentHid(paths, !hidden),
+					id = "builtin.hide-from-recent",
+				)
+			}
+		}
 		if (exploring) {
 			if (paths != null)
 				slot("builtin.cut") {

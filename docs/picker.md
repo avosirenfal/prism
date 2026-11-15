@@ -166,7 +166,8 @@ the folder you came from, so that going down again is Enter.
 ![The Recents page in a picker Firefox asked for](picker-recents.png)
 
 "Recents", first in quick access, is a page of what was lately made and where pickers were lately used
-(`recents.kt`, `recentsview.kt`). It has up to three sections, each left out when it has nothing to show:
+(`recents.kt`, `recentsview.kt`). It has up to six sections, in this order, each left out when it has nothing to
+show:
 
 - **New files**: the ten newest files the index saw made (the stamps `new:` asks about, `Index.newestFiles`): files
   only, not hidden and not inside a hidden folder, and only those the picker's filter of names admits. A folder
@@ -175,8 +176,17 @@ the folder you came from, so that going down again is Enter.
   file a program wrote and deleted again never takes one of the ten places. Where fewer than ten of the hundred are
   left, twice as many are asked for, until there are ten or the index has no more. Without an index (no daemon), the
   section is not there.
-- **Recent folders for this application**: the folders this application's pickers were last answered from.
+- **Recent files for this application**: the files this application's file pickers were last answered with, to
+  open or to save.
+- **Recent files**: the files any application's were, without those already listed for this one.
+- **Recent folders for this application**: the folders this application's folder pickers were last answered with.
 - **Recent folders**: the folders any application's were, without those already listed for this one.
+- **Frequently accessed**: the ten folders gone to and picked from most, the most used first, each with when it was
+  last used.
+
+A folder picker shows no files, so it has the three sections of folders alone; a picker that is nobody's, and the
+explorer, have no "for this application" sections. A folder can be in two sections (lately picked, and often gone
+to): it is a row in each (`RowId.Recent` is the path and the section).
 
 Each row says where it is and when: when the index saw a file made, when a folder was last used ("5 minutes ago",
 "Yesterday", "12 days ago", then a date). Within a section, rows more than ten days older than that section's newest
@@ -206,16 +216,35 @@ for a program it cannot identify, and `prism pick` has none: such a picker is no
 and is recorded in that list alone. The heading does not name the application: the picker is that application's,
 and its folders are "for this application".
 
-**What is recorded**: when a picker is accepted, the folder of what was chosen (the folder itself for a folder
-picker, each file's folder otherwise) goes to the front of both lists, with the time. A picker cancelled records
-nothing, and the explorer records nothing. Each list keeps ten folders, each once (`RecentList`). They are kept in
-`$XDG_STATE_HOME/prism/recent-folders`, a line a use (the time in milliseconds, the application or nothing, the
-folder, between tabs); every prism writes the one file, under a lock on `recent-folders.lock`, whole and renamed
-over. A folder that no longer exists is not shown, and is dropped the next time the file is written.
+**What is recorded** (`RecentStore.picked`): when a folder picker is accepted, the folder chosen goes to the front
+of the recent folders, this application's and everyone's, with the time; when a file picker is (to open one file or
+many, or to save), the files chosen go to the front of the recent files, the same two ways. A file picked does not
+make its folder a recent folder. A picker cancelled records nothing, and the explorer records neither. Each list
+keeps ten, each once (`RecentList`). They are kept in `$XDG_STATE_HOME/prism/recent-folders` and `recent-files`, a
+line a use (the time in milliseconds, the application or nothing, the path, between tabs), each a `Stored` value:
+every prism writes the one file, under its lock, whole and renamed over. What no longer exists is not shown, and is
+dropped the next time its file is written. (`recent-folders` is the file earlier versions wrote, when a file's
+folder was recorded there too: what it holds is kept.)
 
-**Where a picker opens** (`startOf`, in `app/chooser.kt`): in the folder the application names, where it exists;
-otherwise in the folder that application was last answered from that still exists (for a picker that is nobody's,
-the one any application was); otherwise in the home folder.
+**How much a folder is used** (`Recents.accesses`, a `prism.shared.Uses`): going to a folder counts as a use of it,
+in the explorer and in a picker, by whatever means (a click, a path typed, Back and Forward; not the folder read
+again); so does picking a folder, and picking a file from one. Each use adds one to the folder's weight, and the
+weight halves every two weeks, as the launcher's count of what it started does (the same type). The 500 most used
+are kept, in `$XDG_STATE_HOME/prism/folder-accesses`. Nothing waits for it: a session tells the store off the
+thread that makes its states, and the store holds what it is told and writes it no oftener than every five seconds,
+and when the window closes.
+
+**Hidden from recent**: the menu of any row of the page has "Hide from recent". What is hidden is a set of paths in
+the preferences (`recentsHidden`), so it is hidden in every window, the pickers' and the explorer's, and in every
+section; it is recorded and counted as anything else is, and only not listed. In the explorer, while something on
+the page is hidden, the bar that says "Recents" has "Show hidden" at its end: pressed, the hidden entries are
+listed in their places, drawn faint, and their menu has "Show in recent" in place of "Hide from recent"; "Hide
+hidden" puts them away again. That is the window's, and is not kept. A picker never offers it.
+
+**Where a picker opens** (`startOf`, in `app/chooser.kt`; `Recents.start`): in the folder the application names,
+where it exists. Otherwise, a picker of files opens in the folder of the file that application was last answered
+with, and failing that in the folder it last was; then the same of any application's. A picker of folders goes by
+the folders alone. Only a folder that still exists counts; with none, the home folder.
 
 ## What the listing shows: the filters
 

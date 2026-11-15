@@ -93,15 +93,15 @@ class RecentsTest {
 
 		// The two first used have gone, to make room.
 		assertEquals(RecentList.MOST, list.entries.size)
-		assertEquals(folders.drop(2).reversed(), list.folders)
+		assertEquals(folders.drop(2).reversed(), list.paths)
 		assertEquals(now.plusSeconds(11), list.entries.first().at)
 
 		// One used again is first again, once, with when it was used now.
 		val again = list.used(listOf(Path("/data/5")), now.plusSeconds(60))
 
-		assertEquals(Path("/data/5"), again.folders.first())
+		assertEquals(Path("/data/5"), again.paths.first())
 		assertEquals(RecentList.MOST, again.entries.size)
-		assertEquals(1, again.folders.count { it == Path("/data/5") })
+		assertEquals(1, again.paths.count { it == Path("/data/5") })
 		assertEquals(now.plusSeconds(60), again.entries.first().at)
 
 		// However it is made, it is so: twelve given at once are ten, and one given twice is its latest use.
@@ -112,7 +112,7 @@ class RecentsTest {
 			)
 
 		assertEquals(RecentList.MOST, given.entries.size)
-		assertEquals(Path("/data/1"), given.folders.first())
+		assertEquals(Path("/data/1"), given.paths.first())
 	}
 
 	@Test
@@ -122,46 +122,56 @@ class RecentsTest {
 		val work = Path("/home/avery/Work")
 
 		val used =
-			RecentFolders()
+			Recently()
 				.used(listOf(downloads), firefox, ago(minutes = 30))
 				.used(listOf(pictures), gimp, ago(minutes = 20))
 				.used(listOf(work), null, ago(minutes = 10))
 
-		assertEquals(listOf(work, pictures, downloads), used.all.folders)
-		assertEquals(listOf(downloads), used.of(firefox).folders)
-		assertEquals(listOf(pictures), used.of(gimp).folders)
-		assertEquals(emptyList<Path>(), used.of(null).folders)
+		assertEquals(listOf(work, pictures, downloads), used.all.paths)
+		assertEquals(listOf(downloads), used.of(firefox).paths)
+		assertEquals(listOf(pictures), used.of(gimp).paths)
+		assertEquals(emptyList<Path>(), used.of(null).paths)
 		assertEquals(setOf(firefox, gimp), used.apps.keys)
 
 		// Several folders at once (files of a search's results, of more than one folder): each, in the order chosen.
 		val several = used.used(listOf(pictures, work), firefox, now)
 
-		assertEquals(listOf(pictures, work, downloads), several.of(firefox).folders)
-		assertEquals(listOf(pictures, work, downloads), several.all.folders)
+		assertEquals(listOf(pictures, work, downloads), several.of(firefox).paths)
+		assertEquals(listOf(pictures, work, downloads), several.all.paths)
 		// Nothing used changes nothing.
 		assertEquals(several, several.used(emptyList(), firefox, now))
 	}
 
 	@Test
-	fun whatAPickerWasAnsweredFromIsTheFolderItself_OrTheFoldersOfTheFiles() {
+	fun aFolderPickedIsARecentFolder_AFilePickedARecentFile_AndNeitherTheOther() {
 		val a = Path("/data/a/one.txt")
 		val b = Path("/data/a/two.txt")
 		val c = Path("/data/c/three.txt")
+		val store = MemoryRecents()
 
-		assertEquals(
-			listOf(Path("/data/a")),
-			foldersUsed(listOf(Path("/data/a")), Choosing.Folder()),
+		store.picked(listOf(Path("/data/a")), Choosing.Folder(), firefox, ago(minutes = 40))
+		store.picked(listOf(a), Choosing.OneFile(), firefox, ago(minutes = 30))
+		store.picked(listOf(a, b, c), Choosing.Files(), gimp, ago(minutes = 20))
+		store.picked(listOf(c), Choosing.SaveAs("three.txt"), null, ago(minutes = 10))
+		// Exploring answers nobody.
+		store.picked(listOf(Path("/data/z/nine.txt")), Choosing.Exploring(), firefox, now)
+
+		val read = store.read()
+
+		// The folder a folder picker was answered with, and no folder a file was picked from.
+		assertEquals(listOf(Path("/data/a")), read.folders.all.paths)
+		assertEquals(listOf(Path("/data/a")), read.folders.of(firefox).paths)
+		assertEquals(emptyList<Path>(), read.folders.of(gimp).paths)
+		// The files, whether to open or to save, the latest first, each application's its own.
+		assertEquals(listOf(c, a, b), read.files.all.paths)
+		assertEquals(listOf(a), read.files.of(firefox).paths)
+		assertEquals(listOf(a, b, c), read.files.of(gimp).paths)
+		// Every folder picked, or picked from, was gone to: `a` by the folder picker and two file pickers.
+		assertEquals(setOf(Path("/data/a"), Path("/data/c")), read.accesses.uses.keys)
+		assertTrue(
+			read.accesses.weightOf(Path("/data/a"), now) >
+				read.accesses.weightOf(Path("/data/c"), now),
 		)
-		assertEquals(listOf(Path("/data/a")), foldersUsed(listOf(a), Choosing.OneFile()))
-		assertEquals(
-			listOf(Path("/data/a"), Path("/data/c")),
-			foldersUsed(listOf(a, b, c), Choosing.Files()),
-		)
-		assertEquals(
-			listOf(Path("/data/c")),
-			foldersUsed(listOf(c), Choosing.SaveAs("three.txt")),
-		)
-		assertEquals(emptyList<Path>(), foldersUsed(listOf(a), Choosing.Exploring()))
 	}
 
 	@Test
@@ -169,21 +179,62 @@ class RecentsTest {
 		val gone = Path("/data/gone")
 		val there = Path("/data/there")
 		val other = Path("/data/other")
+		val saved = Path("/data/saved/report.pdf")
 
 		val used =
-			RecentFolders()
-				.used(listOf(there), firefox, ago(minutes = 30))
-				.used(listOf(gone), firefox, ago(minutes = 20))
-				.used(listOf(other), gimp, ago(minutes = 10))
+			Recents(
+				folders =
+					Recently()
+						.used(listOf(there), firefox, ago(minutes = 30))
+						.used(listOf(gone), firefox, ago(minutes = 20))
+						.used(listOf(other), gimp, ago(minutes = 10)),
+				files = Recently().used(listOf(saved), firefox, ago(minutes = 50)),
+			)
 
-		// The latest of its own that is there; of every application's, for one nobody can tell.
-		assertEquals(there, used.last(firefox) { it != gone })
-		assertEquals(other, used.last(null) { it != gone })
-		// An application answered nowhere yet has no folder of its own, whatever others have.
-		assertNull(used.last(AppKey.of("org.example.New")) { true })
-		assertNull(RecentFolders().last(null) { true })
-		assertNull(used.last(firefox) { false })
+		// A picker of files: where its application's last file was, though a folder was picked later.
+		assertEquals(saved.parent, used.start(firefox, picksFiles = true) { it != gone })
+		// With that folder gone, the latest of its folders that is there.
+		assertEquals(
+			there,
+			used.start(firefox, picksFiles = true) {
+				it != gone &&
+					it != saved.parent
+			},
+		)
+		// A picker of folders goes by the folders alone.
+		assertEquals(there, used.start(firefox, picksFiles = false) { it != gone })
+		// An application with files and no folders opens a folder picker where anybody's last was.
+		assertEquals(other, used.start(null, picksFiles = false) { it != gone })
+		// One nobody can tell: any application's, files' folders before folders.
+		assertEquals(saved.parent, used.start(null, picksFiles = true) { true })
+		// An application answered nowhere yet goes by everybody's.
+		assertEquals(
+			other,
+			used.start(AppKey.of("org.example.New"), picksFiles = false) { true },
+		)
+		// One whose own are all gone goes by everybody's too.
+		assertEquals(
+			other,
+			used.start(firefox, picksFiles = true) { it == other },
+		)
+		assertNull(Recents().start(null, picksFiles = true) { true })
+		assertNull(used.start(firefox, picksFiles = true) { false })
 	}
+
+	/** The recent folders of a store kept in [file]'s folder, as a folder picker's answers make them. */
+	private class FoldersKept(
+		private val store: RecentStore,
+	) {
+		fun used(folders: List<Path>, app: AppKey?, at: Instant) =
+			store.picked(folders, Choosing.Folder(), app, at)
+
+		fun read(): Recently = store.read().folders
+	}
+
+	/** A store in memory that holds [folders], and nothing else. */
+	private fun memoryFolders(folders: Recently) = MemoryRecents(Recents(folders = folders))
+
+	private fun recentsFile(file: Path) = FoldersKept(RecentsFiles(file.parent))
 
 	// ---- the file ----------------------------------------------------------------------------------------------
 
@@ -193,23 +244,23 @@ class RecentsTest {
 		val odd = folder("an odd\tname\nof a folder \\ here")
 		val downloads = folder("Downloads")
 		val pictures = folder("Pictures")
-		val store = RecentsFile(file)
+		val store = recentsFile(file)
 
-		assertEquals(RecentFolders(), store.read())
+		assertEquals(Recently(), store.read())
 
 		store.used(listOf(downloads), firefox, ago(minutes = 30))
 		store.used(listOf(pictures), null, ago(minutes = 20))
 		store.used(listOf(odd), firefox, ago(minutes = 10))
 
 		val expected =
-			RecentFolders()
+			Recently()
 				.used(listOf(downloads), firefox, ago(minutes = 30))
 				.used(listOf(pictures), null, ago(minutes = 20))
 				.used(listOf(odd), firefox, ago(minutes = 10))
 
 		assertEquals(expected, store.read())
 		// Another prism, reading the same file, finds the same; and each use carries when it was.
-		assertEquals(expected, RecentsFile(file).read())
+		assertEquals(expected, recentsFile(file).read())
 		assertEquals(
 			ago(minutes = 10),
 			store
@@ -218,8 +269,8 @@ class RecentsTest {
 				.first()
 				.at,
 		)
-		assertEquals(listOf(odd, pictures, downloads), store.read().all.folders)
-		assertEquals(listOf(odd, downloads), store.read().of(firefox).folders)
+		assertEquals(listOf(odd, pictures, downloads), store.read().all.paths)
+		assertEquals(listOf(odd, downloads), store.read().of(firefox).paths)
 	}
 
 	@Test
@@ -227,17 +278,17 @@ class RecentsTest {
 		val file = root.resolve("recent-folders")
 		val kept = folder("kept")
 		val gone = folder("gone")
-		val store = RecentsFile(file)
+		val store = recentsFile(file)
 
 		store.used(listOf(gone), firefox, ago(minutes = 30))
 		store.used(listOf(kept), firefox, ago(minutes = 20))
-		assertEquals(listOf(kept, gone), store.read().all.folders)
+		assertEquals(listOf(kept, gone), store.read().all.paths)
 
 		Files.delete(gone)
 		store.used(listOf(kept), null, ago(minutes = 10))
 
-		assertEquals(listOf(kept), store.read().all.folders)
-		assertEquals(listOf(kept), store.read().of(firefox).folders)
+		assertEquals(listOf(kept), store.read().all.paths)
+		assertEquals(listOf(kept), store.read().of(firefox).paths)
 	}
 
 	@Test
@@ -249,7 +300,7 @@ class RecentsTest {
 		val writers =
 			folders.mapIndexed { index, used ->
 				Thread {
-					RecentsFile(file).used(
+					recentsFile(file).used(
 						listOf(used),
 						if (index % 2 == 0) firefox else gimp,
 						now.plusSeconds(index.toLong()),
@@ -260,9 +311,9 @@ class RecentsTest {
 		writers.forEach(Thread::start)
 		writers.forEach(Thread::join)
 
-		val read = RecentsFile(file).read()
+		val read = recentsFile(file).read()
 
-		assertEquals(folders.reversed(), read.all.folders)
+		assertEquals(folders.reversed(), read.all.paths)
 		assertEquals(
 			folders
 				.filterIndexed {
@@ -271,7 +322,7 @@ class RecentsTest {
 					->
 					index % 2 == 0
 				}.reversed(),
-			read.of(firefox).folders,
+			read.of(firefox).paths,
 		)
 		assertEquals(
 			folders
@@ -281,7 +332,7 @@ class RecentsTest {
 					->
 					index % 2 == 1
 				}.reversed(),
-			read.of(gimp).folders,
+			read.of(gimp).paths,
 		)
 	}
 
@@ -291,10 +342,10 @@ class RecentsTest {
 		val used = folder("used")
 
 		file.writeBytes(byteArrayOf(0, 1, 2, '\n'.code.toByte(), 9))
-		assertEquals(RecentFolders(), RecentsFile(file).read())
+		assertEquals(Recently(), recentsFile(file).read())
 
-		RecentsFile(file).used(listOf(used), null, now)
-		assertEquals(listOf(used), RecentsFile(file).read().all.folders)
+		recentsFile(file).used(listOf(used), null, now)
+		assertEquals(listOf(used), recentsFile(file).read().all.paths)
 	}
 
 	// ---- the page ----------------------------------------------------------------------------------------------
@@ -304,16 +355,15 @@ class RecentsTest {
 	/** The page of [newest] and [folders] for [asker], everything there, each a file unless its name ends in `/`. */
 	private fun page(
 		newest: List<NewFile>,
-		folders: RecentFolders,
+		folders: Recently,
 		asker: AppKey? = this.asker,
 		gone: Set<Path> = emptySet(),
 	): RecentPage {
 		val files = newest.map { it.path }.toSet()
 
-		return RecentPage.of(newest, folders, asker, now) { path ->
+		return RecentPage.of(newest, Recents(folders = folders), asker, now) { path ->
 			Fixtures
 				.row(path.fileName.toString(), 100L.takeIf { path in files }, folder = path.parent)
-				.copy(id = RowId.Recent(path))
 				.takeUnless { path in gone }
 		}
 	}
@@ -331,7 +381,7 @@ class RecentsTest {
 		val work = Path("/home/avery/Work")
 
 		val folders =
-			RecentFolders()
+			Recently()
 				.used(listOf(work), null, ago(days = 2))
 				.used(listOf(downloads), firefox, ago(minutes = 30))
 				.used(listOf(pictures), AppKey.of("org.gimp.GIMP"), ago(minutes = 20))
@@ -364,18 +414,18 @@ class RecentsTest {
 		// A section with nothing in it is not there; nor is a page of nothing anything.
 		assertEquals(
 			listOf("Recent folders for this application" to listOf("Downloads")),
-			page(emptyList(), RecentFolders().used(listOf(downloads), firefox, now)).shown(),
+			page(emptyList(), Recently().used(listOf(downloads), firefox, now)).shown(),
 		)
 		assertEquals(
 			emptyList<Pair<String, List<String>>>(),
-			page(emptyList(), RecentFolders()).shown(),
+			page(emptyList(), Recently()).shown(),
 		)
 	}
 
 	@Test
 	fun anEntryLongBeforeItsSectionsNewestIsStale_HoweverLongAgoTheNewestWas() {
 		val folders =
-			RecentFolders()
+			Recently()
 				// The newest here was a month ago: the others are counted from it, not from today.
 				.used(listOf(Path("/data/a")), firefox, ago(days = 45))
 				.used(listOf(Path("/data/b")), firefox, ago(days = 39))
@@ -401,7 +451,11 @@ class RecentsTest {
 
 		// What the page says of a row is what its section does.
 		val made = page(newest, folders)
-		val old = made.marks.getValue(RowId.Recent(Path("/data/old.txt")))
+
+		val old =
+			made.marks.getValue(
+				RowId.Recent(Path("/data/old.txt"), RecentSection.NewFiles),
+			)
 
 		assertEquals(RecentPage.Kind.NewFiles, old.section)
 		assertEquals(ago(days = 12), old.at)
@@ -419,7 +473,7 @@ class RecentsTest {
 		val gone = newest.map { it.path }.filterIndexed { index, _ -> index % 2 == 0 }.toSet()
 
 		val folders =
-			RecentFolders()
+			Recently()
 				.used(listOf(Path("/data/kept")), firefox, ago(minutes = 2))
 				.used(listOf(Path("/data/removed")), firefox, ago(minutes = 1))
 
@@ -539,7 +593,7 @@ class RecentsTest {
 		assertEquals(now, all.read)
 		// Each is a row as a folder's is, of where it is, so two of one name are two rows.
 		assertEquals(
-			RowId.Recent(root.resolve("docs/made/notes.md")),
+			RowId.Recent(root.resolve("docs/made/notes.md"), RecentSection.NewFiles),
 			all.rows.first().id,
 		)
 
@@ -586,8 +640,8 @@ class RecentsTest {
 		val gone = root.resolve("gone")
 
 		val recents =
-			MemoryRecents(
-				RecentFolders()
+			memoryFolders(
+				Recently()
 					.used(listOf(downloads), firefox, ago(minutes = 30))
 					.used(listOf(gone), firefox, ago(minutes = 20))
 					.used(listOf(pictures), null, ago(minutes = 10)),
@@ -628,7 +682,7 @@ class RecentsTest {
 			).map { (path, at) -> NewFile(home.resolve(path), at) }
 
 		val folders =
-			RecentFolders()
+			Recently()
 				.used(listOf(Path("/mnt/data/Archive/2019")), null, ago(days = 40))
 				.used(listOf(home.resolve("Documents/Taxes")), firefox, ago(days = 33))
 				.used(listOf(home.resolve("Projects/prism/docs")), null, ago(days = 3))
@@ -639,10 +693,9 @@ class RecentsTest {
 
 		val files = newest.map { it.path }.toSet()
 
-		return RecentPage.of(newest, folders, asker, read) { path ->
+		return RecentPage.of(newest, Recents(folders = folders), asker, read) { path ->
 			Fixtures
 				.row(path.fileName.toString(), 48_000L.takeIf { path in files }, folder = path.parent)
-				.copy(id = RowId.Recent(path))
 		}
 	}
 
@@ -678,7 +731,7 @@ class RecentsTest {
 			step(
 				picker,
 				BrowserEvent.Clicked(
-					RowId.Recent(home.resolve("Downloads/invoice-4471.pdf")),
+					recent("Downloads/invoice-4471.pdf"),
 					Click.Only,
 				),
 			).state
@@ -735,7 +788,9 @@ class RecentsTest {
 				(if (it.collapsed) " collapsed" else "") + " before ${it.before}"
 		}
 
-	private fun recent(path: String): RowId = RowId.Recent(home.resolve(path))
+	/** The row of the page drawn that is of [path], in the first section that has it. */
+	private fun recent(path: String): RowId =
+		drawnPage(asker).rows.first { it.path == home.resolve(path) }.id
 
 	@Test
 	fun aSectionCollapsedIsItsHeadingAlone_ItsEntriesNoRowsOfTheListing() {
@@ -943,7 +998,7 @@ class RecentsTest {
 		val theirs =
 			page(
 				emptyList(),
-				RecentFolders()
+				Recently()
 					.used(listOf(Path("/data/brushes")), gimp, ago(minutes = 3))
 					.used(listOf(Path("/data/other")), null, ago(minutes = 9)),
 				gimp,
@@ -1004,7 +1059,7 @@ class RecentsTest {
 		val one =
 			step(
 				step(picker, Answer.RecentsFolded(setOf(RecentSection.NewFiles))).state,
-				BrowserEvent.Clicked(RowId.Recent(home.resolve("Pictures/Screenshots")), Click.Only),
+				BrowserEvent.Clicked(recent("Pictures/Screenshots"), Click.Only),
 			).state
 
 		for ((tone, palette) in listOf("light" to Palette.Light, "dark" to Palette.Dark))
@@ -1080,7 +1135,7 @@ class RecentsTest {
 		val index = indexed(ago(minutes = 5) to { file("docs/new.txt") })
 		val used = folder("used")
 		val recents =
-			MemoryRecents(RecentFolders().used(listOf(used), firefox, ago(minutes = 1)))
+			memoryFolders(Recently().used(listOf(used), firefox, ago(minutes = 1)))
 		val services = services(index, recents)
 		val picker = picker(asker = asker)
 
@@ -1099,7 +1154,11 @@ class RecentsTest {
 		assertEquals(listOf(Location.Folder(root)), shown.history.back)
 
 		// A folder of it gone into, and Back: the page again, read again.
-		val into = step(shown, BrowserEvent.Activated(RowId.Recent(used))).settled(services)
+		val into =
+			step(
+				shown,
+				BrowserEvent.Activated(RowId.Recent(used, RecentSection.Application)),
+			).settled(services)
 
 		assertEquals(Location.Folder(used), into.at)
 
@@ -1161,10 +1220,10 @@ class RecentsTest {
 		val services =
 			services(
 				index,
-				MemoryRecents(RecentFolders().used(listOf(used), null, ago(minutes = 1))),
+				memoryFolders(Recently().used(listOf(used), null, ago(minutes = 1))),
 			)
 
-		val new = RowId.Recent(root.resolve("docs/new.txt"))
+		val new = RowId.Recent(root.resolve("docs/new.txt"), RecentSection.NewFiles)
 
 		fun onPage(choosing: Choosing) =
 			step(picker(choosing), BrowserEvent.OpenedRecents).settled(services)
@@ -1202,7 +1261,10 @@ class RecentsTest {
 		)
 		assertEquals(
 			Location.Folder(used),
-			step(exploring, BrowserEvent.Activated(RowId.Recent(used))).state.at,
+			step(
+				exploring,
+				BrowserEvent.Activated(RowId.Recent(used, RecentSection.Folders)),
+			).state.at,
 		)
 
 		// From its menu, a row is shown in its folder, chosen there; and its path copied.
@@ -1254,8 +1316,8 @@ class RecentsTest {
 			val old = folder("old")
 
 			val recents =
-				MemoryRecents(
-					RecentFolders()
+				memoryFolders(
+					Recently()
 						.used(listOf(old), null, ago(days = 20))
 						.used(listOf(used), null, ago(minutes = 1)),
 				)
@@ -1296,8 +1358,10 @@ class RecentsTest {
 			onNodeWithTag("recent-section:New files").assertExists()
 			onNodeWithTag("recent-section:Recent folders").assertExists()
 			onNodeWithTag("recent-older").assertExists()
+			// The folder the window opened in was gone to: it is the one that is frequently accessed.
+			onNodeWithTag("recent-section:Frequently accessed").assertExists()
 			assertEquals(
-				listOf("new.txt", "used", "old"),
+				listOf("new.txt", "used", "old", root.fileName.toString()),
 				session.state.value.rows.list.map {
 					it.name
 				},
@@ -1307,7 +1371,7 @@ class RecentsTest {
 			// it holds, and it is kept where every window reads it. Its title pressed does as the button does: they
 			// are back.
 			onNodeWithTag("recent-fold:Recent folders").performClick()
-			waitUntil(timeoutMillis = 5_000) { session.state.value.rows.size == 1 }
+			waitUntil(timeoutMillis = 5_000) { session.state.value.rows.size == 2 }
 			waitForIdle()
 			onNodeWithTag("row:used").assertDoesNotExist()
 			onNodeWithTag("recent-section:Recent folders").assertExists()
@@ -1318,7 +1382,7 @@ class RecentsTest {
 					setOf(RecentSection.Folders)
 			}
 			onNodeWithTag("recent-section:Recent folders").performClick()
-			waitUntil(timeoutMillis = 5_000) { session.state.value.rows.size == 3 }
+			waitUntil(timeoutMillis = 5_000) { session.state.value.rows.size == 4 }
 			waitForIdle()
 			onNodeWithTag("row:used").assertExists()
 			onNodeWithTag("recent-count:Recent folders").assertDoesNotExist()
@@ -1331,14 +1395,14 @@ class RecentsTest {
 			onNodeWithTag("row:new.txt").performClick()
 			waitUntil(timeoutMillis = 5_000) {
 				session.state.value.choosing.rows ==
-					setOf<RowId>(RowId.Recent(root.resolve("docs/new.txt")))
+					setOf<RowId>(RowId.Recent(root.resolve("docs/new.txt"), RecentSection.NewFiles))
 			}
 			onNodeWithTag("listing").performKeyInput { pressKey(Key.DirectionDown) }
 			waitUntil(
 				timeoutMillis = 5_000,
 			) {
 				session.state.value.cursor
-					?.at == RowId.Recent(used)
+					?.at == RowId.Recent(used, RecentSection.Folders)
 			}
 			onNodeWithTag("listing").performKeyInput { pressKey(Key.Enter) }
 			waitUntil(timeoutMillis = 5_000) { session.state.value.at == Location.Folder(used) }
@@ -1383,23 +1447,32 @@ class RecentsTest {
 
 		// Cancelled: nothing.
 		assertEquals(Outcome.Cancelled, ended(asker, recents, BrowserEvent.Cancelled))
-		assertEquals(RecentFolders(), recents.read())
+		assertEquals(Recently(), recents.read().folders)
+		assertEquals(Recently(), recents.read().files)
 
-		// Answered for Firefox: its own, and every application's.
+		// Answered with a file for Firefox: the file is its own, and every application's; its folder is no recent
+		// folder, and was gone to.
 		assertEquals(
 			Outcome.Chosen(listOf(root.resolve("docs/a.txt"))),
 			ended(asker, recents, BrowserEvent.Activated(RowId("a.txt"))),
 		)
 		assertEquals(
-			RecentFolders().used(listOf(root.resolve("docs")), firefox, now),
-			recents.read(),
+			Recently().used(listOf(root.resolve("docs/a.txt")), firefox, now),
+			recents.read().files,
 		)
+		assertEquals(Recently(), recents.read().folders)
+		assertTrue(recents.read().accesses.weightOf(root.resolve("docs"), now) > 0.0)
 
 		// Answered for nobody that can be told: every application's alone.
 		val nobody = MemoryRecents()
 
 		ended(null, nobody, BrowserEvent.Activated(RowId("b.txt")))
-		assertEquals(listOf(root.resolve("docs")), nobody.read().all.folders)
-		assertEquals(emptyMap<AppKey, RecentList>(), nobody.read().apps)
+		assertEquals(
+			listOf(root.resolve("docs/b.txt")),
+			nobody
+				.read()
+				.files.all.paths,
+		)
+		assertEquals(emptyMap<AppKey, RecentList>(), nobody.read().files.apps)
 	}
 }

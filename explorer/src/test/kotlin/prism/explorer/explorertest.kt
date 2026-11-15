@@ -514,22 +514,23 @@ class ExplorerTest {
 			// Written behind the answer: there a moment after it.
 			while (explorer.recents
 					.read()
-					.all.folders
+					.files.all.paths
 					.isEmpty()
 				)
 				delay(10)
 			assertEquals(
-				listOf(root.resolve("docs")),
+				listOf(root.resolve("docs/a.txt")),
 				explorer.recents
 					.read()
-					.all.folders,
+					.files.all.paths,
 			)
 			assertEquals(
-				listOf(root.resolve("docs")),
+				listOf(root.resolve("docs/a.txt")),
 				explorer.recents
 					.read()
+					.files
 					.of(asker)
-					.folders,
+					.paths,
 			)
 		}
 

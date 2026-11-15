@@ -13,7 +13,8 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import prism.browser.AppKey
 import prism.browser.Choosing
-import prism.browser.RecentFolders
+import prism.browser.Recently
+import prism.browser.Recents
 import prism.browser.TypeFilter
 import prism.desktop.FileTypes
 import prism.desktop.MimeType
@@ -77,17 +78,33 @@ class PortalTest {
 		val any = root.resolve("any").createDirectories()
 		val gone = root.resolve("gone")
 
-		val recents =
-			RecentFolders()
-				.used(listOf(own), app, Instant.parse("2026-11-12T09:00:00Z"))
-				.used(listOf(gone), app, Instant.parse("2026-11-12T09:30:00Z"))
-				.used(
-					listOf(any),
-					AppKey.of("org.example.Other"),
-					Instant.parse("2026-11-12T10:00:00Z"),
-				)
+		val filed = root.resolve("filed").createDirectories()
 
-		fun start(asked: Asked, who: AppKey?, of: RecentFolders = recents) =
+		val recents =
+			Recents(
+				folders =
+					Recently()
+						.used(listOf(own), app, Instant.parse("2026-11-12T09:00:00Z"))
+						.used(listOf(gone), app, Instant.parse("2026-11-12T09:30:00Z"))
+						.used(
+							listOf(any),
+							AppKey.of("org.example.Other"),
+							Instant.parse("2026-11-12T10:00:00Z"),
+						),
+			)
+
+		// The same, with a file the application was answered with, before any of its folders.
+		val withFile =
+			recents.copy(
+				files =
+					Recently().used(
+						listOf(filed.resolve("a.txt")),
+						app,
+						Instant.parse("2026-11-12T08:00:00Z"),
+					),
+			)
+
+		fun start(asked: Asked, who: AppKey?, of: Recents = recents) =
 			startOf(asked, who, of, root)
 
 		// Told where: there, whoever asks and whatever was used; a save over a file, in that file's folder.
@@ -117,10 +134,27 @@ class PortalTest {
 		)
 		// An application nobody can tell: where any application last was.
 		assertEquals(any, start(opening(), null))
-		// One answered nowhere yet, or with nothing kept: at home, as ever.
-		assertEquals(root, start(opening(), AppKey.of("org.example.New")))
-		assertEquals(root, start(opening(), app, RecentFolders()))
-		assertEquals(root, start(opening(), null, RecentFolders()))
+		// One answered nowhere yet: where any application last was; with nothing kept, at home, as ever.
+		assertEquals(any, start(opening(), AppKey.of("org.example.New")))
+		assertEquals(root, start(opening(), app, Recents()))
+		assertEquals(root, start(opening(), null, Recents()))
+		// A picker of files opens where the application's last file was, whatever folders it picked since; a
+		// picker of folders, or of where to save many, goes by its folders.
+		assertEquals(filed, start(opening(), app, withFile))
+		assertEquals(filed, start(opening(multiple = true), app, withFile))
+		assertEquals(
+			filed,
+			start(
+				Asked.Saving("", null, emptyList(), emptyList(), null, null, null, null),
+				app,
+				withFile,
+			),
+		)
+		assertEquals(own, start(opening(directory = true), app, withFile))
+		assertEquals(
+			own,
+			start(Asked.SavingMany("", null, emptyList(), null, listOf("a.txt")), app, withFile),
+		)
 		// Told a folder that is not there: as if it had not been told.
 		assertEquals(own, start(opening(folder = gone), app))
 

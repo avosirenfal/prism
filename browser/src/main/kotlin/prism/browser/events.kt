@@ -315,6 +315,20 @@ sealed interface BrowserEvent : Input {
 		val section: RecentSection,
 	) : BrowserEvent
 
+	/**
+	 * [paths] left out of the Recents page from now on ([hidden]), in every window, or shown on it again. They are
+	 * kept and counted as before: it is only the page that does not list them.
+	 */
+	data class RecentHid(
+		val paths: List<Path>,
+		val hidden: Boolean,
+	) : BrowserEvent
+
+	/** This window's Recents page showing what is hidden from it all the same ([shown]), or no longer. */
+	data class RecentHiddenShown(
+		val shown: Boolean,
+	) : BrowserEvent
+
 	/** The System page shown: the machine's drives, and how full each is. */
 	data object OpenedSystem : BrowserEvent
 
@@ -707,6 +721,11 @@ sealed interface Answer : Input {
 	/** The sections of the Recents page the user has collapsed, as the preferences now say: here, or in another window. */
 	data class RecentsFolded(
 		val collapsed: Set<RecentSection>,
+	) : Answer
+
+	/** What is hidden from the Recents page, as the preferences (which any window may have changed) now say. */
+	data class RecentsHid(
+		val hidden: Set<Path>,
 	) : Answer
 }
 
@@ -1273,6 +1292,12 @@ sealed interface Effect {
 	data class FoldRecents(
 		val section: RecentSection,
 		val collapsed: Boolean,
+	) : Effect
+
+	/** [paths] kept as [hidden] from the Recents page, or not: a preference, so every window, and the next, has it so. */
+	data class HideRecent(
+		val paths: List<Path>,
+		val hidden: Boolean,
 	) : Effect
 
 	/** [request] made of the application around the browser. */

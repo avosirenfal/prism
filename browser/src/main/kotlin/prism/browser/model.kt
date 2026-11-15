@@ -69,9 +69,13 @@ sealed interface RowId {
 		val name: String,
 	) : RowId
 
-	/** A row of the Recents page, by where it is on disk: its rows are of many folders, and may share a name. */
+	/**
+	 * A row of the Recents page, by where it is on disk and which [section] it is in: its rows are of many folders,
+	 * and may share a name, and a folder can be in two sections (lately picked, and often gone to).
+	 */
 	data class Recent(
 		val path: Path,
+		val section: RecentSection,
 	) : RowId
 }
 
@@ -239,8 +243,8 @@ data class Arrangement(
 	val filter: TypeFilter = TypeFilter.ALL_FILES,
 	/** Words a row's name must contain to be shown, without case; blank for every row. */
 	val query: String = "",
-	/** The sections of the Recents page shown as their headings alone: none, of any other listing. */
-	val folded: Set<RecentSection> = emptySet(),
+	/** What the Recents page puts away and leaves out: nothing, of any other listing. */
+	val recent: RecentArranged = RecentArranged.NONE,
 ) {
 	fun admits(row: Row): Boolean = admits(row.category, row.hidden) { row.name }
 
@@ -1459,6 +1463,10 @@ data class BrowserState(
 	val recentsCollapsed: Set<RecentSection> = emptySet(),
 	/** Whether files are shown by small pictures of themselves: the user's choice, every window's. */
 	val thumbnails: Boolean = true,
+	/** What the user has hidden from the Recents page: theirs, every window's. */
+	val recentsHidden: Set<Path> = emptySet(),
+	/** Whether this window's Recents page shows what is hidden from it all the same: an explorer's alone, asked to. */
+	val recentsShowHidden: Boolean = false,
 	/** What was last read of the marks given, for a copy that changes none of them to be given again. */
 	private val marked: Marked = Marked(),
 ) {
@@ -1556,11 +1564,20 @@ data class BrowserState(
 			entryFilters,
 			typeFilter,
 			query,
-			foldedAt(at, recentsCollapsed),
+			recentAt(at, recentsCollapsed, recentsHidden, recentsShowHidden),
 		)
 
 	/** The search whose results are shown, where they are. */
 	val results: Finding.Matched? get() = (at as? Location.Results)?.finding
+
+	/**
+	 * Whether the Recents page shown has something hidden from it that this window may show: an explorer's alone,
+	 * since a picker is another application's window.
+	 */
+	val recentsHides: Boolean
+		get() =
+			choosing is Choosing.Exploring &&
+				(listing as? Listing.Recent)?.page?.hides(recentsHidden) == true
 
 	/**
 	 * Where a name typed is looked for: in the folder shown, or, among a search's results, beside the one chosen;
@@ -1617,11 +1634,8 @@ data class BrowserState(
 			when (val listing = listing) {
 				is Listing.Shown -> listing.entries.size
 				is Listing.Found -> listing.matches.size
-				// What a section shown as its heading alone holds is not listed.
-				is Listing.Recent ->
-					listing.page.sections
-						.filterNot { it.kind.section in recentsCollapsed }
-						.sumOf { it.entries.size }
+				// What a section shown as its heading alone holds is not listed, nor what is hidden from the page.
+				is Listing.Recent -> listing.shown(arrangement).listed
 				Listing.Reading, is Listing.Unreadable -> 0
 			}
 
@@ -1698,14 +1712,20 @@ fun scaleOf(zoom: Zoom, whole: Float): Float =
 	}
 
 /**
- * The sections an arrangement folds [at] a place, of those the user has [collapsed]: theirs on the Recents page, and
- * none anywhere else, so that no other listing is arranged again for what does not arrange it.
+ * What an arrangement puts away and leaves out [at] a place: on the Recents page, the sections the user has
+ * [collapsed] and what they have [hidden] from it (shown all the same, where [showsHidden]); nothing anywhere else,
+ * so that no other listing is arranged again for what does not arrange it.
  */
-internal fun foldedAt(at: Location, collapsed: Set<RecentSection>): Set<RecentSection> =
+internal fun recentAt(
+	at: Location,
+	collapsed: Set<RecentSection>,
+	hidden: Set<Path>,
+	showsHidden: Boolean,
+): RecentArranged =
 	if (at == Location.Recents)
-		collapsed
+		RecentArranged(collapsed, hidden, showsHidden && hidden.isNotEmpty())
 	else
-		emptySet()
+		RecentArranged.NONE
 
 /** The rows [listing] shows when arranged by [arrangement]. */
 fun rowsOf(listing: Listing, arrangement: Arrangement): Rows =

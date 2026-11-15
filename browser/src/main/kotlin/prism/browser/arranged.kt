@@ -158,6 +158,7 @@ val BUILTINS: Map<String, Builtin> =
 		Builtin("builtin.save-over", "Replace", "When saving a file"),
 		Builtin("builtin.open-with", "Open with…", "Explorer only"),
 		Builtin("builtin.show-in-folder", "Show in folder", "Recents and search results"),
+		Builtin("builtin.hide-from-recent", "Hide from recent", "Recents only"),
 		Builtin("builtin.cut", "Cut", "Explorer only"),
 		Builtin("builtin.copy", "Copy", "Explorer only"),
 		Builtin("builtin.paste-into", "Paste into folder", "Explorer only"),
@@ -233,6 +234,7 @@ private fun listingHolds(kind: ListingKind, of: MenuOf): Set<String> {
 								add("builtin.open-with")
 							if (one)
 								addAll(listOf("builtin.rename", "builtin.show-in-folder"))
+							add("builtin.hide-from-recent")
 							addAll(
 								listOf(
 									"builtin.cut",
@@ -305,6 +307,7 @@ private val ROWS: List<Placed> =
 		slot("builtin.save-over"),
 		slot("builtin.open-with"),
 		slot("builtin.show-in-folder"),
+		slot("builtin.hide-from-recent"),
 		LINE,
 		slot(ACTIONS),
 		LINE,

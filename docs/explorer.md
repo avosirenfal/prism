@@ -184,8 +184,10 @@ preferences leaves every default in place, and is copied beside itself with `.un
 anything is written over it, so nothing written by hand is lost.
 
 Recents, first in quick access, is the page docs/picker.md describes ("Recents"). In the explorer it shows the
-newest files the index saw made and the folders pickers were lately answered from, for every application together;
-the explorer itself records nothing there.
+newest files the index saw made, the files and the folders pickers were lately answered with (for every
+application together), and the folders gone to most. The explorer records no file or folder as recent, but the
+folders it goes to are counted for "Frequently accessed". It is also where what is hidden from the page is gone
+through: "Show hidden", at the end of the page's bar, lists it, faint, to be put back from its menu.
 
 ## The System page
 

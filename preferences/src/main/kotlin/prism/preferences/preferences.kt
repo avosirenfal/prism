@@ -91,6 +91,11 @@ data class Preferences(
 	val recentsCollapsed: Set<RecentSection> = emptySet(),
 	/** Whether files are shown by small pictures of themselves where there are any: icons alone, where not. */
 	val thumbnails: Boolean = true,
+	/**
+	 * The files and folders, by their paths, the Recents page leaves out, in every window: still kept and counted
+	 * as any other is, and only not shown.
+	 */
+	val recentsHidden: Set<String> = emptySet(),
 ) {
 	/** The actions and places written here. */
 	val written: ActionsFile get() = ActionsFile(actions, places)
@@ -106,6 +111,16 @@ data class Preferences(
 					recentsCollapsed + section
 				else
 					recentsCollapsed - section,
+		)
+
+	/** These, with [paths] left out of the Recents page ([hidden]), or shown on it again. */
+	fun hidingRecent(paths: Collection<String>, hidden: Boolean): Preferences =
+		copy(
+			recentsHidden =
+				if (hidden)
+					recentsHidden + paths
+				else
+					recentsHidden - paths.toSet(),
 		)
 
 	/** These, with [action]'s chords set to [chords], or put back to its defaults where [chords] is null. */

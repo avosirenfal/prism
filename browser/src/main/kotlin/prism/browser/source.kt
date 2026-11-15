@@ -682,6 +682,11 @@ tailrec fun Step.settled(services: Services): BrowserState {
 	effects.filterIsInstance<Effect.FoldRecents>().forEach { fold ->
 		services.preferences.update { folding(fold.section, fold.collapsed) }
 	}
+	effects.filterIsInstance<Effect.HideRecent>().forEach { hide ->
+		services.preferences.update {
+			hidingRecent(hide.paths.map { it.toString() }, hide.hidden)
+		}
+	}
 
 	val asking = effects.filterIsInstance<Effect.Asking>()
 	val first = asking.firstOrNull() ?: return state

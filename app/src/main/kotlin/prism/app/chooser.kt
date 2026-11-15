@@ -5,7 +5,7 @@ import java.nio.file.LinkOption
 import java.nio.file.Path
 import prism.browser.AppKey
 import prism.browser.Choosing
-import prism.browser.RecentFolders
+import prism.browser.Recents
 import prism.browser.TypeFilter
 import prism.browser.titleOf
 import prism.desktop.FileTypes
@@ -34,7 +34,7 @@ fun askingOf(
 	request: ChooserRequest,
 	types: FileTypes,
 	home: Path,
-	recents: RecentFolders = RecentFolders(),
+	recents: Recents = Recents(),
 	asker: AppKey? = null,
 ): Asking {
 	val asked = request.asked
@@ -71,14 +71,15 @@ fun askingOf(
 
 /**
  * Where the picker for [asked] opens: in the folder the application names (the one to show, or the one the file it
- * would save over is in), where that is [there]; otherwise in the folder [app] was last answered from that is
- * still there, or, for an application nobody can tell, the one any application was ([RecentFolders.last]); and
- * with none of those, at [home].
+ * would save over is in), where that is [there]; otherwise where [app] was last answered from that is still there
+ * ([Recents.start]: a picker of files, in the folder of the file it was last answered with, and failing that the
+ * folder it last was; then any application's, the same way; a picker of folders, by the folders alone); and with
+ * none of those, at [home].
  */
 internal fun startOf(
 	asked: Asked,
 	app: AppKey?,
-	recents: RecentFolders,
+	recents: Recents,
 	home: Path,
 	there: (Path) -> Boolean = { Files.isDirectory(it) },
 ): Path =
@@ -87,8 +88,16 @@ internal fun startOf(
 		is Asked.Saving -> asked.folder ?: asked.file?.parent
 		is Asked.SavingMany -> asked.folder
 	}?.takeIf(there)
-		?: recents.last(app, there)
+		?: recents.start(app, picksFiles = picksFiles(asked), there)
 		?: home
+
+/** Whether what [asked] asks for is files: to open, or one to save; not a folder, to open or to save many into. */
+private fun picksFiles(asked: Asked): Boolean =
+	when (asked) {
+		is Asked.Opening -> !asked.directory
+		is Asked.Saving -> true
+		is Asked.SavingMany -> false
+	}
 
 /**
  * The picker's filters for [asked], each beside the portal's filter it was made from, and the one in use at first. A

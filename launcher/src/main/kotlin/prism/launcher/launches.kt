@@ -1,12 +1,14 @@
 package prism.launcher
 
 import java.nio.file.Path
-import java.time.Duration
 import java.time.Instant
 import kotlin.math.ln
-import kotlin.math.pow
 import prism.shared.Format
+import prism.shared.Loaded
+import prism.shared.Parsed
 import prism.shared.Stored
+import prism.shared.Used
+import prism.shared.Uses
 
 /*
  * What has been started from the launcher, and how lately: what puts the applications a person uses before the ones
@@ -16,40 +18,24 @@ import prism.shared.Stored
  * a setting, and not the index's.
  */
 
-/** One entry's uses: their [weight] as it was [at]. */
-data class Used(
-	val weight: Double,
-	val at: Instant,
-) {
-	/** What the uses weigh at [now], halved for every [HALF_LIFE] since. */
-	fun weightAt(now: Instant): Double {
-		val age = Duration.between(at, now).seconds.coerceAtLeast(0)
-
-		return weight * 0.5.pow(age.toDouble() / HALF_LIFE.seconds)
-	}
-
-	companion object {
-		val HALF_LIFE: Duration = Duration.ofDays(14)
-	}
-}
-
-/** What has been started from the launcher, by each entry's key. */
+/** What has been started from the launcher, by each entry's key ([Uses]: a weight each, halving as it ages). */
 data class Launches(
-	val uses: Map<String, Used>,
+	val kept: Uses<String>,
 ) {
+	val uses: Map<String, Used> get() = kept.uses
+
 	/** How much the entry of [key] has been used, as of [now]; nothing, for one never used. */
-	fun weightOf(key: String, now: Instant): Double = uses[key]?.weightAt(now) ?: 0.0
+	fun weightOf(key: String, now: Instant): Double = kept.weightOf(key, now)
 
 	/** What its uses add to how well an entry fits what is typed: for each doubling, up to [MOST]. */
 	fun pointsOf(key: String, now: Instant): Int =
 		minOf(MOST, (PER_DOUBLING * ln(1 + weightOf(key, now)) / ln(2.0)).toInt())
 
 	/** These, with the entry of [key] used once more, [at]. */
-	fun used(key: String, at: Instant): Launches =
-		Launches(uses + (key to Used(weightOf(key, at) + 1, at)))
+	fun used(key: String, at: Instant): Launches = Launches(kept.used(key, at))
 
 	companion object {
-		val NONE = Launches(emptyMap())
+		val NONE = Launches(Uses())
 
 		private const val PER_DOUBLING = 20
 		private const val MOST = 60
@@ -93,25 +79,16 @@ fun LaunchFile(
  * that does not say an entry is left out.
  */
 val LaunchFormat: Format<Launches> =
-	Format.lines(
-		Launches.NONE,
-		read = { lines ->
-			Launches(
-				lines
-					.mapNotNull { line ->
-						val parts = line.split('\t', limit = 3)
-						val weight = parts.getOrNull(0)?.toDoubleOrNull()
-						val at = parts.getOrNull(1)?.toLongOrNull()
-						val key = parts.getOrNull(2)?.takeIf { it.isNotEmpty() }
+	Uses.format<String>({ it }, { it }).let { uses ->
+		object : Format<Launches> {
+			override val none = Launches.NONE
 
-						if (weight == null || at == null || key == null)
-							null
-						else
-							key to Used(weight, Instant.ofEpochSecond(at))
-					}.toMap(),
-			)
-		},
-		written = { launches ->
-			launches.uses.map { (key, used) -> "${used.weight}\t${used.at.epochSecond}\t$key" }
-		},
-	)
+			override fun read(bytes: ByteArray): Parsed<Launches> =
+				when (val read = uses.read(bytes)) {
+					is Loaded.Read -> Loaded.Read(Launches(read.value))
+					is Loaded.Unreadable -> read
+				}
+
+			override fun written(value: Launches): ByteArray = uses.written(value.kept)
+		}
+	}

@@ -28,6 +28,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
@@ -79,6 +80,7 @@ internal fun RecentSlot(
 	before: RecentPage.Mark?,
 	first: Boolean,
 	zoom: Float,
+	dimmed: Boolean,
 	onToggle: (RecentSection) -> Unit,
 	content: @Composable () -> Unit,
 ) {
@@ -108,9 +110,22 @@ internal fun RecentSlot(
 			)
 		// Under its heading, and in from it: the row, with what lights it and marks it chosen, starts where the
 		// heading's title does.
-		Box(Modifier.padding(start = indent)) { content() }
+		// One hidden from the page, shown because that was asked for, is faint: there, and not as the rest are.
+		Box(
+			Modifier
+				.padding(start = indent)
+				.then(
+					if (dimmed)
+						Modifier.alpha(HIDDEN_ALPHA).testTag("recent-dimmed")
+					else
+						Modifier,
+				),
+		) { content() }
 	}
 }
+
+/** How faint a row hidden from the page is drawn, where the page shows it all the same. */
+private const val HIDDEN_ALPHA = 0.45f
 
 /** How large a heading's arrow is drawn: about as tall as the heading's capitals. */
 private val FOLD_MARK = 14.dp

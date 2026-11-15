@@ -35,7 +35,7 @@ import prism.browser.Finder
 import prism.browser.JvmDisk
 import prism.browser.JvmFolderWatcher
 import prism.browser.RecentStore
-import prism.browser.RecentsFile
+import prism.browser.RecentsFiles
 import prism.browser.Search
 import prism.browser.SystemFileClipboard
 import prism.cli.Args
@@ -96,8 +96,7 @@ internal data class Hosting(
 )
 
 /** The folders pickers were lately answered from, where every prism of the session keeps them. */
-internal fun recentFolders(): RecentStore =
-	RecentsFile(stateFolder().resolve("recent-folders"), Report::problem)
+internal fun recentFolders(): RecentStore = RecentsFiles(stateFolder(), Report::problem)
 
 /** How long a prism's windows last. */
 internal enum class Lasting {

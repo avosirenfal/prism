@@ -43,13 +43,25 @@ enum class RecentSection {
 	@SerialName("new-files")
 	NewFiles,
 
-	/** The folders the application that asked was lately answered from. */
+	/** The files the application that asked was lately answered with. */
+	@SerialName("application-files")
+	ApplicationFiles,
+
+	/** The files any application was. */
+	@SerialName("files")
+	Files,
+
+	/** The folders the application that asked was lately answered with. */
 	@SerialName("application")
 	Application,
 
 	/** The folders any application was. */
 	@SerialName("folders")
 	Folders,
+
+	/** The folders gone to and picked from most. */
+	@SerialName("frequent")
+	Frequent,
 }
 
 /** One entry of quick access. */

@@ -104,15 +104,34 @@ class Session(
 	// begun, and there from the first, which [state] is not while this is being made.
 	private val latest = Published(first.state)
 
+	// The folder the window was last in, as far as its accesses were told: a state made in the same folder (its
+	// rows read, a row chosen, the folder read again) is no going to it.
+	private val wentTo = Published<java.nio.file.Path?>(null)
+
 	val state: StateFlow<BrowserState> =
 		inputs
 			.receiveAsFlow()
 			.runningFold(first) { last, input -> step(last.state, input) }
 			.onEach {
 				latest.set(it.state)
+				went(it.state.folder)
 				it.effects.forEach(::perform)
 			}.map { it.state }
 			.stateIn(scope, SharingStarted.Eagerly, first.state)
+
+	/**
+	 * The window is in [folder], where it is in one: told to what counts how much each folder is used, where it
+	 * was not in it before (gone to by a click, a path typed, Back or Forward; not a folder read again). Nothing
+	 * waits for it: what is told is held and written later ([RecentStore.went]), away from whoever makes the states.
+	 */
+	private fun went(folder: java.nio.file.Path?) {
+		if (folder != null && wentTo.now != folder) {
+			val at = clock()
+
+			scope.launch(io) { services.recents.went(folder, at) }
+		}
+		wentTo.set(folder)
+	}
 
 	init {
 		val home = first.state.home
@@ -155,6 +174,23 @@ class Session(
 				.map { it.recentsCollapsed }
 				.distinctUntilChanged()
 				.collect { inputs.send(Answer.RecentsFolded(it)) }
+		}
+
+		// What the user has hidden from the Recents page, in any window.
+		scope.launch(io) {
+			services.preferences.preferences
+				.map { it.recentsHidden }
+				.distinctUntilChanged()
+				.collect { hidden ->
+					inputs.send(
+						Answer.RecentsHid(
+							hidden.mapTo(HashSet()) {
+								java.nio.file.Path
+									.of(it)
+							},
+						),
+					)
+				}
 		}
 
 		// The user's actions and places, with prism's own, and the terminal chosen: read again whenever what the
@@ -233,6 +269,8 @@ class Session(
 			} finally {
 				stops.guarded { running.values.toList() }.forEach { it() }
 				temps.forEach(services.temps::remove)
+				// The folders it went to that are not written yet, written.
+				services.recents.flush(clock())
 			}
 		}
 
@@ -320,17 +358,26 @@ class Session(
 				scope.launch(io) {
 					services.preferences.update { folding(effect.section, effect.collapsed) }
 				}
+			is Effect.HideRecent ->
+				scope.launch(io) {
+					services.preferences.update {
+						hidingRecent(effect.paths.map { it.toString() }, effect.hidden)
+					}
+				}
 			is Effect.Ask -> requests(effect.request)
 			is Effect.Finish -> {
 				(effect.outcome as? Outcome.Chosen)?.let { chosen ->
 					services.finder?.let { scope.launch(io) { it.picked(chosen.paths, clock()) } }
 
-					// A picker answered: the folders it was answered from are the latest used, by whoever asked.
+					// A picker answered: what it was answered with is the latest used, by whoever asked (a folder
+					// picker's folders, a file picker's files), and where it was picked from was gone to.
 					val state = latest.now
-					val folders = foldersUsed(chosen.paths, state.choosing)
+					val at = clock()
 
-					if (folders.isNotEmpty())
-						scope.launch(io) { services.recents.used(folders, state.asker, clock()) }
+					scope.launch(io) {
+						services.recents.picked(chosen.paths, state.choosing, state.asker, at)
+						services.recents.flush(at)
+					}
 				}
 				ending.complete(effect.outcome)
 			}

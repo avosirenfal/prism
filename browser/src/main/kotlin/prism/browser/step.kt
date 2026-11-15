@@ -321,6 +321,19 @@ private fun did(state: BrowserState, event: BrowserEvent): Step =
 					null,
 				)
 		is BrowserEvent.RecentSectionToggled -> state.folding(event.section)
+		// Hidden here at once, and kept so for every window; what was chosen of them is let go with their rows.
+		is BrowserEvent.RecentHid ->
+			Step(
+				state.rearranged(
+					hidden =
+						if (event.hidden)
+							state.recentsHidden + event.paths
+						else
+							state.recentsHidden - event.paths.toSet(),
+				),
+				listOf(Effect.HideRecent(event.paths, event.hidden)),
+			)
+		is BrowserEvent.RecentHiddenShown -> Step(state.rearranged(showHidden = event.shown))
 		BrowserEvent.OpenedSystem ->
 			if (state.system != null)
 				state.reread()
@@ -832,6 +845,8 @@ private fun BrowserState.rearranged(
 	query: String = this.query,
 	listing: Listing = this.listing,
 	collapsed: Set<RecentSection> = this.recentsCollapsed,
+	hidden: Set<Path> = this.recentsHidden,
+	showHidden: Boolean = this.recentsShowHidden,
 ): BrowserState {
 	val rows =
 		rowsOf(
@@ -841,7 +856,7 @@ private fun BrowserState.rearranged(
 				looks.filters(role, kind, layout),
 				offered.using,
 				query,
-				foldedAt(at, collapsed),
+				recentAt(at, collapsed, hidden, showHidden),
 			),
 		)
 
@@ -852,6 +867,8 @@ private fun BrowserState.rearranged(
 		offered = offered,
 		query = query,
 		recentsCollapsed = collapsed,
+		recentsHidden = hidden,
+		recentsShowHidden = showHidden,
 		chose = choosing.within(rows),
 		pointed = cursor.within(rows),
 		naming = renaming?.takeIf { it.row in rows },
@@ -1268,6 +1285,7 @@ private fun answered(state: BrowserState, answer: Answer): Step =
 		is Answer.RecentsFolded -> Step(state.rearranged(collapsed = answer.collapsed))
 		is Answer.Thumbnailed -> Step(state.copy(thumbnails = answer.shown))
 		is Answer.Located -> state.located(answer)
+		is Answer.RecentsHid -> Step(state.rearranged(hidden = answer.hidden))
 		// A read of a folder no longer shown is too late to matter.
 		is Answer.Arrived ->
 			if (answer.folder == state.folder)
