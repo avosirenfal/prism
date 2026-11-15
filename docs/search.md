@@ -444,6 +444,14 @@ open.
 
 `~name` (a named folder, in "Paths") is older and another thing: a place a path starts from, not a query.
 
+## Hidden places
+
+A place the user has hidden (the preferences' "Indexing" page; docs/daemon.md, "What is left out, and what is hidden")
+is in the index and in no search's results, until a search names it by a path term: with `~/Games` hidden, `save`
+finds nothing under it, `~/Games/ save` finds what is under it, and `~/Games/old/ save` only what is under that. The
+path has to reach the hidden place: `~/ save` does not show it. A rule can be a query too (`build/`: every folder
+named build), and then it is the folder the rule matched that a path term names (`~/projects/prism/build/ foo`).
+
 ## Prism's own things
 
 A window that searches can find, beside the index's files, a few things of prism's own: its settings, its key

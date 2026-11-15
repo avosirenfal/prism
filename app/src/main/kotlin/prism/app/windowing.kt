@@ -109,7 +109,10 @@ internal class Indexing(
 						"can't read the usage file (${usage.why}); results are ranked without it",
 					)
 
-				Search.Ready() to StaticFinder(read.index, usage.orElse(Usage.NONE), home)
+				Search.Ready() to
+					StaticFinder(read.index, usage.orElse(Usage.NONE), home) {
+						exclusionsNow().hiding
+					}
 			}
 			IndexRead.Missing -> {
 				warn(

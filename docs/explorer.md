@@ -428,6 +428,16 @@ colours one. What is wrong with a row is said under it as it is typed, and while
 where it says "Unsaved changes" and does not apply. The launcher's settings have the same page (`AliasesPage`,
 `explorer/aliasespage.kt`), and either window writes the aliases only where it changed them.
 
+**Indexing.** The "Indexing" page sets what the index leaves out (docs/daemon.md, "What is left out, and what is
+hidden"). The user's own rules come first, with the field that adds one: a folder's path (`~/Games`) or a search
+(`build/`), read as it is typed and said to be which; what is no rule says why and cannot be added, so nothing on the
+page is ever wrong. Under them are prism's own, each with a switch. Every rule says what it does, Ignored (not
+indexed) or Hidden (indexed, and found only by a search that includes its path), and is changed where it says so;
+Reset puts prism's own back as they come. Applied, the running prism's index is made to agree at once. The launcher's
+settings have the same page (`ExcludingPage`, `explorer/excludingpage.kt`).
+
+![The Indexing page](indexing.png)
+
 ## Across platforms
 
 Everything above the `Desktop` interfaces (`desktop/desktop.kt`) is the same on every platform: the browser, the

@@ -98,6 +98,8 @@ data class Preferences(
 	val recentsHidden: Set<String> = emptySet(),
 	/** Which windows show their sidebar: the explorer's, the pickers', each as the user last left theirs. */
 	val sidebarShown: ShownIn = ShownIn.EVERYWHERE,
+	/** What the index leaves out, and what it holds that searches leave out. */
+	val excluding: Excluding = Excluding(),
 ) {
 	/** The actions and places written here. */
 	val written: ActionsFile get() = ActionsFile(actions, places)

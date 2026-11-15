@@ -12,6 +12,7 @@ import kotlin.time.Duration
 import kotlin.time.Duration.Companion.days
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
+import prism.index.IgnoreRules
 import prism.index.Indexer
 import prism.index.Name
 import prism.index.Where
@@ -220,6 +221,10 @@ class Daemon private constructor(
 
 	/** The roots read again, and what that fails with, if it does, reported: they are read again the next time. */
 	fun rescanRoots() = reported("reading the roots again", live.rescanRoots())
+
+	/** What the index leaves out made [rules], and the index made to agree ([LiveIndex.ruled]). */
+	fun ruled(rules: IgnoreRules) =
+		reported("applying the rules of what is left out", live.ruled(rules))
 
 	/**
 	 * What was made written, and a failure to write reported when it is not the one reported last: a disk that is

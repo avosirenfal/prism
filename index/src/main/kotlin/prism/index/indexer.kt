@@ -75,7 +75,9 @@ class Indexer(
 	 * is above one of those was set aside by the asking.
 	 */
 	fun leavesOut(where: Where): Boolean =
-		generateSequence(where) { it.parent }.takeWhile { it !in asked }.any(::leftOut)
+		generateSequence(where) { it.parent }.takeWhile { it !in asked }.any {
+			leftOut(it) || rules.sought.finds(it)
+		}
 
 	/**
 	 * What is at [where] now, with everything under it: what the index makes of a change the watcher saw, or of a
@@ -157,7 +159,44 @@ class Indexer(
 		return gone + changed
 	}
 
+	/**
+	 * What is at [where], as the index is to hold it: read as the rules that name folders let it be ([read]), and
+	 * without what the rules' queries find in it, each with all under it. Null where nothing is there, or where what
+	 * is there is itself what a query finds (and was not asked for outright).
+	 */
 	private fun treeAt(where: Where): Block? {
+		val tree = read(where) ?: return null
+
+		if (rules.sought.none)
+			return tree
+
+		val found = rules.sought.found(tree)
+		val top = found.firstOrNull() == 0
+
+		if (top && where !in asked)
+			return null
+
+		val bounds = IntArray(found.size * 2)
+		var count = 0
+		var covered = 0
+
+		for (entry in found) {
+			// Under one already taken out, or the top of a tree asked for whatever the rules say.
+			if (entry < covered || entry == 0)
+				continue
+
+			bounds[count++] = entry
+			bounds[count++] = tree.end[entry]
+			covered = tree.end[entry]
+		}
+
+		return if (count == 0)
+			tree
+		else
+			Index.of(tree, Ranges.of(bounds.copyOf(count))).tree(where)
+	}
+
+	private fun read(where: Where): Block? {
 		val own = statOf(where, follow = false) ?: return null
 		val link = own.kind == FileKind.Symlink
 		val target =

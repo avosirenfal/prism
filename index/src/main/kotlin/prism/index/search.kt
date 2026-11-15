@@ -59,6 +59,8 @@ data class SearchContext(
 	/** What the user has picked, and from where: what `recent:` asks about, and what ranks a result higher. */
 	val usage: Usage = Usage.NONE,
 	val ranking: Ranking = Ranking(),
+	/** What is left out of what is found, unless the query names where it is ([Exclusion.Hidden]). */
+	val hiding: Hiding = Hiding.NONE,
 )
 
 /** What a search gave: the entries found, or why the query could not be run. */
@@ -72,6 +74,57 @@ sealed interface Searched {
 		val why: String,
 	) : Searched
 }
+
+/**
+ * The entries of this block [query] finds, in the block's order: what a rule names of it ([Seeking]). Nothing, for a
+ * query that cannot be run.
+ */
+internal fun Block.found(query: Query, context: SearchContext): IntArray {
+	val index = Index.of(this)
+	val plan =
+		(Plan.of(query, context, index) as? Planning.Ready)?.plan ?: return IntArray(0)
+
+	// A block of a few entries (one a watcher saw change) is walked where it is asked: nothing to share out.
+	val hits =
+		if (size <= Plan.SLICE)
+			plan.run(index, 0).hits
+		else
+			Searching.run { plan.run(index, 0).hits }
+
+	return IntArray(hits.size) { hits[it].entry }
+}
+
+/**
+ * The places this query asks for by path: where each of its path terms that starts at the root or the home folder
+ * leads, said whole (a term that ends in `/`: the folder; one that ends in a name: the entry of that name). What is
+ * hidden from searches is shown to one that names it, or something under it, here ([Hiding]). A term with a glob
+ * in it names no one place, and a negated one says where not to look.
+ */
+fun Query.named(context: SearchContext = SearchContext()): List<Where> =
+	terms
+		.filterNot { it.negated }
+		.flatMap { term ->
+			val pattern = (term.test as? Test.InPath)?.pattern ?: return@flatMap emptyList()
+			val whole =
+				pattern.segments.all {
+					(it as? Segment.Named)?.pattern is TextPattern.Literal
+				}
+
+			val folders =
+				placesOf(
+					pattern.base,
+					pattern.segments,
+					context,
+				).takeIf { whole }.orEmpty()
+
+			when (val last = pattern.last) {
+				PathPattern.Last.Under -> folders
+				is PathPattern.Last.Entry ->
+					(last.match.pattern as? TextPattern.Literal)
+						?.let { name -> folders.map { it.child(name.text.encodeToByteArray()) } }
+						.orEmpty()
+			}
+		}.distinct()
 
 /** The entries [query] finds, in [context]. */
 fun Index.search(query: Query, context: SearchContext = SearchContext()): Searched =
@@ -196,10 +249,14 @@ private class Plan(
 	private val making: List<Making>,
 	private val words: List<Word>,
 	private val context: SearchContext,
+	/** The places the query asks for by path: what is hidden there is looked at. */
+	private val asked: List<Where>,
 ) {
 	/** The entries of the [placed]th block of [index] that pass every check, each with its score. */
 	fun run(index: Index, placed: Int): Results.Part {
-		val (block, hidden) = index.placed[placed].let { it.block to it.hidden }
+		val block = index.placed[placed].block
+		// What is no longer there, and what searches are not shown: neither is walked.
+		val hidden = index.placed[placed].hidden.plus(context.hiding.skipped(block, asked))
 		// An array, gone through by its indices: this is asked of every entry of the index, and a list's iterator made
 		// for each would be millions of them for one search.
 		val checks = making.map { it(block, placed) }.sortedBy { it.cost }.toTypedArray()
@@ -252,6 +309,10 @@ private class Plan(
 						compiled.filterIsInstance<Compiled.Made>().map { it.making },
 						wordsOf(query, context),
 						context,
+						if (context.hiding.none)
+							emptyList()
+						else
+							query.named(context),
 					),
 				)
 		}

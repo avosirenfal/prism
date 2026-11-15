@@ -192,6 +192,10 @@ fun SettingsView(
 				AliasesPage(
 					settings.aliasing,
 				) { onChange(settings.copy(aliasing = it)) }
+			Page.Indexing ->
+				ExcludingPage(
+					settings.excluding,
+				) { onChange(settings.copy(excluding = it)) }
 			Page.Actions -> ActionsPage(settings.actions)
 		}
 	}
@@ -250,6 +254,7 @@ private fun glyphOf(page: Page): Glyph =
 		Page.Terminal -> Glyph.Terminal
 		Page.Bindings -> Glyph.Keyboard
 		Page.Aliases -> Glyph.At
+		Page.Indexing -> Glyph.Filter
 		Page.Actions -> Glyph.Bolt
 	}
 

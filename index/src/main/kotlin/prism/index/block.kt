@@ -399,7 +399,52 @@ internal class Ranges private constructor(
 		return Ranges(merged.flatMap { listOf(it.first, it.second) }.toIntArray())
 	}
 
+	/** These and [other] together, merged where they meet: one pass over both. */
+	fun plus(other: Ranges): Ranges {
+		if (other.count == 0)
+			return this
+		if (count == 0)
+			return other
+
+		val merged = IntArray(bounds.size + other.bounds.size)
+		var size = 0
+		var mine = 0
+		var theirs = 0
+
+		while (mine < count || theirs < other.count) {
+			val own = theirs >= other.count || (mine < count && start(mine) <= other.start(theirs))
+
+			val from =
+				if (own)
+					start(mine)
+				else
+					other.start(theirs)
+
+			val to =
+				if (own)
+					end(mine++)
+				else
+					other.end(theirs++)
+
+			if (size > 0 && from <= merged[size - 1]) {
+				merged[size - 1] = maxOf(merged[size - 1], to)
+			} else {
+				merged[size++] = from
+				merged[size++] = to
+			}
+		}
+
+		return Ranges(merged.copyOf(size))
+	}
+
 	companion object {
 		val NONE = Ranges(IntArray(0))
+
+		/** The ranges whose first entries and the entries after their last [bounds] says in turn: sorted, and apart. */
+		fun of(bounds: IntArray): Ranges =
+			if (bounds.isEmpty())
+				NONE
+			else
+				Ranges(bounds)
 	}
 }

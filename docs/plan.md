@@ -82,7 +82,7 @@ back to getdents64 elsewhere.
 `IgnoreRules` names directories left out with everything in them, in two ways. A rule without a leading `/` applies
 anywhere: a name (`.git`, `node_modules`, `.cache`, `.gradle`, `.direnv`, `.dotnet`, `__pycache__`, ...) or the end
 of a path (`.local/share/containers`, `go/pkg/mod`, `drive_c/windows`). A rule with one is that one directory
-(`/nix/store`, `/boot`, `/tmp`, `/var/cache`, `/var/lib/docker`, ...). The defaults are trees that can hold more
+(`/nix`, `/boot`, `/tmp`, `/var/cache`, `/var/lib/docker`, ...). The defaults are trees that can hold more
 entries than everything a person made and that nobody picks a file from: version control, package managers'
 downloads, build output and caches, browsers' caches, snapshots, the system's own stores and temporary files.
 Generic names people give their own folders (`build`, `target`, `dist`, `vendor`) are not among them.
@@ -91,8 +91,8 @@ File systems are left out by type wherever they are mounted (`proc`, `sysfs`, `t
 `debugfs`, ...): `/proc/self/mountinfo` is read once as indexing begins, and the mount points of those types are kept
 in a set that each directory is looked up in as it is met. The index holds only folders, files and links: devices,
 pipes and sockets are left out. A scan keeps a left-out directory in its tree by name, marked skipped, for the
-benchmark's counts; the index holds nothing of it. The rules will come from a configuration file
-(`$XDG_CONFIG_HOME/prism/prism.toml`), with the defaults for anything it does not say.
+benchmark's counts; the index holds nothing of it. The rules are the user's to change, and may be queries as well as
+folders, and hide instead of leaving out (docs/daemon.md, "What is left out, and what is hidden").
 
 ### In memory, and on disk
 

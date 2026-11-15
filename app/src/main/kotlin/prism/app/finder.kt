@@ -12,6 +12,7 @@ import kotlin.time.Duration.Companion.seconds
 import prism.browser.Finder
 import prism.daemon.LiveIndex
 import prism.daemon.LiveSearch
+import prism.index.Hiding
 import prism.index.SearchContext
 import prism.index.Searched
 import prism.index.Sighting
@@ -36,10 +37,15 @@ internal class LiveFinder(
 	/** What was picked, and where it is kept ([UsageFile.open]), or kept in memory alone. */
 	private val usage: Stored<Usage>,
 	private val patience: Duration = 5.seconds,
+	/** What searches leave out of what they find, as it is at each search. */
+	private val hiding: () -> Hiding = { Hiding.NONE },
 ) : Finder {
 	override fun find(query: Query): Searched {
 		fun searched() =
-			live.search(query, SearchContext(home = home, usage = usage.value.value))
+			live.search(
+				query,
+				SearchContext(home = home, usage = usage.value.value, hiding = hiding()),
+			)
 
 		val first = searched()
 
@@ -67,7 +73,7 @@ internal class LiveFinder(
 	}
 
 	override fun newest(count: Int, named: (String) -> Boolean): List<Sighting> =
-		live.index.newestFiles(count, named)
+		live.index.newestFiles(count, hiding(), named)
 
 	override fun picked(paths: List<Path>, at: Instant) {
 		usage.update { picked(paths.map(Where::of), at).pruned(at) }

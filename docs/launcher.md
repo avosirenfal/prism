@@ -200,6 +200,7 @@ say from then on.
 | Key bindings | every key above, on the page that binds the explorer's: in groups, found by name or by pressing a key, a chord clicked and the next one pressed taking its place, the × taking it away, the + adding one, Reset for the defaults. A chord another of the launcher's actions has is taken from it. A key that types (a letter alone) is refused, since it would never get past the field |
 | Applications | each application installed, switched off to leave it out of the launcher (it is still installed, and still opens files) |
 | Aliases | the search aliases (`raws@`), which are every search's and not the launcher's alone: the page the preferences window has, over the same aliases (docs/search.md, "Aliases") |
+| Indexing | what the index leaves out and what searches leave out of it, which decides what files the launcher finds: the page the preferences window has, over the same rules (docs/daemon.md) |
 
 ![The launcher's keys](launcher-keys.png)
 

@@ -45,6 +45,7 @@ enum class Page(
 	Terminal("Terminal"),
 	Bindings("Key bindings"),
 	Aliases("Aliases"),
+	Indexing("Indexing"),
 	Actions("Actions"),
 }
 
@@ -300,6 +301,8 @@ data class Settings(
 	val dragged: Set<String> = emptySet(),
 	/** The search aliases, as the Aliases page has them typed. */
 	val aliasing: AliasEdits = AliasEdits.of(base.aliases),
+	/** What the index leaves out, as the Indexing page has it. */
+	val excluding: ExcludingEdits = ExcludingEdits.of(base.excluding),
 ) {
 	/** What stops these from being applied, where anything does: an alias changed here with something wrong with it. */
 	val blocked: String?
@@ -404,6 +407,7 @@ data class Settings(
 			bindings = bindings ?: current.bindings,
 			// Never written with anything wrong in them: what is typed stays on the page until it is right.
 			aliases = aliasing.written?.let { kept(Preferences::aliases, it) } ?: current.aliases,
+			excluding = kept(Preferences::excluding, excluding.kept),
 			pickerBindings =
 				if (picking?.bindings != pickersWere)
 					picking?.bindings?.differences()

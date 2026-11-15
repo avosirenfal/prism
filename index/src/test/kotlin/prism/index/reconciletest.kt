@@ -159,7 +159,7 @@ class ReconcileTest {
 			rules.matching(Where.of(Path("/home/u/.cache/thumbnails"))),
 		)
 		assertEquals(
-			setOf(Ignored.of("/nix/store")),
+			setOf(Ignored.of("/nix")),
 			rules.matching(Where.of(Path("/nix/store/abc-hello"))),
 		)
 		assertEquals(

@@ -67,6 +67,7 @@ enum class LauncherPage(
 	Bindings("Key bindings", Glyph.Keyboard),
 	Applications("Applications", Glyph.ViewGrid),
 	Aliases("Aliases", Glyph.At),
+	Indexing("Indexing", Glyph.Filter),
 }
 
 /**
@@ -84,6 +85,8 @@ data class LauncherSettings(
 	val page: LauncherPage = LauncherPage.General,
 	val finding: String = "",
 	val aliasing: AliasEdits = AliasEdits.of(base.aliases),
+	/** What the index leaves out, which is every search's too, as the Indexing page has it. */
+	val excluding: ExcludingEdits = ExcludingEdits.of(base.excluding),
 ) {
 	/** What stops these from being applied, where anything does: an alias changed here with something wrong with it. */
 	val blocked: String?
@@ -122,6 +125,7 @@ data class LauncherSettings(
 				else
 					current.launcher,
 			aliases = aliasing.written?.takeIf { it != base.aliases } ?: current.aliases,
+			excluding = excluding.kept.takeIf { it != base.excluding } ?: current.excluding,
 		)
 
 	/** These, applied: the preferences as they now are ([now]) what the window edits from, and where it is, kept. */
@@ -193,6 +197,8 @@ fun LauncherSettingsView(
 			LauncherPage.Applications -> ApplicationsPage(settings, applications, onChange)
 			LauncherPage.Aliases ->
 				AliasesPage(settings.aliasing) { onChange(settings.copy(aliasing = it)) }
+			LauncherPage.Indexing ->
+				ExcludingPage(settings.excluding) { onChange(settings.copy(excluding = it)) }
 		}
 	}
 }

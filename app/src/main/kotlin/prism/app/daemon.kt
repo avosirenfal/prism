@@ -18,6 +18,9 @@ import kotlin.io.path.Path
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.nanoseconds
 import kotlin.time.Duration.Companion.seconds
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.runBlocking
 import prism.browser.Search
 import prism.cli.Args
@@ -32,11 +35,13 @@ import prism.daemon.LiveSearch
 import prism.dbus.Connection
 import prism.dbus.Opening
 import prism.desktop.asChildOfPrism
+import prism.index.Exclusion
 import prism.index.IndexStore
 import prism.index.Indexer
 import prism.index.Usage
 import prism.index.UsageFile
 import prism.index.query.QueryText
+import prism.preferences.preferences
 import prism.shared.Loaded
 import prism.shared.Stored
 import prism.shared.orElse
@@ -156,7 +161,7 @@ object DaemonCommand : Command(
 							Path("/"),
 						)
 					},
-				indexer = Indexer(),
+				indexer = Indexer(rules = exclusionsNow().ignore),
 				report = Report::whileDoing,
 			)
 
@@ -199,6 +204,17 @@ object DaemonCommand : Command(
 
 		val stopped = CountDownLatch(1)
 
+		// The rules of what is left out, changed in a settings window: the index made to agree, as it runs.
+		Thread.ofPlatform().name("prism-rules").daemon().start {
+			runBlocking {
+				preferencesHere.preferences
+					.map { it.excluding }
+					.distinctUntilChanged()
+					.drop(1)
+					.collect { daemon.ruled(exclusionsNow().ignore) }
+			}
+		}
+
 		val windows =
 			if (args[noWindows])
 				null
@@ -238,6 +254,7 @@ object DaemonCommand : Command(
 			instance.says += { indexLine(daemon, settings) }
 			instance.says += { watchingLine(daemon, settings) }
 			instance.says += { keptLine(daemon) }
+			instance.says += { rulesLine() }
 
 			val names =
 				BusNames(
@@ -297,7 +314,7 @@ object DaemonCommand : Command(
 			else
 				Stored.inMemory(read.orElse(Usage.NONE))
 
-		return LiveFinder(live, home, usage)
+		return LiveFinder(live, home, usage) { exclusionsNow().hiding }
 	}
 
 	/** How the index was opened, as the daemon says it as it starts. */
@@ -329,6 +346,14 @@ object DaemonCommand : Command(
 				""
 			else
 				"; reading ${reading.joinToString()} now"
+	}
+
+	/** How many rules leave things out, as `prism status` says it. */
+	private fun rulesLine(): String {
+		val rules = exclusionsNow()
+
+		return "rules: ${rules.count(Exclusion.Ignored)} not indexed, " +
+			"${rules.count(Exclusion.Hidden)} hidden from searches"
 	}
 
 	/** The file systems that are not mounted and whose entries are kept for when they are. */

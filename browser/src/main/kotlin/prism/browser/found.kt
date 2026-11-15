@@ -5,6 +5,9 @@ import java.nio.file.Path
 import java.time.Instant
 import java.util.stream.IntStream
 import kotlin.io.path.Path
+import prism.index.Exclusion
+import prism.index.Exclusions
+import prism.index.Hiding
 import prism.index.Index
 import prism.index.Results
 import prism.index.SearchContext
@@ -25,6 +28,8 @@ import prism.index.query.Test
 import prism.index.query.completing
 import prism.index.search
 import prism.preferences.ColumnId
+import prism.preferences.Excluded
+import prism.preferences.Excluding
 import prism.preferences.Order
 import prism.shared.Published
 import prism.index.Kind as EntryKind
@@ -62,19 +67,47 @@ class StaticFinder(
 	private val index: Index,
 	usage: Usage = Usage.NONE,
 	private val home: Path = Path(System.getProperty("user.home")),
+	/** What searches leave out of what they find, as it is at each search. */
+	private val hiding: () -> Hiding = { Hiding.NONE },
 ) : Finder {
 	private val usage = Published(usage)
 
 	override fun find(query: Query): Searched =
-		index.search(query, SearchContext(home = home, usage = usage.now))
+		index.search(query, SearchContext(home = home, usage = usage.now, hiding = hiding()))
 
 	override fun picked(paths: List<Path>, at: Instant) {
 		usage.update { picked(paths.map(Where::of), at) }
 	}
 
 	override fun newest(count: Int, named: (String) -> Boolean): List<Sighting> =
-		index.newestFiles(count, named)
+		index.newestFiles(count, hiding(), named)
 }
+
+/** The rules of what the index leaves out, as the preferences keep them ([written]), read with `~` as [home]. */
+fun exclusionsOf(
+	written: Excluding,
+	home: Path = Path(System.getProperty("user.home")),
+): Exclusions =
+	Exclusions.of(
+		written.off,
+		written.changed.mapValues { exclusionOf(it.value) },
+		written.own.mapValues { exclusionOf(it.value) },
+		home,
+	)
+
+/** What a rule does, as the index says it. */
+fun exclusionOf(kept: Excluded): Exclusion =
+	when (kept) {
+		Excluded.Ignored -> Exclusion.Ignored
+		Excluded.Hidden -> Exclusion.Hidden
+	}
+
+/** What a rule does, as the preferences keep it. */
+fun excludedOf(exclusion: Exclusion): Excluded =
+	when (exclusion) {
+		Exclusion.Ignored -> Excluded.Ignored
+		Exclusion.Hidden -> Excluded.Hidden
+	}
 
 /** The search aliases [written] in the preferences, name to query: those that are aliases (aliases.kt). */
 fun aliasesOf(written: Map<String, String>): Aliases = Aliases.of(written).aliases

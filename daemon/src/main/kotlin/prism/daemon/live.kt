@@ -16,6 +16,8 @@ import kotlin.time.toJavaDuration
 import prism.index.Away
 import prism.index.Change
 import prism.index.FileId
+import prism.index.IgnoreRules
+import prism.index.Ignored
 import prism.index.Index
 import prism.index.IndexStore
 import prism.index.Indexer
@@ -238,7 +240,7 @@ class LiveIndex private constructor(
 				return held.copy(used = now).also { adHoc = adHoc + (held.place to it) }
 			}
 
-			val rules = indexer.rules.notIgnoring(indexer.rules.matching(place))
+			val rules = indexer.rules.settingAside(place)
 			val own = indexer.ruled(rules)
 			val begun = AdHoc(place, own, null, Meanwhile.NONE, CompletableFuture(), now)
 
@@ -386,6 +388,46 @@ class LiveIndex private constructor(
 				place,
 			)?.takeIf { it.size > 1 }
 			?.let { away.keep(volume, it, settings.clock()) }
+	}
+
+	/**
+	 * What the index leaves out made [rules], and the index made to agree with them, as it runs. Where all that
+	 * differs is folders named by their paths, each is dealt with alone: one now left out is taken out of the index,
+	 * and one no longer left out is read. Where anything else differs (a rule of names, or a query, which may be
+	 * anywhere), every root is read again, which leaves out what is now left out and finds what no longer is. The
+	 * places read for searches alone were read by the old rules, and are let go. Completes once what was read is made.
+	 */
+	fun ruled(rules: IgnoreRules): CompletableFuture<Unit> {
+		val before = indexer.rules
+
+		if (rules == before)
+			return CompletableFuture.completedFuture(Unit)
+
+		changing.guarded {
+			indexer = indexer.ruled(rules)
+			adHoc = emptyMap()
+		}
+
+		val differing =
+			(rules.directories - before.directories) + (before.directories - rules.directories)
+
+		val byPath =
+			rules.fileSystems == before.fileSystems && rules.sought == before.sought &&
+				differing.all { it is Ignored.At }
+
+		if (!byPath)
+			return rescanRoots()
+
+		fun places(of: Set<Ignored>) =
+			of.filterIsInstance<Ignored.At>().map { Where.of(it.path) }
+
+		val out = places(rules.directories - before.directories).filter { it !in index.roots }
+		val back = places(before.directories - rules.directories).filter(::holds).toSet()
+
+		changing.guarded { make(out.filter { index.find(it) != null }.map(Change::Absent)) }
+
+		// What was taken out is written with whatever is made next; nothing waits for it.
+		return scan(back) { back.mapNotNull(indexer::reread) }
 	}
 
 	/** Every root read again, as it is now: what is done where changes may have been missed. */

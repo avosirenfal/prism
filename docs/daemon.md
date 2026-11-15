@@ -137,9 +137,64 @@ outright is read, and kept, like any other: `prism daemon / /run/media/you/Backu
 `AwayTest` has each of the above with folders standing in for file systems; `VolumesTest` reads the identities
 from a made-up `/sys`, `/dev` and `/run/udev`.
 
+## What is left out, and what is hidden
+
+What the index leaves out is said by rules (`Exclusions`, `index/exclusions.kt`). Take three:
+
+| rule | what it names |
+|---|---|
+| `/nix` | the folder at that path |
+| `build/` | every folder named `build`, wherever it is |
+| `ext:{o,pyc}` | every file with one of those extensions |
+
+**What a rule names.** A folder by its path (`/nix`, `~/Games`), or entries by a query in the search language
+(docs/search.md). A rule covers every entry it names and everything under one: nothing under a folder left out is
+held, at any depth. A rule that is one path term ending in `/` names the folder itself, where the same words typed as
+a search find what is inside it: `build/` as a rule is each folder named build and all it holds (a file named `build`
+is no folder, and is kept). A rule tells upper case from lower, as the disk does, unless a term of it says otherwise.
+A query a rule may be is one that can be decided of an entry by where it is, what it is called and what kind of thing
+it is, as the disk is read: `recent:`, `new:`, `mount:`, an alias (`raws@`) and a named folder (`~work`) are refused,
+with why.
+
+**What a rule does** (`Exclusion`), one of two things:
+
+- **Ignored**: not read, not held, not watched. A search that names a path into it has it read for that search
+  alone (the next section).
+- **Hidden**: held as everything else is, and left out of what every search finds (the search window, the launcher,
+  a picker's search, `prism search`, the Recents page's new files) unless a path term of the search names the entry
+  the rule named, or something under it. With `/games` hidden: `foo` finds nothing under it; `/games/ foo` finds what
+  is under it; `/games/whatever/ foo` only what is under that. A path above it (`/ foo`) does not show it, and
+  one hidden inside another is hidden still until it is named itself. Browsing a hidden folder is as ever: it is
+  searches that leave it out.
+
+**The defaults, and the user's own.** Prism's own rules (`Exclusions.DEFAULTS`) are trees that can hold more entries
+than everything a person made and that nobody picks a file from (version control, package managers' downloads, build
+output and caches, browsers' caches, snapshots, the system's own stores: `/nix` whole, `/boot`, `/tmp`, ...). Each can
+be switched off, or made hidden instead; the user's own are added beside them. The preferences keep only the
+differences from the defaults (`"excluding"`: which are off, which do something else, and the user's own with what
+each does), so a default added later is the user's too. The "Indexing" page of the preferences sets them
+(docs/explorer.md).
+
+**How they are applied.** A rule that is a folder's path, or folders by the names their paths end with (`build/`,
+`.yarn/cache/`: every default is one of these), is one a scan never goes into (`IgnoreRules.directories`), which is
+what makes leaving out `node_modules` cheap. Any other query is looked for in what a scan read, by the search engine
+itself, and what it finds is taken out with all under it before the index holds it (`IgnoreRules.sought`,
+`Indexer.treeAt`); the same is done to each entry the watcher says changed, so a scan and a change agree. A hidden
+rule is looked for in each block of the index once, the first time a search walks it, and what it found there is kept
+for as long as the block is; a search then skips those entries' whole ranges, so hidden entries cost a search nothing
+to pass over (`Hiding`). Scanning `/usr` here (103,000 entries): 53 ms with no rules, 33 ms with four folder rules
+(less is read), 60 ms with four query rules. A search of it: 2.7 ms with nothing hidden, 3.8 ms with three hidden
+rules (25 ms the first time, when what they hide is worked out).
+
+**Changed while the daemon runs** (`LiveIndex.ruled`), from the preferences as a settings window applies them, with
+no file watched: where all that differs is folders by their paths, one now ignored is taken out of the index at once
+and one no longer ignored is read; where a query or a folder name differs, which may be anywhere, the roots are read
+again. Making something hidden, or showing it again, reads nothing. `prism status` says how many rules there are
+(`rules: 103 not indexed, 1 hidden from searches`). `ExclusionsTest` and `RuledTest` have all of this.
+
 ## Searching places the rules leave out
 
-The index leaves out `/nix/store`, `node_modules`, `~/.cache` and the rest, so a search does not find what is in them.
+The index leaves out `/nix`, `node_modules`, `~/.cache` and the rest, so a search does not find what is in them.
 But a search that names such a place by an absolute path (`/nix/store/` and a glob, `~/.cache/thumbnails/`,
 `~/project/node_modules/`) is asking for it on purpose. So a live index reads it for that search:
 

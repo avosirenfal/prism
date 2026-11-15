@@ -5,6 +5,7 @@ import kotlin.io.path.Path
 import prism.browser.Finder
 import prism.browser.StaticFinder
 import prism.browser.aliasesOf
+import prism.browser.exclusionsOf
 import prism.cli.Args
 import prism.cli.Command
 import prism.cli.Outcome
@@ -16,6 +17,7 @@ import prism.client.SearchCommand
 import prism.client.Seeker
 import prism.client.Sifted
 import prism.client.Sought
+import prism.index.Exclusions
 import prism.index.IndexFile
 import prism.index.IndexRead
 import prism.index.Searched
@@ -26,9 +28,11 @@ import prism.index.query.Aliases
 import prism.index.query.Problem
 import prism.index.query.Query
 import prism.index.query.QueryText
+import prism.preferences.Excluding
 import prism.preferences.PreferenceFile
 import prism.preferences.PreferenceStore
 import prism.preferences.preferences
+import prism.shared.Published
 import prism.shared.orElse
 
 /*
@@ -50,6 +54,24 @@ internal val preferencesHere: PreferenceStore by lazy { PreferenceFile.open() }
  * settings window of the prism that is running is in the next search that prism answers.
  */
 internal fun aliasesNow(): Aliases = aliasesOf(preferencesHere.preferences.value.aliases)
+
+/** The rules last read, and what of the preferences they were read from. */
+private val excluding = Published<Pair<Excluding, Exclusions>?>(null)
+
+/**
+ * What the index leaves out, and what searches leave out of what it holds, as the preferences say now: read again
+ * only when what they say of it has changed, so that what is worked out for one set of rules (which entries of each
+ * block a search skips) is kept for as long as they are the rules.
+ */
+internal fun exclusionsNow(): Exclusions {
+	val written = preferencesHere.preferences.value.excluding
+
+	return excluding
+		.update {
+			this?.takeIf { it.first == written } ?: (written to exclusionsOf(written))
+		}!!
+		.second
+}
 
 /**
  * What [find] finds for [sought]: its query read, with the [aliases] it uses stood for, refused with what is wrong
@@ -115,7 +137,7 @@ internal class IndexFileSeeker(
 						read.index,
 						UsageFile.read(UsageFile.default()).orElse(Usage.NONE),
 						home,
-					),
+					) { exclusionsNow().hiding },
 				)
 			IndexRead.Missing ->
 				Held.None(

@@ -316,7 +316,11 @@ class Index private constructor(
 	 * lately made. What was there when a root was indexed is not among them: when it was made, the index never saw.
 	 * One pass over the stamps, so cheap enough to ask for as a window opens.
 	 */
-	fun newest(count: Int, wanted: (Entry) -> Boolean = { true }): List<Sighting> {
+	fun newest(
+		count: Int,
+		hiding: Hiding = Hiding.NONE,
+		wanted: (Entry) -> Boolean = { true },
+	): List<Sighting> {
 		// The oldest of those kept is at the head, to be let go as a newer one is found.
 		val kept =
 			java.util.PriorityQueue<Triple<Long, Int, Int>>(
@@ -325,6 +329,8 @@ class Index private constructor(
 
 		placed.forEachIndexed { at, it ->
 			val block = it.block
+			// What a search leaves out is not what was lately made either: nothing asks for it here by its path.
+			val hidden = it.hidden.plus(hiding.skipped(block, emptyList()))
 
 			for (entry in 0 until block.size) {
 				val seen = block.seen[entry]
@@ -336,7 +342,7 @@ class Index private constructor(
 
 				if (kept.size >= count && stamp <= kept.peek().first)
 					continue
-				if (entry in it.hidden || !wanted(block.entryOf(entry)))
+				if (entry in hidden || !wanted(block.entryOf(entry)))
 					continue
 
 				kept.add(Triple(stamp, at, entry))
@@ -354,11 +360,16 @@ class Index private constructor(
 
 	/**
 	 * The [count] newest files a person would know as their own, the newest first ([newest]): files, neither hidden
-	 * nor inside a hidden folder (what programs keep for themselves), whose names [named] takes. A name is asked of
+	 * nor inside a hidden folder (what programs keep for themselves), nor what [hiding] leaves out of searches, whose
+	 * names [named] takes. A name is asked of
 	 * only for a file new enough to be among them, so a filter of names costs little over a large index.
 	 */
-	fun newestFiles(count: Int, named: (String) -> Boolean = { true }): List<Sighting> =
-		newest(count) { entry ->
+	fun newestFiles(
+		count: Int,
+		hiding: Hiding = Hiding.NONE,
+		named: (String) -> Boolean = { true },
+	): List<Sighting> =
+		newest(count, hiding) { entry ->
 			entry.kind == Kind.File &&
 				!entry.where.dotted &&
 				entry.where.path
@@ -458,6 +469,10 @@ class Index private constructor(
 	companion object {
 		/** An index of nothing. */
 		val EMPTY = Index(emptySet(), emptyList())
+
+		/** An index of [block] alone, as a root, without the entries [hidden] of it. */
+		internal fun of(block: Block, hidden: Ranges = Ranges.NONE): Index =
+			Index(setOf(block.root), listOf(Placed(block, hidden)))
 
 		/** An index as a file holds it: [roots], and one block of each. */
 		internal fun of(roots: Set<Where>, blocks: List<Block>): Index {
