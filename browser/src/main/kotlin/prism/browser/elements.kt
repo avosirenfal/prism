@@ -29,6 +29,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.selection.triStateToggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -75,6 +76,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.TextFieldValue
@@ -542,24 +544,27 @@ fun TickBox(
 	modifier: Modifier = Modifier,
 	size: Dp = 18.dp,
 	hovered: Boolean = false,
+	/** Whether it stands for several things of which some are on and some off: a bar across it, not a tick. */
+	mixed: Boolean = false,
 ) {
 	val palette = LocalPalette.current
 	val shape = RoundedCornerShape(Radius.small)
+	val filled = checked || mixed
 
 	Box(
 		modifier
 			.size(size)
 			.background(
 				when {
-					checked && hovered -> palette.accentHover
-					checked -> palette.accent
+					filled && hovered -> palette.accentHover
+					filled -> palette.accent
 					hovered -> palette.hover
 					else -> palette.field
 				},
 				shape,
 			).border(
 				1.dp,
-				if (checked)
+				if (filled)
 					Color.Transparent
 				else
 					palette.fieldEdge,
@@ -567,8 +572,59 @@ fun TickBox(
 			),
 		contentAlignment = Alignment.Center,
 	) {
-		if (checked)
-			GlyphIcon(Glyph.Check, palette.onAccent, size * 0.78f)
+		when {
+			mixed ->
+				Box(
+					Modifier
+						.size(size * 0.5f, 2.dp)
+						.background(palette.onAccent, RoundedCornerShape(1.dp)),
+				)
+			checked -> GlyphIcon(Glyph.Check, palette.onAccent, size * 0.78f)
+		}
+	}
+}
+
+/**
+ * A box that stands for several ([state]: all of them on, none, or some), with [label] beside it: pressed, or Space
+ * with the keyboard on it, it is [onClick]'s to say what becomes of them.
+ */
+@Composable
+fun TriBox(
+	label: String,
+	state: ToggleableState,
+	modifier: Modifier = Modifier,
+	onClick: () -> Unit,
+) {
+	val palette = LocalPalette.current
+	val type = LocalType.current
+	val source = remember { MutableInteractionSource() }
+	val felt = source.felt()
+
+	Row(
+		modifier
+			.triStateToggleable(
+				state,
+				source,
+				indication = null,
+				role = Role.Checkbox,
+				onClick = onClick,
+			).padding(vertical = Space.xs),
+		verticalAlignment = Alignment.CenterVertically,
+		horizontalArrangement = Arrangement.spacedBy(Space.s),
+	) {
+		TickBox(
+			state == ToggleableState.On,
+			Modifier.ring(felt.ringed, palette.focus, corner = Radius.small),
+			hovered = felt.hovered,
+			mixed = state == ToggleableState.Indeterminate,
+		)
+		if (label.isNotEmpty())
+			Text(
+				label,
+				style = type.strong.copy(color = palette.textMuted),
+				maxLines = 1,
+				softWrap = false,
+			)
 	}
 }
 

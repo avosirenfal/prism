@@ -465,27 +465,40 @@ private fun did(state: BrowserState, event: BrowserEvent): Step =
 			(event.into ?: state.folder)?.let { Step(state, listOf(Effect.ReadClip(it))) }
 				?: state.pastingIn()
 		is BrowserEvent.Dropped -> state.dropped(event.paths, event.spot, event.transfer)
-		// One of prism's own folders is shown again, rather than pinned beside itself.
+		// One of prism's own folders is shown again, rather than pinned beside itself. What is pinned or taken off is
+		// so for windows of this one's kind: an explorer's pin is the explorer's, though a folder new to quick
+		// access is shown in pickers too, until that is narrowed where quick access is arranged.
 		is BrowserEvent.Pinned ->
 			state.sidebar.let { sidebar ->
 				state.arranging(
 					sidebar.known.entries
 						.firstOrNull { it.value.path == event.path }
-						?.let { sidebar.quick.showing(it.key, true) }
-						?: sidebar.quick.pinning(event.path),
+						?.let { sidebar.quick.showing(it.key, state.role, true) }
+						?: sidebar.quick.pinning(event.path, state.role),
 				)
 			}
 		is BrowserEvent.Unpinned ->
-			state.arranging(
-				when (val item = event.item) {
-					is SidebarItem.Own -> state.sidebar.quick.showing(item.builtin, false)
-					SidebarItem.Trash -> state.sidebar.quick.showing(Builtin.Trash, false)
-					SidebarItem.System -> state.sidebar.quick.showing(Builtin.System, false)
-					SidebarItem.Recents -> state.sidebar.quick.showing(Builtin.Recents, false)
-					is SidebarItem.Pinned -> state.sidebar.quick.unpinning(item.path)
-					is SidebarItem.Drive -> state.sidebar.quick
-				},
-			)
+			state.sidebar.quick.let { quick ->
+				fun hidden(builtin: Builtin) = quick.showing(builtin, state.role, false)
+
+				state.arranging(
+					when (val item = event.item) {
+						is SidebarItem.Own -> hidden(item.builtin)
+						SidebarItem.Trash -> hidden(Builtin.Trash)
+						SidebarItem.System -> hidden(Builtin.System)
+						SidebarItem.Recents -> hidden(Builtin.Recents)
+						is SidebarItem.Pinned -> quick.unpinning(item.path, state.role)
+						is SidebarItem.Drive -> quick
+					},
+				)
+			}
+		is BrowserEvent.ToggledSidebar ->
+			state.sidebar.open.with(state.role, !state.sidebar.open[state.role]).let { open ->
+				Step(
+					state.copy(sidebar = state.sidebar.copy(open = open)),
+					listOf(Effect.ShowSidebar(state.role, open[state.role])),
+				)
+			}
 		is BrowserEvent.Arranged -> state.arranging(event.quick)
 		is BrowserEvent.ArrangingQuickAccess -> Step(state.copy(arrangingQuick = event.open))
 		// Where the terminal chosen has no place for a folder, nothing opens one in a folder: its menu item is off.

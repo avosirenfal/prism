@@ -108,7 +108,7 @@ object Fixtures {
 			known = known,
 			drives =
 				listOf(
-					Place("File system", Place.Kind.Drive, Path("/")),
+					Place("Root", Place.Kind.Drive, Path("/")),
 					Place("Data", Place.Kind.Drive, Path("/mnt/data")),
 				),
 		)

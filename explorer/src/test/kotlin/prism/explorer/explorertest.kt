@@ -386,11 +386,13 @@ class ExplorerTest {
 
 			explorer.browse(root)
 			explorer.browse(projects)
-			preferences.update { arranging(QuickAccess.DEFAULT.pinning(projects)) }
+			preferences.update {
+				arranging(QuickAccess.DEFAULT.pinning(projects, prism.preferences.Role.Explorer))
+			}
 
 			for (browsing in explorer.browsers)
 				browsing.session.state.first { state ->
-					projects in state.sidebar.shown.map { it.path }
+					projects in state.sidebar.shown(state.role).map { it.path }
 				}
 		}
 

@@ -18,6 +18,7 @@ import prism.preferences.Listings
 import prism.preferences.MenuSpec
 import prism.preferences.QuickAccess
 import prism.preferences.RecentSection
+import prism.preferences.Role
 import prism.preferences.Sort
 
 /*
@@ -399,6 +400,9 @@ sealed interface BrowserEvent : Input {
 	data class Arranged(
 		val quick: QuickAccess,
 	) : BrowserEvent
+
+	/** The sidebar closed, where it is open, and opened where it is closed: in every window of this one's kind. */
+	data object ToggledSidebar : BrowserEvent
 
 	/** The window that arranges quick access opened, or closed. */
 	data class ArrangingQuickAccess(
@@ -1272,6 +1276,12 @@ sealed interface Effect {
 	/** Quick access arranged as [quick]: a preference, so every window is given it. */
 	data class Arrange(
 		val quick: QuickAccess,
+	) : Effect
+
+	/** The sidebar of the windows for [role] kept [shown], or not: a preference, so each of them is given it. */
+	data class ShowSidebar(
+		val role: Role,
+		val shown: Boolean,
 	) : Effect
 
 	/** A search alias, [name] for [query], added to those there are: a preference, so every search is given it. */

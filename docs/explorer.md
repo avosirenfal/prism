@@ -116,16 +116,36 @@ but cannot remove it, so a place a later version adds reaches every user's list,
 those there (before the first of prism's own that comes after it: the Recents page before whichever of prism's own
 the user has first). That is kept by construction: a
 `QuickAccess` is made only by `QuickAccess.of`, which drops what is named twice and adds what is left out, whatever a
-file says. A folder's menu pins it ("Pin to sidebar"); the menu of something quick access shows takes it off ("Unpin
-from sidebar": a folder pinned is unpinned, and one of prism's own hidden from it). A picker's sidebar leaves out the trash,
-whose entries it cannot give an application.
+file says. A picker's sidebar leaves out the trash, whose entries it cannot give an application.
 
-The button beside the "Quick access" heading opens a window over the browser that arranges it (`quickaccess.kt`):
-every entry, shown or hidden, taken anywhere on it but its box and buttons and dragged to where it goes (the rest
-making room as it goes, as `ReorderableColumn` draws any list the pointer reorders), several chosen together (a click
-chooses one, Shift and a click another) dragged together, or one moved up or down a place; prism's own shown or hidden
-by their boxes, the folders pinned removed; a folder pinned by its path; and "Reset", prism's own in their own order,
-every one shown, before the folders pinned. Each change is made as it is made, so the sidebar behind shows it, and is
+There is one list, in one order, and each entry says which windows show it (`ShownIn`): the explorer's, the pickers',
+both or neither. So the explorer can have a dozen project folders the pickers do not, without two lists to keep in
+step. A folder's menu pins it ("Pin to sidebar"): a folder new to quick access is shown in every window, and one that
+is there already, shown elsewhere alone, is shown in windows of this kind too. The menu of something quick access
+shows takes it off windows of this kind ("Unpin from sidebar"): a folder shown nowhere after that is unpinned, and one
+of prism's own is only ever hidden. An older version's list (one answer for every window, and the folders pinned
+always shown) reads as each entry shown in both, or in neither.
+
+Under quick access the sidebar lists the file systems ("Filesystems"): the root ("Root"), and what is mounted in the
+folders desktops mount drives in (`/media`, `/mnt`, `/run/media/<user>`), read from the kernel's mount table
+(`XdgPlaces.drives`). A folder there that nothing is mounted at is a folder, not a file system, and is not listed.
+Whether a window shows them at all is quick access's to say, for the explorer and for pickers each
+(`QuickAccess.filesystems`).
+
+![The window that arranges quick access](quick-access.png)
+
+The button beside the "Quick access" heading opens a window over the browser that arranges it (`quickaccess.kt`), a
+matrix: one line an entry, and a column of boxes for the explorer and one for pickers, ticked where that kind of
+window shows it. The box over a column stands for all of those under it: ticked where every one is, barred where some
+are, and pressed it ticks them all, or, all ticked already, clears them. An entry is taken anywhere on it but its
+boxes and buttons and dragged to where it goes (the rest making room as it goes, as `ReorderableColumn` draws any list
+the pointer reorders), several chosen together (a click chooses one, Shift and a click another) dragged together, or
+one moved up or down a place; the folders pinned are removed, prism's own never. Under the entries, apart from them,
+is the line for the file systems, with its two boxes; then a field that pins a folder by its path, read as the path
+across the top reads one (`~/Projects` is in the home folder); and "Reset", prism's own in their own order before the
+folders pinned, everything shown everywhere. The entries scroll, however many there are, between the columns'
+headings and what is under them, which stay where they are; what is dragged near the top or the bottom of them scrolls
+them under it. Each change is made as it is made, so the sidebar behind shows it, and is
 undone and done again by the keys for that (Ctrl+Z, Ctrl+Shift+Z) while the window is open: its own changes, not what
 the browser undoes of the disk; closed, they are forgotten. The sidebar, and this window, are drawn as large as
 the preferences' sidebar size says (Display, "Sidebar"); Ctrl and the wheel do not zoom them.
@@ -133,6 +153,10 @@ the preferences' sidebar size says (Display, "Sidebar"); Ctrl and the wheel do n
 Arranging changes the window's sidebar at once, and asks for `Effect.Arrange(quick)`, which the session writes to the
 `PreferenceStore`. Every session collects the store's `StateFlow<Preferences>` and makes its sidebar again whenever it
 changes, so every other window follows.
+
+The sidebar itself is put away and brought back by the button after the window's menu, or "Toggle sidebar" (F9, in
+the View keys): the listing takes its room, and the toolbar stays as it is. It is kept for the explorer's windows and
+for pickers each (`Preferences.sidebarShown`), and reaches every window of that kind as quick access does.
 
 The store is a file, `$XDG_CONFIG_HOME/prism/preferences.json`. A process has one store of it (`preferencesHere`,
 `app/search.kt`), which reads the file once, as the process starts, and hands every window what it holds and each

@@ -1,24 +1,18 @@
 package prism.browser
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -27,49 +21,59 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
-import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Popup
-import androidx.compose.ui.window.PopupProperties
 import java.nio.file.Files
 import java.nio.file.Path
 import prism.preferences.Builtin
 import prism.preferences.QuickAccess
 import prism.preferences.QuickItem
-import prism.window.WindowLocals
+import prism.preferences.Role
+import prism.preferences.ShownIn
 
 /*
  * The window that arranges quick access, over the browser, as large as the sidebar is drawn. Every entry is in it, in
- * order, each moved up or down: prism's own places shown or hidden by their boxes (they are never removed, so one hidden
- * is always there to show again), and the folders pinned removed. Each change is made as it is made, so the sidebar
- * behind shows it; Done, or Escape, closes it. Its changes are undone and done again by the window's keys for that
- * (Ctrl+Z, Ctrl+Shift+Z), while it is open, apart from what the window undoes; closed, they are forgotten.
+ * order, each moved up or down, with a box for each kind of window that shows it: the explorer's, and the pickers'.
+ * Prism's own places are never removed (one shown nowhere is always there to show again); the folders pinned are.
+ * Over each column of boxes is one that stands for them all, and sets or clears them all. Under the entries, apart
+ * from them, is whether each kind of window shows the file systems under its quick access.
+ *
+ * There may be hundreds of entries: they scroll, between the columns' headings and what is under them, which stay
+ * where they are, and what is dragged near the top or the bottom scrolls them under it.
+ *
+ * Each change is made as it is made, so the sidebar behind shows it; Done, or Escape, closes it. Its changes are
+ * undone and done again by the window's keys for that (Ctrl+Z, Ctrl+Shift+Z), while it is open, apart from what the
+ * window undoes; closed, they are forgotten.
  */
 
-/** The window that arranges [sidebar]'s quick access. */
+/** The window that arranges [sidebar]'s quick access; a folder typed into it with `~` is in [home]. */
 @Composable
-internal fun QuickAccessLayer(sidebar: Sidebar, onEvent: (BrowserEvent) -> Unit) {
-	val palette = LocalPalette.current
+internal fun QuickAccessLayer(
+	sidebar: Sidebar,
+	home: Path,
+	onEvent: (BrowserEvent) -> Unit,
+) {
 	val type = LocalType.current
 	val quick = sidebar.quick
 	val entries = sidebar.arranging
 	val done = remember { FocusRequester() }
 	var typed by remember { mutableStateOf("") }
-	val folder = typed.trim().takeIf { it.isNotEmpty() }?.let { Path.of(it) }
-	val pinnable = folder?.let { it.isAbsolute && Files.isDirectory(it) } == true
+	// What is typed, as the path across the top reads one: from the home folder after `~`.
+	val folder = typed.trim().takeIf { it.isNotEmpty() }?.let { pathOf(it, null, home) }
+	val pinnable = folder?.let(Files::isDirectory) == true
 	val bindings = LocalBindings.current
 	// What this window has changed, to be undone: its own, not the browser's, and gone with it.
 	var edits by remember { mutableStateOf(Edits<QuickAccess>()) }
 	// Quick access as it is now, for the keys to undo from: the modal hears them through what it was first given.
 	val now by rememberUpdatedState(quick)
+	val scroll = rememberScrollState()
 
 	fun arranged(to: QuickAccess) {
 		if (to != quick) {
@@ -97,7 +101,10 @@ internal fun QuickAccessLayer(sidebar: Sidebar, onEvent: (BrowserEvent) -> Unit)
 	fun close() = onEvent(BrowserEvent.ArrangingQuickAccess(false))
 
 	fun pin() {
-		folder?.takeIf { pinnable }?.let { arranged(quick.pinning(it)) }
+		// Pinned here, it is shown everywhere, whichever window this is over: where is what the boxes are for.
+		folder?.takeIf { pinnable }?.let {
+			arranged(QuickAccess.of(quick.items + QuickItem.Pinned(it), quick.filesystems))
+		}
 		typed = ""
 	}
 
@@ -120,12 +127,34 @@ internal fun QuickAccessLayer(sidebar: Sidebar, onEvent: (BrowserEvent) -> Unit)
 			},
 		) {
 			Text(
-				"Drag to reorder. Uncheck a built-in place to hide it, or remove a folder you " +
-					"pinned. To pin a folder, use its context menu.",
+				"Drag to reorder. Tick where each place is shown. To pin a folder, use its " +
+					"context menu or enter its path below.",
 				style = type.muted,
 			)
+			// The columns' headings, which stay where they are over the entries as those scroll.
+			Matrix(
+				Modifier.padding(end = Dims.scrollbarRoom).padding(horizontal = Space.m),
+				explorer = {
+					AllBox("Explorer", entries, Role.Explorer) {
+						arranged(quick.showingAll(Role.Explorer, it))
+					}
+				},
+				picker = {
+					AllBox("Pickers", entries, Role.Picker) {
+						arranged(quick.showingAll(Role.Picker, it))
+					}
+				},
+			) {
+				// Over the entries' names, which come after each one's grip and icon.
+				Spacer(Modifier.width(type.icon * 2 + Space.s))
+				Text("Place", style = type.strong.copy(color = LocalPalette.current.textMuted))
+			}
 			// As tall as the window has room for, and scrolled where it has not.
-			ScrollArea(Modifier.fillMaxWidth().weight(1f, fill = false)) {
+			ScrollArea(
+				Modifier.fillMaxWidth().weight(1f, fill = false),
+				scroll,
+				tag = "quick-entries",
+			) {
 				Card {
 					ReorderableColumn(
 						entries,
@@ -133,26 +162,64 @@ internal fun QuickAccessLayer(sidebar: Sidebar, onEvent: (BrowserEvent) -> Unit)
 						moving = Moving.Several,
 						onMove = { arranged(quick.moved(it)) },
 						divided = true,
+						scroll = scroll,
 					) { entry, grip ->
 						val index = entries.indexOf(entry)
 
 						EntryLine(
 							entry,
 							labelOf(entry),
-							sidebar.known[Builtin.Home]?.path,
+							home,
 							index,
 							last = entries.lastIndex,
 							grip,
-							onShown = { shown -> entry.builtin?.let { arranged(quick.showing(it, shown)) } },
+							onShown = { role, shown -> arranged(quick.showing(index, role, shown)) },
 							onMoved = { by -> arranged(quick.moved(index, by)) },
-							onRemoved = { (entry.item?.path)?.let { arranged(quick.unpinning(it)) } },
+							onRemoved = { (entry.item?.path)?.let { arranged(quick.removing(it)) } },
 						)
+					}
+				}
+			}
+			// The file systems: a group of the sidebar's, not an entry of quick access, and so apart from those.
+			Box(Modifier.padding(end = Dims.scrollbarRoom)) {
+				Card {
+					Matrix(
+						Modifier
+							.testTag(
+								"quick-filesystems",
+							).padding(horizontal = Space.m, vertical = Space.s),
+						explorer = {
+							CheckBox(
+								"",
+								quick.filesystems.explorer,
+								Modifier.testTag("filesystems:explorer"),
+							) { arranged(quick.showingFilesystems(Role.Explorer, it)) }
+						},
+						picker = {
+							CheckBox(
+								"",
+								quick.filesystems.picker,
+								Modifier.testTag("filesystems:picker"),
+							) { arranged(quick.showingFilesystems(Role.Picker, it)) }
+						},
+					) {
+						Spacer(Modifier.width(type.icon))
+						GlyphIcon(Glyph.Drive, LocalPalette.current.textMuted, type.icon)
+						Column(Modifier.weight(1f)) {
+							Text(Sidebar.FILESYSTEMS, style = type.body, maxLines = 1)
+							Text(
+								"Mounted drives",
+								style = type.muted,
+								maxLines = 1,
+								overflow = TextOverflow.Ellipsis,
+							)
+						}
 					}
 				}
 			}
 			Labelled(
 				"Pin a folder",
-				help = "Enter the full path of a folder.".takeIf { folder != null && !pinnable },
+				help = "Enter the path of a folder.".takeIf { typed.isNotBlank() && !pinnable },
 			) {
 				Row(
 					verticalAlignment = Alignment.CenterVertically,
@@ -162,7 +229,7 @@ internal fun QuickAccessLayer(sidebar: Sidebar, onEvent: (BrowserEvent) -> Unit)
 						typed,
 						{ typed = it },
 						Modifier.weight(1f).testTag("pin-path"),
-						hint = "/home/you/Projects",
+						hint = "~/Projects",
 						onKey = {
 							(
 								it.type == KeyEventType.KeyDown &&
@@ -186,7 +253,75 @@ internal fun QuickAccessLayer(sidebar: Sidebar, onEvent: (BrowserEvent) -> Unit)
 	}
 }
 
-/** One entry: shown or not (prism's own), its icon and name, and moved up, down, or (a folder pinned) away. */
+/** How wide a column of boxes is: its heading's word, and the box under it at its start. */
+private val CELL = 112.dp
+
+/**
+ * One line of the matrix, whatever it is of (the headings, an entry, the file systems): what it is ([what]), then
+ * what is under "Explorer" and under "Pickers", each in a column as wide in every line, and room after them as wide
+ * as an entry's buttons, so that the boxes of every line are under their headings.
+ */
+@Composable
+private fun Matrix(
+	modifier: Modifier,
+	explorer: @Composable () -> Unit,
+	picker: @Composable () -> Unit,
+	trailing: @Composable RowScope.() -> Unit = {},
+	what: @Composable RowScope.() -> Unit,
+) {
+	val type = LocalType.current
+
+	Row(
+		modifier.fillMaxWidth(),
+		verticalAlignment = Alignment.CenterVertically,
+		horizontalArrangement = Arrangement.spacedBy(Space.s),
+	) {
+		Row(
+			Modifier.weight(1f),
+			verticalAlignment = Alignment.CenterVertically,
+			horizontalArrangement = Arrangement.spacedBy(Space.s),
+			content = what,
+		)
+		Box(Modifier.width(CELL)) { explorer() }
+		Box(Modifier.width(CELL)) { picker() }
+		// An entry's three buttons, or the room they would take.
+		Row(
+			Modifier.width(type.control * 3),
+			horizontalArrangement = Arrangement.End,
+			verticalAlignment = Alignment.CenterVertically,
+			content = trailing,
+		)
+	}
+}
+
+/**
+ * The box over a column, which stands for every entry's box under it: ticked where the windows for [role] show
+ * every entry, empty where none, and barred where some. Pressed, every one is ticked; all ticked already, none is.
+ */
+@Composable
+private fun AllBox(
+	label: String,
+	entries: List<Sidebar.Arranged>,
+	role: Role,
+	onAll: (Boolean) -> Unit,
+) {
+	val shown = entries.count { it.shown[role] }
+	val state =
+		when (shown) {
+			entries.size -> ToggleableState.On
+			0 -> ToggleableState.Off
+			else -> ToggleableState.Indeterminate
+		}
+
+	TriBox(label, state, Modifier.testTag("all:${role.name.lowercase()}")) {
+		onAll(state != ToggleableState.On)
+	}
+}
+
+/**
+ * One entry: its icon and name, a box for each kind of window that shows it, and moved up, down, or (a folder
+ * pinned) away.
+ */
 @Composable
 private fun EntryLine(
 	entry: Sidebar.Arranged,
@@ -195,7 +330,7 @@ private fun EntryLine(
 	index: Int,
 	last: Int,
 	grip: Grip,
-	onShown: (Boolean) -> Unit,
+	onShown: (Role, Boolean) -> Unit,
 	onMoved: (Int) -> Unit,
 	onRemoved: () -> Unit,
 ) {
@@ -203,21 +338,60 @@ private fun EntryLine(
 	val type = LocalType.current
 	val builtin = entry.builtin
 
-	Row(
+	Matrix(
 		Modifier
-			.fillMaxWidth()
 			.then(grip.entry)
 			.background(if (grip.lit) palette.chosen else palette.raised)
 			.testTag("quick:$label")
 			.padding(horizontal = Space.m, vertical = Space.s),
-		verticalAlignment = Alignment.CenterVertically,
-		horizontalArrangement = Arrangement.spacedBy(Space.s),
+		explorer = {
+			CheckBox("", entry.shown.explorer, Modifier.testTag("explorer:$label")) {
+				onShown(Role.Explorer, it)
+			}
+		},
+		picker = {
+			CheckBox("", entry.shown.picker, Modifier.testTag("picker:$label")) {
+				onShown(Role.Picker, it)
+			}
+		},
+		trailing = {
+			ToolButton(
+				Glyph.Up,
+				"Move up",
+				enabled = index > 0,
+				Modifier.testTag("up:$label"),
+				icon =
+					type.icon * 0.8f,
+			) {
+				onMoved(-1)
+			}
+			ToolButton(
+				Glyph.Down,
+				"Move down",
+				enabled = index < last,
+				Modifier.testTag("down:$label"),
+				icon =
+					type.icon * 0.8f,
+			) {
+				onMoved(1)
+			}
+			// A folder pinned is removed; one of prism's own, never, so it has an empty place where the button would be.
+			if (builtin == null)
+				ToolButton(
+					Glyph.Close,
+					"Remove from quick access",
+					enabled = true,
+					Modifier.testTag("remove:$label"),
+					icon =
+						type.icon * 0.8f,
+				) {
+					onRemoved()
+				}
+			else
+				Spacer(Modifier.width(type.control))
+		},
 	) {
 		GlyphIcon(Glyph.Grip, palette.textFaint, type.icon, Modifier.testTag("grip:$label"))
-		Box(Modifier.width(type.icon), contentAlignment = Alignment.Center) {
-			if (builtin != null)
-				CheckBox("", entry.shown, Modifier.testTag("shown:$label"), onChange = onShown)
-		}
 		GlyphIcon(
 			entry.item?.let(::glyphOf) ?: builtin?.let(::glyphOf) ?: Glyph.Folder,
 			palette.textMuted,
@@ -227,10 +401,10 @@ private fun EntryLine(
 			Text(
 				label,
 				style =
-					if (entry.shown)
-						type.body
+					if (entry.shown.nowhere)
+						type.body.copy(color = palette.textFaint)
 					else
-						type.body.copy(color = palette.textFaint),
+						type.body,
 				maxLines = 1,
 				overflow = TextOverflow.Ellipsis,
 			)
@@ -248,40 +422,6 @@ private fun EntryLine(
 				Text(it, style = type.muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
 			}
 		}
-		ToolButton(
-			Glyph.Up,
-			"Move up",
-			enabled = index > 0,
-			Modifier.testTag("up:$label"),
-			icon =
-				type.icon * 0.8f,
-		) {
-			onMoved(-1)
-		}
-		ToolButton(
-			Glyph.Down,
-			"Move down",
-			enabled = index < last,
-			Modifier.testTag("down:$label"),
-			icon =
-				type.icon * 0.8f,
-		) {
-			onMoved(1)
-		}
-		// A folder pinned is removed; one of prism's own, never, so it has an empty place where the button would be.
-		if (builtin == null)
-			ToolButton(
-				Glyph.Close,
-				"Remove from quick access",
-				enabled = true,
-				Modifier.testTag("remove:$label"),
-				icon =
-					type.icon * 0.8f,
-			) {
-				onRemoved()
-			}
-		else
-			Spacer(Modifier.width(type.control))
 	}
 }
 
@@ -311,6 +451,9 @@ private fun tildeOf(path: Path, home: Path?): String =
 	else
 		path.toString()
 
-/** [quick] with prism's own places in their own order, every one shown, before the folders pinned, in theirs. */
+/**
+ * [quick] with prism's own places in their own order before the folders pinned, in theirs; every one of them, and
+ * the file systems, shown in every window.
+ */
 private fun reset(quick: QuickAccess): QuickAccess =
-	QuickAccess.of(quick.pins.map(QuickItem::Pinned))
+	QuickAccess.of(quick.pins.map { QuickItem.Pinned(it, ShownIn.EVERYWHERE) })

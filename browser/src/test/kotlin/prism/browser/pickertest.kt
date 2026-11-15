@@ -17,12 +17,15 @@ import org.junit.jupiter.api.io.TempDir
 import prism.browser.Fixtures.home
 import prism.browser.Fixtures.picker
 import prism.desktop.freedesktop.XdgPlaces
+import prism.preferences.Builtin
 import prism.preferences.ColumnId
 import prism.preferences.DateFormat
 import prism.preferences.Hidden
 import prism.preferences.Kind
 import prism.preferences.Layout
 import prism.preferences.Order
+import prism.preferences.QuickAccess
+import prism.preferences.Role
 import prism.preferences.Sort
 
 /**
@@ -107,6 +110,63 @@ class PickerTest {
 
 		assertInstanceOf(Notice.Replace::class.java, kinds.getValue("replace").notice)
 		assertInstanceOf(Listing.Unreadable::class.java, kinds.getValue("unreadable").listing)
+	}
+
+	@Test
+	fun theWindowThatArrangesQuickAccessDraws_WithAFewEntriesAndWithHundreds() {
+		fun arranged(quick: QuickAccess, vararg inputs: Input) =
+			fixture(Choosing.Exploring(), *inputs).let { state ->
+				state.copy(sidebar = state.sidebar.copy(quick = quick), arrangingQuick = true)
+			}
+
+		// A few entries, each kind of window showing some of them, and the file systems the explorer's alone.
+		val few =
+			QuickAccess.DEFAULT
+				.pinning(home.resolve("Projects"), Role.Explorer)
+				.pinning(Path("/srv/media"), Role.Explorer)
+				.showing(Builtin.Music, Role.Picker, false)
+				.showing(Builtin.Videos, Role.Picker, false)
+				.showing(Builtin.Trash, Role.Picker, false)
+				.unpinning(Path("/srv/media"), Role.Explorer)
+				.showing(Builtin.Desktop, Role.Explorer, false)
+				.showing(Builtin.Desktop, Role.Picker, false)
+				.showingFilesystems(Role.Picker, false)
+
+		// And hundreds of folders pinned, which scroll between what is over them and what is under.
+		val many =
+			(1..200).fold(QuickAccess.DEFAULT) { quick, at ->
+				quick.pinning(Path("/data/projects/project-%03d".format(at)), Role.Explorer)
+			}
+
+		for ((name, palette) in listOf("light" to Palette.Light, "dark" to Palette.Dark)) {
+			screenshot(
+				"quick-few-$name",
+				renderedPng(arranged(few), 1100, 760, palette, scale = 2f),
+			)
+			screenshot(
+				"quick-many-$name",
+				renderedPng(arranged(many), 1100, 760, palette, scale = 2f),
+			)
+			// As narrow as a picker is made, the columns of boxes keep their room.
+			screenshot(
+				"quick-narrow-$name",
+				renderedPng(arranged(few), 760, 620, palette, scale = 2f),
+			)
+
+			// The sidebar closed: the listing across the window, the button that opens it where it was.
+			val closed = fixture(Choosing.Exploring(), BrowserEvent.ToggledSidebar)
+
+			assertFalse(closed.sidebar.open[Role.Explorer])
+			screenshot("sidebar-closed-$name", renderedPng(closed, 1100, 680, palette, scale = 2f))
+			screenshot(
+				"sidebar-open-$name",
+				renderedPng(fixture(Choosing.Exploring()), 1100, 680, palette, scale = 2f),
+			)
+			screenshot(
+				"sidebar-closed-narrow-$name",
+				renderedPng(closed, 760, 560, palette, scale = 2f),
+			)
+		}
 	}
 
 	@Test

@@ -43,9 +43,10 @@ class PreferencesTest {
 			Preferences.DEFAULT
 				.arranging(
 					QuickAccess.DEFAULT
-						.pinning(Path.of("/home/avery/Projects"))
-						.pinning(Path.of("/mnt/data"))
-						.showing(Builtin.Music, false)
+						.pinning(Path.of("/home/avery/Projects"), Role.Explorer)
+						.pinning(Path.of("/mnt/data"), Role.Picker)
+						.showing(Builtin.Music, Role.Explorer, false)
+						.showingFilesystems(Role.Picker, false)
 						.moved(7, -7),
 				).binding("SearchIndex", listOf("Ctrl+Space"))
 				.binding("Back", listOf("Mouse Back", "Alt+Left"))
@@ -74,7 +75,7 @@ class PreferencesTest {
 			assertEquals(Preferences.DEFAULT, store.preferences.value)
 			assertNotNull(store.problem)
 
-			store.update { arranging(QuickAccess.DEFAULT.pinning(Path.of("/srv"))) }
+			store.update { arranging(QuickAccess.DEFAULT.pinning(Path.of("/srv"), Role.Explorer)) }
 
 			assertNull(store.problem)
 			assertEquals(
@@ -224,6 +225,111 @@ class PreferencesTest {
 	}
 
 	@Test
+	fun eachEntryOfQuickAccessIsShownInTheExplorerOrThePickersOrBoth_AsAreTheFileSystems() {
+		val projects = Path.of("/home/avery/Projects")
+		val quick = QuickAccess.DEFAULT.pinning(projects, Role.Picker)
+
+		// A folder new to quick access is shown everywhere, whichever window pinned it.
+		assertEquals(ShownIn.EVERYWHERE, quick.items.last().shown)
+
+		// Taken off in one kind of window, it is still the other's; taken off in both, it is gone.
+		val pickers = quick.unpinning(projects, Role.Explorer)
+
+		assertEquals(ShownIn(explorer = false, picker = true), pickers.items.last().shown)
+		assertEquals(listOf(projects), pickers.pins)
+		assertEquals(emptyList<Path>(), pickers.unpinning(projects, Role.Picker).pins)
+		// Pinned again where it is not shown, it is the same entry, shown there too: in its place, not at the end.
+		assertEquals(quick, pickers.pinning(projects, Role.Explorer))
+
+		// One of prism's own is hidden from one kind of window and shown in the other.
+		val hidden = quick.showing(Builtin.Music, Role.Picker, false)
+
+		assertTrue(hidden.shows(Builtin.Music, Role.Explorer))
+		assertFalse(hidden.shows(Builtin.Music, Role.Picker))
+
+		// Every entry at once, for one kind of window; the other's are as they were.
+		val none = hidden.showingAll(Role.Explorer, false)
+
+		assertTrue(none.items.none { it.shown.explorer })
+		assertEquals(hidden.items.map { it.shown.picker }, none.items.map { it.shown.picker })
+		assertEquals(
+			hidden.items.map { it.showing(it.shown.with(Role.Explorer, true)) },
+			none.showingAll(Role.Explorer, true).items,
+		)
+
+		// The file systems under it, each kind of window its own.
+		assertEquals(ShownIn.EVERYWHERE, quick.filesystems)
+		assertEquals(
+			ShownIn(explorer = true, picker = false),
+			quick.showingFilesystems(Role.Picker, false).filesystems,
+		)
+		// And they stay as they are whatever is done to the entries.
+		assertEquals(
+			ShownIn(explorer = true, picker = false),
+			quick
+				.showingFilesystems(Role.Picker, false)
+				.moved(0, 3)
+				.pinning(Path.of("/srv"), Role.Explorer)
+				.removing(projects)
+				.showingAll(Role.Picker, false)
+				.filesystems,
+		)
+	}
+
+	@Test
+	fun quickAccessAsAnOlderVersionWroteItIsShownInEveryWindowAsItWasShownAtAll() {
+		val json = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
+
+		// A list of entries, one answer each for every window, and nothing of the file systems.
+		val older =
+			json.decodeFromString(
+				QuickAccess.serializer(),
+				"""
+				[
+					{"type": "builtin", "place": "Home"},
+					{"type": "builtin", "place": "Music", "shown": false},
+					{"type": "folder", "path": "/home/avery/Projects"}
+				]
+				""".trimIndent(),
+			)
+
+		assertEquals(
+			listOf(
+				QuickItem.Own(Builtin.Home, ShownIn.EVERYWHERE),
+				QuickItem.Own(Builtin.Music, ShownIn.NOWHERE),
+				QuickItem.Pinned(Path.of("/home/avery/Projects"), ShownIn.EVERYWHERE),
+			),
+			older.items.filter {
+				it is QuickItem.Pinned ||
+					(it as QuickItem.Own).place in setOf(Builtin.Home, Builtin.Music)
+			},
+		)
+		assertEquals(ShownIn.EVERYWHERE, older.filesystems)
+
+		// As it is written now, it is read back as it was: each entry's windows, and the file systems'.
+		val now =
+			older
+				.showing(Builtin.Home, Role.Picker, false)
+				.showingFilesystems(Role.Explorer, false)
+
+		assertEquals(
+			now,
+			json.decodeFromString(
+				QuickAccess.serializer(),
+				json.encodeToString(QuickAccess.serializer(), now),
+			),
+		)
+	}
+
+	@Test
+	fun theSidebarIsShownOrNotInEachKindOfWindowApart() {
+		val closed = Preferences.DEFAULT.showingSidebar(Role.Picker, false)
+
+		assertEquals(ShownIn(explorer = true, picker = false), closed.sidebarShown)
+		assertEquals(Preferences.DEFAULT, closed.showingSidebar(Role.Picker, true))
+	}
+
+	@Test
 	fun quickAccessAlwaysHoldsEachOfPrismsOwnOnce_AndEachFolderOnce() {
 		val projects = Path.of("/home/avery/Projects")
 
@@ -231,7 +337,7 @@ class PreferencesTest {
 			QuickAccess.of(
 				listOf(
 					QuickItem.Pinned(projects),
-					QuickItem.Own(Builtin.Trash, shown = false),
+					QuickItem.Own(Builtin.Trash, ShownIn.NOWHERE),
 					QuickItem.Own(Builtin.Trash),
 					QuickItem.Pinned(projects),
 				),
@@ -242,7 +348,7 @@ class PreferencesTest {
 		assertEquals(
 			listOf(QuickItem.Pinned(projects)) +
 				Builtin.entries.filter { it != Builtin.Trash }.map { QuickItem.Own(it) } +
-				QuickItem.Own(Builtin.Trash, shown = false),
+				QuickItem.Own(Builtin.Trash, ShownIn.NOWHERE),
 			read.items,
 		)
 
@@ -268,11 +374,13 @@ class PreferencesTest {
 			),
 			QuickAccess.of(older).items.take(3),
 		)
-		// Pinned again, a folder is still there once; unpinned, it is gone; prism's own are only ever hidden.
-		assertEquals(read, read.pinning(projects))
-		assertEquals(emptyList<Path>(), read.unpinning(projects).pins)
-		assertFalse(read.shows(Builtin.Trash))
-		assertTrue(read.showing(Builtin.Trash, true).shows(Builtin.Trash))
+		// Pinned again, a folder is still there once; removed, it is gone; prism's own are only ever hidden.
+		assertEquals(read, read.pinning(projects, Role.Explorer))
+		assertEquals(emptyList<Path>(), read.removing(projects).pins)
+		assertFalse(read.shows(Builtin.Trash, Role.Explorer))
+		assertTrue(
+			read.showing(Builtin.Trash, Role.Explorer, true).shows(Builtin.Trash, Role.Explorer),
+		)
 		// Moved as far as it can go, and no further.
 		assertEquals(QuickItem.Pinned(projects), read.moved(0, 100).items.last())
 		assertEquals(

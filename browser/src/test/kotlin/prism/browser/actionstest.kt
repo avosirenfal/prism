@@ -524,11 +524,11 @@ class ActionsTest {
 		assertEquals(listOf(Chord.parse("Ctrl+U")), defaults.of(upper))
 		assertEquals(listOf<Bindable>(upper), defaults.listings(Chord.parse("Ctrl+U")!!))
 
-		val rebound = defaults.bound(upper, 0, Chord.parse("F9")!!)
+		val rebound = defaults.bound(upper, 0, Chord.parse("F8")!!)
 
-		assertEquals(mapOf("action:upper" to listOf("F9")), rebound.differences())
+		assertEquals(mapOf("action:upper" to listOf("F8")), rebound.differences())
 		assertEquals(
-			listOf(Chord.parse("F9")),
+			listOf(Chord.parse("F8")),
 			Bindings
 				.of(
 					Preferences(bindings = rebound.differences()),

@@ -1,13 +1,16 @@
 package prism.browser
 
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.drag
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -16,6 +19,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.shadow
@@ -32,6 +36,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onPlaced
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
@@ -88,11 +93,41 @@ fun <T> ReorderableColumn(
 	modifier: Modifier = Modifier,
 	movable: (T) -> Boolean = { true },
 	divided: Boolean = false,
+	scroll: ScrollState? = null,
 	content: @Composable (item: T, grip: Grip) -> Unit,
 ) {
 	var lifted by remember { mutableStateOf<Lifted?>(null) }
 	// How far the pointer has dragged what is lifted: read only where it is drawn, so a drag only redraws.
 	var travel by remember { mutableFloatStateOf(0f) }
+	// Where the drag began, and where the pointer is now, down the column: the entry moves with the pointer.
+	var from by remember { mutableFloatStateOf(0f) }
+	var pointer by remember { mutableFloatStateOf(0f) }
+	val edge = with(LocalDensity.current) { SCROLL_EDGE.toPx() }
+
+	// A list longer than its room ([scroll]) is scrolled while what is dragged is held near its top or its bottom,
+	// faster the nearer: the pointer stays where it is, and the column moves under it.
+	if (scroll != null && lifted != null)
+		LaunchedEffect(scroll) {
+			while (true) {
+				withFrameNanos { }
+
+				val inSight = pointer - scroll.value
+				val past =
+					when {
+						inSight < edge -> inSight - edge
+						inSight > scroll.viewportSize - edge -> inSight - (scroll.viewportSize - edge)
+						else -> 0f
+					}
+
+				if (past != 0f) {
+					val scrolled = scroll.scrollBy((past / edge).coerceIn(-1f, 1f) * edge / 3)
+
+					pointer += scrolled
+					travel = pointer - from
+				}
+			}
+		}
+
 	var heights by remember { mutableStateOf(emptyMap<Any, Int>()) }
 	var chosen by remember { mutableStateOf(emptySet<Any>()) }
 	val moved by rememberUpdatedState(onMove)
@@ -222,16 +257,19 @@ fun <T> ReorderableColumn(
 								else
 									Modifier,
 							).pointerInput(index, moving) {
-								// Where the drag began, down the column: the entry moves with the pointer, the column does not.
-								var from = 0f
-
 								taking(
 									onClick = { shift -> clicked(index, shift) },
 									onStart = { at ->
 										lift(index)
 										from = downOf(at) ?: 0f
+										pointer = from
 									},
-									onDrag = { at -> downOf(at)?.let { travel = it - from } },
+									onDrag = { at ->
+										downOf(at)?.let {
+											pointer = it
+											travel = it - from
+										}
+									},
 									onEnd = ::letGo,
 									onCancel = {
 										lifted = null
@@ -259,6 +297,9 @@ fun <T> ReorderableColumn(
 		}
 	}
 }
+
+/** How near the top or bottom of a list that scrolls what is dragged is held for the list to scroll under it. */
+private val SCROLL_EDGE = 36.dp
 
 /** Where something is laid out, kept where pointer input can read it as it comes. */
 private class Placement {

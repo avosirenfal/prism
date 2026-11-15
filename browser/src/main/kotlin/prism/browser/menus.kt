@@ -378,7 +378,7 @@ private fun rowsSlots(
 
 /** Pinning [path] to the sidebar, or taking it off where quick access shows it. */
 private fun Slots.pinning(state: BrowserState, path: Path) {
-	when (val shown = state.sidebar.shown.firstOrNull { it.path == path }) {
+	when (val shown = state.sidebar.shown(state.role).firstOrNull { it.path == path }) {
 		null ->
 			slot("builtin.pin") {
 				item("Pin to sidebar", BrowserEvent.Pinned(path), id = "builtin.pin")

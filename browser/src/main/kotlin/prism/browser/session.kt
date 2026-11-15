@@ -354,6 +354,10 @@ class Session(
 				scope.launch(io) {
 					services.preferences.update { copy(thumbnails = effect.shown) }
 				}
+			is Effect.ShowSidebar ->
+				scope.launch(io) {
+					services.preferences.update { showingSidebar(effect.role, effect.shown) }
+				}
 			is Effect.FoldRecents ->
 				scope.launch(io) {
 					services.preferences.update { folding(effect.section, effect.collapsed) }

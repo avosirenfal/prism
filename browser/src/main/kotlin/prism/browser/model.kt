@@ -24,6 +24,7 @@ import prism.preferences.QuickAccess
 import prism.preferences.QuickItem
 import prism.preferences.RecentSection
 import prism.preferences.Role
+import prism.preferences.ShownIn
 import prism.preferences.Sort
 import prism.shared.Published
 
@@ -1210,6 +1211,8 @@ data class Sidebar(
 	val quick: QuickAccess,
 	val known: Map<Builtin, Place>,
 	val drives: List<Place>,
+	/** Which windows have their sidebar open: the explorer's, the pickers'. A window with it closed shows none. */
+	val open: ShownIn = ShownIn.EVERYWHERE,
 ) {
 	@Immutable
 	data class Group(
@@ -1219,38 +1222,44 @@ data class Sidebar(
 		val arranged: Boolean,
 	)
 
-	/** Quick access as the user arranged it, every entry of it, shown or hidden: what arranging it shows. */
+	/**
+	 * Quick access as the user arranged it, every entry of it, in its order, shown or hidden: what arranging it
+	 * shows. The entry at a place here is the entry at that place of [quick].
+	 */
 	val arranging: List<Arranged>
 		get() =
-			quick.items.mapNotNull { item ->
+			quick.items.map { item ->
 				when (item) {
 					is QuickItem.Own -> Arranged(itemOf(item.place), item.place, item.shown)
 					is QuickItem.Pinned ->
-						Arranged(
-							SidebarItem.Pinned(pinnedPlaceOf(item.path)),
-							null,
-							shown = true,
-						)
+						Arranged(SidebarItem.Pinned(pinnedPlaceOf(item.path)), null, item.shown)
 				}
 			}
 
-	/** What quick access shows, in order: each entry shown, of prism's own folders only those that are there. */
-	val shown: List<SidebarItem>
-		get() = arranging.filter { it.shown && it.item != null }.mapNotNull { it.item }
+	/**
+	 * What quick access shows in a window for [role], in order: each entry shown there, of prism's own folders only
+	 * those that are there.
+	 */
+	fun shown(role: Role): List<SidebarItem> =
+		arranging.filter { it.shown[role] }.mapNotNull { it.item }
 
-	/** What the sidebar shows, under each heading: with the trash where it is [trash], where quick access shows it. */
-	fun groups(trash: Boolean = true): List<Group> =
-		listOf(
+	/**
+	 * What the sidebar of a window for [role] shows, under each heading: with the trash where it is [trash], where
+	 * quick access shows it; and with the file systems, where quick access says such a window shows them.
+	 */
+	fun groups(role: Role, trash: Boolean = true): List<Group> =
+		listOfNotNull(
 			Group(
 				"Quick access",
-				shown.filter { trash || it != SidebarItem.Trash },
+				shown(role).filter { trash || it != SidebarItem.Trash },
 				arranged = true,
 			),
-			Group("This computer", drives.map(SidebarItem::Drive), arranged = false),
+			Group(FILESYSTEMS, drives.map(SidebarItem::Drive), arranged = false)
+				.takeIf { quick.filesystems[role] },
 		)
 
-	/** Whether quick access shows [path]. */
-	fun shows(path: Path): Boolean = shown.any { it.path == path }
+	/** Whether quick access shows [path] in a window for [role]. */
+	fun shows(path: Path, role: Role): Boolean = shown(role).any { it.path == path }
 
 	/** The item [builtin] is: one of prism's pages, or one of its own folders where it is there; null where not. */
 	private fun itemOf(builtin: Builtin): SidebarItem? =
@@ -1268,14 +1277,20 @@ data class Sidebar(
 
 	/**
 	 * An entry of quick access as its window shows it: [item], what it shows where it is there (null for one of prism's
-	 * own folders that is not); [builtin], where it is one of prism's own, which is hidden rather than removed.
+	 * own folders that is not); [builtin], where it is one of prism's own, which is hidden rather than removed; and
+	 * which windows show it ([shown]).
 	 */
 	@Immutable
 	data class Arranged(
 		val item: SidebarItem?,
 		val builtin: Builtin?,
-		val shown: Boolean,
+		val shown: ShownIn,
 	)
+
+	companion object {
+		/** What the file systems are headed, in the sidebar and where quick access is arranged. */
+		const val FILESYSTEMS = "Filesystems"
+	}
 }
 
 /**
@@ -1526,6 +1541,12 @@ data class BrowserState(
 
 	/** The System page shown, where it is. */
 	val system: Location.System? get() = at as? Location.System
+
+	/**
+	 * Whether the window has a sidebar at all, open or closed: not where what it shows is a place that is a tool of
+	 * its own (an archive's window), which has no places on disk beside it.
+	 */
+	val sidebared: Boolean get() = inPlace?.placed?.type?.sidebar != false
 
 	/** What the window is for, as how its listings look goes. */
 	val role: Role get() =

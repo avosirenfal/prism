@@ -230,12 +230,12 @@ class SystemPageTest {
 	fun quickAccessOffersTheSystemPage_HiddenRatherThanRemoved() {
 		val explorer = explorer()
 
-		assertTrue(SidebarItem.System in explorer.sidebar.shown)
+		assertTrue(SidebarItem.System in explorer.sidebar.shown(explorer.role))
 		assertEquals(BrowserEvent.OpenedSystem, openingOf(SidebarItem.System))
 
 		val unpinned = step(explorer, BrowserEvent.Unpinned(SidebarItem.System)).state
 
-		assertTrue(SidebarItem.System !in unpinned.sidebar.shown)
+		assertTrue(SidebarItem.System !in unpinned.sidebar.shown(unpinned.role))
 		assertTrue(
 			unpinned.sidebar.quick.items.any {
 				it is prism.preferences.QuickItem.Own &&

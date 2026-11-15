@@ -75,7 +75,7 @@ class SettingsTest {
 
 		// A place is the chord in it: one that is there no longer is no place, and a chord pressed for it is not
 		// bound anywhere, nor is anything removed.
-		val gone = Slot.Bound(Action.ToggleHidden, chord("F9"))
+		val gone = Slot.Bound(Action.ToggleHidden, chord("F8"))
 
 		assertEquals(added.bindings, added.awaiting(gone).pressed(chord("F6")).bindings)
 		assertNull(added.awaiting(gone).pressed(chord("F6")).awaited)
@@ -120,11 +120,11 @@ class SettingsTest {
 		)
 		assertEquals(
 			Hearing.Idle(Finding.Shortcut(chord("F5"))),
-			awaiting.pressed(chord("F9")).hearing,
+			awaiting.pressed(chord("F8")).hearing,
 		)
 		assertEquals(
-			listOf(chord("F9")),
-			awaiting.pressed(chord("F9")).bindings.of(Action.Rename),
+			listOf(chord("F8")),
+			awaiting.pressed(chord("F8")).bindings.of(Action.Rename),
 		)
 
 		// Finding otherwise stops whatever was listened for.
@@ -157,8 +157,12 @@ class SettingsTest {
 		// Meanwhile, quick access arranged from a window, and a window zoomed; and the bindings changed here.
 		val elsewhere =
 			base
-				.arranging(QuickAccess.DEFAULT.pinning(home.resolve("Projects")))
-				.copy(scales = base.scales.with(WindowKind.Properties, 1.5f))
+				.arranging(
+					QuickAccess.DEFAULT.pinning(
+						home.resolve("Projects"),
+						prism.preferences.Role.Explorer,
+					),
+				).copy(scales = base.scales.with(WindowKind.Properties, 1.5f))
 
 		val rebound =
 			opened.copy(
@@ -281,7 +285,7 @@ class SettingsTest {
 		val written =
 			ActionsFile.parse(
 				"""{"actions": [
-					{"id": "mine", "label": "Mine", "run": ["true"], "key": "F9"},
+					{"id": "mine", "label": "Mine", "run": ["true"], "key": "F8"},
 					{"id": "wrong", "label": "Wrong", "run": ["cp", "{nowhere}"]}
 				]}""",
 			)

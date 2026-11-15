@@ -15,15 +15,20 @@ import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.nativeKeyCode
 import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.test.ComposeUiTest
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.KeyInjectionScope
 import androidx.compose.ui.test.MouseButton
 import androidx.compose.ui.test.MouseInjectionScope
+import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.SemanticsNodeInteraction
+import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsFocused
+import androidx.compose.ui.test.assertIsNotDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsNotSelected
 import androidx.compose.ui.test.assertIsOff
@@ -41,6 +46,7 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performKeyInput
 import androidx.compose.ui.test.performKeyPress
 import androidx.compose.ui.test.performMouseInput
+import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.pressKey
@@ -71,9 +77,12 @@ import prism.preferences.Layout
 import prism.preferences.MemoryPreferences
 import prism.preferences.PreferenceStore
 import prism.preferences.Preferences
+import prism.preferences.QuickAccess
 import prism.preferences.QuickItem
+import prism.preferences.ShownIn
 import prism.preferences.Sort
 import prism.preferences.preferences
+import prism.preferences.Role as WindowRole
 
 /**
  * The picker as a user meets it: composed headless around a running [Session] over a real folder, then clicked,
@@ -127,7 +136,7 @@ class InteractionTest {
 							choosing,
 							folder,
 							work,
-							sidebarOf(XdgPlaces(), work),
+							sidebarOf(XdgPlaces(), work, preferences.preferences.value),
 							search =
 								finder?.let { Search.Ready() } ?: Search.Unavailable(
 									BrowserState.NO_INDEX,
@@ -158,6 +167,29 @@ class InteractionTest {
 
 	private fun ComposeUiTest.row(name: String): SemanticsNodeInteraction =
 		onNodeWithTag("row:$name")
+
+	/** Whether what is tagged [tag] is in sight, all of it. */
+	private fun ComposeUiTest.inSight(tag: String): Boolean =
+		runCatching { onNodeWithTag(tag).assertIsDisplayed() }.isSuccess
+
+	/**
+	 * The entries of the window that arranges quick access wheeled down until what is tagged [tag] is in sight, as a
+	 * hand would: what scrolls there is scrolled by the wheel.
+	 */
+	private fun ComposeUiTest.wheelTo(tag: String) {
+		repeat(80) {
+			if (inSight(tag))
+				return
+
+			onNodeWithTag("quick-entries").performMouseInput {
+				moveTo(center)
+				scroll(2f)
+				exit()
+			}
+			waitForIdle()
+		}
+		onNodeWithTag(tag).assertIsDisplayed()
+	}
 
 	/** No row of any of [names] is shown. */
 	private fun ComposeUiTest.absent(vararg names: String) =
@@ -988,15 +1020,21 @@ class InteractionTest {
 			// The button beside quick access's heading opens its window.
 			onNodeWithTag("arrange-quick-access").performClick()
 			onNodeWithTag("quick-access").assertExists()
-			// Prism's own have boxes, and no way to remove them; unticked, one goes from the sidebar.
+			// Prism's own have boxes, and no way to remove them; the explorer's unticked, one goes from this window's
+			// sidebar, and is still the pickers'.
 			onNodeWithTag("remove:Music").assertDoesNotExist()
-			onNodeWithTag("shown:Music").performClick()
+			wheelTo("explorer:Music")
+			onNodeWithTag("explorer:Music").performClick()
 			waitUntil(timeoutMillis = TIMEOUT) {
 				onAllNodes(hasTestTag("place:Music")).fetchSemanticsNodes().isEmpty()
 			}
 			assertFalse(
 				session.state.value.sidebar.quick
-					.shows(Builtin.Music),
+					.shows(Builtin.Music, WindowRole.Explorer),
+			)
+			assertTrue(
+				session.state.value.sidebar.quick
+					.shows(Builtin.Music, WindowRole.Picker),
 			)
 
 			// The trash, last of them, is past what the window has room for: scrolled to, as the wheel does.
@@ -1076,6 +1114,145 @@ class InteractionTest {
 			}
 			waitUntil(timeoutMillis = TIMEOUT) {
 				onAllNodes(hasTestTag("quick-access")).fetchSemanticsNodes().isEmpty()
+			}
+		}
+
+	@Test
+	fun quickAccessIsAMatrixOfWhichWindowsShowEachEntry_AndTheFileSystemsUnderIt() =
+		picking(Choosing.Exploring()) { session ->
+			fun quick() = session.state.value.sidebar.quick
+
+			onNodeWithTag("place:Root").assertExists()
+			onNodeWithTag("arrange-quick-access").performClick()
+
+			// The box over a column stands for every box under it: all ticked, it clears them; cleared, it ticks
+			// them; and it is barred where some are ticked and some not.
+			onNodeWithTag("all:picker").assertIsOn()
+			onNodeWithTag("all:picker").performClick()
+			waitUntil(timeoutMillis = TIMEOUT) { quick().items.none { it.shown.picker } }
+			assertTrue(quick().items.all { it.shown.explorer })
+			onNodeWithTag("all:picker").assertIsOff()
+			onNodeWithTag("picker:Home").performClick()
+			waitUntil(timeoutMillis = TIMEOUT) { quick().shows(Builtin.Home, WindowRole.Picker) }
+			onNodeWithTag("all:picker").assert(
+				SemanticsMatcher.expectValue(
+					SemanticsProperties.ToggleableState,
+					ToggleableState.Indeterminate,
+				),
+			)
+			onNodeWithTag("all:picker").performClick()
+			waitUntil(timeoutMillis = TIMEOUT) { quick().items.all { it.shown.picker } }
+
+			// The file systems, apart from the entries: unticked for the explorer, they go from this sidebar.
+			onNodeWithTag("filesystems:explorer").performClick()
+			waitUntil(timeoutMillis = TIMEOUT) {
+				onAllNodes(hasTestTag("place:Root")).fetchSemanticsNodes().isEmpty()
+			}
+			assertEquals(ShownIn(explorer = false, picker = true), quick().filesystems)
+			onNodeWithTag("filesystems:explorer").performClick()
+			waitUntil(timeoutMillis = TIMEOUT) {
+				onAllNodes(hasTestTag("place:Root")).fetchSemanticsNodes().isNotEmpty()
+			}
+
+			// A folder typed from the home folder, as a path is typed anywhere: pinned, and shown.
+			onNode(hasSetTextAction() and hasAnyAncestor(hasTestTag("pin-path")))
+				.performTextInput("~/Documents/Taxes")
+			onNodeWithTag("pin").performClick()
+			waitUntil(timeoutMillis = TIMEOUT) { work.resolve("Documents/Taxes") in quick().pins }
+			onNodeWithTag("place:Taxes").assertExists()
+			// It has a way out, which prism's own have not: taken away, it is in neither kind of window.
+			wheelTo("remove:Taxes")
+			onNodeWithTag("remove:Taxes").performClick()
+			waitUntil(timeoutMillis = TIMEOUT) { quick().pins.isEmpty() }
+			onNodeWithTag("done").performClick()
+		}
+
+	@Test
+	fun manyFoldersPinnedScrollWhereTheyAreArranged_AndWhatIsDraggedScrollsThemUnderIt() {
+		val folders = (1..120).map { "pin-%03d".format(it) }
+		val preferences = MemoryPreferences()
+
+		folders.forEach { work.resolve("pins/$it").createDirectories() }
+		preferences.update {
+			arranging(
+				folders.fold(QuickAccess.DEFAULT) { quick, name ->
+					quick.pinning(work.resolve("pins/$name"), WindowRole.Explorer)
+				},
+			)
+		}
+
+		picking(Choosing.Exploring(), preferences = preferences) { session ->
+			fun at(name: String) =
+				session.state.value.sidebar.quick.pins
+					.indexOf(work.resolve("pins/$name"))
+
+			waitUntil(timeoutMillis = TIMEOUT) { at("pin-120") == 119 }
+			onNodeWithTag("arrange-quick-access").performClick()
+			onNodeWithTag("quick-access").assertExists()
+
+			// What is over the entries and under them stays in sight, however many there are; the last is not.
+			onNodeWithTag("all:explorer").assertIsDisplayed()
+			onNodeWithTag("quick-filesystems").assertIsDisplayed()
+			onNodeWithTag("pin-path").assertIsDisplayed()
+			onNodeWithTag("done").assertIsDisplayed()
+			onNodeWithTag("quick:pin-120").assertIsNotDisplayed()
+
+			// The first folder pinned, held and brought down to the foot of the list: the list scrolls under it
+			// while it is held there, and it is let go further on than was in sight when it was taken.
+			val before = at("pin-001")
+
+			wheelTo("grip:pin-001")
+
+			val room =
+				onNodeWithTag("quick-entries")
+					.fetchSemanticsNode()
+					.boundsInRoot
+
+			val held =
+				onNodeWithTag("grip:pin-001")
+					.fetchSemanticsNode()
+					.boundsInRoot.center
+
+			onNodeWithTag("grip:pin-001").performTouchInput {
+				down(center)
+				// To just above the foot of what is in sight, and held there.
+				repeat(10) { moveBy(Offset(0f, (room.bottom - 10f - held.y) / 10)) }
+				repeat(60) {
+					advanceEventTime(16)
+					moveBy(Offset(0f, 0f))
+				}
+				up()
+			}
+			waitUntil(timeoutMillis = TIMEOUT) { at("pin-001") > before + 8 }
+			onNodeWithTag("done").performClick()
+		}
+	}
+
+	@Test
+	fun theSidebarIsPutAwayByItsButtonAndItsKey_AndTheListingTakesItsRoom() =
+		picking(Choosing.Exploring()) { session ->
+			val wide =
+				onNodeWithTag("listing")
+					.fetchSemanticsNode()
+					.size.width
+
+			onNodeWithTag("places").assertExists()
+			onNodeWithTag("toggle-sidebar").performClick()
+			waitUntil(timeoutMillis = TIMEOUT) {
+				onAllNodes(hasTestTag("places")).fetchSemanticsNodes().isEmpty()
+			}
+			assertFalse(session.state.value.sidebar.open[WindowRole.Explorer])
+			assertTrue(
+				onNodeWithTag("listing")
+					.fetchSemanticsNode()
+					.size.width > wide,
+			)
+			// The button stays where it was, to bring it back; so does its key.
+			onNodeWithTag("toggle-sidebar").assertIsDisplayed()
+			row("todo.txt").performClick()
+			press(Key.F9)
+			waitUntil(timeoutMillis = TIMEOUT) {
+				onAllNodes(hasTestTag("places")).fetchSemanticsNodes().isNotEmpty()
 			}
 		}
 

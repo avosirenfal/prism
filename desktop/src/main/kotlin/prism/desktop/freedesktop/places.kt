@@ -1,7 +1,5 @@
 package prism.desktop.freedesktop
 
-import java.io.IOException
-import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.io.path.exists
 import kotlin.io.path.isDirectory
@@ -9,12 +7,16 @@ import kotlin.io.path.name
 import kotlin.io.path.readLines
 import prism.desktop.Place
 import prism.desktop.Places
+import prism.linux.Mounts
 
 /**
  * The places freedesktop.org's desktops offer: the home folder and the XDG user directories in it, as
  * `~/.config/user-dirs.dirs` names them (in the user's language), and the drives mounted where desktops mount them.
  */
-class XdgPlaces : Places {
+class XdgPlaces(
+	/** Where a file system is mounted now: what the kernel says, unless told otherwise. */
+	private val mounted: () -> List<Path> = { Mounts.current().map { it.at } },
+) : Places {
 	override fun known(home: Path): List<Place> {
 		val named = userDirectories(home)
 
@@ -37,19 +39,24 @@ class XdgPlaces : Places {
 			}
 	}
 
-	override fun drives(home: Path): List<Place> =
-		listOf(Place("File system", Place.Kind.Drive, Path.of("/"))) +
+	/**
+	 * The root, and what is mounted in the folders desktops mount drives in (`/media`, `/mnt`, `/run/media/<user>`),
+	 * in those folders' order and by name within each. A folder there that nothing is mounted at is a folder, not a
+	 * file system, and is not among them.
+	 */
+	override fun drives(home: Path): List<Place> {
+		val mounts = mounted().toSet()
+
+		return listOf(Place(ROOT, Place.Kind.Drive, Path.of("/"))) +
 			listOf(Path.of("/media"), Path.of("/mnt"), Path.of("/run/media/${home.name}"))
-				.filter { it.isDirectory() }
-				.flatMap { mounts ->
-					try {
-						Files.list(mounts).use { it.toList() }.filter { it.isDirectory() }
-					} catch (failed: IOException) {
-						emptyList()
-					}
-				}.map { Place(it.name, Place.Kind.Drive, it) }
+				.flatMap { under -> mounts.filter { it.parent == under }.sortedBy { it.name } }
+				.map { Place(it.name, Place.Kind.Drive, it) }
+	}
 
 	companion object {
+		/** What the root of the file system is called among the file systems. */
+		const val ROOT = "Root"
+
 		/**
 		 * The XDG user directories as `~/.config/user-dirs.dirs` names them (`XDG_DESKTOP_DIR="$HOME/Desktop"`), with
 		 * the usual English names where it does not.

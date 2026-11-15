@@ -32,6 +32,8 @@ import prism.preferences.MemoryPreferences
 import prism.preferences.Preferences
 import prism.preferences.QuickAccess
 import prism.preferences.QuickItem
+import prism.preferences.Role
+import prism.preferences.ShownIn
 import prism.preferences.preferences
 
 /**
@@ -112,7 +114,7 @@ class ExploreTest {
 					override fun known(home: Path) = listOf(Place("Home", Place.Kind.Home, home))
 
 					override fun drives(home: Path) =
-						listOf(Place("File system", Place.Kind.Drive, Path.of("/")))
+						listOf(Place("Root", Place.Kind.Drive, Path.of("/")))
 				}
 			override val facts = JvmFacts(types)
 		}
@@ -282,7 +284,7 @@ class ExploreTest {
 
 		val explorer = explorer()
 		val pinning = step(explorer, BrowserEvent.Pinned(root.resolve("projects")))
-		val pinned = QuickAccess.DEFAULT.pinning(root.resolve("projects"))
+		val pinned = QuickAccess.DEFAULT.pinning(root.resolve("projects"), Role.Explorer)
 
 		assertEquals(listOf(Effect.Arrange(pinned)), pinning.effects)
 		pinning.settled(services())
@@ -295,24 +297,58 @@ class ExploreTest {
 				Answer.Placed(sidebarOf(desktop.places, root, preferences.preferences.value)),
 			).state
 
-		val shown = placed.sidebar.shown
+		val shown = placed.sidebar.shown(Role.Explorer)
 
 		assertEquals(
 			listOf("Recents", "System", "Home", "Trash", "projects"),
 			shown.map { it.label },
 		)
 		assertInstanceOf(SidebarItem.Pinned::class.java, shown.last())
+		// A folder new to quick access is shown in pickers too, until that is narrowed.
+		assertEquals(shown, placed.sidebar.shown(Role.Picker))
 
-		// One of prism's own is hidden, never removed; a folder pinned is unpinned.
+		// One of prism's own is hidden, never removed; a folder pinned is unpinned. Both, from the windows of this
+		// one's kind alone: an explorer's are the explorer's, and a picker still shows them.
 		val home = shown.single { it is SidebarItem.Own }
 
 		assertEquals(
-			listOf(Effect.Arrange(pinned.showing(Builtin.Home, false))),
+			listOf(Effect.Arrange(pinned.showing(Builtin.Home, Role.Explorer, false))),
 			step(placed, BrowserEvent.Unpinned(home)).effects,
 		)
 		assertEquals(
-			listOf(Effect.Arrange(pinned.unpinning(root.resolve("projects")))),
+			listOf(Effect.Arrange(pinned.unpinning(root.resolve("projects"), Role.Explorer))),
 			step(placed, BrowserEvent.Unpinned(shown.last())).effects,
+		)
+
+		val unpinned = step(placed, BrowserEvent.Unpinned(shown.last())).state
+
+		assertEquals(
+			listOf("Recents", "System", "Home", "Trash"),
+			unpinned.sidebar.shown(Role.Explorer).map { it.label },
+		)
+		assertEquals(
+			listOf("Recents", "System", "Home", "Trash", "projects"),
+			unpinned.sidebar.shown(Role.Picker).map { it.label },
+		)
+		// Pinned again in the explorer, it is the same entry, shown there again.
+		assertEquals(
+			listOf(Effect.Arrange(pinned)),
+			step(unpinned, BrowserEvent.Pinned(root.resolve("projects"))).effects,
+		)
+
+		// The file systems under quick access, where quick access says a window of this kind shows them.
+		assertEquals(
+			listOf("Quick access", Sidebar.FILESYSTEMS),
+			placed.sidebar.groups(Role.Explorer).map { it.heading },
+		)
+
+		val without =
+			placed.sidebar.copy(quick = pinned.showingFilesystems(Role.Explorer, false))
+
+		assertEquals(listOf("Quick access"), without.groups(Role.Explorer).map { it.heading })
+		assertEquals(
+			listOf("Quick access", Sidebar.FILESYSTEMS),
+			without.groups(Role.Picker).map { it.heading },
 		)
 		// Pinning what quick access shows changes nothing; pinning one of prism's own that is hidden shows it again.
 		assertEquals(emptyList<Effect>(), step(placed, BrowserEvent.Pinned(root)).effects)
@@ -323,6 +359,40 @@ class ExploreTest {
 			listOf(Effect.Arrange(pinned)),
 			step(hidden, BrowserEvent.Pinned(root)).effects,
 		)
+	}
+
+	@Test
+	fun theSidebarIsClosedAndOpenedInEveryWindowOfTheKindItIsClosedIn() {
+		val explorer = explorer()
+
+		assertTrue(explorer.sidebar.open[Role.Explorer])
+
+		val closing = step(explorer, BrowserEvent.ToggledSidebar)
+
+		// Closed at once in this window, and kept so for the explorer's windows: the pickers' are as they were.
+		assertFalse(closing.state.sidebar.open[Role.Explorer])
+		assertTrue(closing.state.sidebar.open[Role.Picker])
+		assertEquals(listOf(Effect.ShowSidebar(Role.Explorer, false)), closing.effects)
+		closing.settled(services())
+		assertEquals(
+			ShownIn(explorer = false, picker = true),
+			preferences.preferences.value.sidebarShown,
+		)
+
+		// Another window is given it as the preference has it; and opened again, it is everywhere again.
+		val other =
+			step(
+				explorer,
+				Answer.Placed(sidebarOf(desktop.places, root, preferences.preferences.value)),
+			).state
+
+		assertFalse(other.sidebar.open[Role.Explorer])
+
+		val opening = step(other, BrowserEvent.ToggledSidebar)
+
+		assertEquals(listOf(Effect.ShowSidebar(Role.Explorer, true)), opening.effects)
+		opening.settled(services())
+		assertEquals(ShownIn.EVERYWHERE, preferences.preferences.value.sidebarShown)
 	}
 
 	@Test
@@ -351,11 +421,11 @@ class ExploreTest {
 				QuickItem.Own(Builtin.Documents),
 				QuickItem.Pinned(Path.of("/srv/media")),
 				QuickItem.Own(Builtin.Home),
-				QuickItem.Own(Builtin.Desktop, shown = false),
-				QuickItem.Own(Builtin.Downloads, shown = false),
-				QuickItem.Own(Builtin.Pictures, shown = false),
-				QuickItem.Own(Builtin.Music, shown = false),
-				QuickItem.Own(Builtin.Videos, shown = false),
+				QuickItem.Own(Builtin.Desktop, ShownIn.NOWHERE),
+				QuickItem.Own(Builtin.Downloads, ShownIn.NOWHERE),
+				QuickItem.Own(Builtin.Pictures, ShownIn.NOWHERE),
+				QuickItem.Own(Builtin.Music, ShownIn.NOWHERE),
+				QuickItem.Own(Builtin.Videos, ShownIn.NOWHERE),
 				QuickItem.Own(Builtin.Trash),
 			),
 			quick.items,

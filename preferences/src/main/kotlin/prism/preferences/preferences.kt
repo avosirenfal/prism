@@ -96,12 +96,18 @@ data class Preferences(
 	 * as any other is, and only not shown.
 	 */
 	val recentsHidden: Set<String> = emptySet(),
+	/** Which windows show their sidebar: the explorer's, the pickers', each as the user last left theirs. */
+	val sidebarShown: ShownIn = ShownIn.EVERYWHERE,
 ) {
 	/** The actions and places written here. */
 	val written: ActionsFile get() = ActionsFile(actions, places)
 
 	/** These, with quick access as [quick]: what an older version kept in its place forgotten. */
 	fun arranging(quick: QuickAccess): Preferences = copy(quickAccess = quick, pinned = null)
+
+	/** These, with the windows for [role] showing their sidebar, or not. */
+	fun showingSidebar(role: Role, shown: Boolean): Preferences =
+		copy(sidebarShown = sidebarShown.with(role, shown))
 
 	/** These, with [section] of the Recents page collapsed, or open. */
 	fun folding(section: RecentSection, collapsed: Boolean): Preferences =

@@ -233,12 +233,9 @@ fun FileBrowser(
 				Toolbar(state, stops, onEvent)
 				Line(palette.border)
 				Row(Modifier.weight(1f).fillMaxWidth()) {
-					// A place that is a tool of its own (an archive's window) has no places on disk beside it.
-					if (state.inPlace
-							?.placed
-							?.type
-							?.sidebar != false
-					) {
+					// A place that is a tool of its own (an archive's window) has no places on disk beside it; and a
+					// window whose kind has the sidebar closed has the listing across all of it.
+					if (state.sidebared && state.sidebar.open[state.role]) {
 						SidebarPane(state, stops, onEvent)
 						Box(Modifier.width(1.dp).fillMaxHeight().background(palette.border))
 					}
@@ -267,7 +264,7 @@ fun FileBrowser(
 				)
 			}
 			if (state.arrangingQuick)
-				QuickAccessLayer(state.sidebar, onEvent)
+				QuickAccessLayer(state.sidebar, state.home, onEvent)
 			state.notice?.let { NoticeLayer(it, onEvent) }
 			// What is waited on, over everything, where nothing is asking: a notice is answered first.
 			if (state.notice == null)
@@ -361,6 +358,7 @@ private fun windowAction(
 			Action.NewFile -> BrowserEvent.MadeFile.takeIf { exploring }
 			Action.ViewList -> BrowserEvent.Viewed(Layout.List)
 			Action.ViewGallery -> BrowserEvent.Viewed(Layout.Gallery)
+			Action.ToggleSidebar -> BrowserEvent.ToggledSidebar
 			Action.ZoomIn -> BrowserEvent.Zoomed(1)
 			Action.ZoomOut -> BrowserEvent.Zoomed(-1)
 			Action.ZoomReset -> BrowserEvent.Unzoomed
@@ -424,13 +422,25 @@ private fun Toolbar(state: BrowserState, stops: Stops, onEvent: (BrowserEvent) -
 		horizontalArrangement = Arrangement.spacedBy(Space.xs),
 	) {
 		// The window's own menu first, where a window's menu is on every desktop.
-		// The window's own menu first, where a window's menu is on every desktop.
 		if (state.choosing is Choosing.Exploring) {
 			MenuButton(Glyph.Menu, "Menu", {
 				appMenuOf(state, bindings)
 			}, onEvent, Modifier.testTag("menu-button"))
-			Spacer(Modifier.width(Space.xs))
 		}
+		// Then what closes the sidebar under it and opens it again: not where there is none.
+		if (state.sidebared) {
+			val open = state.sidebar.open[state.role]
+
+			ToolButton(
+				Glyph.Sidebar,
+				tip(if (open) "Hide sidebar" else "Show sidebar", Action.ToggleSidebar),
+				enabled = true,
+				Modifier.testTag("toggle-sidebar"),
+			) {
+				onEvent(BrowserEvent.ToggledSidebar)
+			}
+		}
+		Spacer(Modifier.width(Space.xs))
 		ToolButton(
 			Glyph.Back,
 			tip("Back", Action.Back),
@@ -855,7 +865,7 @@ private fun SidebarPane(
 	val type = LocalType.current
 	val sidebar = state.sidebar
 	// A picker chooses files for another application: the trash, whose entries it cannot give, is an explorer's.
-	val groups = sidebar.groups(trash = state.choosing is Choosing.Exploring)
+	val groups = sidebar.groups(state.role, trash = state.choosing is Choosing.Exploring)
 	val items = groups.flatMap { it.items }
 	val menus = rememberContextMenus<BrowserEvent>()
 	val bindings = LocalBindings.current

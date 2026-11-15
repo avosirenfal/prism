@@ -1108,7 +1108,7 @@ class RecentsTest {
 				listOf(
 					QuickItem.Pinned(Path("/data/work")),
 					QuickItem.Own(Builtin.Home),
-					QuickItem.Own(Builtin.System, shown = false),
+					QuickItem.Own(Builtin.System, prism.preferences.ShownIn.NOWHERE),
 				) +
 					Builtin.entries
 						.minus(
@@ -1124,8 +1124,8 @@ class RecentsTest {
 			),
 			before.items.take(3),
 		)
-		assertTrue(before.shows(Builtin.Recents))
-		assertFalse(before.shows(Builtin.System))
+		assertTrue(before.shows(Builtin.Recents, prism.preferences.Role.Picker))
+		assertFalse(before.shows(Builtin.System, prism.preferences.Role.Picker))
 	}
 
 	@Test
@@ -1139,7 +1139,7 @@ class RecentsTest {
 		val services = services(index, recents)
 		val picker = picker(asker = asker)
 
-		assertTrue(SidebarItem.Recents in picker.sidebar.shown)
+		assertTrue(SidebarItem.Recents in picker.sidebar.shown(picker.role))
 
 		val opening = step(picker, BrowserEvent.OpenedRecents)
 
@@ -1207,7 +1207,11 @@ class RecentsTest {
 		val unpinned = step(picker, BrowserEvent.Unpinned(SidebarItem.Recents))
 
 		assertEquals(
-			listOf(Effect.Arrange(picker.sidebar.quick.showing(Builtin.Recents, false))),
+			listOf(
+				Effect.Arrange(
+					picker.sidebar.quick.showing(Builtin.Recents, picker.role, false),
+				),
+			),
 			unpinned.effects,
 		)
 	}

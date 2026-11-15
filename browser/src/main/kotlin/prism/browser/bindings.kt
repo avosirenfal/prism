@@ -161,6 +161,7 @@ enum class Action(
 	ViewList("List view", Scope.Window, KeyGroups.View, "Ctrl+1"),
 	ViewGallery("Gallery view", Scope.Window, KeyGroups.View, "Ctrl+2"),
 	ToggleThumbnails("Toggle thumbnails", Scope.Window, KeyGroups.View),
+	ToggleSidebar("Toggle sidebar", Scope.Window, KeyGroups.View, "F9"),
 	ZoomIn("Zoom in", Scope.Window, KeyGroups.View, "Ctrl+Equals", "Ctrl+Plus", "Ctrl+Add"),
 	ZoomOut("Zoom out", Scope.Window, KeyGroups.View, "Ctrl+Minus", "Ctrl+Subtract"),
 	ZoomReset("Reset zoom", Scope.Window, KeyGroups.View, "Ctrl+0", "Ctrl+NumPad0"),

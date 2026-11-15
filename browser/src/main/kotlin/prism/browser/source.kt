@@ -50,6 +50,7 @@ import prism.preferences.PreferenceStore
 import prism.preferences.Preferences
 import prism.preferences.QuickAccess
 import prism.preferences.QuickItem
+import prism.preferences.ShownIn
 import prism.preferences.preferences
 import prism.shared.Guarded
 
@@ -679,6 +680,9 @@ tailrec fun Step.settled(services: Services): BrowserState {
 	effects.filterIsInstance<Effect.Thumbnail>().forEach { thumbnail ->
 		services.preferences.update { copy(thumbnails = thumbnail.shown) }
 	}
+	effects.filterIsInstance<Effect.ShowSidebar>().forEach { show ->
+		services.preferences.update { showingSidebar(show.role, show.shown) }
+	}
 	effects.filterIsInstance<Effect.FoldRecents>().forEach { fold ->
 		services.preferences.update { folding(fold.section, fold.collapsed) }
 	}
@@ -1024,7 +1028,12 @@ fun sidebarOf(
 				}
 			}.toMap()
 
-	return Sidebar(quickAccessOf(preferences, known), known, places.drives(home))
+	return Sidebar(
+		quickAccessOf(preferences, known),
+		known,
+		places.drives(home),
+		preferences.sidebarShown,
+	)
 }
 
 /**
@@ -1047,7 +1056,7 @@ fun quickAccessOf(preferences: Preferences, known: Map<Builtin, Place>): QuickAc
 					known.keys
 						.filterNot {
 							it in named
-						}.map { QuickItem.Own(it, shown = false) },
+						}.map { QuickItem.Own(it, ShownIn.NOWHERE) },
 			)
 		}
 		?: QuickAccess.DEFAULT

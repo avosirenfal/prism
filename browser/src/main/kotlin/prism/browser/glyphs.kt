@@ -50,6 +50,9 @@ enum class Glyph {
 	ViewGrid,
 	Filter,
 	Menu,
+
+	/** A window with its left part set off: the sidebar, shown or put away. */
+	Sidebar,
 	Trash,
 	Settings,
 
@@ -180,6 +183,19 @@ fun DrawScope.drawGlyph(
 		Glyph.Menu ->
 			for (y in listOf(6.5f, 12f, 17.5f))
 				stroked(unit, tint, listOf(4.5f to y, 19.5f to y))
+		// A window's outline, a line down it a third of the way across, and two entries in the part it sets off.
+		Glyph.Sidebar -> {
+			drawRoundRect(
+				tint,
+				at(unit, 3.5f, 5f),
+				Size(17f * unit, 14f * unit),
+				CornerRadius(2.5f * unit),
+				style = line(unit),
+			)
+			stroked(unit, tint, listOf(9.5f to 5f, 9.5f to 19f))
+			for (y in listOf(9f, 12.5f))
+				stroked(unit, tint, listOf(5.8f to y, 7.2f to y))
+		}
 		Glyph.Trash -> trash(unit, tint)
 		Glyph.Settings -> gear(unit, tint)
 		Glyph.Grip ->
