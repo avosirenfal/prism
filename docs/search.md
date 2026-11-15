@@ -222,8 +222,9 @@ which a query's few dozen characters make free. In outline (`syntax.kt` has it r
 
 ```
 query     = space* (term space*)*
-term      = "-"? (regex | modifier | words)? junk?
+term      = "-"? (regex | alias | modifier | words)? junk?
 regex     = "r/" source ("/" flags)?
+alias     = [a-zA-Z0-9]+ "@", the whole of its term
 modifier  = letters ":" value?
 words     = ("=" | "^")? (quoted | bare)? ("$" at the end of the term)?
 quoted    = [rci]* "#"* '"' content ('"' "#"*)?
@@ -401,6 +402,44 @@ that is the order they were made in, as it happened, with no need of the dates t
 it, and `Index.newest(count)` gives the newest entries, newest first, in one pass over the stamps: what a picker
 offers as what was lately made.
 
+## Aliases
+
+An alias is a name for a query written often, used in another by its name and an `@`. With `projects` defined as
+`~/projects/` and `raws` as `~/Photos/ ext:raw`:
+
+| query | finds |
+|---|---|
+| `projects@ prism/` | everything under `~/projects` with `prism/` in its path: the prism project's folder |
+| `raws@` | the raw files under `~/Photos` |
+| `raws@ 2024/` | those of them under a folder named `2024` |
+| `-raws@ ext:raw` | the raw files that are not under `~/Photos` |
+
+They are set on the "Aliases" page of the preferences window and of the launcher's settings (the same page, over
+the same aliases), kept in `preferences.json` under `aliases` (name to query), and are every search's: the
+explorer's, a picker's, the launcher's, and `prism search`. One changed is in the next search, and in the one that is
+open.
+
+![The aliases page](aliases.png)
+
+- **What is one.** A term that is letters and digits and then `@`, and nothing else: `me@example.com` and `foo@bar`
+  are words, and so is `"raws@"` in quotes. Names are one whatever their case (`Raws@`).
+- **What it means.** An alias stands for what its query means, not for its text. Each definition is read once, on
+  its own, when the aliases are read (`Aliases.of`, `index/query/aliases.kt`), and a query that uses one is given the
+  terms it came to: so nothing in a definition (a quote left open, a `-` at its start) reaches the query around it,
+  and by the time the index is walked there are only terms. Negated, an alias of one term is that term the other
+  way about, and one of several is "not all of these", which the index checks as a group (`Test.All`).
+- **Aliases in aliases.** A definition may use others (`raws2024` as `raws@ 2024/`). One that would come back to
+  itself is not an alias, and the page says so; nor is one whose query is wrong, or names an alias there is none of.
+- **A folder needs its `/`.** `~/projects` is the folder itself, as an entry; `~/projects/` is what is inside it,
+  which is what an alias for a folder is for. The page says so under a query that names a folder without it, and
+  mends it when asked.
+- **Finding one.** A word typed that begins an alias's name lists it (in a browser's search before the matches, in
+  the launcher after the applications), and choosing it, or Tab, puts its name in the field with a space after it.
+  The search's help lists them all with what each stands for. An alias used is coloured as one; one there is none of
+  is underlined and said ("Unknown alias “rawz@”"), and the rest of the query is searched for without it.
+
+`~name` (a named folder, in "Paths") is older and another thing: a place a path starts from, not a query.
+
 ## Prism's own things
 
 A window that searches can find, beside the index's files, a few things of prism's own: its settings, its key
@@ -423,7 +462,8 @@ its own: an explorer's search, a picker's and the launcher's each say which they
 
 `QueryHelp` (`index/.../query/help.kt`) is a sentence on how a query is read and a handful of queries, each with what
 it finds: what the picker's search shows under its `?`. `ParserTest` reads every one of them, and none may have
-anything wrong with it.
+anything wrong with it. After them the help lists the user's aliases, each with its query, or, where there are none,
+how one is used.
 
 ## Not yet
 

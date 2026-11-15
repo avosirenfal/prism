@@ -438,7 +438,7 @@ object DaemonCommand : Command(
 
 	/** [text] searched for, waiting for places it looks under that the rules leave out to be read for it. */
 	private fun found(live: LiveIndex, text: String) {
-		val read = QueryText.read(text)
+		val read = QueryText.read(text, aliasesNow())
 
 		read.problems.forEach {
 			say("$text: ${it.kind.name.lowercase()} at ${it.span}: ${it.message}")

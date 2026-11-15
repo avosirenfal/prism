@@ -128,7 +128,7 @@ object IndexCommand : Command(
 
 	/** [text] read and searched for in [index]: what is wrong with it, each underlined, then what it found and how fast. */
 	private fun found(index: Index, text: String): List<String> {
-		val read = QueryText.read(text)
+		val read = QueryText.read(text, aliasesNow())
 		val problems =
 			read.problems.flatMap {
 				val under =

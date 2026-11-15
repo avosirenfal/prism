@@ -35,6 +35,9 @@ enum class MatchAction(
 
 	/** One of prism's own things done: all there is to do with one. */
 	Own("Open"),
+
+	/** An alias's name put where it was being typed: all there is to do with one. */
+	Use("Use alias"),
 }
 
 /**
@@ -46,6 +49,7 @@ enum class MatchAction(
 fun actionsOf(listed: Search.Listed, role: Role, terminal: Boolean): List<MatchAction> =
 	when (listed) {
 		is Search.Listed.Prisms -> listOf(MatchAction.Own)
+		is Search.Listed.Named -> listOf(MatchAction.Use)
 		is Search.Listed.Match -> {
 			val folder = listed.matches.isFolder(listed.rank)
 			val onDisk = listed.matches.tree == null

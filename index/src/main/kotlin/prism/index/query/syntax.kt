@@ -8,8 +8,9 @@ package prism.index.query
  * meaning.kt's to say.
  *
  *     query     = space* (term space*)*
- *     term      = "-"? (regex | modifier | words)? junk?
+ *     term      = "-"? (regex | alias | modifier | words)? junk?
  *     regex     = "r/" source ("/" flags)?
+ *     alias     = [a-zA-Z0-9]+ "@", the whole of its term
  *     modifier  = letters ":" value?
  *     words     = ("=" | "^")? (quoted | bare)? ("$" before the end of the term)?
  *     quoted    = [rci]* "#"* '"' content ('"' "#"*)?
@@ -56,6 +57,16 @@ sealed interface BodySyntax {
 	data class Regex(
 		override val span: Span,
 		val regex: RegexSyntax,
+	) : BodySyntax
+
+	/**
+	 * `name@`: one of the user's aliases, by its [name] as written, which stands for the query it was defined as
+	 * (aliases.kt). Only the whole of a term is one: `me@example.com` is words, and so is `"name@"` in quotes.
+	 */
+	data class Alias(
+		override val span: Span,
+		val name: Spanned<String>,
+		val at: Span,
 	) : BodySyntax
 
 	/** `name:value`: the [name] as written, and which modifier that is, with the value read as that one reads its own. */
@@ -387,12 +398,21 @@ object QueryGrammar {
 			}
 		}
 
+	/** `name@`, up to the end of its term: letters and digits, as an alias is named ([AliasName]). */
+	private val alias: Parser<BodySyntax> =
+		(
+			charThat(AliasName::allows).some().joined().spanned() and
+				char(AliasName.SIGN).spanned() before termEnd
+		).map { (name, at) ->
+			BodySyntax.Alias(Span(name.span.start, at.span.end), name, at.span)
+		}
+
 	private val junk: Parser<Span> =
 		charThat {
 			!it.isWhitespace()
 		}.some().spanned().map { it.span }
 
-	private val body: Parser<BodySyntax> = firstOf(regexTerm, modifier, words)
+	private val body: Parser<BodySyntax> = firstOf(regexTerm, alias, modifier, words)
 
 	private val term: Parser<TermSyntax> =
 		(

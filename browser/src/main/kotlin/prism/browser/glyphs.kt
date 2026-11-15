@@ -93,6 +93,9 @@ enum class Glyph {
 	/** A clock's face: what is recent, the Recents page. */
 	Recents,
 
+	/** An @: a search alias, which is used by its name and one. */
+	At,
+
 	/** A drive that plugs in: a USB stick, a card. */
 	Removable,
 
@@ -266,6 +269,40 @@ fun DrawScope.drawGlyph(
 				style = line(unit),
 			)
 			drawCircle(tint, 1.1f * unit, at(unit, 12f, 16.9f))
+		}
+		Glyph.At -> {
+			drawCircle(tint, 3.4f * unit, at(unit, 12f, 12f), style = line(unit))
+			drawPath(
+				Path().apply {
+					// The a's stem, then round under into the ring, and the ring most of the way about.
+					moveTo(15.4f * unit, 8.6f * unit)
+					lineTo(15.4f * unit, 12.6f * unit)
+					arcTo(
+						androidx.compose.ui.geometry.Rect(
+							15.4f * unit,
+							10.1f * unit,
+							20.5f * unit,
+							15.1f * unit,
+						),
+						startAngleDegrees = 180f,
+						sweepAngleDegrees = -180f,
+						forceMoveTo = false,
+					)
+					arcTo(
+						androidx.compose.ui.geometry.Rect(
+							3.5f * unit,
+							3.5f * unit,
+							20.5f * unit,
+							20.5f * unit,
+						),
+						startAngleDegrees = 4f,
+						sweepAngleDegrees = -304f,
+						forceMoveTo = false,
+					)
+				},
+				tint,
+				style = line(unit),
+			)
 		}
 		Glyph.System -> {
 			drawCircle(tint, 8.5f * unit, at(unit, 12f, 12f), style = line(unit))

@@ -8,6 +8,7 @@ import prism.desktop.Opening
 import prism.desktop.Storage
 import prism.desktop.StoreKind
 import prism.desktop.TerminalChoice
+import prism.index.query.Aliases
 import prism.index.query.Query
 import prism.preferences.Align
 import prism.preferences.ColumnId
@@ -651,6 +652,11 @@ sealed interface Answer : Input {
 		val actions: Actions,
 		val terminal: TerminalChoice = TerminalChoice.Found,
 		val menus: MenuSpec = MenuSpec(),
+	) : Answer
+
+	/** The search aliases, as the preferences (which a settings window may have changed) now define them. */
+	data class Aliased(
+		val aliases: Aliases,
 	) : Answer
 
 	/** How listings look as the preferences (which the preferences window may have changed) now say. */

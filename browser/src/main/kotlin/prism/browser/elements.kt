@@ -368,7 +368,9 @@ fun ToolButton(
  * been there. Each time [reselect] changes while the keyboard is in it, what [selecting] says is selected again, as
  * though the keyboard had just arrived: a combo box's text clicked, to be typed over. [onSelection] is told what is
  * selected (the caret, where nothing is) as the field shows it, for whoever gives a key a meaning that depends on
- * where the caret is. [badge], where there is one, is drawn after its glyph: a small mark of what the field is for.
+ * where the caret is. [badge], where there is one, is drawn after its glyph: a small mark of what the field is for. A field that [restsAtStart] shows its text from its beginning whenever the
+ * keyboard is not in it, where one that does not shows its end: for text too long for its field that is read more
+ * than it is typed.
  */
 @Composable
 fun Field(
@@ -389,23 +391,36 @@ fun Field(
 	style: TextStyle = LocalType.current.body,
 	onSelection: (TextRange) -> Unit = {},
 	badge: (@Composable () -> Unit)? = null,
+	restsAtStart: Boolean = false,
 ) {
 	val palette = LocalPalette.current
 	val type = LocalType.current
 	val source = remember { MutableInteractionSource() }
 	val felt = source.felt()
 	val shape = RoundedCornerShape(Radius.medium)
-	var typed by remember { mutableStateOf(TextFieldValue(text, TextRange(text.length))) }
+
+	/** Where the caret is in [text] while the keyboard is elsewhere. */
+	fun resting(text: String) = TextRange(if (restsAtStart) 0 else text.length)
+
+	var typed by remember { mutableStateOf(TextFieldValue(text, resting(text))) }
 	var visited by remember { mutableStateOf(false) }
 	// What this field has said was typed that the caller's text has not come round to yet. The caller's text is the
 	// text, but it comes back a moment after each key, and a key pressed meanwhile types onto what was typed here, not
 	// onto the text a key behind; so while the caller's text is one of these, the field is catching up, not changed.
 	val echoes = remember { ArrayList<String>() }
+
 	val shown =
 		when (text) {
 			typed.text, in echoes -> typed
 			// Changed from outside (emptied, say): the caret goes to its end.
-			else -> TextFieldValue(text, TextRange(text.length))
+			else ->
+				TextFieldValue(
+					text,
+					if (felt.focused)
+						TextRange(text.length)
+					else
+						resting(text),
+				)
 		}
 
 	SideEffect {
@@ -418,6 +433,8 @@ fun Field(
 	LaunchedEffect(felt.focused, reselect) {
 		if (felt.focused)
 			typed = shown.copy(selection = selecting(shown.text))
+		else if (restsAtStart)
+			typed = shown.copy(selection = resting(shown.text))
 	}
 
 	Row(

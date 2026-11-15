@@ -59,7 +59,8 @@ import prism.browser.Space
 /**
  * A window of settings: [pages], each listed by its [label] and [glyph], the one shown ([page]) drawn by [content],
  * another chosen through [onPage]. [changed] says whether anything waits to be applied, which [onApply] does;
- * [onClose] leaves the window.
+ * [onClose] leaves the window. While something stops what is changed from being applied (an alias written wrong),
+ * [blocked] says what, and nothing is.
  *
  * [rebinding] is the bindings the page shown rebinds, where it rebinds any, each change to them made through
  * [onRebinding]; [mouseChords] are the mouse's buttons pressed over the window, and [filter] the page's field that
@@ -83,6 +84,7 @@ internal fun <P> SettingsFrame(
 	onUndo: () -> Unit = {},
 	onRedo: () -> Unit = {},
 	filter: FocusRequester = remember { FocusRequester() },
+	blocked: String? = null,
 	content: @Composable (P) -> Unit,
 ) {
 	val palette = LocalPalette.current
@@ -166,16 +168,21 @@ internal fun <P> SettingsFrame(
 				verticalAlignment = Alignment.CenterVertically,
 			) {
 				Text(
-					if (changed)
-						"Unsaved changes"
-					else
-						"",
-					style = type.muted,
-					modifier = Modifier.weight(1f),
+					when {
+						blocked != null -> blocked
+						changed -> "Unsaved changes"
+						else -> ""
+					},
+					style =
+						if (blocked != null)
+							type.muted.copy(color = palette.dangerText)
+						else
+							type.muted,
+					modifier = Modifier.weight(1f).testTag("settings-state"),
 				)
 				// Applied, the window stays: what was changed shows in every window, and more can be changed.
 				ButtonRow(
-					Act("Apply", "apply", changed, onClick = onApply),
+					Act("Apply", "apply", changed && blocked == null, onClick = onApply),
 					Modifier.width(IntrinsicSize.Max),
 					secondary = listOf(Act("Close", "close", onClick = onClose)),
 				)

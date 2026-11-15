@@ -24,6 +24,7 @@ import prism.desktop.Launched
 import prism.desktop.TerminalChoice
 import prism.index.Results
 import prism.index.Searched
+import prism.index.query.Aliases
 import prism.index.query.Query
 import prism.preferences.LauncherPreferences
 import prism.window.OpenWindows
@@ -100,6 +101,7 @@ class LauncherSession(
 	private val host: LauncherHost,
 	private val scope: CoroutineScope,
 	preferences: LauncherPreferences = LauncherPreferences(),
+	aliases: Aliases = Aliases.NONE,
 ) {
 	/** The windows open, as the desktop tells of them now; where it tells of none, nothing here asks for any. */
 	private val windows: OpenWindows = services.windows()
@@ -117,6 +119,7 @@ class LauncherSession(
 					),
 				launches = services.launches.launches,
 				preferences = preferences,
+				aliases = aliases,
 				searchable = services.finder != null,
 				now = services.clock.instant(),
 			),
@@ -272,7 +275,7 @@ class LauncherSession(
 							opening.unopened.isNotEmpty()
 						}
 				}
-			is Entry.Command, is Entry.Prism -> null
+			is Entry.Command, is Entry.Prism, is Entry.Named -> null
 		}
 	}
 

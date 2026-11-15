@@ -81,6 +81,12 @@ data class Preferences(
 	val dates: DateFormat = DateFormat.Written,
 	/** How the launcher looks and what it finds. */
 	val launcher: LauncherPreferences = LauncherPreferences(),
+	/**
+	 * The search aliases: each one's name, and the query it stands for where a search says `name@`, as it was
+	 * typed. Whatever searches reads them (the explorer, pickers, the launcher, `prism search`), each on its own, so
+	 * that one written wrong does not lose the rest.
+	 */
+	val aliases: Map<String, String> = emptyMap(),
 ) {
 	/** The actions and places written here. */
 	val written: ActionsFile get() = ActionsFile(actions, places)

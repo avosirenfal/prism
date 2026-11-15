@@ -4,9 +4,9 @@ import java.nio.file.Path
 import java.time.Instant
 import prism.browser.ActionMenu
 import prism.desktop.Application
+import prism.index.query.Aliases
 import prism.index.query.Own
 import prism.index.query.Query
-import prism.index.query.QueryText
 import prism.preferences.LauncherPreferences
 import prism.window.OpenWindow
 
@@ -111,6 +111,11 @@ sealed interface LauncherEvent {
 	/** The user's settings changed. */
 	data class PreferencesChanged(
 		val preferences: LauncherPreferences,
+	) : LauncherEvent
+
+	/** The user's search aliases changed. */
+	data class AliasesChanged(
+		val aliases: Aliases,
 	) : LauncherEvent
 
 	/** What was chosen started, [at], or [failed] to, and why. */
@@ -247,7 +252,7 @@ private fun inMenu(
 				stepped(closed, event)
 		is LauncherEvent.FilesArrived, is LauncherEvent.SearchFailed,
 		is LauncherEvent.ApplicationsRead, is LauncherEvent.PreferencesChanged,
-		is LauncherEvent.Started, is LauncherEvent.Acted,
+		is LauncherEvent.AliasesChanged, is LauncherEvent.Started, is LauncherEvent.Acted,
 		-> stepped(state, event)
 		is LauncherEvent.Typed, is LauncherEvent.Chosen, LauncherEvent.Revealed,
 		LauncherEvent.CopiedPath, LauncherEvent.AskedForSettings, LauncherEvent.HelpClosed,
@@ -268,7 +273,8 @@ private val LauncherEvent.isOfTheResults: Boolean
 			LauncherEvent.AskedForSettings, LauncherEvent.Dismissed, LauncherEvent.HelpClosed,
 			is LauncherEvent.Tried, LauncherEvent.Closed, is LauncherEvent.FilesArrived,
 			is LauncherEvent.SearchFailed, is LauncherEvent.ApplicationsRead,
-			is LauncherEvent.PreferencesChanged, is LauncherEvent.Started, is LauncherEvent.Acted,
+			is LauncherEvent.PreferencesChanged, is LauncherEvent.AliasesChanged,
+			is LauncherEvent.Started, is LauncherEvent.Acted,
 			-> false
 		}
 
@@ -361,6 +367,12 @@ private fun stepped(state: LauncherState, event: LauncherEvent): LauncherStep =
 				else
 					LauncherStep(it)
 			}
+		// What is typed may mean something else now: the files are looked for again.
+		is LauncherEvent.AliasesChanged ->
+			if (event.aliases == state.aliases)
+				LauncherStep(state)
+			else
+				state.copy(aliases = event.aliases, files = FilesFound.None).searching()
 		is LauncherEvent.Started ->
 			if (event.failed == null)
 				LauncherStep(
@@ -375,8 +387,6 @@ private fun stepped(state: LauncherState, event: LauncherEvent): LauncherStep =
 private fun LauncherState.searching(): LauncherStep {
 	if (!preferences.files || !searchable)
 		return LauncherStep(copy(files = FilesFound.None))
-
-	val read = QueryText.read(query)
 
 	// Nothing typed, or nothing yet that can be searched for, would find everything: nothing is found.
 	return if (read.query.terms.isEmpty())
@@ -429,6 +439,13 @@ private fun LauncherState.opened(entry: Entry): LauncherStep =
 				// Shown here, in the launcher's own window, which stays.
 				Own.Help -> LauncherStep(copy(help = true, notice = null))
 			}
+		// Its name goes where it was being typed, and the launcher stays for the rest of the query.
+		is Entry.Named ->
+			copy(
+				query = entry.completed,
+				arrowsOn = null,
+				notice = null,
+			).searching()
 		is Entry.App, is Entry.Action, is Entry.File ->
 			LauncherStep(
 				copy(arrowsOn = entry.key, notice = null),
@@ -450,7 +467,7 @@ private fun LauncherState.acted(entry: Entry, action: EntryAction): LauncherStep
 		LauncherStep(on, path?.let { listOf(effect(it), LauncherEffect.Close) }.orEmpty())
 
 	return when (action) {
-		EntryAction.Open -> on.opened(entry)
+		EntryAction.Open, EntryAction.Use -> on.opened(entry)
 		is EntryAction.Focus ->
 			LauncherStep(on, listOf(LauncherEffect.Focus(action.window), LauncherEffect.Close))
 		is EntryAction.Run ->
@@ -503,5 +520,5 @@ private fun pathOf(entry: Entry): Path? =
 		is Entry.File -> entry.path
 		is Entry.App -> entry.application.source
 		is Entry.Action -> entry.application.source
-		is Entry.Command, is Entry.Prism -> null
+		is Entry.Command, is Entry.Prism, is Entry.Named -> null
 	}

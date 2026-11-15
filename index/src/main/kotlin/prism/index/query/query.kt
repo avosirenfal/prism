@@ -17,13 +17,31 @@ import kotlin.time.Duration
 /** Every term must pass. */
 data class Query(
 	val terms: List<Term>,
-)
+) {
+	/**
+	 * This query with no group in it that need be one ([Test.All]): a group's terms are terms of the query itself,
+	 * and a group of one term negated is that term the other way about. What is left a group is one of several terms
+	 * negated, which says "not all of these" and can be said no other way.
+	 */
+	fun flattened(): Query = Query(terms.flatMap(Term::flattened))
+}
 
 /** A [test] a result must pass, or with [negated], must not. */
 data class Term(
 	val test: Test,
 	val negated: Boolean = false,
-)
+) {
+	/** The terms this one is, said without a group where it can be ([Query.flattened]). */
+	internal fun flattened(): List<Term> {
+		val inner = (test as? Test.All)?.terms?.flatMap(Term::flattened) ?: return listOf(this)
+
+		return when {
+			!negated -> inner
+			inner.size == 1 -> inner.map { it.copy(negated = !it.negated) }
+			else -> listOf(Term(Test.All(inner), negated = true))
+		}
+	}
+}
 
 /** Whether a term tells upper from lower case: as the search as a whole says, or always, or never. */
 enum class Case {
@@ -342,6 +360,18 @@ sealed interface Test {
 	data class Mount(
 		val type: TextPattern,
 	) : Test
+
+	/**
+	 * Every one of [terms]: a query within a query, which is what an alias used in one stands for (`raws@`, defined
+	 * as `~/Photos ext:raw`). Negated, it is what none of its terms can say alone: not all of them at once.
+	 */
+	data class All(
+		val terms: List<Term>,
+	) : Test {
+		init {
+			require(terms.isNotEmpty()) { "a group holds at least one term" }
+		}
+	}
 }
 
 /** [source], refused with why where it is not a regex. */

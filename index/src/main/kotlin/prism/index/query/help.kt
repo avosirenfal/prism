@@ -19,6 +19,13 @@ object QueryHelp {
 		val finds: String,
 	)
 
+	/** How an alias is used, said of none in particular: what stands for the user's own where they have none yet. */
+	val ALIAS = Example("name@", "an alias: a saved search, added in settings")
+
+	/** [aliases], each as a query that uses it and what it stands for. */
+	fun examplesOf(aliases: Aliases): List<Example> =
+		aliases.all.map { Example(it.name.written, it.text) }
+
 	val EXAMPLES: List<Example> =
 		listOf(
 			Example("report", "names containing “report” (extension ignored)"),

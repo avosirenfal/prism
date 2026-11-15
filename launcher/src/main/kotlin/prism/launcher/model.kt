@@ -6,7 +6,13 @@ import java.time.Instant
 import prism.browser.Category
 import prism.desktop.Application
 import prism.desktop.ApplicationAction
+import prism.index.query.Alias
+import prism.index.query.AliasCompletion
+import prism.index.query.Aliases
 import prism.index.query.Own
+import prism.index.query.QueryText
+import prism.index.query.ReadQuery
+import prism.index.query.completing
 import prism.preferences.LauncherPreferences
 import prism.window.OpenWindow
 
@@ -95,6 +101,20 @@ sealed interface Entry {
 					Own.System, Own.Help -> own.does
 				}
 		override val kind: String get() = PRISM
+	}
+
+	/**
+	 * A search [alias] the word being typed could name: chosen, its name is put where the word was, so that what
+	 * is typed is [completed], and the launcher stays for the rest of the query.
+	 */
+	data class Named(
+		val alias: Alias,
+		val completed: String,
+	) : Entry {
+		override val key: String get() = "alias:${alias.name.key}"
+		override val title: String get() = alias.name.written
+		override val detail: String get() = alias.text
+		override val kind: String get() = "Alias"
 	}
 
 	companion object {
@@ -220,6 +240,8 @@ data class LauncherState(
 	val menu: EntryMenu? = null,
 	/** Whether how a query is written is shown, in place of the field and what was found, until it is left. */
 	val help: Boolean = false,
+	/** The user's search aliases: what a `name@` in [query] stands for, where files are looked for. */
+	val aliases: Aliases = Aliases.NONE,
 	/** When this is, for how lately something was used. */
 	val now: Instant = Instant.EPOCH,
 ) {
@@ -228,6 +250,8 @@ data class LauncherState(
 	 * prism does ([Does]), then the files the index found for it. With nothing typed, every application, those used
 	 * most and most lately first, and what prism does. Where [query] asks for prism's own ([Own.found]: the word
 	 * `prism`, or a bare `?`), what it asks for comes before everything, with whatever else prism does that fits.
+	 * The aliases the word being typed could name come after what is started and before the files: they are for
+	 * finding files, and Enter on the first thing shown still starts an application.
 	 */
 	val sections: List<Section> by lazy {
 		val shown = installed.listed.filterNot { it.application.id in preferences.hidden }
@@ -269,7 +293,28 @@ data class LauncherState(
 				listOf(applications, Section(Entry.PRISM, does))
 			else
 				listOf(Section(Entry.PRISM, own + does), applications)
-		).plus(Section("Files", found)).filter { it.entries.isNotEmpty() }
+		).plus(
+			listOf(
+				Section(
+					"Aliases",
+					completing
+						?.let {
+							it.aliases.map { alias ->
+								Entry.Named(alias, it.completed(alias))
+							}
+						}.orEmpty(),
+				),
+				Section("Files", found),
+			),
+		).filter { it.entries.isNotEmpty() }
+	}
+
+	/** [query] read in the search language, with the aliases it uses stood for. */
+	val read: ReadQuery by lazy { QueryText.read(query, aliases) }
+
+	/** The aliases the word being typed at the end of [query] could be on its way to naming, where files are found. */
+	val completing: AliasCompletion? by lazy {
+		aliases.completing(read).takeIf { preferences.files && searchable }
 	}
 
 	/** Everything shown, in order: what the arrows move through. */

@@ -42,6 +42,7 @@ import prism.browser.Start
 import prism.browser.Step
 import prism.browser.TypeFilter
 import prism.browser.World
+import prism.browser.aliasesOf
 import prism.browser.opened
 import prism.browser.openedIn
 import prism.browser.openedOnSystem
@@ -472,6 +473,7 @@ class Explorer(
 				host,
 				window,
 				preferences.preferences.value.launcher,
+				aliasesOf(preferences.preferences.value.aliases),
 			)
 
 		making.opened(ExplorerWindow.Launching(id, session, window, activation))
@@ -482,6 +484,12 @@ class Explorer(
 				.map { it.launcher }
 				.distinctUntilChanged()
 				.collect { session.send(LauncherEvent.PreferencesChanged(it)) }
+		}
+		window.launch {
+			preferences.preferences
+				.map { it.aliases }
+				.distinctUntilChanged()
+				.collect { session.send(LauncherEvent.AliasesChanged(aliasesOf(it))) }
 		}
 	}
 

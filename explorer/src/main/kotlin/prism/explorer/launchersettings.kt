@@ -66,13 +66,15 @@ enum class LauncherPage(
 	General("Launcher", Glyph.Search),
 	Bindings("Key bindings", Glyph.Keyboard),
 	Applications("Applications", Glyph.ViewGrid),
+	Aliases("Aliases", Glyph.At),
 }
 
 /**
  * The launcher's settings as their window edits them: [base], the preferences as they were when it opened, or were
  * last applied; the [launcher]'s own settings, its keys aside, which are being rebound ([rebinding]: none that types,
  * since the launcher's keyboard is always in its field); the [page] shown; and what is typed over the list of
- * applications to find one ([finding]).
+ * applications to find one ([finding]); and the search aliases, which are every search's and the preferences'
+ * window's to edit too ([aliasing]).
  */
 data class LauncherSettings(
 	val base: Preferences,
@@ -81,7 +83,16 @@ data class LauncherSettings(
 		Rebinding(launcherBindings(base.launcher), takes = Taking.NothingTyped),
 	val page: LauncherPage = LauncherPage.General,
 	val finding: String = "",
+	val aliasing: AliasEdits = AliasEdits.of(base.aliases),
 ) {
+	/** What stops these from being applied, where anything does: an alias changed here with something wrong with it. */
+	val blocked: String?
+		get() =
+			AliasEdits.UNFIT.takeIf {
+				aliasing != AliasEdits.of(base.aliases) &&
+					!aliasing.fit
+			}
+
 	/** The launcher's settings as these would write them: what the page set, with the keys as they are bound. */
 	private val edited: LauncherPreferences
 		get() =
@@ -99,12 +110,19 @@ data class LauncherSettings(
 	/** Whether anything is changed from what the window opened on, or last applied. */
 	val changed: Boolean get() = written != base
 
-	/** [current], with what was changed here: the launcher's settings are this window's alone to change. */
+	/**
+	 * [current], with what was changed here: the launcher's settings are this window's alone to change, and the
+	 * aliases are written where they were changed here and nothing is wrong with them.
+	 */
 	fun over(current: Preferences): Preferences =
-		if (edited != base.launcher)
-			current.copy(launcher = edited)
-		else
-			current
+		current.copy(
+			launcher =
+				if (edited != base.launcher)
+					edited
+				else
+					current.launcher,
+			aliases = aliasing.written?.takeIf { it != base.aliases } ?: current.aliases,
+		)
 
 	/** These, applied: the preferences as they now are ([now]) what the window edits from, and where it is, kept. */
 	fun applied(now: Preferences): LauncherSettings =
@@ -166,12 +184,15 @@ fun LauncherSettingsView(
 		onUndo = onUndo,
 		onRedo = onRedo,
 		filter = filter,
+		blocked = settings.blocked,
 	) { page ->
 		when (page) {
 			LauncherPage.General -> GeneralPage(settings, onChange)
 			LauncherPage.Bindings ->
 				BindingsPage(settings.rebinding, filter, { onChange(settings.copy(rebinding = it)) })
 			LauncherPage.Applications -> ApplicationsPage(settings, applications, onChange)
+			LauncherPage.Aliases ->
+				AliasesPage(settings.aliasing) { onChange(settings.copy(aliasing = it)) }
 		}
 	}
 }

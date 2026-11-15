@@ -64,7 +64,8 @@ data class ReadQuery(
 ) {
 	val text: String get() = syntax.text
 
-	val query: Query get() = Query(terms.mapNotNull { it.searched })
+	/** What is searched for: every term that can be, an alias's terms among them as the query's own. */
+	val query: Query by lazy { Query(terms.mapNotNull { it.searched }).flattened() }
 
 	/** Every term's problems, in the order of where they are in the text. */
 	val problems: List<Problem> get() =
@@ -80,12 +81,17 @@ data class ReadQuery(
 object QueryText {
 	/**
 	 * [text] read: parsed into its syntax, and each term made into what it means. Any text reads, however it is
-	 * malformed or unfinished. Where [aliases] are given, a `~name` that is not one of them is a problem.
+	 * malformed or unfinished. A `name@` stands for the alias of that name among [aliases], and is a problem
+	 * where there is none. Where [folders] are given, a `~name` that is not one of them is a problem.
 	 */
-	fun read(text: String, aliases: Set<String>? = null): ReadQuery {
+	fun read(
+		text: String,
+		aliases: AliasSource = Aliases.NONE,
+		folders: Set<String>? = null,
+	): ReadQuery {
 		val syntax = QueryGrammar.read(text)
 
-		return ReadQuery(syntax, syntax.terms.map { Reading(text, aliases).of(it) })
+		return ReadQuery(syntax, syntax.terms.map { Reading(text, aliases, folders).of(it) })
 	}
 }
 
@@ -95,7 +101,8 @@ object QueryText {
  */
 private class Reading(
 	private val text: String,
-	private val aliases: Set<String>?,
+	private val aliases: AliasSource,
+	private val folders: Set<String>?,
 ) {
 	private val problems = ArrayList<Problem>()
 
@@ -114,6 +121,7 @@ private class Reading(
 					regex(body.regex, RegexOn.entries)?.let {
 						Test.Regex(it.source, it.on, it.case)
 					}
+				is BodySyntax.Alias -> alias(body)
 				is BodySyntax.Modifier -> modifier(body)
 			}
 
@@ -275,9 +283,9 @@ private class Reading(
 		return pattern.takeIf { known(it.base, content) }
 	}
 
-	/** Whether [base] is a place the user has: anything but an alias not among [aliases], where they are known. */
+	/** Whether [base] is a place the user has: anything but a named folder not among [folders], where they are known. */
 	private fun known(base: PathBase, content: Content): Boolean {
-		if (base !is PathBase.Alias || aliases == null || base.name in aliases)
+		if (base !is PathBase.Alias || folders == null || base.name in folders)
 			return true
 
 		invalid(
@@ -286,6 +294,27 @@ private class Reading(
 		)
 
 		return false
+	}
+
+	// ---- aliases ----------------------------------------------------------------------------------------------------
+
+	/** What the alias [body] names stands for: its query's terms, as one test; nothing, for a name that is none's. */
+	private fun alias(body: BodySyntax.Alias): Test? {
+		// The grammar reads only what a name can be made of as one.
+		val name = AliasName.of(body.name.value) ?: return null
+
+		val wrong =
+			when (val looked = aliases.find(name)) {
+				is Looked.Found -> return Test.All(looked.alias.query.terms)
+				Looked.Unknown -> "Unknown alias “${name.written}”"
+				Looked.Itself -> "An alias can't use itself"
+				Looked.Loops -> "“${name.written}” leads back to this alias"
+				Looked.Invalid -> "“${name.written}” has a problem of its own"
+			}
+
+		invalid(body.span, wrong)
+
+		return null
 	}
 
 	// ---- regexes ----------------------------------------------------------------------------------------------------

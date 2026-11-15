@@ -9,6 +9,7 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import prism.browser.StaticFinder
+import prism.browser.aliasesOf
 import prism.client.Caller
 import prism.client.Matches
 import prism.client.Reply
@@ -103,6 +104,26 @@ class PathSearchTest {
 		assertInstanceOf(Sifted.Wrong::class.java, sifted(Sought("ext:", 0, 20), find))
 		// An alias nobody defined cannot be searched for.
 		assertInstanceOf(Sifted.Wrong::class.java, sifted(Sought("~nosuchalias/", 0, 20), find))
+	}
+
+	@Test
+	fun aSearchAliasStandsForItsQueryAndOneNobodyDefinedIsRefused() {
+		made("docs/report.pdf", "docs/notes.md", "old/report.txt")
+
+		val find = StaticFinder(indexed(), home = root)::find
+		val aliases = aliasesOf(mapOf("docs" to "$root/docs/"))
+
+		assertEquals(
+			listOf("docs/report.pdf"),
+			sifted(Sought("docs@ report", 0, 20), find, aliases).names(),
+		)
+		assertEquals(
+			listOf("Unknown alias “nosuch@” (“nosuch@”)"),
+			assertInstanceOf(
+				Sifted.Wrong::class.java,
+				sifted(Sought("nosuch@ report", 0, 20), find, aliases),
+			).problems,
+		)
 	}
 
 	@Test

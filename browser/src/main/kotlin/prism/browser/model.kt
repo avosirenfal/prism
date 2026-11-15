@@ -8,6 +8,7 @@ import prism.desktop.Place
 import prism.desktop.Storage
 import prism.desktop.StoreKind
 import prism.desktop.TerminalChoice
+import prism.index.query.Aliases
 import prism.preferences.Builtin
 import prism.preferences.ColumnId
 import prism.preferences.Columns
@@ -1301,6 +1302,8 @@ data class BrowserState(
 	private val naming: Renaming? = null,
 	/** The search of the index, as F2 opens it; unavailable where there is no index. */
 	val search: Search = Search.Unavailable(NO_INDEX),
+	/** The user's search aliases, as the preferences define them: what a `name@` in a search stands for. */
+	val aliases: Aliases = Aliases.NONE,
 	/** The rows in sight, by their places in [rows], as the view last said; null before it has. */
 	val sight: IntRange? = null,
 	/** What is being typed into the listing to go to a row by its name, while it is. */

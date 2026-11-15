@@ -97,6 +97,12 @@ sealed interface EntryAction {
 		override val label: String get() = "Move to trash"
 	}
 
+	/** What Enter does to an alias: its name put where it was being typed. */
+	data object Use : EntryAction {
+		override val label: String get() = "Use alias"
+		override val key: LauncherAction get() = LauncherAction.Open
+	}
+
 	/** An application left out of the launcher from now on, until its settings say otherwise. */
 	data object Hide : EntryAction {
 		override val label: String get() = "Hide from launcher"
@@ -137,6 +143,7 @@ fun actionsOf(entry: Entry): List<EntryAction> =
 				EntryAction.Trash,
 			)
 		is Entry.Command, is Entry.Prism -> listOf(EntryAction.Open)
+		is Entry.Named -> listOf(EntryAction.Use)
 	}
 
 /**

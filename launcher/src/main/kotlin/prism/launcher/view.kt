@@ -265,6 +265,14 @@ fun LauncherPane(
 					return@Frame true
 				}
 
+				// Tab finishes the alias being named, the first of those it could be.
+				if (down && plain && key.key == Key.Tab && !state.help && menu == null)
+					state.completing?.let {
+						onEvent(LauncherEvent.Typed(it.completed(it.aliases.first())))
+
+						return@Frame true
+					}
+
 				// While how a query is written is shown, the one key that is the launcher's is the one that
 				// leaves it: the rest are for what is not there, and are the page's own to have (its Escape,
 				// its scrolling). The right arrow is the caret's while the caret has somewhere to go.
@@ -290,6 +298,7 @@ fun LauncherPane(
 					onClose = { onEvent(LauncherEvent.HelpClosed) },
 					Modifier.weight(1f),
 					fills = true,
+					aliases = state.aliases,
 				)
 			else
 				Found(state, bindings, typed, field, onTyped, { anchor = it }, onEvent)
@@ -522,6 +531,7 @@ private fun EntryIcon(entry: Entry, size: Dp) {
 					size * 0.75f,
 				)
 			is Entry.Prism -> GlyphIcon(entry.own.glyph, palette.accent, size * 0.75f)
+			is Entry.Named -> GlyphIcon(Glyph.At, palette.accent, size * 0.75f)
 		}
 	}
 }
@@ -648,6 +658,7 @@ private fun hintsFor(entry: Entry?): List<Pair<LauncherAction, String>> =
 			is Entry.App, is Entry.Action -> LauncherAction.Open to "Launch"
 			is Entry.File -> LauncherAction.Open to "Open"
 			is Entry.Command, is Entry.Prism -> LauncherAction.Open to "Open"
+			is Entry.Named -> LauncherAction.Open to "Use alias"
 		},
 		(LauncherAction.Reveal to "Show in folder").takeIf {
 			entry is Entry.App || entry is Entry.Action || entry is Entry.File

@@ -5,6 +5,7 @@ import java.nio.file.Path
 import java.time.Instant
 import java.time.ZoneId
 import prism.desktop.Launched
+import prism.index.query.Aliases
 import prism.index.query.Own
 import prism.index.query.QueryText
 import prism.preferences.Builtin
@@ -568,7 +569,7 @@ internal fun BrowserState.reread(landing: Landing? = null): Step =
 				listOf(
 					Effect.Search(
 						text,
-						queryOf(QueryText.read(text), choosing, at.refines),
+						queryOf(QueryText.read(text, aliases), choosing, at.refines, aliases),
 						Purpose.Refresh,
 						inPlace?.tree,
 					),
@@ -1185,6 +1186,7 @@ private fun answered(state: BrowserState, answer: Answer): Step =
 			Step(
 				state.copy(looks = state.looks.relisted(state.role, answer.listings)),
 			)
+		is Answer.Aliased -> state.aliased(answer.aliases)
 		// A read of a folder no longer shown is too late to matter.
 		is Answer.Arrived ->
 			if (answer.folder == state.folder)
@@ -1516,6 +1518,7 @@ private fun BrowserState.openedSearch(text: String, refines: Refines): Step {
 				offers = offers.filter { !refines.any || it == Own.Help },
 				refines = refines,
 				pins = shownResults?.pinned == true,
+				aliases = aliases,
 			).typed(text)
 
 	return when (val search = search) {
@@ -1540,6 +1543,18 @@ private val BrowserState.shownResults: Location.Results? get() = at as? Location
 private fun BrowserState.pinned(pinned: Boolean): BrowserState =
 	shownResults?.let { copy(at = it.copy(pinned = pinned)) } ?: this
 
+/**
+ * The search aliases as they now are: a search open is read with them, and searched for again where it is open,
+ * since what it was typed as may mean something else now.
+ */
+private fun BrowserState.aliased(aliases: Aliases): Step =
+	copy(aliases = aliases).withSearch { copy(aliases = aliases) }.let {
+		if (it.search.open)
+			it.previewing()
+		else
+			Step(it)
+	}
+
 /** The search's text searched for, for the window's matches; nothing, for no text. */
 private fun BrowserState.previewing(): Step {
 	val search = search as? Search.Ready ?: return Step(this)
@@ -1553,7 +1568,7 @@ private fun BrowserState.previewing(): Step {
 		listOf(
 			Effect.Search(
 				search.text,
-				queryOf(search.read, choosing, search.refines),
+				queryOf(search.read, choosing, search.refines, search.aliases),
 				Purpose.Preview,
 				inPlace?.tree,
 			),
@@ -1633,6 +1648,7 @@ private fun BrowserState.acted(
 	val (matches, rank) =
 		when (of) {
 			is Search.Listed.Prisms -> return chosenOwn(search.copy(menu = null), of.own)
+			is Search.Listed.Named -> return searchTyped(of.completed)
 			is Search.Listed.Match -> of
 		}
 
@@ -1645,7 +1661,11 @@ private fun BrowserState.acted(
 			?: Step(closed)
 
 	return when (action) {
-		MatchAction.GoTo, MatchAction.Enter, MatchAction.Own -> gone(search, of)
+		MatchAction.GoTo, MatchAction.Enter, MatchAction.Own, MatchAction.Use ->
+			gone(
+				search,
+				of,
+			)
 		// A match of a search in a place is shown where it is in the place, which going to it does.
 		MatchAction.Reveal ->
 			if (matches.tree != null || !matches.isFolder(rank))
@@ -1702,6 +1722,8 @@ private fun BrowserState.gone(search: Search.Ready, listed: Search.Listed): Step
 	val (matches, rank) =
 		when (listed) {
 			is Search.Listed.Prisms -> return chosenOwn(search.copy(menu = null), listed.own)
+			// Its name goes in the field, which stays open for the rest of the query.
+			is Search.Listed.Named -> return searchTyped(listed.completed)
 			is Search.Listed.Match -> listed
 		}
 
@@ -1755,7 +1777,7 @@ private fun BrowserState.showingMatches(): Step {
 		listOf(
 			Effect.Search(
 				search.text,
-				queryOf(search.read, choosing, search.refines),
+				queryOf(search.read, choosing, search.refines, search.aliases),
 				Purpose.Show,
 				inPlace?.tree,
 			),

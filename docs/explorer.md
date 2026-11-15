@@ -377,6 +377,12 @@ The window itself (its pages down the left, the one chosen beside them, Apply an
 chord awaited taking every key) is `SettingsFrame` (`explorer/settingsframe.kt`), which the launcher's settings are
 drawn in too.
 
+**Aliases.** The "Aliases" page sets the names a search can use for queries written often (`projects@`; docs/search.md,
+"Aliases"): a row for each, its name and its query typed where they are shown, the query coloured as a search's field
+colours one. What is wrong with a row is said under it as it is typed, and while anything is, the window says so
+where it says "Unsaved changes" and does not apply. The launcher's settings have the same page (`AliasesPage`,
+`explorer/aliasespage.kt`), and either window writes the aliases only where it changed them.
+
 ## Across platforms
 
 Everything above the `Desktop` interfaces (`desktop/desktop.kt`) is the same on every platform: the browser, the

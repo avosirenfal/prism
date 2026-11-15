@@ -44,6 +44,9 @@ enum class Role {
 	/** A modifier's name. */
 	Modifier,
 
+	/** `name@`: an alias. */
+	Alias,
+
 	/** The `:` after a modifier's name. */
 	Colon,
 
@@ -102,6 +105,7 @@ object Marks {
 					) +
 						(body.text?.let { text(it, Role.Word) } ?: emptyList())
 				is BodySyntax.Regex -> regex(body.regex)
+				is BodySyntax.Alias -> listOf(Mark(body.span, Role.Alias))
 				is BodySyntax.Modifier ->
 					listOf(Mark(body.name.span, Role.Modifier), Mark(body.colon, Role.Colon)) +
 						when (val value = body.said.value) {

@@ -4,6 +4,7 @@ import java.nio.file.Path
 import kotlin.io.path.Path
 import prism.browser.Finder
 import prism.browser.StaticFinder
+import prism.browser.aliasesOf
 import prism.cli.Args
 import prism.cli.Command
 import prism.cli.Outcome
@@ -19,9 +20,12 @@ import prism.index.IndexFile
 import prism.index.IndexRead
 import prism.index.Searched
 import prism.index.UsageFile
+import prism.index.query.AliasSource
+import prism.index.query.Aliases
 import prism.index.query.Problem
 import prism.index.query.Query
 import prism.index.query.QueryText
+import prism.preferences.PreferenceFile
 
 /*
  * What `prism search` (prism.client, search.kt) is answered with. The command itself only asks; here is who
@@ -30,11 +34,22 @@ import prism.index.query.QueryText
  */
 
 /**
- * What [find] finds for [sought]: its query read, refused with what is wrong with it where it cannot be searched
- * for, and of what is found the paths asked for, best first.
+ * The search aliases as the preferences define them now: read from their file each time a search is asked for from
+ * the command line, so that one changed in a settings window is in the next search, whoever answers it.
  */
-internal fun sifted(sought: Sought, find: (Query) -> Searched): Sifted {
-	val read = QueryText.read(sought.text)
+internal fun aliasesNow(): Aliases =
+	aliasesOf(PreferenceFile.read(PreferenceFile.defaultFile()).preferences.aliases)
+
+/**
+ * What [find] finds for [sought]: its query read, with the [aliases] it uses stood for, refused with what is wrong
+ * with it where it cannot be searched for, and of what is found the paths asked for, best first.
+ */
+internal fun sifted(
+	sought: Sought,
+	find: (Query) -> Searched,
+	aliases: AliasSource = aliasesNow(),
+): Sifted {
+	val read = QueryText.read(sought.text, aliases)
 	val wrong = read.problems.filter { it.kind == Problem.Kind.Invalid }
 
 	if (wrong.isNotEmpty())

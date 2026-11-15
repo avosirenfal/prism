@@ -45,6 +45,9 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import prism.index.query.Alias
+import prism.index.query.AliasSource
+import prism.index.query.Aliases
 import prism.index.query.Own
 import prism.index.query.Problem
 import prism.index.query.QueryHelp
@@ -61,7 +64,8 @@ import prism.index.query.Role
 /**
  * How a query is written ([QueryHelp]), in place of a search's field and results: what it is, a sentence or two, and
  * a query a line with what it finds, each coloured as the field would colour it and given to [onTry] when clicked,
- * to be typed there and tried. It is left by its × or by Escape ([onClose]), back to the search it was asked from. It
+ * to be typed there and tried; after them the user's own [aliases], each with the query it stands for, or, where
+ * they have none, how one is used. It is left by its × or by Escape ([onClose]), back to the search it was asked from. It
  * takes the keyboard while it is shown, since the field it took the place of is not there to have it. Where it
  * [fills] the height it is given (a window of a size of its own, the launcher's), what is said along its bottom is at
  * the bottom of that; otherwise it is as tall as what it shows.
@@ -72,6 +76,7 @@ fun QueryHelpPanel(
 	onClose: () -> Unit,
 	modifier: Modifier = Modifier,
 	fills: Boolean = false,
+	aliases: Aliases = Aliases.NONE,
 ) {
 	val palette = LocalPalette.current
 	val type = LocalType.current
@@ -122,7 +127,20 @@ fun QueryHelpPanel(
 			padding = PaddingValues(start = Space.s, top = Space.s, bottom = Space.s),
 		) {
 			for (example in QueryHelp.EXAMPLES)
-				Example(example) { onTry(example.text) }
+				Example(example, aliases) { onTry(example.text) }
+			if (aliases.isEmpty) {
+				Example(QueryHelp.ALIAS, aliases, tries = false) { }
+			} else {
+				Text(
+					"Aliases",
+					style = type.heading,
+					modifier =
+						Modifier.padding(start = Space.m, top = Space.m, bottom = Space.xs),
+				)
+				// One tried is put in the field with a space after it, for the rest of the query.
+				for (example in QueryHelp.examplesOf(aliases))
+					Example(example, aliases, findsQuery = true) { onTry("${example.text} ") }
+			}
 		}
 		Divider()
 		Row(
@@ -142,42 +160,76 @@ fun QueryHelpPanel(
 	}
 }
 
-/** One query and what it finds, in a row that is tinted under the pointer and tried when clicked. */
+/**
+ * One query and what it finds, in a row that is tinted under the pointer and tried when clicked, where it [tries].
+ * What it finds is words, or, for an alias ([findsQuery]), the query it stands for, coloured as one.
+ */
 @Composable
-private fun Example(example: QueryHelp.Example, onTry: () -> Unit) {
+private fun Example(
+	example: QueryHelp.Example,
+	aliases: AliasSource,
+	tries: Boolean = true,
+	findsQuery: Boolean = false,
+	onTry: () -> Unit,
+) {
 	val palette = LocalPalette.current
 	val type = LocalType.current
 	val hover = remember { MutableInteractionSource() }
 	val hovered by hover.collectIsHoveredAsState()
 
+	// How an alias is used is shown as one, though there is none of that name.
 	val coloured =
-		remember(example, palette) {
-			QueryColouring(QueryText.read(example.text), palette)
-				.filter(AnnotatedString(example.text))
-				.text
+		remember(example, palette, aliases) {
+			colouredQuery(example.text, aliases, palette, problems = tries)
+		}
+
+	val finds =
+		remember(example, palette, aliases, findsQuery) {
+			if (findsQuery)
+				colouredQuery(example.finds, aliases, palette)
+			else
+				AnnotatedString(example.finds)
 		}
 
 	Row(
 		Modifier
 			.fillMaxWidth()
 			.clip(RoundedCornerShape(Radius.medium))
-			.background(if (hovered) palette.hover else Color.Transparent)
-			.hoverable(hover)
-			.clickable(onClick = onTry)
+			.background(
+				if (hovered && tries)
+					palette.hover
+				else
+					Color.Transparent,
+			).hoverable(hover)
+			.clickable(enabled = tries, onClick = onTry)
 			.padding(horizontal = Space.m, vertical = Space.xxs + 1.dp)
 			.testTag("help:${example.text}"),
 		verticalAlignment = Alignment.CenterVertically,
 	) {
 		Text(coloured, style = type.mono, maxLines = 1, modifier = Modifier.width(180.dp))
 		Text(
-			example.finds,
-			style = type.muted,
+			finds,
+			style = if (findsQuery) type.mono else type.muted,
 			maxLines = 1,
 			overflow = TextOverflow.Ellipsis,
 			modifier = Modifier.weight(1f),
 		)
 	}
 }
+
+/**
+ * [text] coloured as a search's field colours a query, read with [aliases]; without what is wrong with it marked,
+ * where [problems] is not.
+ */
+fun colouredQuery(
+	text: String,
+	aliases: AliasSource,
+	palette: Palette,
+	problems: Boolean = true,
+): AnnotatedString =
+	QueryColouring(QueryText.read(text, aliases), palette, problems)
+		.filter(AnnotatedString(text))
+		.text
 
 /** What a key does, and the key: each part of the chord on a cap of its own. */
 @Composable
@@ -252,6 +304,17 @@ fun RowScope.OwnResult(own: Own) {
 	ResultText(own.title, own.does, kind = "prism")
 }
 
+/** The row of an alias the word being typed could name: its name as it is used, and the query it stands for. */
+@Composable
+fun RowScope.AliasResult(alias: Alias) {
+	val palette = LocalPalette.current
+	val type = LocalType.current
+
+	GlyphIcon(Glyph.At, palette.accentText, type.icon)
+	Spacer(Modifier.width(Space.s + Space.xxs))
+	ResultText(alias.name.written, alias.text, kind = "alias")
+}
+
 /**
  * A query's text coloured as it is read: each part by its [Role], and each problem underlined, in red where it leaves
  * its term out of the search, faintly where the term is only unfinished. The text itself is not changed, so where
@@ -260,6 +323,8 @@ fun RowScope.OwnResult(own: Own) {
 class QueryColouring(
 	private val read: ReadQuery,
 	private val palette: Palette,
+	/** Whether what is wrong is marked. */
+	private val problems: Boolean = true,
 ) : VisualTransformation {
 	override fun filter(text: AnnotatedString): TransformedText =
 		TransformedText(coloured(text.text), OffsetMapping.Identity)
@@ -271,7 +336,7 @@ class QueryColouring(
 				spanOf(mark.span.start, mark.span.end, text)?.let { (from, to) ->
 					addStyle(SpanStyle(color = colourOf(mark.role)), from, to)
 				}
-			for (problem in read.problems)
+			for (problem in read.problems.takeIf { problems }.orEmpty())
 				spanOf(problem.span.start, problem.span.end, text)?.let { (from, to) ->
 					addStyle(
 						SpanStyle(
@@ -300,6 +365,7 @@ class QueryColouring(
 			Role.Word -> palette.text
 			Role.Negation, Role.Junk -> palette.pdf
 			Role.Anchor, Role.Flag, Role.Modifier, Role.Colon, Role.Depth -> palette.accent
+			Role.Alias -> palette.audio
 			Role.Wildcard, Role.Escape -> palette.archive
 			Role.Quote -> palette.textMuted
 			Role.Slash, Role.Place -> palette.folder
@@ -308,7 +374,8 @@ class QueryColouring(
 		}
 
 	override fun equals(other: Any?): Boolean =
-		other is QueryColouring && other.read == read && other.palette == palette
+		other is QueryColouring && other.read == read && other.palette == palette &&
+			other.problems == problems
 
 	override fun hashCode(): Int = read.hashCode() * 31 + palette.hashCode()
 }

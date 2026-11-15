@@ -200,6 +200,7 @@ say from then on.
 | Launcher | whether its corners are round ("Rounded corners", below; on as it starts), how wide it is, how many results are in sight before it scrolls, and how large it is drawn; whether files and folders are found at all, and how many are listed (30); whether what else an application can be started to do is found; whether it is shown over every window (a layer surface, where the compositor has them), or as a floating window of the window manager's; whether clicking another window puts it away |
 | Key bindings | every key above, on the page that binds the explorer's: in groups, found by name or by pressing a key, a chord clicked and the next one pressed taking its place, the × taking it away, the + adding one, Reset for the defaults. A chord another of the launcher's actions has is taken from it. A key that types (a letter alone) is refused, since it would never get past the field |
 | Applications | each application installed, switched off to leave it out of the launcher (it is still installed, and still opens files) |
+| Aliases | the search aliases (`raws@`), which are every search's and not the launcher's alone: the page the preferences window has, over the same aliases (docs/search.md, "Aliases") |
 
 ![The launcher's keys](launcher-keys.png)
 

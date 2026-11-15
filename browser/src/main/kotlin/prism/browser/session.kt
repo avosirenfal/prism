@@ -115,6 +115,14 @@ class Session(
 				}
 			}
 
+		// The search aliases, as the preferences now define them.
+		scope.launch(io) {
+			services.preferences.preferences
+				.map { it.aliases }
+				.distinctUntilChanged()
+				.collect { inputs.send(Answer.Aliased(aliasesOf(it))) }
+		}
+
 		// How listings look, as the preferences now say: a window takes up what they changed.
 		scope.launch(io) {
 			services.preferences.preferences

@@ -44,6 +44,7 @@ enum class Page(
 	Menus("Context menus"),
 	Terminal("Terminal"),
 	Bindings("Key bindings"),
+	Aliases("Aliases"),
 	Actions("Actions"),
 }
 
@@ -297,7 +298,17 @@ data class Settings(
 	 * to have moved.
 	 */
 	val dragged: Set<String> = emptySet(),
+	/** The search aliases, as the Aliases page has them typed. */
+	val aliasing: AliasEdits = AliasEdits.of(base.aliases),
 ) {
+	/** What stops these from being applied, where anything does: an alias changed here with something wrong with it. */
+	val blocked: String?
+		get() =
+			AliasEdits.UNFIT.takeIf {
+				aliasing != AliasEdits.of(base.aliases) &&
+					!aliasing.fit
+			}
+
 	/** The actions and places there are, prism's own and those the preferences write, with what of them did not read. */
 	val actions: Actions by lazy { Actions.of(base) }
 
@@ -391,6 +402,8 @@ data class Settings(
 					sidebar = kept({ it.scales.sidebar }, scales.sidebar),
 				),
 			bindings = bindings ?: current.bindings,
+			// Never written with anything wrong in them: what is typed stays on the page until it is right.
+			aliases = aliasing.written?.let { kept(Preferences::aliases, it) } ?: current.aliases,
 			pickerBindings =
 				if (picking?.bindings != pickersWere)
 					picking?.bindings?.differences()

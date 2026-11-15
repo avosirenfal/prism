@@ -424,6 +424,22 @@ private class Plan(
 						)
 					}
 				}
+				is Test.All -> {
+					val inner = test.terms.map { compile(it, context, index, slot) }
+
+					inner.firstOrNull { it is Compiled.Refused }
+						?: inner.filterIsInstance<Compiled.Made>().let { made ->
+							made { block, placed ->
+								AllCheck(
+									made
+										.map { it.making(block, placed) }
+										.sortedBy { it.cost }
+										.toTypedArray(),
+									no,
+								)
+							}
+						}
+				}
 			}
 		}
 
@@ -846,7 +862,7 @@ private class Walk(
 	/** An array, as [checks] is: gone through for every folder the walk enters. */
 	private val ancestral: Array<AncestralCheck> =
 		checks
-			.filterIsInstance<AncestralCheck>()
+			.flatMap { it.ancestral }
 			.toTypedArray()
 	private val slots = (ancestral.maxOfOrNull { it.slot } ?: -1) + 1
 
@@ -1016,6 +1032,9 @@ private abstract class Check(
 	/** How costly it is, for the cheap ones to be run first: every check must pass, so the order changes nothing else. */
 	abstract val cost: Int
 
+	/** The checks in this one that keep a state at each level of a walk: itself, or those a group holds. */
+	open val ancestral: List<AncestralCheck> get() = emptyList()
+
 	abstract fun test(walk: Walk, entry: Int): Boolean
 }
 
@@ -1024,6 +1043,8 @@ private abstract class AncestralCheck(
 	val slot: Int,
 	negated: Boolean,
 ) : Check(negated) {
+	override val ancestral: List<AncestralCheck> get() = listOf(this)
+
 	/** The state at the top, before any ancestor. */
 	abstract val initial: Long
 
@@ -1350,6 +1371,24 @@ private class MountCheck(
 			walk.block.device[entry].toInt() and
 				0xFFFF,
 		]
+}
+
+/** A group of terms: every one of [checks] passed, as a query's own must be. */
+private class AllCheck(
+	private val checks: Array<Check>,
+	negated: Boolean,
+) : Check(negated) {
+	override val cost: Int = checks.sumOf { it.cost }
+
+	override val ancestral: List<AncestralCheck> = checks.flatMap { it.ancestral }
+
+	override fun test(walk: Walk, entry: Int): Boolean {
+		for (check in checks)
+			if (check.test(walk, entry) == check.negated)
+				return false
+
+		return true
+	}
 }
 
 /** `r/.../`: found in the name, the stem, or the path. */

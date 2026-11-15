@@ -13,6 +13,9 @@ import prism.index.Searched
 import prism.index.Sighting
 import prism.index.Usage
 import prism.index.Where
+import prism.index.query.Alias
+import prism.index.query.AliasCompletion
+import prism.index.query.Aliases
 import prism.index.query.Flag
 import prism.index.query.Own
 import prism.index.query.Query
@@ -20,6 +23,7 @@ import prism.index.query.QueryText
 import prism.index.query.ReadQuery
 import prism.index.query.Term
 import prism.index.query.Test
+import prism.index.query.completing
 import prism.index.search
 import prism.preferences.ColumnId
 import prism.preferences.Order
@@ -72,12 +76,15 @@ class StaticFinder(
 		index.newestFiles(count, named)
 }
 
+/** The search aliases [written] in the preferences, name to query: those that are aliases (aliases.kt). */
+fun aliasesOf(written: Map<String, String>): Aliases = Aliases.of(written).aliases
+
 /**
  * The searches a search is made within, the outermost first, each as it was typed: the pinned results it was begun
  * from, and what those were made within. None, for a search of everything.
  *
  * A query is its terms, every one of which a match meets, so a search within others is the query of all their terms
- * together ([terms]): each search's text is read on its own, and nothing in one (a quote left open, say) can change
+ * together ([terms], each read with the user's aliases): each search's text is read on its own, and nothing in one (a quote left open, say) can change
  * what another means, as it could if their texts were joined.
  */
 @Immutable
@@ -88,7 +95,8 @@ value class Refines private constructor(
 	val any: Boolean get() = texts.isNotEmpty()
 
 	/** What every one of them asks for. */
-	val terms: List<Term> get() = texts.flatMap { QueryText.read(it).query.terms }
+	fun terms(aliases: Aliases): List<Term> =
+		texts.flatMap { QueryText.read(it, aliases).query.terms }
 
 	/** These, and within them a search for [text]. */
 	operator fun plus(text: String): Refines = Refines(texts + text)
@@ -99,12 +107,17 @@ value class Refines private constructor(
 }
 
 /**
- * The query [read] asks for, as [choosing] searches it, within [refines]: a folder picker finds only folders, as if
- * `is:dir` were typed.
+ * The query [read] asks for, as [choosing] searches it, within [refines] (whose own `name@`s are the user's
+ * [aliases]): a folder picker finds only folders, as if `is:dir` were typed.
  */
-fun queryOf(read: ReadQuery, choosing: Choosing, refines: Refines = Refines.NONE): Query =
+fun queryOf(
+	read: ReadQuery,
+	choosing: Choosing,
+	refines: Refines,
+	aliases: Aliases,
+): Query =
 	Query(
-		refines.terms + read.query.terms +
+		refines.terms(aliases) + read.query.terms +
 			listOfNotNull(Term(Test.Is(setOf(Flag.Dir))).takeIf { choosing is Choosing.Folder }),
 	)
 
@@ -126,8 +139,9 @@ sealed interface Search {
 	 * while the keyboard is in the field). [showing] says the matches are to be shown in the listing once the search
 	 * for [text] comes back, which was asked for before it had.
 	 *
-	 * What the window lists is prism's own things that [text] asks for ([own], of those this window [offers]), and
-	 * then the matches: one list, which the arrows go through from its first.
+	 * What the window lists is prism's own things that [text] asks for ([own], of those this window [offers]), the
+	 * [aliases] its last word could be on its way to naming ([completing]), and then the matches: one list, which
+	 * the arrows go through from its first.
 	 *
 	 * [menu] is the menu of what can be done to one of them, while it is open: the arrows and Enter are the menu's
 	 * then, and it is put away by anything that changes what is listed.
@@ -147,12 +161,20 @@ sealed interface Search {
 		val refines: Refines = Refines.NONE,
 		/** Whether what it finds is shown pinned: where the results it was opened from were. */
 		val pins: Boolean = false,
+		/** The user's search aliases: what a `name@` in [text] stands for. */
+		val aliases: Aliases = Aliases.NONE,
 	) : Search {
 		/** Prism's own things that [text] asks for, the best first. */
 		val own: List<Own> by lazy { Own.found(text, offers) }
 
 		/** [text] read in the search language: its query, what is wrong with it, and the marks that colour it. */
-		val read: ReadQuery by lazy { QueryText.read(text) }
+		val read: ReadQuery by lazy { QueryText.read(text, aliases) }
+
+		/** The aliases the word being typed at the end of [text] could be on its way to naming, where it could. */
+		val completing: AliasCompletion? by lazy { aliases.completing(read) }
+
+		/** How many things the window lists before the matches: prism's own, and the aliases a word could name. */
+		private val before: Int get() = own.size + (completing?.aliases?.size ?: 0)
 
 		/** Whether [text] asks for anything yet: a query of no terms (nothing typed, or `ext:` alone) would find all. */
 		val searchable: Boolean get() = read.query.terms.isNotEmpty()
@@ -165,13 +187,21 @@ sealed interface Search {
 			}
 
 		/** How many things the window lists, a few of them in sight at once: prism's own, and every match. */
-		val listed: Int get() = own.size + ((found as? Finding.Matched)?.matches?.size ?: 0)
+		val listed: Int get() = before + ((found as? Finding.Matched)?.matches?.size ?: 0)
 
-		/** The [index]th thing the window lists: one of prism's own, or after them a match; nothing past the last. */
+		/**
+		 * The [index]th thing the window lists: one of prism's own, after them an alias the word being typed could
+		 * name, and after those a match; nothing past the last.
+		 */
 		fun listedAt(index: Int): Listed? =
 			own.getOrNull(index)?.let(Listed::Prisms)
+				?: completing?.let { completion ->
+					completion.aliases.getOrNull(index - own.size)?.let {
+						Listed.Named(it, completion.completed(it))
+					}
+				}
 				?: (found as? Finding.Matched)?.matches?.let { matches ->
-					matches.rank(index - own.size)?.let { Listed.Match(matches, it) }
+					matches.rank(index - before)?.let { Listed.Match(matches, it) }
 				}
 
 		/** This search with [text] typed into its field: the arrows on the first of prism's own it asks for, if any. */
@@ -195,6 +225,12 @@ sealed interface Search {
 		/** Something of prism's own. */
 		data class Prisms(
 			val own: Own,
+		) : Listed
+
+		/** An [alias] the word being typed could name: chosen, the field's text becomes [completed], with its name. */
+		data class Named(
+			val alias: Alias,
+			val completed: String,
 		) : Listed
 
 		/** A match of the index's: which of [matches]. */

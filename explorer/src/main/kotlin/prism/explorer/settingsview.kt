@@ -179,6 +179,7 @@ fun SettingsView(
 		onUndo = onUndo,
 		onRedo = onRedo,
 		filter = filter,
+		blocked = settings.blocked,
 	) { page ->
 		when (page) {
 			Page.Display -> DisplayPage(settings, onChange)
@@ -187,6 +188,10 @@ fun SettingsView(
 			Page.Menus -> MenusPage(settings, world, onChange)
 			Page.Terminal -> TerminalPage(settings, onChange, terminalPreview, terminals)
 			Page.Bindings -> ExplorerBindingsPage(settings, filter, onChange)
+			Page.Aliases ->
+				AliasesPage(
+					settings.aliasing,
+				) { onChange(settings.copy(aliasing = it)) }
 			Page.Actions -> ActionsPage(settings.actions)
 		}
 	}
@@ -244,6 +249,7 @@ private fun glyphOf(page: Page): Glyph =
 		Page.Menus -> Glyph.Menu
 		Page.Terminal -> Glyph.Terminal
 		Page.Bindings -> Glyph.Keyboard
+		Page.Aliases -> Glyph.At
 		Page.Actions -> Glyph.Bolt
 	}
 

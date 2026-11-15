@@ -160,6 +160,7 @@ internal fun SearchLayer(
 								QueryHelpPanel(
 									onTry = { onEvent(BrowserEvent.SearchTyped(it)) },
 									onClose = { onEvent(BrowserEvent.ToggledSearchHelp) },
+									aliases = search.aliases,
 								)
 							else
 								Searching(search, home, role, field, { anchor = it }, onEvent)
@@ -258,6 +259,9 @@ private fun Searching(
 				menu && plain && key.key == Key.DirectionLeft -> BrowserEvent.MatchMenuClosed
 				menu && shows -> return true
 				shows && !carets && search.highlighted != null -> BrowserEvent.MatchMenuOpened()
+				// Tab finishes the alias being named, the first of those it could be.
+				plain && key.key == Key.Tab && search.completing != null ->
+					search.completing?.let { BrowserEvent.SearchTyped(it.completed(it.aliases.first())) }
 				key.key == Key.DirectionDown -> BrowserEvent.MatchMoved(1)
 				key.key == Key.DirectionUp -> BrowserEvent.MatchMoved(-1)
 				key.key == Key.PageDown -> BrowserEvent.MatchMoved(Search.SHOWN)
@@ -345,6 +349,7 @@ private fun Searching(
 				when (val listed = search.listedAt(at)) {
 					null -> "match:"
 					is Search.Listed.Prisms -> "own:${listed.own.title}"
+					is Search.Listed.Named -> "alias:${listed.alias.name}"
 					is Search.Listed.Match -> "match:${listed.matches.nameOf(listed.rank)}"
 				}
 			},
@@ -355,6 +360,7 @@ private fun Searching(
 			when (val listed = search.listedAt(at)) {
 				null -> Unit
 				is Search.Listed.Prisms -> OwnResult(listed.own)
+				is Search.Listed.Named -> AliasResult(listed.alias)
 				is Search.Listed.Match -> Match(listed.matches.rowOf(listed.rank, null), home)
 			}
 		}
@@ -459,6 +465,9 @@ private fun Footer(
 			modifier = Modifier.weight(1f).testTag("search-count"),
 		)
 		// Said until the arrows are on something: by then they are known, and the room is for what they are on.
+		// The key that finishes the alias a word could name, while there is one to finish.
+		if (search.completing != null && search.highlighted == null)
+			KeyHint("Use alias", listOf("Tab"))
 		if (search.listed > 0 && search.highlighted == null)
 			KeyHint("Move", listOf("↑", "↓"))
 		// What Enter does to what the arrows are on, said as its menu says it: the first of its actions.

@@ -170,7 +170,7 @@ class ParserTest {
 		)
 
 	private fun read(text: String, aliases: Set<String>? = null) =
-		QueryText.read(text, aliases)
+		QueryText.read(text, folders = aliases)
 
 	/** Each problem as its kind, the text it is about, and its message. */
 	private fun problems(text: String, aliases: Set<String>? = null): List<String> =
@@ -271,7 +271,7 @@ class ParserTest {
 	fun anyTextAtAllReadsAndSearches() {
 		// Text made at random from the characters the language gives meaning to: none of it may fail to read, or make a
 		// query that fails to run.
-		val alphabet = "\"\\/[]{},*?^$=-:#~!.rcisp aZ09dirext:type:is:recent:new:mount:"
+		val alphabet = "\"\\/[]{},*?^$=-:#~!.@rcisp aZ09dirext:type:is:recent:new:mount:"
 		val random = kotlin.random.Random(System.getProperty("parser.seed")?.toIntOrNull() ?: 7)
 
 		val context =
@@ -395,6 +395,37 @@ class ParserTest {
 			},
 			read.query,
 		)
+	}
+
+	@Test
+	fun theHelpSaysHowAnAliasIsUsedAndListsTheUsersOwn() {
+		// How one is used is one, as written; and each of the user's is listed as it is used, with what it stands for.
+		assertTrue(
+			prism.index.query.QueryGrammar
+				.read(prism.index.query.QueryHelp.ALIAS.text)
+				.terms
+				.single()
+				.body is prism.index.query.BodySyntax.Alias,
+		)
+
+		val aliases =
+			prism.index.query.Aliases
+				.of(listOf("raws" to "~/Photos/ ext:raw", "docs" to "~/Documents/"))
+				.aliases
+
+		assertEquals(
+			listOf("raws@" to "~/Photos/ ext:raw", "docs@" to "~/Documents/"),
+			prism.index.query.QueryHelp
+				.examplesOf(aliases)
+				.map { it.text to it.finds },
+		)
+		for (example in prism.index.query.QueryHelp
+			.examplesOf(aliases))
+			assertEquals(
+				emptyList<Any>(),
+				QueryText.read(example.text, aliases).problems,
+				example.text,
+			)
 	}
 
 	@Test
