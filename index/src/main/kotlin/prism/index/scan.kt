@@ -114,6 +114,10 @@ class Where internal constructor(
 				.zipWithNext { from, to -> bytes.copyOfRange(from + 1, to) }
 				.filter { it.isNotEmpty() }
 
+	/** Whether any level's name starts with a dot: a hidden entry, or one inside a hidden folder. */
+	val dotted: Boolean
+		get() = (1 until bytes.size).any { bytes[it] == DOT && bytes[it - 1] == SLASH }
+
 	/** Whether this is [other] or under it. */
 	fun within(other: Where): Boolean =
 		other.isRoot ||
@@ -140,6 +144,7 @@ class Where internal constructor(
 
 	companion object {
 		private const val SLASH = '/'.code.toByte()
+		private const val DOT = '.'.code.toByte()
 
 		val ROOT = Where(byteArrayOf(SLASH))
 

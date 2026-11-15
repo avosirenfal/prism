@@ -301,6 +301,7 @@ private fun nameOf(builtin: Builtin): String =
 		Builtin.Videos -> "Videos"
 		Builtin.Trash -> "Trash"
 		Builtin.System -> "System"
+		Builtin.Recents -> "Recents"
 	}
 
 /** [path], from `~` where it is in [home]. */

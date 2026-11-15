@@ -316,9 +316,26 @@ fun initialChoices(choices: List<Choice>): List<Chosen> =
 		)
 	}
 
-/** A request of the file chooser, as a dialog is made for it. */
+/**
+ * The application a request is made for, as the portal names it: its desktop entry's name without `.desktop`, or
+ * what the portal made of the unit it runs in. Never blank: of an application it cannot tell, the portal says
+ * nothing, and that is no application ([of]).
+ */
+@JvmInline
+value class AppId private constructor(
+	val id: String,
+) {
+	override fun toString(): String = id
+
+	companion object {
+		/** The application [said] names; none, where the portal said nothing. */
+		fun of(said: String): AppId? = said.trim().takeIf { it.isNotEmpty() }?.let(::AppId)
+	}
+}
+
+/** A request of the file chooser, as a dialog is made for it: [app] is who asked, where the portal could tell. */
 data class ChooserRequest(
-	val appId: String,
+	val app: AppId?,
 	val parent: Parent,
 	val asked: Asked,
 )
@@ -376,7 +393,7 @@ fun Connection.serveFileChooser(
 
 			val picking =
 				scope.async {
-					choose(ChooserRequest(call.appId, Parent.of(call.parentWindow), asked))
+					choose(ChooserRequest(AppId.of(call.appId), Parent.of(call.parentWindow), asked))
 				}
 
 			val closing =

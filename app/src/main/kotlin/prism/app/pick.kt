@@ -150,6 +150,7 @@ object PickCommand : Command(
 				SystemFileClipboard,
 				preferences,
 				watcher = JvmFolderWatcher,
+				recents = recentFolders(),
 			)
 
 		return when (

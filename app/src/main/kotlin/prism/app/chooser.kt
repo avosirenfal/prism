@@ -3,13 +3,18 @@ package prism.app
 import java.nio.file.Files
 import java.nio.file.LinkOption
 import java.nio.file.Path
+import prism.browser.AppKey
+import prism.browser.Asker
 import prism.browser.Choosing
+import prism.browser.RecentFolders
 import prism.browser.TypeFilter
 import prism.browser.titleOf
+import prism.desktop.Application
 import prism.desktop.FileTypes
 import prism.desktop.MimeType
 import prism.explorer.Answered
 import prism.explorer.Asking
+import prism.portal.AppId
 import prism.portal.Asked
 import prism.portal.ChooserRequest
 import prism.portal.FileFilter
@@ -24,8 +29,17 @@ import prism.browser.Outcome as Ended
  * ([Picked]). Both are plain functions of values, tested as such; the picker's window is the explorer's.
  */
 
-/** The picker [request] asks for, its filters' types made into names by [types], opening in [home] unless it says. */
-fun askingOf(request: ChooserRequest, types: FileTypes, home: Path): Asking {
+/**
+ * The picker [request] asks for, its filters' types made into names by [types]: for [asker], the application that
+ * asked, where the portal could tell which, and opening where [startOf] says.
+ */
+fun askingOf(
+	request: ChooserRequest,
+	types: FileTypes,
+	home: Path,
+	recents: RecentFolders = RecentFolders(),
+	asker: Asker? = null,
+): Asking {
 	val asked = request.asked
 
 	val choosing =
@@ -43,12 +57,7 @@ fun askingOf(request: ChooserRequest, types: FileTypes, home: Path): Asking {
 			is Asked.SavingMany -> Choosing.Folder()
 		}
 
-	val folder =
-		when (asked) {
-			is Asked.Opening -> asked.folder
-			is Asked.Saving -> asked.folder ?: asked.file?.parent
-			is Asked.SavingMany -> asked.folder
-		}?.takeIf { Files.isDirectory(it) } ?: home
+	val folder = startOf(asked, asker?.app, recents, home)
 	val (filters, filter) = filtersOf(asked, types)
 
 	return Asking(
@@ -59,8 +68,45 @@ fun askingOf(request: ChooserRequest, types: FileTypes, home: Path): Asking {
 		filter = filter,
 		acceptLabel = asked.acceptLabel ?: "Save here".takeIf { asked is Asked.SavingMany },
 		parent = (request.parent as? Parent.X11)?.window,
+		asker = asker,
 	)
 }
+
+/**
+ * Where the picker for [asked] opens: in the folder the application names (the one to show, or the one the file it
+ * would save over is in), where that is [there]; otherwise in the folder [app] was last answered from that is
+ * still there, or, for an application nobody can tell, the one any application was ([RecentFolders.last]); and
+ * with none of those, at [home].
+ */
+internal fun startOf(
+	asked: Asked,
+	app: AppKey?,
+	recents: RecentFolders,
+	home: Path,
+	there: (Path) -> Boolean = { Files.isDirectory(it) },
+): Path =
+	when (asked) {
+		is Asked.Opening -> asked.folder
+		is Asked.Saving -> asked.folder ?: asked.file?.parent
+		is Asked.SavingMany -> asked.folder
+	}?.takeIf(there)
+		?: recents.last(app, there)
+		?: home
+
+/**
+ * Who [app] is, as the picker's own: the application the desktop has an entry for under that name, called what a
+ * person calls it, or, where it has none, by the name the portal gave. Nobody, for nobody.
+ */
+internal fun askerOf(app: AppId?, applications: () -> List<Application>): Asker? =
+	AppKey.of(app?.id)?.let { key ->
+		val entry =
+			applications().firstOrNull {
+				it.id.removeSuffix(".desktop").equals(key.id, ignoreCase = true)
+			}
+				?: applications().firstOrNull { it.wmClass.equals(key.id, ignoreCase = true) }
+
+		Asker(key, entry?.name ?: key.id)
+	}
 
 /**
  * The picker's filters for [asked], each beside the portal's filter it was made from, and the one in use at first. A

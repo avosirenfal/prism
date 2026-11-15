@@ -262,6 +262,13 @@ private fun rowsSlots(
 					)
 				}
 			}
+		// A row of many folders' (a result, a row of the Recents page) is shown where it is: in its folder, chosen.
+		if (state.folder == null && state.place == null)
+			one?.takeIf { it.path?.parent != null }?.let { row ->
+				slot("builtin.show-in-folder") {
+					item("Show in folder", BrowserEvent.Revealed(row.id), id = "builtin.show-in-folder")
+				}
+			}
 		if (exploring) {
 			if (paths != null)
 				slot("builtin.cut") {
@@ -371,7 +378,9 @@ private fun Slots.pinning(state: BrowserState, path: Path) {
  */
 private fun Slots.unpinning(shown: SidebarItem) {
 	when (shown) {
-		is SidebarItem.Pinned, is SidebarItem.Own, SidebarItem.Trash, SidebarItem.System ->
+		is SidebarItem.Pinned, is SidebarItem.Own, SidebarItem.Trash, SidebarItem.System,
+		SidebarItem.Recents,
+		->
 			slot("builtin.unpin") {
 				item("Unpin from sidebar", BrowserEvent.Unpinned(shown), id = "builtin.unpin")
 			}

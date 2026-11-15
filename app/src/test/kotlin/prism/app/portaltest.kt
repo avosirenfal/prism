@@ -2,6 +2,7 @@ package prism.app
 
 import java.nio.file.Files
 import java.nio.file.Path
+import java.time.Instant
 import kotlin.io.path.createDirectories
 import kotlin.io.path.writeText
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -10,12 +11,17 @@ import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
+import prism.browser.AppKey
+import prism.browser.Asker
 import prism.browser.Choosing
+import prism.browser.RecentFolders
 import prism.browser.TypeFilter
+import prism.desktop.Application
 import prism.desktop.FileTypes
 import prism.desktop.MimeType
 import prism.desktop.freedesktop.Xdg
 import prism.explorer.Answered
+import prism.portal.AppId
 import prism.portal.Asked
 import prism.portal.Choice
 import prism.portal.ChoiceOption
@@ -54,7 +60,7 @@ class PortalTest {
 		}
 
 	private fun request(asked: Asked, parent: Parent = Parent.None) =
-		ChooserRequest("org.example.App", parent, asked)
+		ChooserRequest(AppId.of("org.example.App"), parent, asked)
 
 	private fun opening(
 		multiple: Boolean = false,
@@ -64,6 +70,100 @@ class PortalTest {
 		folder: Path? = null,
 		label: String? = null,
 	) = Asked.Opening("", label, emptyList(), multiple, directory, filters, current, folder)
+
+	@Test
+	fun aPickerOpensWhereItIsTold_OrWhereItsApplicationWasLastAnswered_OrAtHome() {
+		val app = AppKey.of("org.example.App")!!
+		val named = root.resolve("named").createDirectories()
+		val own = root.resolve("own").createDirectories()
+		val any = root.resolve("any").createDirectories()
+		val gone = root.resolve("gone")
+
+		val recents =
+			RecentFolders()
+				.used(listOf(own), app, Instant.parse("2026-11-12T09:00:00Z"))
+				.used(listOf(gone), app, Instant.parse("2026-11-12T09:30:00Z"))
+				.used(
+					listOf(any),
+					AppKey.of("org.example.Other"),
+					Instant.parse("2026-11-12T10:00:00Z"),
+				)
+
+		fun start(asked: Asked, who: AppKey?, of: RecentFolders = recents) =
+			startOf(asked, who, of, root)
+
+		// Told where: there, whoever asks and whatever was used; a save over a file, in that file's folder.
+		assertEquals(named, start(opening(folder = named), app))
+		assertEquals(named, start(opening(folder = named), null))
+		assertEquals(
+			named,
+			start(
+				Asked.Saving(
+					"",
+					null,
+					emptyList(),
+					emptyList(),
+					null,
+					null,
+					null,
+					named.resolve("a.txt"),
+				),
+				app,
+			),
+		)
+		// Not told: where the application was last answered that is still there.
+		assertEquals(own, start(opening(), app))
+		assertEquals(
+			own,
+			start(Asked.SavingMany("", null, emptyList(), null, listOf("a.txt")), app),
+		)
+		// An application nobody can tell: where any application last was.
+		assertEquals(any, start(opening(), null))
+		// One answered nowhere yet, or with nothing kept: at home, as ever.
+		assertEquals(root, start(opening(), AppKey.of("org.example.New")))
+		assertEquals(root, start(opening(), app, RecentFolders()))
+		assertEquals(root, start(opening(), null, RecentFolders()))
+		// Told a folder that is not there: as if it had not been told.
+		assertEquals(own, start(opening(folder = gone), app))
+
+		// And the picker made for the request opens there, for whoever asked.
+		val asker = Asker(app, "Example")
+		val asking = askingOf(request(opening()), types, root, recents, asker)
+
+		assertEquals(own, asking.folder)
+		assertEquals(asker, asking.asker)
+		assertEquals(root, askingOf(request(opening()), types, root).folder)
+	}
+
+	@Test
+	fun whoAskedIsCalledWhatItsDesktopEntryCallsIt_AndByItsIdWhereItHasNone() {
+		fun application(id: String, name: String, wmClass: String? = null) =
+			Application(id, name, emptySet(), listOf(id), inTerminal = false, wmClass = wmClass)
+
+		val installed =
+			listOf(
+				application("org.mozilla.firefox.desktop", "Firefox"),
+				application("gimp.desktop", "GNU Image Manipulation Program", wmClass = "Gimp-2.10"),
+			)
+
+		assertEquals(
+			Asker(AppKey.of("org.mozilla.firefox")!!, "Firefox"),
+			askerOf(AppId.of("org.mozilla.firefox")) { installed },
+		)
+		// As a unit's name gives it: in another case, or as its windows' class.
+		assertEquals("Firefox", askerOf(AppId.of("org.mozilla.Firefox")) { installed }?.name)
+		assertEquals(
+			"GNU Image Manipulation Program",
+			askerOf(AppId.of("gimp-2.10")) { installed }?.name,
+		)
+		assertEquals(
+			Asker(AppKey.of("com.example.Unknown")!!, "com.example.Unknown"),
+			askerOf(AppId.of("com.example.Unknown")) { installed },
+		)
+		// The portal says nothing of an application it cannot tell: nobody asked.
+		assertEquals(null, AppId.of(""))
+		assertEquals(null, askerOf(AppId.of("")) { installed })
+	}
 
 	@Test
 	fun whatIsAskedIsWhatThePickerChooses() {

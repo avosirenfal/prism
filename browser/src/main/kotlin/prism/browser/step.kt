@@ -165,6 +165,14 @@ fun step(state: BrowserState, input: Input): Step =
 private fun did(state: BrowserState, event: BrowserEvent): Step =
 	when (event) {
 		is BrowserEvent.Opened -> state.went(event.path)
+		is BrowserEvent.Revealed ->
+			state.rows[event.row]
+				?.path
+				?.let { path ->
+					path.parent?.let {
+						state.went(it, Landing.On(RowId(path.fileName.toString()), choose = true))
+					}
+				} ?: Step(state)
 		BrowserEvent.Back -> state.back()
 		BrowserEvent.Forward -> state.forward()
 		BrowserEvent.Up -> state.folder?.parent?.let { state.went(it) } ?: state.upWithin()
@@ -299,6 +307,15 @@ private fun did(state: BrowserState, event: BrowserEvent): Step =
 				state.reread()
 			else
 				state.shown(Location.Trash, History(state.history.back + state.at, emptyList()), null)
+		BrowserEvent.OpenedRecents ->
+			if (state.at == Location.Recents)
+				state.reread()
+			else
+				state.shown(
+					Location.Recents,
+					History(state.history.back + state.at, emptyList()),
+					null,
+				)
 		BrowserEvent.OpenedSystem ->
 			if (state.system != null)
 				state.reread()
@@ -338,8 +355,14 @@ private fun did(state: BrowserState, event: BrowserEvent): Step =
 					listOf(Effect.Copy(event.paths.joinToString("\n"))),
 			)
 		is BrowserEvent.Searched -> Step(state.rearranged(query = event.query))
+		// On the Recents page, the newest files are the newest the filter admits: asked for again.
 		is BrowserEvent.Filtered ->
-			Step(state.rearranged(offered = state.offered.using(event.filter)))
+			state.rearranged(offered = state.offered.using(event.filter)).let {
+				if (it.at == Location.Recents)
+					it.reread()
+				else
+					Step(it)
+			}
 		is BrowserEvent.Named ->
 			Step(
 				state.copy(chose = state.choosing.named(event.text)),
@@ -425,6 +448,7 @@ private fun did(state: BrowserState, event: BrowserEvent): Step =
 					is SidebarItem.Own -> state.sidebar.quick.showing(item.builtin, false)
 					SidebarItem.Trash -> state.sidebar.quick.showing(Builtin.Trash, false)
 					SidebarItem.System -> state.sidebar.quick.showing(Builtin.System, false)
+					SidebarItem.Recents -> state.sidebar.quick.showing(Builtin.Recents, false)
 					is SidebarItem.Pinned -> state.sidebar.quick.unpinning(item.path)
 					is SidebarItem.Drive -> state.sidebar.quick
 				},
@@ -560,6 +584,7 @@ internal fun BrowserState.reread(landing: Landing? = null): Step =
 			)
 		// What it shows stays until the new read arrives.
 		is Location.System -> Step(this, listOf(Effect.ReadStorage))
+		Location.Recents -> Step(this, listOf(readingRecents()))
 	}
 
 private fun BrowserState.back(): Step =
@@ -626,8 +651,16 @@ internal fun BrowserState.shown(to: Location, history: History, landing: Landing
 				left.copy(at = to.copy(storage = null)),
 				listOf(Effect.ReadStorage),
 			)
+		Location.Recents -> Step(left, listOf(left.readingRecents()))
 	}
 }
+
+/**
+ * The read of the Recents page, for this window: the folders of the application it is a picker for, and the newest
+ * files its filter of names admits; none, for a picker of folders, which shows no files.
+ */
+private fun BrowserState.readingRecents(): Effect.ReadRecents =
+	Effect.ReadRecents(asker, typeFilter.takeUnless { choosing is Choosing.Folder })
 
 /**
  * [finding]'s results in the listing, nothing of them read on disk yet: few enough, every one read at once, the best
@@ -1188,6 +1221,12 @@ private fun answered(state: BrowserState, answer: Answer): Step =
 				Step(state.arrived(answer.read))
 			else
 				Step(state)
+		// Shown where the page still is, the cursor and what is chosen staying where the new read still has them.
+		is Answer.RecentsRead ->
+			if (state.at == Location.Recents)
+				Step(state.relisted(Listing.Recent(answer.page)).copy(landing = null))
+			else
+				Step(state)
 		// The System page lists no files: once read, there is nothing more to wait for.
 		is Answer.StorageRead ->
 			state.system?.let {
@@ -1265,6 +1304,11 @@ private fun BrowserState.broke(asking: Effect.Asking, fault: Fault): Step {
 				Step(arrived(unread))
 			else
 				Step(this)
+		is Effect.ReadRecents ->
+			if (at == Location.Recents)
+				Step(arrived(unread))
+			else
+				Step(this)
 		is Effect.ListPlace -> listed(asking.placed, PlaceListing.Failed(fault.said))
 		is Effect.Look ->
 			if (asking.lookup == waiting)
@@ -1338,6 +1382,7 @@ internal fun failingOf(asking: Effect.Asking): String =
 		is Effect.Make -> failingOf(asking.change, asking.doing)
 		is Effect.Erase -> "Couldn't delete ${erasedOf(asking.erasing)}"
 		Effect.ReadTrash -> "Couldn't read the trash"
+		is Effect.ReadRecents -> "Couldn't read recent files and folders"
 		Effect.ReadStorage -> "Couldn't read this computer's storage"
 		is Effect.Search -> "Couldn't search for “${asking.text}”"
 		is Effect.Stat -> "Couldn't read the sizes and dates of the results"

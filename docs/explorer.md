@@ -109,12 +109,12 @@ title at the top and close with their own buttons or Escape.
 
 ## Quick access, and preferences every window shares
 
-The sidebar's quick access is the user's preference, not a window's. It holds prism's own places (the System page, the
-home folder, its well-known folders, and the trash) and the folders the user pinned, in the user's order
+The sidebar's quick access is the user's preference, not a window's. It holds prism's own places (the Recents page, the
+System page, the home folder, its well-known folders, and the trash) and the folders the user pinned, in the user's order
 (`QuickAccess`, in `preferences/quick.kt`). Prism's own are always in it, each once: the user hides one, and moves it,
 but cannot remove it, so a place a later version adds reaches every user's list, where prism's own order puts it among
-those there (before the first of prism's own that comes after it: the System page before the home folder, wherever the
-user put that). That is kept by construction: a
+those there (before the first of prism's own that comes after it: the Recents page before whichever of prism's own
+the user has first). That is kept by construction: a
 `QuickAccess` is made only by `QuickAccess.of`, which drops what is named twice and adds what is left out, whatever a
 file says. A folder's menu pins it ("Pin to sidebar"); the menu of something quick access shows takes it off ("Unpin
 from sidebar": a folder pinned is unpinned, and one of prism's own hidden from it). A picker's sidebar leaves out the trash,
@@ -163,6 +163,10 @@ defaults; an action named with an empty list has no chord at all. `terminal` is 
 otherwise the terminal chosen, in one of the forms "Choosing the terminal" (below) shows. A file that does not read as
 preferences leaves every default in place, and is copied beside itself with `.unreadable` after its name before
 anything is written over it, so nothing written by hand is lost.
+
+Recents, first in quick access, is the page docs/picker.md describes ("Recents"). In the explorer it shows the
+newest files the index saw made and the folders pickers were lately answered from, for every application together;
+the explorer itself records nothing there.
 
 ## The System page
 

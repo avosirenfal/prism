@@ -24,13 +24,17 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import prism.browser.Actions
+import prism.browser.AppKey
+import prism.browser.Asker
 import prism.browser.BrowserEvent
 import prism.browser.Choosing
 import prism.browser.Disk
 import prism.browser.JvmDisk
 import prism.browser.Listing
 import prism.browser.MemoryFileClipboard
+import prism.browser.Outcome
 import prism.browser.Request
+import prism.browser.RowId
 import prism.browser.Search
 import prism.browser.Start
 import prism.browser.Target
@@ -465,6 +469,67 @@ class ExplorerTest {
 			// A window already closed that is said to have failed (its last frame, say) changes nothing.
 			explorer.failed(properties, IllegalStateException("late"))
 			assertEquals(listOf(settings), explorer.windows.value)
+		}
+
+	@Test
+	fun aPickerIsForTheApplicationThatAsked_AndTheFolderItIsAnsweredFromIsKeptForIt() =
+		explored { explorer, _, _ ->
+			root
+				.resolve("docs")
+				.createDirectories()
+				.resolve("a.txt")
+				.writeText("a")
+
+			val asker = Asker(AppKey.of("org.example.App")!!, "Example")
+
+			val asking =
+				Asking(
+					"Open",
+					Choosing.OneFile(),
+					root.resolve("docs"),
+					listOf(TypeFilter.ALL_FILES),
+					asker = asker,
+				)
+
+			coroutineScope {
+				val answer = async { explorer.choose(asking) }
+
+				val picker =
+					explorer.windows
+						.first { windows -> windows.any { it is ExplorerWindow.Picking } }
+						.filterIsInstance<ExplorerWindow.Picking>()
+						.single()
+
+				picker.session.state.first { it.listing is Listing.Shown }
+				assertEquals(asker, picker.session.state.value.asker)
+				picker.session.send(BrowserEvent.Activated(RowId("a.txt")))
+
+				assertEquals(
+					Outcome.Chosen(listOf(root.resolve("docs/a.txt"))),
+					answer.await().outcome,
+				)
+			}
+
+			// Written behind the answer: there a moment after it.
+			while (explorer.recents
+					.read()
+					.all.folders
+					.isEmpty()
+				)
+				delay(10)
+			assertEquals(
+				listOf(root.resolve("docs")),
+				explorer.recents
+					.read()
+					.all.folders,
+			)
+			assertEquals(
+				listOf(root.resolve("docs")),
+				explorer.recents
+					.read()
+					.of(asker.app)
+					.folders,
+			)
 		}
 
 	@Test

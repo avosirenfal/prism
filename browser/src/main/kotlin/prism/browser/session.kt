@@ -254,6 +254,13 @@ class Session(
 			is Effect.Finish -> {
 				(effect.outcome as? Outcome.Chosen)?.let { chosen ->
 					services.finder?.let { scope.launch(io) { it.picked(chosen.paths, clock()) } }
+
+					// A picker answered: the folders it was answered from are the latest used, by whoever asked.
+					val state = latest.get()
+					val folders = foldersUsed(chosen.paths, state.choosing)
+
+					if (folders.isNotEmpty())
+						scope.launch(io) { services.recents.used(folders, state.asker?.app, clock()) }
 				}
 				ending.complete(effect.outcome)
 			}
@@ -348,7 +355,7 @@ private fun refusedOf(asking: Effect.Asking, why: String): Answer? =
 		is Effect.Scratch -> Answer.Ran(Job(asking.pending.action.label, emptyList()), why)
 		is Effect.Temp -> Answer.Ran(Job(asking.carried.pending.action.label, emptyList()), why)
 		is Effect.Look, Effect.ReadStorage, is Effect.Search, is Effect.Stat, is Effect.Born,
-		is Effect.Order, is Effect.ReadClip,
+		is Effect.Order, is Effect.ReadClip, is Effect.ReadRecents,
 		-> null
 	}
 

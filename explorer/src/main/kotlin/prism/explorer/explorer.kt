@@ -21,6 +21,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import prism.browser.Asker
 import prism.browser.BrowserEvent
 import prism.browser.Choosing
 import prism.browser.Disk
@@ -29,7 +30,9 @@ import prism.browser.Finder
 import prism.browser.FolderWatcher
 import prism.browser.Landing
 import prism.browser.Location
+import prism.browser.MemoryRecents
 import prism.browser.Outcome
+import prism.browser.RecentStore
 import prism.browser.Request
 import prism.browser.RowId
 import prism.browser.Search
@@ -220,6 +223,8 @@ data class Asking(
 	val acceptLabel: String? = null,
 	/** The X11 window of the application that asked, which the picker is a dialog of. */
 	val parent: Long? = null,
+	/** The application that asked, where the desktop could tell which: whose recent folders the picker shows. */
+	val asker: Asker? = null,
 ) {
 	init {
 		require(filters.isNotEmpty()) { "a picker offers at least one filter" }
@@ -271,6 +276,8 @@ class Explorer(
 	},
 	/** What the launcher has started, and how lately: kept in memory alone, unless a file's is given. */
 	private val launches: LaunchStore = MemoryLaunches(),
+	/** The folders pickers were lately answered from: kept in memory alone, unless a file's is given. */
+	val recents: RecentStore = MemoryRecents(),
 ) {
 	/** What a search is asked of: the launcher's, as every window's. */
 	private val finder = finder
@@ -287,6 +294,7 @@ class Explorer(
 			preferences,
 			watcher = watcher,
 			report = report,
+			recents = recents,
 		)
 
 	/** What the user's actions are decided by: the types of files, the programs installed. */
@@ -609,7 +617,12 @@ class Explorer(
 				zoom = zoomOf(preferences.preferences.value, Role.Picker),
 				search = search,
 				filter = asking.filter,
-			).let { step -> Step(step.state.copy(acceptLabel = asking.acceptLabel), step.effects) }
+			).let { step ->
+				Step(
+					step.state.copy(acceptLabel = asking.acceptLabel, asker = asking.asker),
+					step.effects,
+				)
+			}
 
 		val picking =
 			ExplorerWindow.Picking(
@@ -763,6 +776,7 @@ class Explorer(
 						is Location.Place -> at.placed.title
 						Location.Trash -> "Trash"
 						is Location.System -> "System"
+						Location.Recents -> "Recents"
 					}
 				is ExplorerWindow.Picking -> window.title
 				is ExplorerWindow.Properties -> propertiesTitleOf(window.paths)

@@ -10,6 +10,7 @@ import prism.index.Index
 import prism.index.Results
 import prism.index.SearchContext
 import prism.index.Searched
+import prism.index.Sighting
 import prism.index.Usage
 import prism.index.Where
 import prism.index.query.Flag
@@ -41,6 +42,12 @@ interface Finder {
 
 	/** [paths] were given to the application at [at]: what ranks them, and the folders they came from, higher. */
 	fun picked(paths: List<Path>, at: Instant)
+
+	/**
+	 * The [count] files the index saw made last whose names [named] takes, the newest first ([Index.newestFiles]):
+	 * none, of an index that keeps no such thing.
+	 */
+	fun newest(count: Int, named: (String) -> Boolean): List<Sighting> = emptyList()
 }
 
 /**
@@ -60,6 +67,9 @@ class StaticFinder(
 	override fun picked(paths: List<Path>, at: Instant) {
 		usage.updateAndGet { it.picked(paths.map(Where::of), at) }
 	}
+
+	override fun newest(count: Int, named: (String) -> Boolean): List<Sighting> =
+		index.newestFiles(count, named)
 }
 
 /**

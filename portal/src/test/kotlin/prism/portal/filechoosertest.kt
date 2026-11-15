@@ -130,7 +130,7 @@ class FileChooserTest {
 			val request = asked.await()
 			val opening = request.asked as Asked.Opening
 
-			assertEquals("org.example.App", request.appId)
+			assertEquals(AppId.of("org.example.App"), request.app)
 			assertEquals(Parent.X11(0x1a2b), request.parent)
 			assertEquals("Open a picture", opening.title)
 			assertEquals("Open it", opening.acceptLabel)

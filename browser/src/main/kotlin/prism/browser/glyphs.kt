@@ -90,6 +90,9 @@ enum class Glyph {
 	/** A question mark in a ring: how something is done. */
 	Help,
 
+	/** A clock's face: what is recent, the Recents page. */
+	Recents,
+
 	/** A drive that plugs in: a USB stick, a card. */
 	Removable,
 
@@ -274,6 +277,10 @@ fun DrawScope.drawGlyph(
 				topLeft = at(unit, 6f, 6f),
 				size = Size(12f * unit, 12f * unit),
 			)
+		}
+		Glyph.Recents -> {
+			drawCircle(tint, 8.5f * unit, at(unit, 12f, 12f), style = line(unit))
+			stroked(unit, tint, listOf(12f to 7.5f, 12f to 12f, 15.2f to 14f))
 		}
 		Glyph.Removable -> {
 			drawRoundRect(

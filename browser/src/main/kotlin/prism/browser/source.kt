@@ -195,6 +195,10 @@ data class Services(
 	val report: (String, Throwable) -> Unit = { doing, failure ->
 		System.err.println("prism: $doing failed: ${failure.stackTraceToString().trimEnd()}")
 	},
+	/** The folders pickers were lately answered from: in memory alone, unless whoever runs the browser keeps a file. */
+	val recents: RecentStore = MemoryRecents(),
+	/** What time it is: when a picker was answered, and what "5 minutes ago" is counted from. */
+	val clock: () -> java.time.Instant = java.time.Instant::now,
 ) {
 	/** What conditions are decided by: the desktop's types, the `PATH`, and the disk. */
 	val world: World by lazy { SystemWorld(home, desktop?.types) }
@@ -260,6 +264,7 @@ fun Services.answer(
 		is Effect.Make -> Answer.Changed(asking.change, disk.make(asking.change), asking.doing)
 		is Effect.Erase -> Answer.Erased(asking.erasing, disk.erase(asking.erasing))
 		Effect.ReadTrash -> Answer.TrashRead(disk.trash())
+		is Effect.ReadRecents -> Answer.RecentsRead(recentPage(asking))
 		Effect.ReadStorage ->
 			Answer.StorageRead(desktop?.storage?.read() ?: Storage(emptyList()))
 		is Effect.Search ->
@@ -697,7 +702,7 @@ private fun rowOf(entry: TrashEntry): Row {
 }
 
 /** One entry as a row, its symlink followed for what it is and left as it is otherwise; null if it vanished. */
-private fun rowOf(entry: Path): Row? {
+internal fun rowOf(entry: Path): Row? {
 	val own =
 		try {
 			Files.readAttributes(entry, BasicFileAttributes::class.java, LinkOption.NOFOLLOW_LINKS)

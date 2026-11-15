@@ -478,7 +478,8 @@ private fun Toolbar(state: BrowserState, stops: Stops, onEvent: (BrowserEvent) -
 			state.layout,
 			{ it.name },
 			tag = "layout",
-			enabled = state.system == null,
+			// Nor is the Recents page's list of sections drawn as a gallery.
+			enabled = state.system == null && state.at != Location.Recents,
 			focusable = false,
 			glyph = {
 				when (it) {
@@ -534,6 +535,7 @@ private fun AddressBar(
 				is Location.Place -> PlaceBar(at, modifier, onEvent)
 				Location.Trash -> TrashBar(modifier)
 				is Location.System -> SystemBar(modifier)
+				Location.Recents -> RecentsBar(modifier)
 			}
 		is Address.Editing -> {
 			Field(
@@ -737,6 +739,14 @@ private fun SystemBar(modifier: Modifier) {
 	}
 }
 
+/** In place of the path, that the window shows the Recents page: files and folders of many places, on no one path. */
+@Composable
+private fun RecentsBar(modifier: Modifier) {
+	Bar(Glyph.Recents, modifier.testTag("recents-bar")) {
+		Text("Recents", style = LocalType.current.strong, maxLines = 1)
+	}
+}
+
 /**
  * In place of the path, where in a place the window is: what the place is called, then each folder of it gone into, as
  * steps to click, as a path's are.
@@ -823,6 +833,7 @@ private fun SidebarPane(
 		when (item) {
 			SidebarItem.Trash -> state.inTrash
 			SidebarItem.System -> state.system != null
+			SidebarItem.Recents -> state.at == Location.Recents
 			else -> item.path == state.folder
 		}
 
@@ -960,11 +971,12 @@ private fun PlaceRow(
 	}
 }
 
-/** What going to [item], something the sidebar shows, is: the trash, the System page, or a folder. */
+/** What going to [item], something the sidebar shows, is: one of prism's pages, or a folder. */
 internal fun openingOf(item: SidebarItem): BrowserEvent =
 	when (item) {
 		SidebarItem.Trash -> BrowserEvent.OpenedTrash
 		SidebarItem.System -> BrowserEvent.OpenedSystem
+		SidebarItem.Recents -> BrowserEvent.OpenedRecents
 		is SidebarItem.Own -> BrowserEvent.Opened(item.path)
 		is SidebarItem.Pinned -> BrowserEvent.Opened(item.path)
 		is SidebarItem.Drive -> BrowserEvent.Opened(item.path)
@@ -975,6 +987,7 @@ internal fun glyphOf(item: SidebarItem): Glyph =
 	when (item) {
 		SidebarItem.Trash -> Glyph.Trash
 		SidebarItem.System -> Glyph.System
+		SidebarItem.Recents -> Glyph.Recents
 		is SidebarItem.Own -> glyphOf(item.place.kind)
 		is SidebarItem.Pinned -> glyphOf(item.place.kind)
 		is SidebarItem.Drive -> glyphOf(item.place.kind)
@@ -992,6 +1005,7 @@ internal fun glyphOf(builtin: Builtin): Glyph =
 		Builtin.Videos -> Glyph.Videos
 		Builtin.Trash -> Glyph.Trash
 		Builtin.System -> Glyph.System
+		Builtin.Recents -> Glyph.Recents
 	}
 
 private fun glyphOf(kind: Place.Kind): Glyph =
@@ -1039,7 +1053,10 @@ private fun ListingPane(
 	val cursor = state.cursor?.at
 	val cursorAt = cursor?.let(rows::indexOf)
 	val query = state.arrangement.query
-	val gallery = state.layout == Layout.Gallery
+	// The Recents page, where that is what is shown: its rows under their sections' headings, as a list always.
+	val recent = (state.listing as? Listing.Recent)?.page
+	val paged = state.at == Location.Recents
+	val gallery = state.layout == Layout.Gallery && !paged
 	// The rows as large as the listing's type makes them, and Ctrl and the wheel zooming from there.
 	val zoom = state.scale
 	val rowHeight = rowHeightOf(LocalRows.current, LocalType.current) * zoom
@@ -1551,24 +1568,29 @@ private fun ListingPane(
 	) {
 		// The columns as wide as the rows' room shares out, or as their least where that is more: the rows are then
 		// wider than the listing, and they and their headings scroll across together.
-		val layout =
-			layoutOf(
-				columns,
-				maxWidth - LIST_INSET * 2 - Dims.scrollbarRoom,
-				dates,
-				character,
-				beforeName,
-			)
+		val room = maxWidth - LIST_INSET * 2 - Dims.scrollbarRoom
+		// How wide the Recents page's last column is: what says when, in a few words.
+		val ago = character * RECENT_AGO_CHARACTERS + Dims.cell * 2
 
-		val wide = layout.row + LIST_INSET * 2 + Dims.scrollbarRoom
+		val layout =
+			if (paged)
+				layoutOf(RECENT_COLUMNS, room - ago, dates, character, beforeName)
+			else
+				layoutOf(columns, room, dates, character, beforeName)
+
+		val wide =
+			layout.row + LIST_INSET * 2 + Dims.scrollbarRoom + if (paged) ago else 0.dp
 		val sideways = wide > maxWidth
 
 		Column(Modifier.fillMaxSize()) {
-			if (gallery)
-				SortHeadings(state, menus, onEvent)
-			else
-				ColumnHeadings(state, layout, wide, across, menus, onEvent)
-			Line(palette.divider)
+			// The Recents page's rows are in its own order, under its own headings: there is none to choose.
+			if (!paged) {
+				if (gallery)
+					SortHeadings(state, menus, onEvent)
+				else
+					ColumnHeadings(state, layout, wide, across, menus, onEvent)
+				Line(palette.divider)
+			}
 
 			Box(
 				Modifier
@@ -1603,7 +1625,7 @@ private fun ListingPane(
 								?: "Can't open this folder",
 							listing.why,
 						)
-					is Listing.Shown, is Listing.Found ->
+					is Listing.Shown, is Listing.Found, is Listing.Recent ->
 						when {
 							rows.isEmpty() -> {
 								val none = state.entryCount == 0
@@ -1611,12 +1633,14 @@ private fun ListingPane(
 								Message(
 									when {
 										query.isNotBlank() || listing is Listing.Found -> Glyph.Search
+										none && listing is Listing.Recent -> Glyph.Recents
 										none -> Glyph.Folder
 										else -> Glyph.Filter
 									},
 									when {
 										query.isNotBlank() -> "No matches for “$query”"
 										none && listing is Listing.Found -> "No results for “${listing.finding.text}”"
+										none && listing is Listing.Recent -> "No recent files or folders"
 										none && state.place != null -> "Nothing here"
 										none -> "This folder is empty"
 										else -> "No items shown"
@@ -1663,26 +1687,40 @@ private fun ListingPane(
 										) {
 											items(rows.size, key = rows::idAt, contentType = { "row" }) { index ->
 												val row = rows[index]
+												// What the Recents page says of the row: its section, and when.
+												val mark = recent?.marks?.get(row.id)
 
-												EntryRow(
-													row,
-													columns = columns,
-													home = state.home,
-													layout = layout,
-													dates = dates,
-													chosen = row.id in chosen,
-													cursor = felt.ringed && row.id == cursor,
+												RecentSlot(
+													mark,
+													before = recent?.marks?.get(rows.idAt((index - 1).coerceAtLeast(0))),
+													first = index == 0,
 													zoom = zoom,
-													renamed = renaming?.takeIf { it.row == row.id }?.text,
-													stops = stops,
-													onPress = { press(row.id, it) },
-													onRelease = { release(row.id) },
-													onEvent = onEvent,
-													modifier = dragging(row),
-													// The row's menu over its name, and the space after it in the name's column; the other
-													// columns are the listing's, whose menu is the folder's.
-													nameMenu = Modifier.contextMenu(menus) { held -> menuOf(row, held) },
-												)
+												) {
+													EntryRow(
+														row,
+														columns = if (mark == null) columns else RECENT_COLUMNS,
+														home = state.home,
+														layout = layout,
+														dates = dates,
+														chosen = row.id in chosen,
+														cursor = felt.ringed && row.id == cursor,
+														zoom = zoom,
+														renamed = renaming?.takeIf { it.row == row.id }?.text,
+														stops = stops,
+														onPress = { press(row.id, it) },
+														onRelease = { release(row.id) },
+														onEvent = onEvent,
+														modifier = dragging(row),
+														// The row's menu over its name, and the space after it in the name's column; the
+														// other columns are the listing's, whose menu is the folder's.
+														nameMenu = Modifier.contextMenu(menus) { held -> menuOf(row, held) },
+														quiet = mark?.stale == true,
+														trailing =
+															recent?.takeIf { mark != null }?.let { page ->
+																{ RecentAgo(mark!!.at, page.read, ago, zoom) }
+															},
+													)
+												}
 											}
 										}
 									}
@@ -2524,6 +2562,10 @@ private fun EntryRow(
 	onEvent: (BrowserEvent) -> Unit,
 	modifier: Modifier = Modifier,
 	nameMenu: Modifier = Modifier,
+	/** Its name drawn as what is said about it is: a row of less account than those above it. */
+	quiet: Boolean = false,
+	/** What is drawn after its columns, in the row: what a page of its own says of each of its rows. */
+	trailing: (@Composable RowScope.() -> Unit)? = null,
 ) {
 	val palette = LocalPalette.current
 	val type = LocalType.current
@@ -2532,7 +2574,13 @@ private fun EntryRow(
 	val hovered by hover.collectIsHoveredAsState()
 	val pressed by rememberUpdatedState(onPress)
 	val shape = RoundedCornerShape(Radius.medium)
-	val body = type.body.times(zoom)
+	val body =
+		type.body.times(zoom).let {
+			if (quiet)
+				it.copy(color = palette.textMuted)
+			else
+				it
+		}
 	val muted = type.muted.times(zoom)
 	val background =
 		when {
@@ -2641,6 +2689,7 @@ private fun EntryRow(
 					)
 			}
 		}
+		trailing?.invoke(this)
 	}
 }
 

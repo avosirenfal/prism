@@ -14,6 +14,7 @@ import prism.daemon.LiveIndex
 import prism.daemon.LiveSearch
 import prism.index.SearchContext
 import prism.index.Searched
+import prism.index.Sighting
 import prism.index.Usage
 import prism.index.UsageFile
 import prism.index.Where
@@ -65,6 +66,9 @@ internal class LiveFinder(
 			is LiveSearch.Found -> Searched.Found(found.results)
 		}
 	}
+
+	override fun newest(count: Int, named: (String) -> Boolean): List<Sighting> =
+		live.index.newestFiles(count, named)
 
 	override fun picked(paths: List<Path>, at: Instant) {
 		val now = usage.updateAndGet { it.picked(paths.map(Where::of), at) }

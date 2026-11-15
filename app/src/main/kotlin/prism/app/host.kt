@@ -33,6 +33,8 @@ import prism.browser.BrowserState
 import prism.browser.Finder
 import prism.browser.JvmDisk
 import prism.browser.JvmFolderWatcher
+import prism.browser.RecentStore
+import prism.browser.RecentsFile
 import prism.browser.Search
 import prism.browser.SystemFileClipboard
 import prism.cli.Args
@@ -91,6 +93,10 @@ internal data class Hosting(
 	/** What a search searches; none where there is no index. */
 	val finder: Finder? = null,
 )
+
+/** The folders pickers were lately answered from, where every prism of the session keeps them. */
+internal fun recentFolders(): RecentStore =
+	RecentsFile(stateFolder().resolve("recent-folders"), Report::problem)
 
 /** How long a prism's windows last. */
 internal enum class Lasting {
@@ -355,6 +361,7 @@ internal class Windows(
 							JvmFolderWatcher,
 							Report::problem,
 							LaunchFile(stateFolder().resolve("launches"), Report::problem),
+							recentFolders(),
 						)
 					}
 
@@ -590,7 +597,14 @@ internal fun serveOnBus(
 			bus
 				.serveFileChooser(scope) { request ->
 					windows.with { explorer ->
-						val asking = askingOf(request, desktop.types, home)
+						val asking =
+							askingOf(
+								request,
+								desktop.types,
+								home,
+								explorer.recents.read(),
+								askerOf(request.app) { desktop.applications.all() },
+							)
 
 						pickedOf(request, asking, explorer.choose(asking), desktop.types)
 					}

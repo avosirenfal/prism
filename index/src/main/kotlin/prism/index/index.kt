@@ -353,6 +353,21 @@ class Index private constructor(
 	}
 
 	/**
+	 * The [count] newest files a person would know as their own, the newest first ([newest]): files, neither hidden
+	 * nor inside a hidden folder (what programs keep for themselves), whose names [named] takes. A name is asked of
+	 * only for a file new enough to be among them, so a filter of names costs little over a large index.
+	 */
+	fun newestFiles(count: Int, named: (String) -> Boolean = { true }): List<Sighting> =
+		newest(count) { entry ->
+			entry.kind == Kind.File &&
+				!entry.where.dotted &&
+				entry.where.path
+					?.fileName
+					?.toString()
+					?.let(named) == true
+		}
+
+	/**
 	 * The index as one block a root, made again from what is held now, without what is hidden. It holds the same
 	 * entries as this index, each seen when it was, and a search of it finds the same.
 	 */

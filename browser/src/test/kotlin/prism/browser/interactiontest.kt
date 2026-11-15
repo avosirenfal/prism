@@ -859,6 +859,15 @@ class InteractionTest {
 					.shows(Builtin.Music),
 			)
 
+			// The trash, last of them, is past what the window has room for: scrolled to, as the wheel does.
+			onNodeWithTag("quick:Music").performMouseInput {
+				moveTo(center)
+				scroll(40f)
+				// The pointer away again, for the finger that drags an entry further on.
+				exit()
+			}
+			waitForIdle()
+
 			// Moved, it is moved in what the sidebar shows from.
 			val trashWas =
 				session.state.value.sidebar.quick.items

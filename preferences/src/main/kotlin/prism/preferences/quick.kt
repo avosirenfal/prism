@@ -9,8 +9,8 @@ import kotlinx.serialization.encoding.Decoder
 import kotlinx.serialization.encoding.Encoder
 
 /*
- * The sidebar's quick access: prism's own places (the system's drives, the home folder, its well-known folders, the
- * trash) and the folders the user pinned, in the user's order. Prism's own are always there, each once: the user shows
+ * The sidebar's quick access: prism's own places (what is recent, the system's drives, the home folder, its well-known
+ * folders, the trash) and the folders the user pinned, in the user's order. Prism's own are always there, each once: the user shows
  * or hides one, and moves it, but cannot remove it, so a place this version adds is in every user's list without
  * asking, where prism's own order puts it among those already there.
  */
@@ -18,6 +18,9 @@ import kotlinx.serialization.encoding.Encoder
 /** A place prism itself offers in quick access, in the order it offers them. */
 @Serializable
 enum class Builtin {
+	/** What was lately made, and the folders lately picked from: the Recents page. */
+	Recents,
+
 	/** The machine's drives, and how full each is: the System page. */
 	System,
 	Home,
@@ -111,8 +114,8 @@ class QuickAccess private constructor(
 		/**
 		 * [items], each of prism's own places once (the first of any named twice) and each folder once, with any of
 		 * prism's own left out added, shown, where prism's own order puts it: before the first of prism's own there
-		 * that comes after it in that order, or at the end where none does. The System page, first of them, goes
-		 * before the home folder, wherever the user put that.
+		 * that comes after it in that order, or at the end where none does. The Recents page, first of them, goes
+		 * before whichever of prism's own the user has first.
 		 */
 		fun of(items: List<QuickItem>): QuickAccess {
 			val distinct =

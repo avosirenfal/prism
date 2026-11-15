@@ -37,6 +37,11 @@ sealed interface BrowserEvent : Input {
 		val path: Path,
 	) : BrowserEvent
 
+	/** A row's folder gone to, the row chosen in it: "Show in folder", of a row that is not in the folder shown. */
+	data class Revealed(
+		val row: RowId,
+	) : BrowserEvent
+
 	/** Back: the toolbar's button, Alt+Left, or the mouse's back button. */
 	data object Back : BrowserEvent
 
@@ -290,6 +295,9 @@ sealed interface BrowserEvent : Input {
 	/** The trash shown: every trash's entries together. */
 	data object OpenedTrash : BrowserEvent
 
+	/** The Recents page asked for: from the sidebar. Asked for where it is shown, it is read again. */
+	data object OpenedRecents : BrowserEvent
+
 	/** The System page shown: the machine's drives, and how full each is. */
 	data object OpenedSystem : BrowserEvent
 
@@ -532,6 +540,11 @@ sealed interface Answer : Input {
 	/** Every trash's entries, read for the trash's window. */
 	data class TrashRead(
 		val read: Listing.Read,
+	) : Answer
+
+	/** What the Recents page shows, as it was read. */
+	data class RecentsRead(
+		val page: RecentPage,
 	) : Answer
 
 	/** The machine's storage, read for the System page. */
@@ -1083,6 +1096,15 @@ sealed interface Effect {
 
 	/** Every trash's entries read, and sent back as [Answer.TrashRead]. */
 	data object ReadTrash : Asking
+
+	/**
+	 * The Recents page read, and sent back as [Answer.RecentsRead]: the recent folders, [asker]'s own among them,
+	 * and the newest files that [files] admits; no files at all, where it is null (a picker of folders).
+	 */
+	data class ReadRecents(
+		val asker: Asker?,
+		val files: TypeFilter?,
+	) : Asking
 
 	/** The machine's storage read, and sent back as [Answer.StorageRead]. */
 	data object ReadStorage : Asking

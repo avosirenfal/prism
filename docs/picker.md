@@ -161,6 +161,45 @@ what is chosen where it is still there.
 When a folder is gone to, the state says where the cursor lands once its rows arrive (`Landing`). Going up lands it on
 the folder you came from, so that going down again is Enter.
 
+### Recents
+
+![The Recents page in a picker Firefox asked for](picker-recents.png)
+
+"Recents", first in quick access, is a page of what was lately made and where pickers were lately used
+(`recents.kt`, `recentsview.kt`). It has up to three sections, each left out when it has nothing to show:
+
+- **New files**: the ten newest files the index saw made (the stamps `new:` asks about, `Index.newestFiles`): files
+  only, not hidden and not inside a hidden folder, and only those the picker's filter of names admits. A folder
+  picker shows none. Nothing of this is stored: each time the page is read (as it opens, on Refresh, when the filter
+  changes) the index is asked for its 100 newest, and the first ten of them that still exist on disk are shown, so a
+  file a program wrote and deleted again never takes one of the ten places. Where fewer than ten of the hundred are
+  left, twice as many are asked for, until there are ten or the index has no more. Without an index (no daemon), the
+  section is not there.
+- **Recent folders in <application>**: the folders this application's pickers were last answered from.
+- **Recent folders**: the folders any application's were, without those already listed for this one.
+
+Each row says where it is and when: when the index saw a file made, when a folder was last used ("5 minutes ago",
+"Yesterday", "12 days ago", then a date). Within a section, rows more than ten days older than that section's newest
+(not than today) come after a thin line and are drawn quieter. The rows are the listing's own rows: selected, opened,
+dragged, renamed and given a menu as a folder's are (the menu adds "Show in folder", which a search's results have
+too); a folder is gone into, and a file is opened, chosen, or asked to be replaced, as the picker is for. The page is
+always a list, in its own order.
+
+**Which application is asking** is the portal's `app_id` (`AppId`, in `portal/filechooser.kt`). The portal gives none
+for a program it cannot identify, and `prism pick` has none: such a picker is nobody's, shows "Recent folders" alone,
+and is recorded in that list alone. The name in the heading is the desktop entry's (`askerOf`, in `app/chooser.kt`).
+
+**What is recorded**: when a picker is accepted, the folder of what was chosen (the folder itself for a folder
+picker, each file's folder otherwise) goes to the front of both lists, with the time. A picker cancelled records
+nothing, and the explorer records nothing. Each list keeps ten folders, each once (`RecentList`). They are kept in
+`$XDG_STATE_HOME/prism/recent-folders`, a line a use (the time in milliseconds, the application or nothing, the
+folder, between tabs); every prism writes the one file, under a lock on `recent-folders.lock`, whole and renamed
+over. A folder that no longer exists is not shown, and is dropped the next time the file is written.
+
+**Where a picker opens** (`startOf`, in `app/chooser.kt`): in the folder the application names, where it exists;
+otherwise in the folder that application was last answered from that still exists (for a picker that is nobody's,
+the one any application was); otherwise in the home folder.
+
 ## What the listing shows: the filters
 
 ![The filter menu, images and videos chosen](picker-filters.png)
@@ -754,6 +793,11 @@ list by one row, not a page, and a row far away is scrolled to directly (never b
   system held in memory. Every rule above has a test there, the filters' among them.
 - **The thumbnails** (`ThumbnailTest`): real image files scaled to fit and not up, kept, made again once changed or
   drawn larger, and nothing made of what is not an image.
+- **Recents** (`RecentsTest`): the lists' bound, order and one-of-each; both lists written by a use and read back
+  from the file, by several writers at once; where a picker opens; the newest files of an index built for the test,
+  and ten shown when the newest ninety-five have been deleted; the page's sections, and what is stale in each; the
+  page opened, come back to, its rows opened and saved over; a picker's folder recorded when it is accepted and not
+  when it is cancelled; and the page drawn, in both palettes.
 - **The menus** (`MenuTest`): what each target's menu offers, what each item does and shows as on, and the builder's
   separators.
 - **The disk** (`DiskTest`): renaming never onto something there, and undone by renaming back; a folder made only

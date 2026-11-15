@@ -65,6 +65,11 @@ sealed interface RowId {
 		val bin: Path,
 		val name: String,
 	) : RowId
+
+	/** A row of the Recents page, by where it is on disk: its rows are of many folders, and may share a name. */
+	data class Recent(
+		val path: Path,
+	) : RowId
 }
 
 /** The entry of the folder shown named [name]: how the folder's rows are known. */
@@ -675,6 +680,22 @@ sealed interface Listing {
 
 		override fun toString(): String = "Found(${matches.size} results, $stats)"
 	}
+
+	/**
+	 * The Recents page's rows ([RecentPage]): shown in the page's own order, section after section, whatever order
+	 * the window's folders are in, and narrowed as a folder's are.
+	 *
+	 * A listing is equal only to itself.
+	 */
+	class Recent(
+		val page: RecentPage,
+	) : Listing {
+		private val arranged = Memo<Arrangement, Rows> { Rows(page.rows.filter(it::admits)) }
+
+		fun rows(arrangement: Arrangement): Rows = arranged(arrangement)
+
+		override fun toString(): String = "Recent($page)"
+	}
 }
 
 /** Where the picker is: in a folder, or among a search's results, which it shows as if a folder held them all. */
@@ -724,6 +745,9 @@ sealed interface Location {
 
 	/** The trash: every trash's entries, the home trash's and each drive's, together. */
 	data object Trash : Location
+
+	/** The Recents page: the files lately made, and the folders pickers were lately answered from. */
+	data object Recents : Location
 
 	/**
 	 * The System page: the machine's drives, what is on each and how full it is, as [storage] says, as it was last
@@ -1027,6 +1051,12 @@ sealed interface SidebarItem {
 		override val path: Path? get() = null
 	}
 
+	/** The Recents page: what was lately made, and where pickers were lately answered from. */
+	data object Recents : SidebarItem {
+		override val label: String get() = "Recents"
+		override val path: Path? get() = null
+	}
+
 	/** A drive. */
 	data class Drive(
 		val place: Place,
@@ -1087,11 +1117,12 @@ data class Sidebar(
 	/** Whether quick access shows [path]. */
 	fun shows(path: Path): Boolean = shown.any { it.path == path }
 
-	/** The item [builtin] is: the trash, the System page, or one of prism's own folders where it is there; null where not. */
+	/** The item [builtin] is: one of prism's pages, or one of its own folders where it is there; null where not. */
 	private fun itemOf(builtin: Builtin): SidebarItem? =
 		when (builtin) {
 			Builtin.Trash -> SidebarItem.Trash
 			Builtin.System -> SidebarItem.System
+			Builtin.Recents -> SidebarItem.Recents
 			else -> known[builtin]?.let { SidebarItem.Own(builtin, it) }
 		}
 
@@ -1293,6 +1324,8 @@ data class BrowserState(
 	val acceptLabel: String? = null,
 	/** Whether the window that arranges quick access is open over the browser. */
 	val arrangingQuick: Boolean = false,
+	/** The application the picker is for, where the desktop could tell which: whose recent folders are its own. */
+	val asker: Asker? = null,
 	/** What was last read of the marks given, for a copy that changes none of them to be given again. */
 	private val marked: Marked = Marked(),
 ) {
@@ -1343,6 +1376,8 @@ data class BrowserState(
 				is Location.Place -> Where.Place(at.placed, at.within)
 				Location.Trash -> Where.Trash
 				is Location.System -> Where.System
+				// Files and folders of anywhere, as a search's results are: what is done to those is done to these.
+				Location.Recents -> Where.Results
 			}
 
 	/** Whether the trash is shown. */
@@ -1368,6 +1403,8 @@ data class BrowserState(
 				Location.Trash -> ListingKind.Trash
 				// It lists no files: as far as how a listing would look goes, it is a folder's, which it never draws.
 				is Location.System -> ListingKind.Folder
+				// Its rows are in its own order and drawn its own way: narrowed as a folder's are, and no more.
+				Location.Recents -> ListingKind.Folder
 			}
 
 	/** How what it shows looks: its order and its columns. */
@@ -1413,6 +1450,7 @@ data class BrowserState(
 				is Location.Place -> at.within.lastOrNull() ?: at.placed.title
 				Location.Trash -> "Trash"
 				is Location.System -> "System"
+				Location.Recents -> "Recents"
 			}
 
 	/** The rows chosen, in the order they are shown. */
@@ -1433,6 +1471,7 @@ data class BrowserState(
 			when (val listing = listing) {
 				is Listing.Shown -> listing.entries.size
 				is Listing.Found -> listing.matches.size
+				is Listing.Recent -> listing.page.rows.size
 				Listing.Reading, is Listing.Unreadable -> 0
 			}
 
@@ -1513,6 +1552,7 @@ fun rowsOf(listing: Listing, arrangement: Arrangement): Rows =
 	when (listing) {
 		is Listing.Shown -> listing.rows(arrangement)
 		is Listing.Found -> listing.rows(arrangement)
+		is Listing.Recent -> listing.rows(arrangement)
 		is Listing.Reading, is Listing.Unreadable -> Rows.NONE
 	}
 
