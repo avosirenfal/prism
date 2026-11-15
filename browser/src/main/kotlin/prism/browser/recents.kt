@@ -1,14 +1,14 @@
 package prism.browser
 
 import androidx.compose.runtime.Immutable
-import java.io.IOException
 import java.nio.file.Files
+import java.nio.file.InvalidPathException
 import java.nio.file.Path
 import java.time.Duration
 import java.time.Instant
-import java.util.concurrent.atomic.AtomicReference
-import prism.linux.WholeFile
 import prism.preferences.RecentSection
+import prism.shared.Format
+import prism.shared.Stored
 
 /*
  * What is recent: the folders pickers were lately answered from, for every application together and for each one
@@ -145,110 +145,109 @@ data class RecentFolders(
 	}
 }
 
-/** Where the recent folders are kept: read as they are wanted, and added to as a picker is answered. */
-interface RecentStore {
-	/** The folders as they are now, whoever wrote them last. */
-	fun read(): RecentFolders
+/**
+ * Where the recent folders are kept: a value kept in a file ([Stored]), or in memory alone, read as it is wanted and
+ * added to as a picker is answered. Each use is added to the file as it then is, so that every prism of the session
+ * (the daemon's pickers, and a picker run on its own) keeps the others' uses; folders that are gone ([there] says
+ * which are not) are left out of what is kept from then on.
+ */
+class RecentStore private constructor(
+	private val kept: Stored<RecentFolders>,
+	private val there: (Path) -> Boolean,
+) {
+	/** The folders as they are now. */
+	fun read(): RecentFolders = kept.value.value
 
 	/** [folders] were what a picker for [app] was answered from, at [at]. */
-	fun used(folders: List<Path>, app: AppKey?, at: Instant)
-}
-
-/** Recent folders kept in memory alone: a browser run without a file of them, and the tests. */
-class MemoryRecents(
-	first: RecentFolders = RecentFolders(),
-) : RecentStore {
-	private val held = AtomicReference(first)
-
-	override fun read(): RecentFolders = held.get()
-
-	override fun used(folders: List<Path>, app: AppKey?, at: Instant) {
-		held.updateAndGet { it.used(folders, app, at) }
-	}
-}
-
-/**
- * Recent folders kept in [file]: a line a use, the millisecond it was at, the application it was by (nothing, for the
- * list of every application's), and the folder, between tabs. Every prism of the session writes the one file (the
- * daemon's pickers, and a picker run on its own), so it is read each time it is asked for, and a use is added to what
- * the file holds then, under a lock on a file beside it, and written whole, beside it and renamed over: no writer
- * loses another's use, and no reader finds half a file. Folders that are gone are left out of what is written.
- *
- * A file that cannot be read is no folders; one that cannot be written loses that use, and says so to [report].
- */
-class RecentsFile(
-	private val file: Path,
-	private val report: (String, Throwable) -> Unit = { _, _ -> },
-) : RecentStore {
-	override fun read(): RecentFolders = read(file)
-
-	override fun used(folders: List<Path>, app: AppKey?, at: Instant) {
-		try {
-			// One writer at a time, here and among processes: what is added to is the file as it is now.
-			WholeFile.locked(file) {
-				write(file, read(file).used(folders, app, at).without { !Files.isDirectory(it) })
-			}
-		} catch (failed: IOException) {
-			report("keeping the folders lately used in $file", failed)
-		}
+	fun used(folders: List<Path>, app: AppKey?, at: Instant) {
+		kept.update { used(folders, app, at).without { !there(it) } }
 	}
 
 	companion object {
-		fun read(file: Path): RecentFolders =
-			try {
-				val uses =
-					Files.readAllLines(file).mapNotNull { line ->
-						val parts = line.split('\t', limit = 3)
-						val at = parts.getOrNull(0)?.toLongOrNull()
-						val folder = parts.getOrNull(2)?.takeIf { it.startsWith("/") }
+		/** Recent folders kept in memory alone: a browser run without a file of them, and the tests. */
+		fun inMemory(first: RecentFolders = RecentFolders()): RecentStore =
+			RecentStore(Stored.inMemory(first)) { true }
 
-						if (at == null || folder == null)
+		/**
+		 * Recent folders kept in [file] ([RecentFormat]). A file that cannot be read is no folders; one that cannot
+		 * be written is said to [report], and the use is kept for as long as this prism runs.
+		 */
+		fun inFile(file: Path, report: (String, Throwable) -> Unit = { _, _ -> }): RecentStore =
+			RecentStore(
+				Stored.of(file, RecentFormat) {
+					report("keeping the folders lately used in $file", it)
+				},
+				Files::isDirectory,
+			)
+	}
+}
+
+/** Recent folders kept in memory alone. */
+@Suppress("FunctionName")
+fun MemoryRecents(first: RecentFolders = RecentFolders()): RecentStore =
+	RecentStore.inMemory(first)
+
+/** Recent folders kept in [file]. */
+@Suppress("FunctionName")
+fun RecentsFile(
+	file: Path,
+	report: (String, Throwable) -> Unit = { _, _ -> },
+): RecentStore = RecentStore.inFile(file, report)
+
+/**
+ * Recent folders as a file: a line a use, the millisecond it was at, the application it was by (nothing, for the
+ * list of every application's), and the folder, between tabs. A line that does not say a use is left out.
+ */
+val RecentFormat: Format<RecentFolders> =
+	Format.lines(
+		RecentFolders(),
+		read = { lines ->
+			val uses =
+				lines.mapNotNull { line ->
+					val parts = line.split('\t', limit = 3)
+					val at = parts.getOrNull(0)?.toLongOrNull()
+					val folder = parts.getOrNull(2)?.takeIf { it.startsWith("/") }
+
+					if (at == null || folder == null)
+						null
+					else
+						try {
+							AppKey.of(parts[1]) to
+								Recent(Path.of(unescaped(folder)), Instant.ofEpochMilli(at))
+						} catch (unspellable: InvalidPathException) {
 							null
-						else
-							AppKey.of(parts[1]) to Recent(Path.of(unescaped(folder)), Instant.ofEpochMilli(at))
-					}
+						}
+				}
 
-				RecentFolders(
-					RecentList.of(uses.filter { it.first == null }.map { it.second }),
-					uses
-						.mapNotNull { (app, recent) -> app?.let { it to recent } }
-						.groupBy({ it.first }, { it.second })
-						.mapValues { RecentList.of(it.value) },
-				)
-			} catch (missing: IOException) {
-				RecentFolders()
-			} catch (unspellable: java.nio.file.InvalidPathException) {
-				RecentFolders()
-			}
-
-		/** [folders] written to [file] whole ([WholeFile]). */
-		fun write(file: Path, folders: RecentFolders) {
+			RecentFolders(
+				RecentList.of(uses.filter { it.first == null }.map { it.second }),
+				uses
+					.mapNotNull { (app, recent) -> app?.let { it to recent } }
+					.groupBy({ it.first }, { it.second })
+					.mapValues { RecentList.of(it.value) },
+			)
+		},
+		written = { folders ->
 			fun lines(app: AppKey?, list: RecentList): List<String> =
 				list.entries.map {
 					"${it.at.toEpochMilli()}\t${app?.id.orEmpty()}\t${escaped(it.folder.toString())}"
 				}
 
-			WholeFile.replace(
-				file,
-				lines(null, folders.all) + folders.apps.flatMap { (app, list) -> lines(app, list) },
-			)
-		}
+			lines(null, folders.all) + folders.apps.flatMap { (app, list) -> lines(app, list) }
+		},
+	)
 
-		// A folder's name can hold a new line, which would end its line here: written as two characters.
-		private fun escaped(path: String): String =
-			path.replace("\\", "\\\\").replace("\n", "\\n")
+// A folder's name can hold a new line, which would end its line here: written as two characters.
+private fun escaped(path: String): String =
+	path.replace("\\", "\\\\").replace("\n", "\\n")
 
-		private fun unescaped(text: String): String =
-			Regex("""\\(.)""").replace(text) {
-				if (it.groupValues[1] ==
-					"n"
-				)
-					"\n"
-				else
-					it.groupValues[1]
-			}
+private fun unescaped(text: String): String =
+	Regex("""\\(.)""").replace(text) {
+		if (it.groupValues[1] == "n")
+			"\n"
+		else
+			it.groupValues[1]
 	}
-}
 
 /**
  * The folders [chosen] were picked from, as a picker that is [choosing] was answered with them: a folder picker's

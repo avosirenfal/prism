@@ -140,13 +140,21 @@ change as it is made: a window never reads the file, and nothing reads it again 
 the running prism's, so a folder pinned in the explorer is in the next picker's sidebar too, and in any picker
 already open. A file changed by hand while prism runs is read the next time prism starts.
 
-A change is written at once, and whole: to another name in the same folder, flushed to the disk, and renamed over the
-file (`WholeFile`, `linux/whole.kt`, which writes every file prism rewrites: this one, `usage.prism`, `launches`,
-`recent-folders`, the index's snapshots and what it keeps of unmounted file systems, `mimeapps.list`). Whenever prism
-is killed or the power goes, the file is the old one or the new one. A window run as a process of its own
-(`--isolated`, or with no prism running) has its own store, and is not told what the running prism changes, nor the
-running prism what it does; but neither undoes the other's changes, since each change is made to the file as it is
-when it is written (read, changed and written under a lock, `preferences.json.lock`), not to what the process last
+The store is a `Stored<Preferences>` (`shared/stored.kt`): a value kept in a file, which is what every file prism
+rewrites is (this one, `usage.prism`, `launches`, `recent-folders`, what the index keeps of unmounted file systems;
+`mimeapps.list` and what the portal reads are `OnDisk`, the same thing not held; the index's own snapshots are a
+`Snapshot`). Such a value has one way to be changed, `update { … }`, given the change as a lambda with the value as
+its receiver (`preferences.update { arranging(quick) }`), and that does all of it: it takes the file's lock, reads the
+file as it is, makes the change to that, writes the result whole (to another name in the same folder, flushed to the
+disk, and renamed over the file), and hands it to every window. So no caller can write without reading, read outside
+the lock, leave half a file, or change a setting and not say so; and whenever prism is killed or the power goes, the
+file is the old one or the new one. What a file's bytes say is its `Format`'s (`PreferenceFormat`, JSON); a file that
+cannot be read is every default meanwhile, and is copied beside itself (`.unreadable`) before anything is written
+over it, which is so of every stored file.
+
+A window run as a process of its own (`--isolated`, or with no prism running) has its own store, and is not told what
+the running prism changes, nor the running prism what it does; but neither undoes the other's changes, since each
+change is made to the file as it is when it is written (under `preferences.json.lock`), not to what the process last
 read.
 
 ```json

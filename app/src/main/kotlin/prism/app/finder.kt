@@ -19,6 +19,7 @@ import prism.index.Usage
 import prism.index.UsageFile
 import prism.index.Where
 import prism.index.query.Query
+import prism.shared.Stored
 
 /**
  * What a window of the daemon's searches: the daemon's own index, as it is at the moment of each search, so a file
@@ -26,21 +27,19 @@ import prism.index.query.Query
  * for it, and waits for that a little ([patience]) before it answers, so that the first search of such a place finds
  * what is in it rather than nothing.
  *
- * What is picked ranks higher from then on, in every window, and is written to the usage's [file] as it is picked, so
+ * What is picked ranks higher from then on, in every window, and is written to the usage's file as it is picked, so
  * that it does after the daemon is started again too.
  */
 internal class LiveFinder(
 	private val live: LiveIndex,
 	private val home: Path,
-	usage: Usage,
-	/** Where the usage is kept; null to keep it in memory alone. */
-	private val file: Path?,
+	/** What was picked, and where it is kept ([UsageFile.open]), or kept in memory alone. */
+	private val usage: Stored<Usage>,
 	private val patience: Duration = 5.seconds,
 ) : Finder {
-	private val usage = AtomicReference(usage)
-
 	override fun find(query: Query): Searched {
-		fun searched() = live.search(query, SearchContext(home = home, usage = usage.get()))
+		fun searched() =
+			live.search(query, SearchContext(home = home, usage = usage.value.value))
 
 		val first = searched()
 
@@ -71,12 +70,6 @@ internal class LiveFinder(
 		live.index.newestFiles(count, named)
 
 	override fun picked(paths: List<Path>, at: Instant) {
-		val now = usage.updateAndGet { it.picked(paths.map(Where::of), at) }
-
-		try {
-			file?.let { UsageFile.write(it, now.pruned(at)) }
-		} catch (failed: IOException) {
-			Report.problem("writing what was picked to $file failed", failed)
-		}
+		usage.update { picked(paths.map(Where::of), at).pruned(at) }
 	}
 }

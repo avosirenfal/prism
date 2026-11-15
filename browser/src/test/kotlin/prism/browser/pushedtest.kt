@@ -15,7 +15,13 @@ import org.junit.jupiter.api.io.TempDir
 import prism.desktop.freedesktop.XdgPlaces
 import prism.index.query.AliasName
 import prism.preferences.PreferenceFile
+import prism.preferences.PreferenceFormat
+import prism.preferences.Preferences
 import prism.preferences.RecentSection
+import prism.shared.Format
+import prism.shared.Parsed
+import prism.shared.Stored
+import prism.shared.orElse
 
 /**
  * How a window learns that a setting changed: it is handed the change by the one store its process has of the
@@ -30,11 +36,21 @@ class PushedTest {
 	fun twoWindowsOnOneStoreAreBothGivenAChangeOneOfThemMakes_AndNeitherReadsTheFile() {
 		val reads = AtomicInteger()
 
-		val store =
-			PreferenceFile.open(root.resolve("config/preferences.json")) {
-				reads.incrementAndGet()
-				PreferenceFile.read(it)
+		val file = root.resolve("config/preferences.json")
+
+		val counting =
+			object : Format<Preferences> by PreferenceFormat {
+				override fun read(bytes: ByteArray): Parsed<Preferences> {
+					reads.incrementAndGet()
+
+					return PreferenceFormat.read(bytes)
+				}
 			}
+
+		// With a file there from the first, so that each read of it is one the format is asked to make sense of.
+		PreferenceFile.open(file).update { this }
+
+		val store = Stored.of(file, counting)
 
 		val services = Services(JvmDisk(), preferences = store, home = root)
 		val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -67,7 +83,7 @@ class PushedTest {
 					)
 
 					// And one made by neither (a settings window's, of the same store): both are given it.
-					store.update { it.copy(aliases = mapOf("docs" to "ext:pdf")) }
+					store.update { copy(aliases = mapOf("docs" to "ext:pdf")) }
 
 					val docs = checkNotNull(AliasName.of("docs"))
 
@@ -82,8 +98,9 @@ class PushedTest {
 			assertEquals(
 				setOf(RecentSection.NewFiles),
 				PreferenceFile
-					.read(store.file)
-					.preferences.recentsCollapsed,
+					.read(file)
+					.orElse(Preferences.DEFAULT)
+					.recentsCollapsed,
 			)
 		} finally {
 			scope.cancel()

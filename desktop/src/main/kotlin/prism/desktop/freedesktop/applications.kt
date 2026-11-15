@@ -10,7 +10,9 @@ import prism.desktop.Application
 import prism.desktop.Applications
 import prism.desktop.FileTypes
 import prism.desktop.MimeType
-import prism.linux.WholeFile
+import prism.shared.Format
+import prism.shared.OnDisk
+import prism.shared.Writers
 
 /*
  * Applications as freedesktop.org's specifications say them. Each data folder's `applications/` holds desktop entries,
@@ -126,29 +128,21 @@ class DesktopEntries(
 	}
 
 	override fun setDefault(type: MimeType, application: Application) {
-		val file = xdg.configHome.resolve("mimeapps.list")
-		val text =
-			try {
-				Files.readString(file)
-			} catch (missing: IOException) {
-				""
-			}
+		// The desktop's file, and every program's that sets a default: changed as it is at that moment, and no
+		// more of it than the two lines.
+		OnDisk(xdg.configHome.resolve("mimeapps.list"), Format.TEXT, Writers.Anyone).update {
+			val added =
+				itemsOf(KeyFile.parse(this)["Added Associations"][type.name]).filter {
+					it != application.id
+				}
 
-		val added =
-			itemsOf(KeyFile.parse(text)["Added Associations"][type.name]).filter {
-				it !=
-					application.id
-			}
-
-		val updated =
 			withKey(
-				withKey(text, "Default Applications", type.name, application.id),
+				withKey(this, "Default Applications", type.name, application.id),
 				"Added Associations",
 				type.name,
 				(listOf(application.id) + added).joinToString(";", postfix = ";"),
 			)
-
-		write(file, updated)
+		}
 	}
 
 	/** [text] (a key file) with [key] in [group] set to [value]: the line replaced, or added to the group, or both. */
@@ -179,8 +173,6 @@ class DesktopEntries(
 
 		return lines.joinToString("\n", postfix = "\n")
 	}
-
-	private fun write(file: Path, text: String) = WholeFile.replace(file, text)
 
 	/** The entries read again: an application installed or removed meanwhile is seen. */
 	override fun reread() {

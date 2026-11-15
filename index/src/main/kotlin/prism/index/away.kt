@@ -10,8 +10,10 @@ import kotlin.io.path.exists
 import kotlin.io.path.isDirectory
 import kotlin.io.path.listDirectoryEntries
 import kotlin.io.path.name
-import kotlin.io.path.readLines
-import prism.linux.WholeFile
+import prism.shared.Format
+import prism.shared.OnDisk
+import prism.shared.Stored
+import prism.shared.orElse
 
 /**
  * A file system's tree, kept while the file system is not mounted: which it is, where it was mounted, when it was
@@ -64,15 +66,7 @@ class Away private constructor(
 		try {
 			Files.createDirectories(folder)
 			IndexFile.write(treeOf(folder, volume), Index.of(setOf(tree.root), listOf(tree)))
-			WholeFile.replace(
-				noteOf(folder, volume),
-				listOf(
-					volume.text,
-					hex(tree.root.bytes),
-					at.epochSecond.toString(),
-					tree.size.toString(),
-				),
-			)
+			OnDisk(noteOf(folder, volume), NOTE_FORMAT).update { kept }
 		} catch (unwritten: IOException) {
 			forget(volume)
 		}
@@ -104,46 +98,23 @@ class Away private constructor(
 	fun expire(before: Instant): List<Kept> =
 		kept.filter { it.since.isBefore(before) }.onEach { forget(it.volume) }
 
-	/** What was last noted, for an index with no file to note it beside. */
-	private var noted: Map<Where, VolumeId> = emptyMap()
+	/**
+	 * What was last noted ([note]): kept in a file in the folder, for an index that has one, and held all the same
+	 * where it cannot be written.
+	 */
+	private val noted: Stored<Map<Where, VolumeId>> =
+		folder?.let { Stored.of(it.resolve(MOUNTED), MOUNTED_FORMAT) {} }
+			?: Stored.inMemory(emptyMap())
 
 	/**
 	 * Which file system is mounted at each place the index holds one, as it was last noted ([note]): what says whose
 	 * tree is at a place once its file system is no longer there to ask.
 	 */
-	@Synchronized
-	fun mounted(): Map<Where, VolumeId> {
-		val file = (folder ?: return noted).resolve(MOUNTED)
-
-		return try {
-			file
-				.takeIf { it.exists() }
-				?.readLines()
-				.orEmpty()
-				.mapNotNull { line ->
-					line.split('\t').takeIf { it.size == 2 }?.let { (place, volume) ->
-						Where(unhex(place)) to VolumeId(volume)
-					}
-				}.toMap()
-		} catch (unread: IOException) {
-			emptyMap()
-		}
-	}
+	fun mounted(): Map<Where, VolumeId> = noted.value.value
 
 	/** [mounted] noted as which file system is at each place now. */
-	@Synchronized
 	fun note(mounted: Map<Where, VolumeId>) {
-		noted = mounted
-		if (folder == null)
-			return
-		try {
-			WholeFile.replace(
-				folder.resolve(MOUNTED),
-				mounted.map { (place, volume) -> "${hex(place.bytes)}\t${volume.text}" },
-			)
-		} catch (unwritten: IOException) {
-			Unit
-		}
+		noted.update { mounted }
 	}
 
 	private fun forget(volume: VolumeId) {
@@ -181,21 +152,55 @@ class Away private constructor(
 				.orEmpty()
 				.mapNotNull { note ->
 					val tree = note.resolveSibling(note.name.removeSuffix(NOTE) + TREE)
-					val lines = runCatching { note.readLines() }.getOrNull()
 
-					if (lines == null || lines.size < 4 || !tree.exists())
-						null
-					else
-						runCatching {
-							tree to
-								Kept(
-									VolumeId(lines[0]),
-									Where(unhex(lines[1])),
-									Instant.ofEpochSecond(lines[2].toLong()),
-									lines[3].toInt(),
-								)
-						}.getOrNull()
+					OnDisk(note, NOTE_FORMAT).read().orElse(null)?.takeIf { tree.exists() }?.let {
+						tree to it
+					}
 				}
+
+		/** Whose a kept tree is, as the few lines beside it: null for lines that do not say. */
+		private val NOTE_FORMAT: Format<Kept?> =
+			Format.lines(
+				null,
+				read = { lines ->
+					runCatching {
+						Kept(
+							VolumeId(lines[0]),
+							Where(unhex(lines[1])),
+							Instant.ofEpochSecond(lines[2].toLong()),
+							lines[3].toInt(),
+						)
+					}.getOrNull()
+				},
+				written = { kept ->
+					kept
+						?.let {
+							listOf(
+								it.volume.text,
+								hex(it.at.bytes),
+								it.since.epochSecond.toString(),
+								it.entries.toString(),
+							)
+						}.orEmpty()
+				},
+			)
+
+		/** Which file system is at each place, a line a place: its path in hex, a tab, and the file system. */
+		private val MOUNTED_FORMAT: Format<Map<Where, VolumeId>> =
+			Format.lines(
+				emptyMap(),
+				read = { lines ->
+					lines
+						.mapNotNull { line ->
+							line.split('\t').takeIf { it.size == 2 }?.let { (place, volume) ->
+								runCatching { Where(unhex(place)) to VolumeId(volume) }.getOrNull()
+							}
+						}.toMap()
+				},
+				written = { mounted ->
+					mounted.map { (place, volume) -> "${hex(place.bytes)}\t${volume.text}" }
+				},
+			)
 
 		private fun hex(bytes: ByteArray): String = bytes.joinToString("") { "%02x".format(it) }
 

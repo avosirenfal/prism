@@ -15,6 +15,7 @@ import prism.preferences.PreferenceStore
 import prism.preferences.Role
 import prism.preferences.Scales
 import prism.preferences.Typography
+import prism.preferences.preferences
 import prism.window.NativeWindow
 
 /**

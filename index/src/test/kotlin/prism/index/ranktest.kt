@@ -17,6 +17,8 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import prism.index.query.QueryBuilder
 import prism.index.query.query
+import prism.shared.Loaded
+import prism.shared.orElse
 
 /**
  * The order a search gives its results in, best first: by how each word matches the name, by how much the user has
@@ -468,15 +470,15 @@ class RankTest {
 	fun usageWrittenIsUsageReadAndAFileDamagedIsSaidToBe() {
 		val file = state.resolve("usage.prism")
 
-		assertEquals(UsageRead.Missing, UsageFile.read(file))
+		assertEquals(Loaded.Missing, UsageFile.read(file))
 
 		val usage =
 			Usage.NONE
 				.picked(listOf(where("docs/a.txt"), where("docs/b.txt")), now)
 				.picked(listOf(where("music")), now.plusSeconds(60))
 
-		UsageFile.write(file, usage)
-		assertEquals(UsageRead.Read(usage), UsageFile.read(file))
+		UsageFile.open(file).update { usage }
+		assertEquals(Loaded.Read(usage), UsageFile.read(file))
 
 		file.writeBytes(
 			file.toFile().readBytes().also {
@@ -484,7 +486,7 @@ class RankTest {
 					(it[it.size / 2] + 1).toByte()
 			},
 		)
-		assertInstanceOf(UsageRead.Unreadable::class.java, UsageFile.read(file))
-		assertEquals(Usage.NONE, UsageFile.read(file).usage)
+		assertInstanceOf(Loaded.Unreadable::class.java, UsageFile.read(file))
+		assertEquals(Usage.NONE, UsageFile.read(file).orElse(Usage.NONE))
 	}
 }

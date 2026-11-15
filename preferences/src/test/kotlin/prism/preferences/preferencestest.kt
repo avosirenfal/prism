@@ -2,7 +2,6 @@ package prism.preferences
 
 import java.nio.file.Files
 import java.nio.file.Path
-import java.util.concurrent.atomic.AtomicInteger
 import kotlin.io.path.exists
 import kotlin.io.path.readText
 import kotlin.io.path.writeText
@@ -11,17 +10,17 @@ import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertInstanceOf
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
-import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import prism.desktop.TerminalChoice
+import prism.shared.Loaded
+import prism.shared.orElse
 
 /**
  * The preferences: every default where nothing is set; written whole and read back as they were; a file written wrong
- * by hand left as it is until a change, then kept beside the new one; the file read as a store is made and as a
- * change is written, and never because it changed; and a change made to the file as it is, so that what another
- * process's store wrote is kept.
+ * by hand left as it is until a change, then kept beside the new one. How any value kept in a file is read, changed
+ * and written is prism.shared's to test (StoredTest); here is what is the preferences' own.
  */
 class PreferencesTest {
 	@TempDir
@@ -35,7 +34,7 @@ class PreferencesTest {
 			assertEquals(Preferences.DEFAULT, it.preferences.value)
 			assertNull(it.problem)
 		}
-		assertEquals(PreferencesRead.Missing, PreferenceFile.read(file))
+		assertEquals(Loaded.Missing, PreferenceFile.read(file))
 	}
 
 	@Test
@@ -56,7 +55,7 @@ class PreferencesTest {
 
 		PreferenceFile.open(file).update { set }
 
-		assertEquals(PreferencesRead.Read(set), PreferenceFile.read(file))
+		assertEquals(Loaded.Read(set), PreferenceFile.read(file))
 		// Defaults are written too, for the file to say what can be set.
 		assertTrue("\"quickAccess\"" in file.readText())
 		// And a binding put back to its default is no longer named.
@@ -75,7 +74,7 @@ class PreferencesTest {
 			assertEquals(Preferences.DEFAULT, store.preferences.value)
 			assertNotNull(store.problem)
 
-			store.update { it.arranging(QuickAccess.DEFAULT.pinning(Path.of("/srv"))) }
+			store.update { arranging(QuickAccess.DEFAULT.pinning(Path.of("/srv"))) }
 
 			assertNull(store.problem)
 			assertEquals(
@@ -83,7 +82,7 @@ class PreferencesTest {
 				file.resolveSibling("preferences.json.unreadable").readText(),
 			)
 		}
-		assertInstanceOf(PreferencesRead.Read::class.java, PreferenceFile.read(file))
+		assertInstanceOf(Loaded.Read::class.java, PreferenceFile.read(file))
 	}
 
 	@Test
@@ -93,7 +92,7 @@ class PreferencesTest {
 
 		assertEquals(
 			TerminalChoice.Named("kitty"),
-			PreferenceFile.read(file).preferences.terminal,
+			PreferenceFile.read(file).orElse(Preferences.DEFAULT).terminal,
 		)
 	}
 
@@ -107,7 +106,7 @@ class PreferencesTest {
 
 		val read = PreferenceFile.read(file)
 
-		assertInstanceOf(PreferencesRead.Read::class.java, read)
+		assertInstanceOf(Loaded.Read::class.java, read)
 		assertEquals(
 			LauncherPreferences(
 				width = LauncherWidth.of(LauncherWidth.range.last),
@@ -115,7 +114,7 @@ class PreferencesTest {
 				scale = LauncherScale.of(Scales.LARGEST),
 				fileResults = FileResults.of(1),
 			),
-			read.preferences.launcher,
+			read.orElse(Preferences.DEFAULT).launcher,
 		)
 		// One within them is as it was written, and is written as the plain number it is.
 		file.writeText("{ \"launcher\": { \"width\": 800, \"rows\": 12 } }")
@@ -123,9 +122,10 @@ class PreferencesTest {
 			800,
 			PreferenceFile
 				.read(file)
-				.preferences.launcher.width.number,
+				.orElse(Preferences.DEFAULT)
+				.launcher.width.number,
 		)
-		PreferenceFile.open(file).update { it.binding("Back", listOf("Alt+Left")) }
+		PreferenceFile.open(file).update { binding("Back", listOf("Alt+Left")) }
 		assertTrue("\"width\": 800" in file.readText())
 
 		// A step past the last stops at it, and says it is there.
@@ -156,7 +156,7 @@ class PreferencesTest {
 				"dates": "Iso", "scales": { "sidebar": 1.25 } }""",
 		)
 
-		val read = PreferenceFile.read(file).preferences
+		val read = PreferenceFile.read(file).orElse(Preferences.DEFAULT)
 		val folders = read.listings.look(Role.Explorer, ListingKind.Folder)
 		val columns = folders.columns(ListingKind.Folder)
 
@@ -213,97 +213,10 @@ class PreferencesTest {
 	}
 
 	@Test
-	fun aChangeIsMadeToTheFileAsItIs_SoWhatAnotherProcessWroteIsKept() {
-		// Two stores of one file, as two processes have: the prism that is running, and a window run on its own.
-		val one = PreferenceFile.open(file)
-		val other = PreferenceFile.open(file)
-
-		one.update { it.arranging(QuickAccess.DEFAULT.pinning(Path.of("/srv/media"))) }
-
-		// The other is not told, and reads nothing: it has what it began with.
-		assertNull(other.preferences.value.quickAccess)
-
-		// Its own change is made to the file as the first left it, not to what it began with: both are kept.
-		other.update { it.copy(terminal = TerminalChoice.Named("foot")) }
-
-		val written = PreferenceFile.read(file).preferences
-
-		assertEquals(listOf(Path.of("/srv/media")), written.quickAccess?.pins)
-		assertEquals(TerminalChoice.Named("foot"), written.terminal)
-		// Having written, it holds what it wrote, the first's change with its own.
-		assertEquals(written, other.preferences.value)
-
-		// And so back: the first's next change keeps the other's.
-		one.update { it.binding("Back", listOf("Alt+Left")) }
-		assertEquals(
-			written.binding("Back", listOf("Alt+Left")),
-			PreferenceFile.read(file).preferences,
-		)
-		assertEquals(PreferenceFile.read(file).preferences, one.preferences.value)
-		// Nothing is left of the writing but the file, and the lock its writers take.
-		assertEquals(
-			setOf("preferences.json", "preferences.json.lock"),
-			Files.list(file.parent).use { all ->
-				all.map { it.fileName.toString() }.toList().toSet()
-			},
-		)
-	}
-
-	@Test
-	fun theFileIsReadAsTheStoreIsMadeAndAsAChangeIsWritten_AndAtNoOtherTime() {
-		val reads = AtomicInteger()
-
-		val store =
-			PreferenceFile.open(file) {
-				reads.incrementAndGet()
-				PreferenceFile.read(it)
-			}
-
-		assertEquals(1, reads.get())
-
-		// Changed by hand while the store is open: nothing reads it, and every window has what it had.
-		Files.createDirectories(file.parent)
-		file.writeText("{ \"terminal\": \"kitty\" }")
-		Thread.sleep(300)
-		assertEquals(1, reads.get())
-		assertEquals(Preferences.DEFAULT, store.preferences.value)
-
-		// The next change is made to the file as it is, which is the one read there is; a store made then (prism
-		// started again) has it all.
-		store.update { it.binding("Back", listOf("Alt+Left")) }
-		assertEquals(2, reads.get())
-		assertEquals(TerminalChoice.Named("kitty"), store.preferences.value.terminal)
-		assertEquals(store.preferences.value, PreferenceFile.open(file).preferences.value)
-	}
-
-	@Test
-	fun aChangeThatCannotBeWrittenLeavesTheFileAndTheStoreAsTheyWere() {
-		val store = PreferenceFile.open(file)
-
-		store.update { it.copy(terminal = TerminalChoice.Named("foot")) }
-
-		val before = file.readText()
-
-		// The change itself fails, as the file is about to be written.
-		assertThrows(IllegalStateException::class.java) {
-			store.update { error("no such setting") }
-		}
-		assertEquals(before, file.readText())
-		assertEquals(TerminalChoice.Named("foot"), store.preferences.value.terminal)
-
-		// And one made after it is made as ever: the lock was let go.
-		store.update { it.copy(terminal = TerminalChoice.Named("kitty")) }
-		assertEquals(
-			TerminalChoice.Named("kitty"),
-			PreferenceFile.read(file).preferences.terminal,
-		)
-	}
-
-	@Test
 	fun preferencesInMemoryChangeAsAFile() {
 		val store = MemoryPreferences()
 
-		store.update { it.copy(terminal = TerminalChoice.Named("alacritty")) }
+		store.update { copy(terminal = TerminalChoice.Named("alacritty")) }
 		assertEquals(
 			TerminalChoice.Named("alacritty"),
 			store.preferences.value.terminal,

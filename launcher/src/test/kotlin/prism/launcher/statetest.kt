@@ -627,21 +627,6 @@ class LauncherStateTest {
 		assertEquals(2.0, read.weightOf("app:a.desktop", now), 1e-9)
 		assertEquals(1.0, read.weightOf("file:/home/a/with\ttab and space.txt", now), 1e-9)
 
-		// Two stores of the one file, as two processes have: each use is added to the file as it is, so neither
-		// writes over what the other kept.
-		val other = LaunchFile(file)
-
-		store.used("app:b.desktop", now)
-		other.used("app:c.desktop", now)
-
-		val both = LaunchFile(file).launches
-
-		assertEquals(1.0, both.weightOf("app:b.desktop", now), 1e-9)
-		assertEquals(1.0, both.weightOf("app:c.desktop", now), 1e-9)
-		assertEquals(2.0, both.weightOf("app:a.desktop", now), 1e-9)
-		// And the one that wrote last holds what the file holds, the other's uses with its own.
-		assertEquals(1.0, other.launches.weightOf("app:b.desktop", now), 1e-9)
-
 		// A file that is not launches is none, and is written over by the next use.
 		file.toFile().writeText("not\nlaunches\n")
 		assertEquals(Launches.NONE, LaunchFile(file).launches)

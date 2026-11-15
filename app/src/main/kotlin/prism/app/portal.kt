@@ -20,9 +20,11 @@ import prism.dbus.Opening
 import prism.desktop.MimeType
 import prism.desktop.freedesktop.Freedesktop
 import prism.desktop.freedesktop.Xdg
-import prism.linux.WholeFile
 import prism.portal.pathOf
 import prism.portal.showInFileManager
+import prism.shared.Format
+import prism.shared.OnDisk
+import prism.shared.Writers
 
 /*
  * `prism portal`: prism as the desktop's file chooser and file manager (docs/portal.md). `serve` is the process that
@@ -219,7 +221,7 @@ object PortalInstall : Command(
 		for ((path, text) in files) {
 			said += "wrote $path"
 			if (!args[dryRun])
-				WholeFile.replace(path, text)
+				put(path, text)
 		}
 
 		if (chooser) {
@@ -237,7 +239,7 @@ object PortalInstall : Command(
 				"set $CHOOSER_KEY=$BACKEND_NAME in $config" +
 				(line.before?.let { " (was $it)" } ?: "")
 			if (!args[dryRun])
-				WholeFile.replace(config, line.text)
+				put(config, line.text)
 		}
 
 		if (manager) {
@@ -261,7 +263,7 @@ object PortalInstall : Command(
 				installedFile(xdg).let { file ->
 					val kept = readInstalled(file)
 
-					WholeFile.replace(
+					put(
 						file,
 						Json.encodeToString(
 							Installed.serializer(),
@@ -316,7 +318,7 @@ object PortalUninstall : Command(
 							"removed $config (it only held prism's entry)"
 					}
 				else ->
-					WholeFile.replace(config, left).also {
+					put(config, left).also {
 						said +=
 							"removed prism's entry from $config"
 					}
@@ -344,4 +346,12 @@ object PortalUninstall : Command(
 
 		return Outcome(said.joinToString("\n"))
 	}
+}
+
+/**
+ * [file] made to say [text], whole: one of the files the portal and the desktop read, which are in their folders and
+ * not prism's, so no lock of prism's is left beside them.
+ */
+private fun put(file: Path, text: String) {
+	OnDisk(file, Format.TEXT, Writers.Anyone).update { text }
 }

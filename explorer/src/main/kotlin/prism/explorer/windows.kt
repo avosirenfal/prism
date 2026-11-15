@@ -66,6 +66,7 @@ import prism.preferences.DateFormat
 import prism.preferences.Preferences
 import prism.preferences.Typography
 import prism.preferences.WindowKind
+import prism.preferences.preferences
 import prism.window.Backdrop
 import prism.window.Graphics
 import prism.window.GraphicsReport
@@ -102,7 +103,7 @@ fun ExplorerWindows(explorer: Explorer, palette: Palette, decorated: Boolean) {
 	/** How large windows of [kind] are drawn, and what zooming one does: every one of its kind drawn so, from then on. */
 	fun zoomOf(kind: WindowKind): Zooming =
 		Zooming(preferences.scales.of(kind)) { scale ->
-			explorer.preferences.update { it.copy(scales = it.scales.with(kind, scale)) }
+			explorer.preferences.update { copy(scales = scales.with(kind, scale)) }
 		}
 
 	for (window in windows)

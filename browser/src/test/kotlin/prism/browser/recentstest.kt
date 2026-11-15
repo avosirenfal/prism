@@ -47,6 +47,8 @@ import prism.preferences.Preferences
 import prism.preferences.QuickAccess
 import prism.preferences.QuickItem
 import prism.preferences.RecentSection
+import prism.preferences.preferences
+import prism.shared.orElse
 
 /**
  * What is recent: the folders pickers were answered from (kept ten for every application and ten for each, the latest
@@ -913,10 +915,10 @@ class RecentsTest {
 		// And kept in the file, as it was: read back, the same.
 		val file = root.resolve("config/preferences.json")
 
-		PreferenceFile.write(file, preferences.preferences.value)
+		PreferenceFile.open(file).update { preferences.preferences.value }
 		assertEquals(
 			setOf(RecentSection.Application),
-			PreferenceFile.read(file).preferences.recentsCollapsed,
+			PreferenceFile.read(file).orElse(Preferences.DEFAULT).recentsCollapsed,
 		)
 		assertTrue("\"application\"" in Files.readString(file))
 

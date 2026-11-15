@@ -57,6 +57,7 @@ import prism.desktop.Applications
 import prism.desktop.FileTypes
 import prism.desktop.Launched
 import prism.desktop.MimeType
+import prism.preferences.preferences
 
 /*
  * Choosing an application: to open files with ("Open with…"), or to make the one that opens a type (the properties'

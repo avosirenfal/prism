@@ -19,6 +19,7 @@ import prism.client.Sought
 import prism.index.IndexFile
 import prism.index.IndexRead
 import prism.index.Searched
+import prism.index.Usage
 import prism.index.UsageFile
 import prism.index.query.AliasSource
 import prism.index.query.Aliases
@@ -26,6 +27,9 @@ import prism.index.query.Problem
 import prism.index.query.Query
 import prism.index.query.QueryText
 import prism.preferences.PreferenceFile
+import prism.preferences.PreferenceStore
+import prism.preferences.preferences
+import prism.shared.orElse
 
 /*
  * What `prism search` (prism.client, search.kt) is answered with. The command itself only asks; here is who
@@ -39,7 +43,7 @@ import prism.preferences.PreferenceFile
  * else here asks what they say (a search's aliases); nothing reads the file itself. In the prism that is running
  * that is every window there is; a command run with no prism to serve it has its own, as the file was when it began.
  */
-internal val preferencesHere: PreferenceFile by lazy { PreferenceFile.open() }
+internal val preferencesHere: PreferenceStore by lazy { PreferenceFile.open() }
 
 /**
  * The search aliases as the preferences define them now: what this process's store holds, so that one changed in a
@@ -106,7 +110,13 @@ internal class IndexFileSeeker(
 
 		when (val read = IndexFile.read(at)) {
 			is IndexRead.Read ->
-				Held.Index(StaticFinder(read.index, UsageFile.read(UsageFile.default()).usage, home))
+				Held.Index(
+					StaticFinder(
+						read.index,
+						UsageFile.read(UsageFile.default()).orElse(Usage.NONE),
+						home,
+					),
+				)
 			IndexRead.Missing ->
 				Held.None(
 					"no index at $at and no running prism has one; run prism daemon to keep " +

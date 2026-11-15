@@ -8,6 +8,8 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import prism.desktop.TerminalChoice
+import prism.shared.Loaded
+import prism.shared.orElse
 
 /** The terminal chosen, as the preferences file writes it: each form read, written back the same, and what is wrong kept. */
 class TerminalChoiceTest {
@@ -69,7 +71,7 @@ class TerminalChoiceTest {
 			root.resolve("preferences.json").also {
 				it.writeText("""{"terminal": {"command": []}, "bindings": {"Refresh": ["F6"]}}""")
 			}
-		val file = PreferenceFile.read(written).preferences
+		val file = PreferenceFile.read(written).orElse(Preferences.DEFAULT)
 
 		assertEquals(mapOf("Refresh" to listOf("F6")), file.bindings)
 		assertTrue(file.terminal is TerminalChoice.Unreadable)

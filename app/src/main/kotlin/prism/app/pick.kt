@@ -43,8 +43,8 @@ import prism.cli.Size
 import prism.index.IndexFile
 import prism.index.IndexRead
 import prism.index.UsageFile
-import prism.index.UsageRead
 import prism.preferences.Role
+import prism.preferences.preferences
 import prism.window.Window
 import prism.window.application
 import prism.browser.Outcome as Ended

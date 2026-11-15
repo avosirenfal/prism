@@ -19,8 +19,10 @@ import prism.desktop.Desktop
 import prism.desktop.currentDesktop
 import prism.index.IndexFile
 import prism.index.IndexRead
+import prism.index.Usage
 import prism.index.UsageFile
-import prism.index.UsageRead
+import prism.shared.Loaded
+import prism.shared.orElse
 import prism.window.activationToken
 
 /*
@@ -101,13 +103,13 @@ internal class Indexing(
 			is IndexRead.Read -> {
 				val usage = UsageFile.read(UsageFile.default())
 
-				if (usage is UsageRead.Unreadable)
+				if (usage is Loaded.Unreadable)
 					warn(
 						command,
 						"can't read the usage file (${usage.why}); results are ranked without it",
 					)
 
-				Search.Ready() to StaticFinder(read.index, usage.usage, home)
+				Search.Ready() to StaticFinder(read.index, usage.orElse(Usage.NONE), home)
 			}
 			IndexRead.Missing -> {
 				warn(

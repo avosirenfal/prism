@@ -5,14 +5,16 @@ import java.io.DataInputStream
 import java.io.DataOutputStream
 import java.io.EOFException
 import java.io.IOException
-import java.nio.file.Files
-import java.nio.file.NoSuchFileException
 import java.nio.file.Path
 import java.time.Duration
 import java.time.Instant
 import java.util.zip.CRC32C
 import kotlin.math.pow
-import prism.linux.WholeFile
+import prism.shared.Format
+import prism.shared.Loaded
+import prism.shared.OnDisk
+import prism.shared.Parsed
+import prism.shared.Stored
 
 /*
  * What the user has done with the picker, which a search ranks by and `recent:` asks about. It is not what is on the
@@ -121,31 +123,10 @@ class Usage private constructor(
 	}
 }
 
-/** What reading a usage file gave. */
-sealed interface UsageRead {
-	val usage: Usage
-
-	data class Read(
-		override val usage: Usage,
-	) : UsageRead
-
-	/** No file yet: nothing used. */
-	data object Missing : UsageRead {
-		override val usage: Usage get() = Usage.NONE
-	}
-
-	/** A file that is not a usage file, or is damaged: nothing used, and why. */
-	data class Unreadable(
-		val why: String,
-	) : UsageRead {
-		override val usage: Usage get() = Usage.NONE
-	}
-}
-
 /**
  * The file a [Usage] is kept in: a header, each place's path and use, and a CRC-32C of everything before it. It is
- * small (a place for each thing picked lately and each folder picked from), so it is written whole each time, beside
- * itself and renamed over, so it is the old file or the new one and never half of either.
+ * small (a place for each thing picked lately and each folder picked from), so it is a value kept in a file
+ * ([Stored]): written whole at each pick, to the file as it then is.
  */
 object UsageFile {
 	/** "PRISMUSE": the first eight bytes of every usage file. */
@@ -168,80 +149,85 @@ object UsageFile {
 		return state.resolve("prism/usage.prism")
 	}
 
-	fun read(file: Path): UsageRead {
-		val bytes =
-			try {
-				Files.readAllBytes(file)
-			} catch (missing: NoSuchFileException) {
-				return UsageRead.Missing
-			} catch (failed: IOException) {
-				return UsageRead.Unreadable(failed.message ?: failed.toString())
-			}
+	/**
+	 * The usage in [file], held, and kept there as things are picked; what cannot be written is told [unwritten],
+	 * and held all the same.
+	 */
+	fun open(file: Path, unwritten: (IOException) -> Unit = { throw it }): Stored<Usage> =
+		Stored.of(file, FORMAT, unwritten)
 
-		if (bytes.size < MAGIC.size + 6 || !bytes.copyOf(MAGIC.size).contentEquals(MAGIC))
-			return UsageRead.Unreadable("$file is not a usage file")
+	/** What [file] says, read now: for a search that keeps nothing. */
+	fun read(file: Path): Loaded<Usage> = OnDisk(file, FORMAT).read()
 
-		val body = bytes.size - 4
-		val crc = CRC32C().also { it.update(bytes, 0, body) }.value.toInt()
-		val stored = DataInputStream(bytes.inputStream(body, 4)).readInt()
+	/** A usage as a file's bytes: one that is not a usage file, or is damaged, is nothing used, and says why. */
+	val FORMAT: Format<Usage> =
+		object : Format<Usage> {
+			override val none: Usage get() = Usage.NONE
 
-		if (crc != stored)
-			return UsageRead.Unreadable("$file is damaged")
+			override fun read(bytes: ByteArray): Parsed<Usage> {
+				if (bytes.size < MAGIC.size + 6 || !bytes.copyOf(MAGIC.size).contentEquals(MAGIC))
+					return Loaded.Unreadable("it is not a usage file")
 
-		return try {
-			DataInputStream(bytes.inputStream(MAGIC.size, body - MAGIC.size)).use { read ->
-				val version = read.readShort()
+				val body = bytes.size - 4
+				val crc = CRC32C().also { it.update(bytes, 0, body) }.value.toInt()
+				val stored = DataInputStream(bytes.inputStream(body, 4)).readInt()
 
-				if (version != VERSION)
-					return UsageRead.Unreadable(
-						"$file is of version $version; this reads version $VERSION",
-					)
+				if (crc != stored)
+					return Loaded.Unreadable("it is damaged")
 
-				val used =
-					List(read.readInt()) {
-						val path = ByteArray(read.readUnsignedShort()).also(read::readFully)
-						val weight = read.readDouble()
-						val at = Instant.ofEpochMilli(read.readLong())
-						val picked = read.readLong().takeIf { it != NEVER }?.let(Instant::ofEpochMilli)
+				return try {
+					DataInputStream(bytes.inputStream(MAGIC.size, body - MAGIC.size)).use { read ->
+						val version = read.readShort()
 
-						Where(path) to Usage.Used(weight, at, picked)
+						if (version != VERSION)
+							return Loaded.Unreadable(
+								"it is of version $version; this reads version $VERSION",
+							)
+
+						val used =
+							List(read.readInt()) {
+								val path = ByteArray(read.readUnsignedShort()).also(read::readFully)
+								val weight = read.readDouble()
+								val at = Instant.ofEpochMilli(read.readLong())
+								val picked =
+									read.readLong().takeIf { it != NEVER }?.let(Instant::ofEpochMilli)
+
+								Where(path) to Usage.Used(weight, at, picked)
+							}
+
+						Loaded.Read(Usage.of(used.toMap()))
 					}
-
-				UsageRead.Read(Usage.of(used.toMap()))
+				} catch (short: EOFException) {
+					Loaded.Unreadable("it ends too soon")
+				} catch (wrong: IllegalArgumentException) {
+					Loaded.Unreadable("it holds a place that is not a path: ${wrong.message}")
+				}
 			}
-		} catch (short: EOFException) {
-			UsageRead.Unreadable("$file ends too soon")
-		} catch (wrong: IllegalArgumentException) {
-			UsageRead.Unreadable("$file holds a place that is not a path: ${wrong.message}")
-		}
-	}
 
-	/** [usage] written to [file], whole ([WholeFile]). */
-	fun write(file: Path, usage: Usage) {
-		val out = ByteArrayOutputStream()
+			override fun written(value: Usage): ByteArray {
+				val out = ByteArrayOutputStream()
 
-		DataOutputStream(out).use { write ->
-			write.write(MAGIC)
-			write.writeShort(VERSION.toInt())
-			write.writeInt(usage.size)
-			for ((where, used) in usage.places.entries.sortedBy { it.key.key }) {
-				write.writeShort(where.bytes.size)
-				write.write(where.bytes)
-				write.writeDouble(used.weight)
-				write.writeLong(used.at.toEpochMilli())
-				write.writeLong(used.picked?.toEpochMilli() ?: NEVER)
+				DataOutputStream(out).use { write ->
+					write.write(MAGIC)
+					write.writeShort(VERSION.toInt())
+					write.writeInt(value.size)
+					for ((where, used) in value.places.entries.sortedBy { it.key.key }) {
+						write.writeShort(where.bytes.size)
+						write.write(where.bytes)
+						write.writeDouble(used.weight)
+						write.writeLong(used.at.toEpochMilli())
+						write.writeLong(used.picked?.toEpochMilli() ?: NEVER)
+					}
+				}
+
+				val body = out.toByteArray()
+				val crc = CRC32C().also { it.update(body) }.value.toInt()
+
+				return body +
+					java.nio.ByteBuffer
+						.allocate(4)
+						.putInt(crc)
+						.array()
 			}
 		}
-
-		val body = out.toByteArray()
-		val crc = CRC32C().also { it.update(body) }.value.toInt()
-		val whole =
-			body +
-				java.nio.ByteBuffer
-					.allocate(4)
-					.putInt(crc)
-					.array()
-
-		WholeFile.replace(file, whole)
-	}
 }

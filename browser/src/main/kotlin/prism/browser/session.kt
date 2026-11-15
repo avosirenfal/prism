@@ -32,6 +32,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import prism.desktop.Launched
 import prism.desktop.Opening
+import prism.preferences.preferences
 import prism.window.ClipOffer
 import prism.window.SystemClipboard
 
@@ -270,21 +271,21 @@ class Session(
 			is Effect.Stop -> stops[effect.task]?.invoke() ?: stopped.add(effect.task).let {}
 			is Effect.Arrange ->
 				scope.launch(io) {
-					services.preferences.update { it.arranging(effect.quick) }
+					services.preferences.update { arranging(effect.quick) }
 				}
 			is Effect.Alias ->
 				scope.launch(io) {
 					// Added to the aliases as they are now, which a settings window may have changed meanwhile:
 					// where it is no longer one among them, they are left as they are.
 					services.preferences.update {
-						it.copy(
-							aliases = aliasAdded(it.aliases, effect.name, effect.query) ?: it.aliases,
+						copy(
+							aliases = aliasAdded(aliases, effect.name, effect.query) ?: aliases,
 						)
 					}
 				}
 			is Effect.FoldRecents ->
 				scope.launch(io) {
-					services.preferences.update { it.folding(effect.section, effect.collapsed) }
+					services.preferences.update { folding(effect.section, effect.collapsed) }
 				}
 			is Effect.Ask -> requests(effect.request)
 			is Effect.Finish -> {

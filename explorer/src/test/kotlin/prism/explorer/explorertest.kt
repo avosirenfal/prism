@@ -49,7 +49,9 @@ import prism.launcher.LauncherEvent
 import prism.preferences.ActionsFile
 import prism.preferences.LauncherRows
 import prism.preferences.MemoryPreferences
+import prism.preferences.PreferenceStore
 import prism.preferences.QuickAccess
+import prism.preferences.preferences
 
 /**
  * The explorer's windows: a browser's opened on a folder, and closed as it ends; what a browser asks for opened beside
@@ -64,7 +66,7 @@ class ExplorerTest {
 
 	private fun explored(
 		disk: Disk = JvmDisk(),
-		test: suspend (Explorer, FakeDesktop, MemoryPreferences) -> Unit,
+		test: suspend (Explorer, FakeDesktop, PreferenceStore) -> Unit,
 	) = runBlocking {
 		val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 		val desktop = FakeDesktop(root)
@@ -197,9 +199,9 @@ class ExplorerTest {
 
 			// Its settings changed while it is shown, it is as they now say.
 			preferences.update {
-				it.copy(
+				copy(
 					launcher =
-						it.launcher.copy(rows = LauncherRows.of(12), hidden = setOf("editor.desktop")),
+						launcher.copy(rows = LauncherRows.of(12), hidden = setOf("editor.desktop")),
 				)
 			}
 			settled { again.session.state.value.preferences.rows.number == 12 }
@@ -220,7 +222,7 @@ class ExplorerTest {
 			)
 
 			// What it starts is started, and it is put away; a folder it is asked for is a browser's window.
-			preferences.update { it.copy(launcher = it.launcher.copy(hidden = emptySet())) }
+			preferences.update { copy(launcher = launcher.copy(hidden = emptySet())) }
 			explorer.launch()
 
 			val third =
@@ -273,7 +275,7 @@ class ExplorerTest {
 
 				settled { shown() != null }
 				preferences.update {
-					it.copy(launcher = it.launcher.copy(rows = LauncherRows.of(12)))
+					copy(launcher = launcher.copy(rows = LauncherRows.of(12)))
 				}
 				settled {
 					shown()!!
@@ -384,7 +386,7 @@ class ExplorerTest {
 
 			explorer.browse(root)
 			explorer.browse(projects)
-			preferences.update { it.arranging(QuickAccess.DEFAULT.pinning(projects)) }
+			preferences.update { arranging(QuickAccess.DEFAULT.pinning(projects)) }
 
 			for (browsing in explorer.browsers)
 				browsing.session.state.first { state ->
@@ -646,7 +648,7 @@ class ExplorerTest {
 					"show": {"place": "all", "with": {"where": "{path}"}}}]}""",
 				)
 
-			preferences.update { it.copy(actions = written.actions, places = written.places) }
+			preferences.update { copy(actions = written.actions, places = written.places) }
 			explorer.browse(root)
 
 			val browsing = explorer.browsers.single()

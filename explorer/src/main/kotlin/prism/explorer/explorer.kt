@@ -65,6 +65,7 @@ import prism.launcher.LauncherSession
 import prism.launcher.MemoryLaunches
 import prism.preferences.PreferenceStore
 import prism.preferences.Role
+import prism.preferences.preferences
 import prism.window.openWindows
 
 /*
@@ -452,10 +453,11 @@ class Explorer(
 
 				override fun properties(path: Path) = doing { ask(Request.Properties(listOf(path))) }
 
-				override fun hide(id: String) =
+				override fun hide(id: String) {
 					preferences.update {
-						it.copy(launcher = it.launcher.copy(hidden = it.launcher.hidden + id))
+						copy(launcher = launcher.copy(hidden = launcher.hidden + id))
 					}
+				}
 			}
 
 		val session =

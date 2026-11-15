@@ -34,9 +34,12 @@ import prism.dbus.Opening
 import prism.desktop.asChildOfPrism
 import prism.index.IndexStore
 import prism.index.Indexer
+import prism.index.Usage
 import prism.index.UsageFile
-import prism.index.UsageRead
 import prism.index.query.QueryText
+import prism.shared.Loaded
+import prism.shared.Stored
+import prism.shared.orElse
 
 /**
  * `prism daemon`: the one prism that stays. It keeps the index current (the watcher started first, then the index read
@@ -280,12 +283,21 @@ object DaemonCommand : Command(
 
 	/** What the daemon's windows search: its index as it is, ranked by what was picked, which is kept where [written]. */
 	private fun finderOf(live: LiveIndex, home: Path, written: Boolean): LiveFinder {
-		val usage = UsageFile.read(UsageFile.default())
+		val file = UsageFile.default()
+		val read = UsageFile.read(file)
 
-		if (usage is UsageRead.Unreadable)
-			warn(this, "can't read the usage file (${usage.why}); results are ranked without it")
+		if (read is Loaded.Unreadable)
+			warn(this, "can't read the usage file (${read.why}); results are ranked without it")
 
-		return LiveFinder(live, home, usage.usage, UsageFile.default().takeIf { written })
+		val usage =
+			if (written)
+				UsageFile.open(file) {
+					Report.problem("writing what was picked to $file failed", it)
+				}
+			else
+				Stored.inMemory(read.orElse(Usage.NONE))
+
+		return LiveFinder(live, home, usage)
 	}
 
 	/** How the index was opened, as the daemon says it as it starts. */

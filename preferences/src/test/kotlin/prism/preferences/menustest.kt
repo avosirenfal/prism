@@ -10,6 +10,8 @@ import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
+import prism.shared.Loaded
+import prism.shared.orElse
 
 /** How the context menus are arranged: as the file writes it, read back; and which arrangement a menu follows. */
 class MenusTest {
@@ -59,7 +61,7 @@ class MenusTest {
 
 		PreferenceFile.open(file).update { set }
 
-		assertEquals(PreferencesRead.Read(set), PreferenceFile.read(file))
+		assertEquals(Loaded.Read(set), PreferenceFile.read(file))
 		assertTrue(file.readText().contains("\"folder/space\""), file.readText())
 		assertTrue(file.readText().contains("\"builtin.refresh with Shift\""), file.readText())
 	}
@@ -108,7 +110,7 @@ class MenusTest {
 		)
 
 		assertTrue(
-			PreferenceFile.read(file) is PreferencesRead.Unreadable,
+			PreferenceFile.read(file) is Loaded.Unreadable,
 			"${PreferenceFile.read(file)}",
 		)
 	}

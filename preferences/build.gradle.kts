@@ -12,6 +12,6 @@ dependencies {
 	api(libs.kotlinx.coroutines.core)
 	// The terminal chosen is the desktop's description of one (prism.desktop.TerminalChoice), written here.
 	api(project(":desktop"))
-	// How a file is written whole, and kept by one writer at a time (prism.linux.WholeFile).
-	implementation(project(":linux"))
+	// The preferences are a value kept in a file, handed to every window as it changes (prism.shared.Stored).
+	api(project(":shared"))
 }

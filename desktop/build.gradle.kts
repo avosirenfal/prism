@@ -9,6 +9,8 @@ plugins {
 dependencies {
 	// statx(2), for when a file was made, which the JVM does not say on Linux.
 	implementation(project(":linux"))
+	// `mimeapps.list`, changed as it is at that moment, and state shared between threads.
+	implementation(project(":shared"))
 	// `zfs list -j`, read for what each dataset holds.
 	implementation(libs.kotlinx.serialization.json)
 }

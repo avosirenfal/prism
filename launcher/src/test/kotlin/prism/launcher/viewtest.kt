@@ -81,7 +81,7 @@ class LauncherViewTest {
 			Throwable,
 		) -> Unit = { doing, failure -> throw AssertionError(doing, failure) },
 		windows: OpenWindows = OpenWindows.Unavailable,
-		check: ComposeUiTest.(LauncherSession, FakeDesktop, FakeHost, MemoryLaunches) -> Unit,
+		check: ComposeUiTest.(LauncherSession, FakeDesktop, FakeHost, LaunchStore) -> Unit,
 	) = runComposeUiTest {
 		val desktop = FakeDesktop(home)
 		val host = FakeHost()

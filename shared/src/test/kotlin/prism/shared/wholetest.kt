@@ -1,4 +1,4 @@
-package prism.linux
+package prism.shared
 
 import java.io.IOException
 import java.nio.ByteBuffer
@@ -34,15 +34,14 @@ class WholeFileTest {
 			.map { it.name }
 			.filter { it != file.name }
 
+	private fun write(text: String) = WholeFile.replace(file, text.toByteArray())
+
 	@Test
 	fun whatIsWrittenIsWhatTheFileHolds_InAFolderMadeForIt() {
-		WholeFile.replace(file, "one\n")
+		write("one\n")
 		assertEquals("one\n", file.readText())
 
-		WholeFile.replace(file, listOf("two", "three"))
-		assertEquals("two\nthree\n", file.readText())
-
-		WholeFile.replace(
+		Snapshot.write(
 			file,
 			listOf(ByteBuffer.wrap("fo".toByteArray()), ByteBuffer.wrap("ur".toByteArray())),
 		)
@@ -54,7 +53,7 @@ class WholeFileTest {
 
 	@Test
 	fun aWriteThatFailsPartWayLeavesTheFileAsItWasAndNothingBesideIt() {
-		WholeFile.replace(file, "as it was\n")
+		write("as it was\n")
 
 		// The new contents are written, and then the write fails before the file is put in the old one's place.
 		assertThrows(IOException::class.java) {
@@ -88,7 +87,7 @@ class WholeFileTest {
 			texts.map { text ->
 				thread {
 					begin.await()
-					repeat(20) { WholeFile.replace(file, text) }
+					repeat(20) { write(text) }
 				}
 			}
 
@@ -109,25 +108,33 @@ class WholeFileTest {
 		file.parent.let(Files::createDirectories)
 		file.writeText("0")
 
-		val begin = CountDownLatch(1)
+		fun counted(writers: Writers) {
+			val begin = CountDownLatch(1)
 
-		val writers =
-			(0 until 8).map {
-				thread {
-					begin.await()
-					repeat(50) {
-						WholeFile.locked(file) {
-							WholeFile.replace(file, (file.readText().toInt() + 1).toString())
+			val threads =
+				(0 until 8).map {
+					thread {
+						begin.await()
+						repeat(50) {
+							WholeFile.locked(file, writers) {
+								write((file.readText().toInt() + 1).toString())
+							}
 						}
 					}
 				}
-			}
 
-		begin.countDown()
-		writers.forEach { it.join() }
+			begin.countDown()
+			threads.forEach { it.join() }
+		}
 
-		// Not one of the four hundred was made to a file another had since written over.
+		// Not one of the four hundred was made to a file another had since written over; and a file that others
+		// write too has no lock left beside it.
+		counted(Writers.Anyone)
 		assertEquals("400", file.readText())
+		assertEquals(emptyList<String>(), beside())
+
+		counted(Writers.Prisms)
+		assertEquals("800", file.readText())
 		assertEquals(listOf("settings.lock"), beside())
 	}
 }

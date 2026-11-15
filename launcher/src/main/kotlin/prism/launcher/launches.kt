@@ -1,14 +1,12 @@
 package prism.launcher
 
-import java.io.IOException
-import java.nio.file.Files
 import java.nio.file.Path
 import java.time.Duration
 import java.time.Instant
-import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.ln
 import kotlin.math.pow
-import prism.linux.WholeFile
+import prism.shared.Format
+import prism.shared.Stored
 
 /*
  * What has been started from the launcher, and how lately: what puts the applications a person uses before the ones
@@ -58,83 +56,62 @@ data class Launches(
 	}
 }
 
-/** Where the launches are kept: read as the launcher opens, and added to as something is started. */
-interface LaunchStore {
-	val launches: Launches
+/**
+ * Where the launches are kept: a value kept in a file ([Stored]), or in memory alone, read as the launcher opens and
+ * added to as something is started.
+ */
+typealias LaunchStore = Stored<Launches>
 
-	/** The entry of [key] started, [at]. */
-	fun used(key: String, at: Instant)
+/** What has been started, as it is now. */
+val LaunchStore.launches: Launches get() = value.value
+
+/** The entry of [key] started, [at]. */
+fun LaunchStore.used(key: String, at: Instant) {
+	update { used(key, at) }
 }
 
 /** Launches kept in memory alone: a launcher run without a file, and the tests. */
-class MemoryLaunches(
-	first: Launches = Launches.NONE,
-) : LaunchStore {
-	private val held = AtomicReference(first)
-
-	override val launches: Launches get() = held.get()
-
-	override fun used(key: String, at: Instant) {
-		held.updateAndGet { it.used(key, at) }
-	}
-}
+@Suppress("FunctionName")
+fun MemoryLaunches(first: Launches = Launches.NONE): LaunchStore = Stored.inMemory(first)
 
 /**
- * Launches kept in [file]: a line an entry, its weight, the second it was last used, and its key, between tabs. A file
- * that cannot be read is no launches; one that cannot be written leaves them in memory, and says so to [report].
- * Each use is added to the file as it then is, and the file written whole ([WholeFile]).
+ * Launches kept in [file] ([LaunchFormat]): each use is added to the file as it then is. A file that cannot be read
+ * is no launches; one that cannot be written leaves them in memory, and says so to [report].
  */
-class LaunchFile(
-	private val file: Path,
-	private val report: (String, Throwable) -> Unit = { _, _ -> },
-) : LaunchStore {
-	private val held = AtomicReference(read(file))
+@Suppress("FunctionName")
+fun LaunchFile(
+	file: Path,
+	report: (String, Throwable) -> Unit = { _, _ -> },
+): LaunchStore =
+	Stored.of(
+		file,
+		LaunchFormat,
+	) { report("keeping what the launcher started in $file", it) }
 
-	override val launches: Launches get() = held.get()
+/**
+ * Launches as a file: a line an entry, its weight, the second it was last used, and its key, between tabs. A line
+ * that does not say an entry is left out.
+ */
+val LaunchFormat: Format<Launches> =
+	Format.lines(
+		Launches.NONE,
+		read = { lines ->
+			Launches(
+				lines
+					.mapNotNull { line ->
+						val parts = line.split('\t', limit = 3)
+						val weight = parts.getOrNull(0)?.toDoubleOrNull()
+						val at = parts.getOrNull(1)?.toLongOrNull()
+						val key = parts.getOrNull(2)?.takeIf { it.isNotEmpty() }
 
-	override fun used(key: String, at: Instant) {
-		try {
-			// Added to the file as it is now, where there is one: another prism's launcher may have written to it.
-			WholeFile.locked(file) {
-				val next = (read(file).takeIf { Files.exists(file) } ?: held.get()).used(key, at)
-
-				write(file, next)
-				held.set(next)
-			}
-		} catch (failed: IOException) {
-			held.updateAndGet { it.used(key, at) }
-			report("keeping what the launcher started in $file", failed)
-		}
-	}
-
-	companion object {
-		fun read(file: Path): Launches =
-			try {
-				Launches(
-					Files
-						.readAllLines(file)
-						.mapNotNull { line ->
-							val parts = line.split('\t', limit = 3)
-							val weight = parts.getOrNull(0)?.toDoubleOrNull()
-							val at = parts.getOrNull(1)?.toLongOrNull()
-							val key = parts.getOrNull(2)?.takeIf { it.isNotEmpty() }
-
-							if (weight == null || at == null || key == null)
-								null
-							else
-								key to Used(weight, Instant.ofEpochSecond(at))
-						}.toMap(),
-				)
-			} catch (missing: IOException) {
-				Launches.NONE
-			}
-
-		/** [launches] written to [file] whole ([WholeFile]). */
-		fun write(file: Path, launches: Launches) {
-			WholeFile.replace(
-				file,
-				launches.uses.map { (key, used) -> "${used.weight}\t${used.at.epochSecond}\t$key" },
+						if (weight == null || at == null || key == null)
+							null
+						else
+							key to Used(weight, Instant.ofEpochSecond(at))
+					}.toMap(),
 			)
-		}
-	}
-}
+		},
+		written = { launches ->
+			launches.uses.map { (key, used) -> "${used.weight}\t${used.at.epochSecond}\t$key" }
+		},
+	)

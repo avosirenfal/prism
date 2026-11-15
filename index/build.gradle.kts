@@ -7,6 +7,8 @@ plugins {
 
 dependencies {
 	api(project(":linux"))
+	// What is kept in files (the usage, what is kept of unmounted file systems), and state shared between threads.
+	api(project(":shared"))
 	// zstd, for the index's file: the JNI binding, which carries the native library for each platform in its jar.
 	implementation(libs.zstd)
 }

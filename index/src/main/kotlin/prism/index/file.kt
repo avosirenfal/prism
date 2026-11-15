@@ -12,7 +12,7 @@ import java.nio.file.StandardOpenOption
 import java.util.zip.CRC32C
 import prism.linux.Dev
 import prism.linux.KernelDev
-import prism.linux.WholeFile
+import prism.shared.Snapshot
 
 /*
  * The index's file (docs/format.md says it byte by byte): a header, then frames. The first frame is a snapshot of the
@@ -127,7 +127,7 @@ object IndexFile {
 
 	/**
 	 * [file] made anew, holding [index] compacted, as one snapshot: written beside it, flushed to the disk, and
-	 * renamed over it ([WholeFile]), so the file is the old one or the new one, never half of either. Its length.
+	 * renamed over it ([Snapshot]), so the file is the old one or the new one, never half of either. Its length.
 	 */
 	fun write(file: Path, index: Index): Long {
 		val compact = index.compacted()
@@ -142,7 +142,7 @@ object IndexFile {
 
 		val snapshot = frame(SNAPSHOT, Out().also { written(it, compact) }.bytes())
 
-		WholeFile.replace(
+		Snapshot.write(
 			file,
 			listOf(header.array().let(ByteBuffer::wrap), ByteBuffer.wrap(snapshot)),
 		)
