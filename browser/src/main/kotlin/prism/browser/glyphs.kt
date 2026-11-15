@@ -95,6 +95,9 @@ enum class Glyph {
 
 	/** A drive reached over the network. */
 	Network,
+
+	/** A pin, as it holds a note to a board: something kept where it is. */
+	Pin,
 }
 
 /** [glyph] at [size], in [tint]; a file's icon is marked with [category]'s colour. */
@@ -297,6 +300,24 @@ fun DrawScope.drawGlyph(
 			stroked(unit, tint, listOf(4f to 17.5f, 20f to 17.5f))
 			drawCircle(tint, 1.6f * unit, at(unit, 12f, 17.5f))
 		}
+		// Drawn upright, then leant over as a pin in a board is: its head, its body widening to a flange, its point.
+		Glyph.Pin ->
+			rotate(45f) {
+				stroked(unit, tint, listOf(8.5f to 3.5f, 15.5f to 3.5f))
+				stroked(
+					unit,
+					tint,
+					listOf(
+						9.5f to 3.5f,
+						9.5f to 9.5f,
+						6.5f to 13.5f,
+						17.5f to 13.5f,
+						14.5f to 9.5f,
+						14.5f to 3.5f,
+					),
+				)
+				stroked(unit, tint, listOf(12f to 13.5f, 12f to 20.5f))
+			}
 		Glyph.Chip -> {
 			drawRoundRect(
 				tint,

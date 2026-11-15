@@ -705,6 +705,28 @@ private fun MenuBuilder<BrowserEvent>.hiddenChecks(
 	)
 }
 
+/** What results pinned say of themselves, and a search made within them says of itself. */
+const val PINNED_SEARCH = "Pinned search"
+
+/**
+ * The menu of the bar that says a search's [results] are shown: they are pinned, or, pinned, let go, which the key
+ * [bindings] bind to it does too.
+ */
+fun resultsMenuOf(
+	results: Location.Results,
+	bindings: Bindings = Bindings.DEFAULT,
+): Menu<BrowserEvent> =
+	menu {
+		item(
+			if (results.pinned)
+				"Unpin search"
+			else
+				"Pin search",
+			BrowserEvent.PinnedSearch(!results.pinned),
+			keys = bindings.keys(Action.PinSearch),
+		)
+	}
+
 /** Whether [event] would change how the listing is drawn: whether a menu item that does it has anything to do. */
 private fun BrowserState.changedBy(event: BrowserEvent): Boolean =
 	step(this, event).state.zooms != zooms

@@ -368,7 +368,7 @@ fun ToolButton(
  * been there. Each time [reselect] changes while the keyboard is in it, what [selecting] says is selected again, as
  * though the keyboard had just arrived: a combo box's text clicked, to be typed over. [onSelection] is told what is
  * selected (the caret, where nothing is) as the field shows it, for whoever gives a key a meaning that depends on
- * where the caret is.
+ * where the caret is. [badge], where there is one, is drawn after its glyph: a small mark of what the field is for.
  */
 @Composable
 fun Field(
@@ -388,6 +388,7 @@ fun Field(
 	colouring: VisualTransformation = VisualTransformation.None,
 	style: TextStyle = LocalType.current.body,
 	onSelection: (TextRange) -> Unit = {},
+	badge: (@Composable () -> Unit)? = null,
 ) {
 	val palette = LocalPalette.current
 	val type = LocalType.current
@@ -436,6 +437,7 @@ fun Field(
 		horizontalArrangement = Arrangement.spacedBy(Space.s),
 	) {
 		leading?.let { GlyphIcon(it, palette.textMuted, type.icon * 0.85f) }
+		badge?.invoke()
 		Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
 			if (text.isEmpty() && hint.isNotEmpty())
 				Text(

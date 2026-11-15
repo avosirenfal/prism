@@ -70,19 +70,6 @@ class SettingsViewTest {
 			}
 			onNodeWithText("Apply").assertIsNotEnabled()
 
-			// Refreshing: its first chord clicked, waiting, then Ctrl+K.
-			onNodeWithTag("chord:F5").performClick()
-			onNodeWithTag("chord:awaited").assertExists()
-			onNode(isFocused()).performKeyInput { withKeyDown(Key.CtrlLeft) { pressKey(Key.K) } }
-			waitForIdle()
-
-			assertEquals(
-				listOf(chord("Ctrl+K"), chord("Ctrl+R")),
-				settings.rebinding.bindings.of(Action.Refresh),
-			)
-			onNodeWithTag("chord:Ctrl+K").assertExists()
-			onNodeWithText("Apply").assertIsEnabled()
-
 			// Back: its first chord clicked, then Escape, which changes nothing.
 			onNodeWithTag("chord:Alt+Left").performClick()
 			onNode(isFocused()).performKeyInput { pressKey(Key.Escape) }
@@ -109,6 +96,25 @@ class SettingsViewTest {
 				listOf(chord("Mouse Back"), chord("Mouse Middle")),
 				settings.rebinding.bindings.of(Action.Back),
 			)
+			onNodeWithText("Apply").assertIsEnabled()
+
+			// Refreshing, found by its name (the list holds more than is in sight): its first chord clicked, waiting,
+			// then Ctrl+K.
+			onNode(
+				hasSetTextAction() and
+					(hasTestTag("bindings-filter") or hasAnyAncestor(hasTestTag("bindings-filter"))),
+			).performTextReplacement("Refresh")
+			waitForIdle()
+			onNodeWithTag("chord:F5").performClick()
+			onNodeWithTag("chord:awaited").assertExists()
+			onNode(isFocused()).performKeyInput { withKeyDown(Key.CtrlLeft) { pressKey(Key.K) } }
+			waitForIdle()
+
+			assertEquals(
+				listOf(chord("Ctrl+K"), chord("Ctrl+R")),
+				settings.rebinding.bindings.of(Action.Refresh),
+			)
+			onNodeWithTag("chord:Ctrl+K").assertExists()
 			assertEquals(
 				mapOf(
 					"Back" to listOf("Mouse Back", "Mouse Middle"),

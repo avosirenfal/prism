@@ -684,11 +684,32 @@ sealed interface Location {
 		val path: Path,
 	) : Location
 
-	/** A search's results; of a search made in a place, [within] is that place, which is all that was searched. */
+	/**
+	 * A search's results; of a search made in a place, [within] is that place, which is all that was searched. Where
+	 * the search was made within pinned searches, [refines] is those, and what was found is found by them all. The
+	 * results are [pinned] once the user pins them, or where they were found from results that were: a search begun
+	 * from them then is made within them. That is said of the view, so it is kept wherever the view is, in the history
+	 * as here.
+	 */
 	data class Results(
 		val finding: Finding.Matched,
 		val within: Place? = null,
-	) : Location
+		val refines: Refines = Refines.NONE,
+		val pinned: Boolean = false,
+	) : Location {
+		/** What a search begun from these is made within: these and what they refine, where they are pinned. */
+		val refining: Refines get() =
+			if (pinned)
+				refines + finding.text
+			else
+				Refines.NONE
+
+		/** Every search these are the results of, the outermost first: what they refine, then their own. */
+		val searches: List<String> get() = refines.texts + finding.text
+
+		/** These, pinned or not: the same results, which the view shows as it did. */
+		val unpinned: Results get() = copy(pinned = false)
+	}
 
 	/**
 	 * A place, as a command listed it: [placed] says which, [within] the folder of it shown (the names of the folders
@@ -715,6 +736,12 @@ sealed interface Location {
 		val folded: Set<String> = emptySet(),
 	) : Location
 }
+
+/**
+ * What says which listing a location shows: the location itself, but for whether a search's results are pinned,
+ * which changes nothing of what they list. What the view keeps of a listing (how far it is scrolled) it keeps by this.
+ */
+val Location.listed: Location get() = (this as? Location.Results)?.unpinned ?: this
 
 /** Where the keyboard's cursor goes when the next read of the folder shown arrives. */
 @Immutable
@@ -1381,7 +1408,8 @@ data class BrowserState(
 		get() =
 			when (val at = at) {
 				is Location.Folder -> crumbs.last().label
-				is Location.Results -> "results for “${at.finding.text}”"
+				is Location.Results ->
+					"results for ${at.searches.joinToString(" › ") { "“$it”" }}"
 				is Location.Place -> at.within.lastOrNull() ?: at.placed.title
 				Location.Trash -> "Trash"
 				is Location.System -> "System"

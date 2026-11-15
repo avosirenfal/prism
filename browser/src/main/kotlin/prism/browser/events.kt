@@ -195,6 +195,14 @@ sealed interface BrowserEvent : Input {
 		val text: String,
 	) : BrowserEvent
 
+	/**
+	 * The results shown pinned, or no longer ([pinned]), where a search's results are shown: a search begun from
+	 * results that are pinned is made within them.
+	 */
+	data class PinnedSearch(
+		val pinned: Boolean,
+	) : BrowserEvent
+
 	/** How a query is written shown in place of the search's field and matches (its `?`), or left for them again. */
 	data object ToggledSearchHelp : BrowserEvent
 

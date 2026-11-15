@@ -361,8 +361,13 @@ private fun did(state: BrowserState, event: BrowserEvent): Step =
 		BrowserEvent.Cancelled -> Step(state, listOf(Effect.Finish(Outcome.Cancelled)))
 		// Answers to a notice, with none shown.
 		BrowserEvent.Confirmed, BrowserEvent.Dismissed -> Step(state)
-		BrowserEvent.OpenedSearch -> state.openedSearch("")
-		is BrowserEvent.EditedSearch -> state.openedSearch(event.text)
+		// Begun from pinned results, a search is made within them; one of anything else is of everything.
+		BrowserEvent.OpenedSearch ->
+			state.openedSearch("", state.shownResults?.refining ?: Refines.NONE)
+		// The results shown searched for again are searched for within what they were.
+		is BrowserEvent.EditedSearch ->
+			state.openedSearch(event.text, state.shownResults?.refines ?: Refines.NONE)
+		is BrowserEvent.PinnedSearch -> Step(state.pinned(event.pinned))
 		BrowserEvent.ToggledSearchHelp -> Step(state.withSearch { copy(help = !help) })
 		BrowserEvent.ClosedSearch ->
 			Step(
@@ -539,7 +544,7 @@ internal fun BrowserState.reread(landing: Landing? = null): Step =
 				listOf(
 					Effect.Search(
 						text,
-						queryOf(QueryText.read(text), choosing),
+						queryOf(QueryText.read(text), choosing, at.refines),
 						Purpose.Refresh,
 						inPlace?.tree,
 					),
@@ -1452,21 +1457,43 @@ private fun BrowserState.withSearch(change: Search.Ready.() -> Search): BrowserS
 /**
  * The search's window opened with [text] in its field and searched for: nothing, for a search begun (and begun again,
  * where it was open already), since what was searched for last is seldom what is wanted next; what the results shown
- * were searched for, where those are to be changed. With no index, the window says why there is no search.
+ * were searched for, where those are to be changed. It searches within [refines]: the pinned results it was begun
+ * from, where it was, which is no search for prism's own things. What it finds is shown pinned where the results it
+ * was opened from are: a search made from pinned results is one more of the same refining, and the next is made
+ * within it without its being pinned by hand. With no index, the window says why there is no search.
  */
-private fun BrowserState.openedSearch(text: String): Step =
-	when (val search = search) {
+private fun BrowserState.openedSearch(text: String, refines: Refines): Step {
+	val opened =
+		Search
+			.Ready(
+				open = true,
+				// How a query is written is still to be asked for; the rest are not among any search's results.
+				offers = offers.filter { !refines.any || it == Own.Help },
+				refines = refines,
+				pins = shownResults?.pinned == true,
+			).typed(text)
+
+	return when (val search = search) {
 		// A place is searched by its own listing, whether or not there is an index of the disk.
 		is Search.Unavailable ->
 			if (inPlace?.tree != null)
-				copy(search = Search.Ready(open = true, offers = offers).typed(text)).previewing()
+				copy(search = opened).previewing()
 			else
 				Step(copy(search = search.copy(open = true)))
-		is Search.Ready ->
-			copy(
-				search = Search.Ready(open = true, offers = offers).typed(text),
-			).previewing()
+		is Search.Ready -> copy(search = opened).previewing()
 	}
+}
+
+/** The results shown, where a search's results are what is shown. */
+private val BrowserState.shownResults: Location.Results? get() = at as? Location.Results
+
+/**
+ * The results shown pinned, or not, as [pinned] says: the same
+ * results in the same place, so nothing is searched again and nothing of the listing changes, and the history is as
+ * it was. Nothing, where no results are shown.
+ */
+private fun BrowserState.pinned(pinned: Boolean): BrowserState =
+	shownResults?.let { copy(at = it.copy(pinned = pinned)) } ?: this
 
 /** The search's text searched for, for the window's matches; nothing, for no text. */
 private fun BrowserState.previewing(): Step {
@@ -1481,7 +1508,7 @@ private fun BrowserState.previewing(): Step {
 		listOf(
 			Effect.Search(
 				search.text,
-				queryOf(search.read, choosing),
+				queryOf(search.read, choosing, search.refines),
 				Purpose.Preview,
 				inPlace?.tree,
 			),
@@ -1671,7 +1698,7 @@ private fun BrowserState.showingMatches(): Step {
 
 	// What was found is shown only if it was found where the window is: in this place, or on the disk.
 	search.matched?.takeIf { it.matches.tree === inPlace?.tree }?.let {
-		return copy(search = search.closed()).showing(it)
+		return copy(search = search.closed()).showing(it, search)
 	}
 
 	// Refused for this text: nothing to show, and the window says why.
@@ -1683,7 +1710,7 @@ private fun BrowserState.showingMatches(): Step {
 		listOf(
 			Effect.Search(
 				search.text,
-				queryOf(search.read, choosing),
+				queryOf(search.read, choosing, search.refines),
 				Purpose.Show,
 				inPlace?.tree,
 			),
@@ -1691,9 +1718,17 @@ private fun BrowserState.showingMatches(): Step {
 	)
 }
 
-/** [finding]'s results shown in the listing, in place of what is shown, which goes behind them in the history. */
-private fun BrowserState.showing(finding: Finding.Matched): Step =
-	shown(Location.Results(finding, inPlace), History(history.back + at, emptyList()), null)
+/**
+ * [finding]'s results shown in the listing, in place of what is shown, which goes behind them in the history: the
+ * results of [search], made within what it refines, and pinned where it was opened from pinned results. What is
+ * behind them is as it was, pinned or not, with its own search.
+ */
+private fun BrowserState.showing(finding: Finding.Matched, search: Search.Ready): Step =
+	shown(
+		Location.Results(finding, inPlace, search.refines, search.pins),
+		History(history.back + at, emptyList()),
+		null,
+	)
 
 /**
  * What a search came back with. For the window, kept where it is for what is typed now (a search overtaken by typing
@@ -1716,19 +1751,21 @@ private fun BrowserState.searched(finding: Finding, purpose: Purpose): Step {
 
 			when {
 				!search.showing -> Step(copy(search = found))
-				finding is Finding.Matched -> copy(search = found.closed()).showing(finding)
+				finding is Finding.Matched ->
+					copy(search = found.closed()).showing(finding, search)
 				else -> Step(copy(search = found.copy(showing = false)))
 			}
 		}
 		Purpose.Refresh -> {
-			val shown = results
+			val shown = shownResults
 
 			// What was chosen was a result of the old search, and is none of the new one's ([RowId.Found]): it is not
-			// among the rows shown, and is let go with them.
-			if (shown == null || finding !is Finding.Matched || finding.text != shown.text)
+			// among the rows shown, and is let go with them. They are the results they were, found again: within what
+			// they were, and pinned if they were.
+			if (shown == null || finding !is Finding.Matched || finding.text != shown.finding.text)
 				Step(this)
 			else
-				copy(at = Location.Results(finding, inPlace)).showingResults(finding)
+				copy(at = shown.copy(finding = finding)).showingResults(finding)
 		}
 	}
 }

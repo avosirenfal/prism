@@ -154,6 +154,7 @@ enum class Action(
 	SearchFolder("Search in folder", Scope.Window, KeyGroups.Finding, "Ctrl+F", "F3"),
 	SearchIndex("Search everywhere", Scope.Window, KeyGroups.Finding, "F2"),
 	ShowActions("Show actions", Scope.Search, KeyGroups.Finding, "Right"),
+	PinSearch("Pin search", Scope.Window, KeyGroups.Finding),
 	Refresh("Refresh", Scope.Window, KeyGroups.View, "F5", "Ctrl+R"),
 	ToggleHidden("Show hidden files", Scope.Window, KeyGroups.View, "Ctrl+H"),
 	ViewList("List view", Scope.Window, KeyGroups.View, "Ctrl+1"),

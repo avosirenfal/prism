@@ -1857,6 +1857,67 @@ class InteractionTest {
 	}
 
 	@Test
+	fun resultsArePinnedFromTheirBarAndTheSearchsWindowShowsItSearchesWithinThem() {
+		val home = home()
+
+		picking(folder = home, finder = finderOf(home)) { session ->
+			fun shown(tag: String) = onAllNodes(hasTestTag(tag)).fetchSemanticsNodes().isNotEmpty()
+
+			fun results() = session.state.value.at as Location.Results
+
+			press(Key.F2)
+			waitForIdle()
+			// A search of everything says nothing of a pin.
+			assertFalse(shown("search-pinned"))
+			field("search-query").performTextReplacement("notes")
+			waitUntil(timeoutMillis = TIMEOUT) { shown("match:notes.md") }
+			press(Key.Enter)
+			waitUntil(timeoutMillis = TIMEOUT) { session.state.value.results != null }
+			waitForIdle()
+			assertFalse(shown("results-pinned"))
+
+			// "Search results", right-clicked, pins them: its menu's one item, and the bar shows a pin.
+			onNodeWithTag(
+				"results-crumb",
+				useUnmergedTree = true,
+			).performMouseInput { rightClick() }
+			waitForIdle()
+			onNodeWithTag("menu:Pin search").performClick()
+			waitForIdle()
+			assertTrue(results().pinned)
+			onNodeWithTag("results-pinned", useUnmergedTree = true).assertExists()
+			row("notes.md").assertIsDisplayed()
+
+			// The search opened from them is empty, and shows that it searches within them.
+			press(Key.F2)
+			waitForIdle()
+			field("search-query").assertTextEquals("")
+			onNodeWithTag("search-pinned", useUnmergedTree = true).assertExists()
+			field("search-query").performTextReplacement(".md")
+			waitUntil(timeoutMillis = TIMEOUT) { shown("match:notes.md") }
+			press(Key.Enter)
+			waitUntil(timeoutMillis = TIMEOUT) { results().searches == listOf("notes", ".md") }
+			waitForIdle()
+			// What it found is pinned as what it was found within is.
+			onNodeWithTag("results-pinned", useUnmergedTree = true).assertExists()
+
+			// The same menu lets them go, and a search from them is of everything again.
+			onNodeWithTag(
+				"results-crumb",
+				useUnmergedTree = true,
+			).performMouseInput { rightClick() }
+			waitForIdle()
+			onNodeWithTag("menu:Unpin search").performClick()
+			waitForIdle()
+			assertFalse(results().pinned)
+			assertFalse(shown("results-pinned"))
+			press(Key.F2)
+			waitForIdle()
+			assertFalse(shown("search-pinned"))
+		}
+	}
+
+	@Test
 	fun theQuestionMarkShowsHowAQueryIsWrittenInTheSearchsPlaceUntilItIsLeft() {
 		val home = home()
 

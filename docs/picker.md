@@ -488,6 +488,29 @@ keyboard while it is open, so it reads the binding itself.
 
 ![A search's results in the listing](picker-results.png)
 
+### Pinning results, to search within them
+
+![A search within pinned results](picker-search-pinned.png)
+
+**You right click "Search results" in the path's bar and choose "Pin search".** That is `PinnedSearch`: the
+results shown are pinned, which the bar says with a pin. Nothing is searched again and nothing in the listing
+moves; pinning only sets a flag on the view (`Location.Results.pinned`). The same menu's "Unpin search" clears it.
+The action "Pin search" does both, and has no key until one is bound to it.
+
+**F2 from pinned results searches within them.** The field is empty as always, and shows a pin (its tooltip
+says "Pinned search"). What you type is found only among the pinned results: with results for `report` pinned,
+`-draft` finds the reports that are not drafts, and `.pdf` those that are PDFs. Each search is read on its own
+and their terms are searched for together (`Refines`), so a quote left open in one cannot swallow the other.
+Prism's own things are not listed there, but for `?`.
+
+**Enter shows what was found as results of their own,** with the pinned results behind them in the history. The
+bar names both searches, `“report” › “-draft”`. They are pinned too, as the results they were found within are,
+so the next F2 searches within them in turn; unpinning them unpins only them.
+
+**The pin goes where the view goes.** Leave pinned results for a folder and come Back, and they are still pinned.
+Go Back further, to results that were never pinned, and F2 searches everything again. Clicking the bar to change
+a search changes that one search: it is searched for within whatever it was found within before.
+
 ### What can be done to a match
 
 ![A match's actions, in an explorer's search](picker-search-actions.png)

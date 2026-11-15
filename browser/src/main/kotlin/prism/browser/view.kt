@@ -347,6 +347,9 @@ private fun windowAction(
 			Action.Up -> BrowserEvent.Up
 			Action.EditAddress -> BrowserEvent.EditedAddress
 			Action.SearchIndex -> BrowserEvent.OpenedSearch
+			// Whichever the results shown are not: where no results are shown, there is nothing to pin.
+			Action.PinSearch ->
+				(state.at as? Location.Results)?.let { BrowserEvent.PinnedSearch(!it.pinned) }
 			Action.Refresh -> BrowserEvent.Refreshed
 			Action.ToggleHidden -> BrowserEvent.ToggledEveryHidden
 			Action.NewFolder -> BrowserEvent.MadeFolder
@@ -527,7 +530,7 @@ private fun AddressBar(
 		Address.Crumbs ->
 			when (val at = state.at) {
 				is Location.Folder -> Crumbs(state.crumbs, modifier, onEvent)
-				is Location.Results -> ResultsBar(at.finding, modifier, onEvent)
+				is Location.Results -> ResultsBar(at, modifier, onEvent)
 				is Location.Place -> PlaceBar(at, modifier, onEvent)
 				Location.Trash -> TrashBar(modifier)
 				is Location.System -> SystemBar(modifier)
@@ -674,29 +677,48 @@ private fun Crumbs(
 }
 
 /**
- * In place of the path, what a search's results are: the words searched for, which open the search's window again
- * (with them in it) when clicked, as the path's bar opens a path to type.
+ * In place of the path, what a search's results are: the words searched for (after those of each pinned search they
+ * were searched for within), which open the search's window again (with them in it) when clicked, as the path's bar
+ * opens a path to type. "Search results", right-clicked, pins them or lets them go ([resultsMenuOf]); pinned, it shows
+ * a pin.
  */
 @Composable
 private fun ResultsBar(
-	results: Finding.Matched,
+	results: Location.Results,
 	modifier: Modifier,
 	onEvent: (BrowserEvent) -> Unit,
 ) {
+	val palette = LocalPalette.current
 	val type = LocalType.current
+	val menus = rememberContextMenus<BrowserEvent>()
+	val bindings = LocalBindings.current
 
 	Bar(Glyph.Search, modifier.testTag("results"), "Edit search", {
-		onEvent(BrowserEvent.EditedSearch(results.text))
+		onEvent(BrowserEvent.EditedSearch(results.finding.text))
 	}) {
-		Text("Search results", style = type.strong, maxLines = 1)
+		Row(
+			Modifier.testTag("results-crumb").contextMenu(menus) {
+				resultsMenuOf(results, bindings)
+			},
+			verticalAlignment = Alignment.CenterVertically,
+			horizontalArrangement = Arrangement.spacedBy(Space.xs),
+		) {
+			Text("Search results", style = type.strong, maxLines = 1)
+			if (results.pinned)
+				Tip(PINNED_SEARCH, Modifier.testTag("results-pinned")) {
+					GlyphIcon(Glyph.Pin, palette.accentText, type.icon * 0.9f)
+				}
+		}
 		Text(
-			"“${results.text}”",
+			results.searches.joinToString(" › ") { "“$it”" },
 			style = type.muted,
 			maxLines = 1,
 			overflow = TextOverflow.Ellipsis,
 			modifier = Modifier.weight(1f, fill = false),
 		)
 	}
+
+	ContextMenuHost(menus, onEvent)
 }
 
 /** In place of the path, that the window shows the trash: every trash's entries, which are on no one path. */
@@ -1008,8 +1030,9 @@ private fun ListingPane(
 	val palette = LocalPalette.current
 	val source = remember { MutableInteractionSource() }
 	val felt = source.felt()
-	val list = remember(state.at) { LazyListState() }
-	val grid = remember(state.at) { LazyGridState() }
+	// How far it is scrolled is the listing's, which results pinned are still.
+	val list = remember(state.at.listed) { LazyListState() }
+	val grid = remember(state.at.listed) { LazyGridState() }
 	val menus = rememberContextMenus<BrowserEvent>()
 	val area = remember { InWindow() }
 	val rows = state.rows
@@ -1041,7 +1064,7 @@ private fun ListingPane(
 	val beforeName =
 		(rowIconOf(LocalRows.current, LocalType.current) + Space.s + Space.xxs) * zoom
 	// How far across the rows are scrolled, where they are wider than the listing.
-	val across = remember(state.at) { ScrollState(0) }
+	val across = remember(state.at.listed) { ScrollState(0) }
 
 	/** What the user's action bound to a chord, or done by a double click, is done to: the rows, or the folder shown. */
 	fun subjectOf(rows: List<Row>): Subject =
@@ -1069,7 +1092,7 @@ private fun ListingPane(
 	}
 
 	// Gone elsewhere, nothing dragged here is over anything of it any more.
-	LaunchedEffect(state.at) { hint.clear() }
+	LaunchedEffect(state.at.listed) { hint.clear() }
 
 	LaunchedEffect(cursorAt, state.layout) {
 		cursorAt?.let {

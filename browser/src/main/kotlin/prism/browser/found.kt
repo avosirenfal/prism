@@ -62,12 +62,41 @@ class StaticFinder(
 	}
 }
 
-/** The query [text] asks for, as [choosing] searches it: a folder picker finds only folders, as if `is:dir` were typed. */
-fun queryOf(read: ReadQuery, choosing: Choosing): Query =
-	if (choosing is Choosing.Folder)
-		Query(read.query.terms + Term(Test.Is(setOf(Flag.Dir))))
-	else
-		read.query
+/**
+ * The searches a search is made within, the outermost first, each as it was typed: the pinned results it was begun
+ * from, and what those were made within. None, for a search of everything.
+ *
+ * A query is its terms, every one of which a match meets, so a search within others is the query of all their terms
+ * together ([terms]): each search's text is read on its own, and nothing in one (a quote left open, say) can change
+ * what another means, as it could if their texts were joined.
+ */
+@Immutable
+@JvmInline
+value class Refines private constructor(
+	val texts: List<String>,
+) {
+	val any: Boolean get() = texts.isNotEmpty()
+
+	/** What every one of them asks for. */
+	val terms: List<Term> get() = texts.flatMap { QueryText.read(it).query.terms }
+
+	/** These, and within them a search for [text]. */
+	operator fun plus(text: String): Refines = Refines(texts + text)
+
+	companion object {
+		val NONE = Refines(emptyList())
+	}
+}
+
+/**
+ * The query [read] asks for, as [choosing] searches it, within [refines]: a folder picker finds only folders, as if
+ * `is:dir` were typed.
+ */
+fun queryOf(read: ReadQuery, choosing: Choosing, refines: Refines = Refines.NONE): Query =
+	Query(
+		refines.terms + read.query.terms +
+			listOfNotNull(Term(Test.Is(setOf(Flag.Dir))).takeIf { choosing is Choosing.Folder }),
+	)
 
 /** The search of the index that F2 opens over the picker, its field empty each time it is opened. */
 @Immutable
@@ -104,6 +133,10 @@ sealed interface Search {
 		/** Which of prism's own things a search here can find: an explorer's, or a picker's fewer. */
 		val offers: List<Own> = emptyList(),
 		val menu: Menu? = null,
+		/** The pinned searches this one is made within, as it was opened: none, for a search of everything. */
+		val refines: Refines = Refines.NONE,
+		/** Whether what it finds is shown pinned: where the results it was opened from were. */
+		val pins: Boolean = false,
 	) : Search {
 		/** Prism's own things that [text] asks for, the best first. */
 		val own: List<Own> by lazy { Own.found(text, offers) }

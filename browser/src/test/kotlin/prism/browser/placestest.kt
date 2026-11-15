@@ -665,6 +665,56 @@ class PlacesTest {
 	}
 
 	@Test
+	fun aPlacesResultsPinnedAreSearchedWithinInThePlace() {
+		archives()
+		// On disk beside the archive: a search within the archive's results must not find it.
+		root.resolve("main.c.elsewhere").writeText("not in the archive")
+
+		val top = exploring().viewing("code.tar.gz")
+
+		val pinned =
+			top
+				.then(BrowserEvent.OpenedSearch)
+				.then(BrowserEvent.SearchTyped("dir:src"))
+				.then(BrowserEvent.ShowedResults)
+				.then(BrowserEvent.PinnedSearch(true))
+		val at = pinned.at as Location.Results
+
+		assertEquals(setOf("deep", "main.c", "a.txt"), pinned.names().toSet())
+		assertTrue(at.pinned)
+		assertEquals(top.place?.placed, at.within?.placed)
+
+		// What is typed is found among them, by the place's own listing: the archive's entry, and nothing of the disk.
+		val refined =
+			pinned
+				.then(BrowserEvent.OpenedSearch)
+				.then(BrowserEvent.SearchTyped("ext:c"))
+				.then(BrowserEvent.ShowedResults)
+		val within = refined.at as Location.Results
+
+		assertEquals(listOf("main.c"), refined.names())
+		assertEquals(
+			Item.InPlace("src/main.c"),
+			refined.rows.list
+				.single()
+				.item,
+		)
+		assertEquals(at.within, within.within)
+		assertEquals(listOf("dir:src", "ext:c"), within.searches)
+		assertTrue(within.pinned)
+
+		// And a search within those finds what all three ask for, in the place still.
+		val third =
+			refined
+				.then(BrowserEvent.OpenedSearch)
+				.then(BrowserEvent.SearchTyped("a"))
+				.then(BrowserEvent.ShowedResults)
+
+		assertEquals(listOf("main.c"), third.names())
+		assertEquals(at.within, (third.at as Location.Results).within)
+	}
+
+	@Test
 	fun whatACommandMadeIsMergedIntoWhereItGoesOverNothing() {
 		val from = root.resolve("from")
 		val into = root.resolve("into")

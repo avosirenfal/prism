@@ -202,6 +202,26 @@ private fun Unavailable(
 	}
 }
 
+/**
+ * What the search's field shows where it searches within pinned results: a pin, small and still, which is no button;
+ * it says what it is when the pointer rests on it.
+ */
+@Composable
+private fun PinnedBadge() {
+	val palette = LocalPalette.current
+	val type = LocalType.current
+
+	Tip(PINNED_SEARCH, Modifier.testTag("search-pinned")) {
+		Box(
+			Modifier
+				.background(palette.chosen, RoundedCornerShape(Radius.small))
+				.padding(horizontal = Space.xs, vertical = Space.xxs),
+		) {
+			GlyphIcon(Glyph.Pin, palette.accentText, type.icon * 0.8f)
+		}
+	}
+}
+
 @Composable
 private fun Searching(
 	search: Search.Ready,
@@ -260,10 +280,15 @@ private fun Searching(
 			search.text,
 			{ onEvent(BrowserEvent.SearchTyped(it)) },
 			Modifier.weight(1f).testTag("search-query"),
-			hint = "Search everywhere",
+			hint =
+				if (search.refines.any)
+					"Search in results"
+				else
+					"Search everywhere",
 			leading = Glyph.Search,
 			height = tall,
 			focus = field,
+			badge = (@Composable { PinnedBadge() }).takeIf { search.refines.any },
 			// The keyboard arrives at the end of what was typed, to go on typing it.
 			selecting = {
 				androidx.compose.ui.text

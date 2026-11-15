@@ -879,6 +879,72 @@ class FindTest {
 	}
 
 	@Test
+	fun pinnedResultsAndASearchWithinThemDraw() {
+		made(
+			"Documents/Quarterly report.pdf",
+			"Documents/report-draft.odt",
+			"Documents/Reports/",
+			"Projects/prism/docs/reporting.md",
+			"Pictures/report cover.png",
+			"Documents/Annual report.pdf",
+		)
+
+		val exploring = picker(Choosing.Exploring())
+		val results = after(searched(exploring, "report"), BrowserEvent.SearchEntered)
+		val pinned = after(results, BrowserEvent.PinnedSearch(true))
+		val within =
+			after(pinned, BrowserEvent.OpenedSearch, BrowserEvent.SearchTyped(".pdf"))
+		val refined = after(within, BrowserEvent.SearchEntered)
+
+		assertEquals(
+			listOf("Annual report.pdf", "Quarterly report.pdf"),
+			refined.shown().sorted(),
+		)
+
+		/** [state] drawn, with the menu of its results' bar open under "Search results" where [menu] says so. */
+		fun drawn(state: BrowserState, palette: Palette, menu: Boolean): ByteArray =
+			renderedPng(1100, 680, palette, scale = 2f) {
+				FileBrowser(state)
+				if (menu)
+					MenuPopup(
+						resultsMenuOf(state.at as Location.Results),
+						MenuAnchor.At(
+							androidx.compose.ui.unit
+								.IntOffset(480, 84),
+						),
+						{},
+						{},
+					)
+			}
+
+		val pictures =
+			listOf(
+				Triple("pin-menu", results, true),
+				Triple("pinned", pinned, false),
+				Triple("pinned-menu", pinned, true),
+				Triple("pinned-search-empty", after(pinned, BrowserEvent.OpenedSearch), false),
+				Triple("pinned-search", within, false),
+				Triple("pinned-refined", refined, false),
+			)
+
+		for ((name, state, menu) in pictures)
+			for ((tone, palette) in listOf("light" to Palette.Light, "dark" to Palette.Dark)) {
+				val png = drawn(state, palette, menu)
+
+				assertTrue(png.size > 20_000, "$name: ${png.size} bytes")
+				System.getProperty("browser.screenshots")?.takeIf { it.isNotBlank() }?.let { dir ->
+					Path
+						.of(dir)
+						.also {
+							it.createDirectories()
+						}.resolve("find-$name-$tone.png")
+						.toFile()
+						.writeBytes(png)
+				}
+			}
+	}
+
+	@Test
 	fun theArrowsGoThroughEveryMatchAndNotOnlyThoseInSight() {
 		made(*(1..30).map { "notes/note-%02d.md".format(it) }.toTypedArray())
 
@@ -1258,5 +1324,275 @@ class FindTest {
 		val closed = after(typed, BrowserEvent.ClosedSearch, BrowserEvent.OpenedSearch)
 
 		assertEquals("", closed.ready.text)
+	}
+
+	// ---- results pinned, and searched within ------------------------------------------------------------------------
+
+	private val BrowserState.found get() = at as Location.Results
+
+	/** [text] searched for from [state] as it is, and every match shown. */
+	private fun explored(state: BrowserState, text: String): BrowserState =
+		after(searched(state, text), BrowserEvent.SearchEntered)
+
+	private fun reports() =
+		made(
+			"docs/report-2024.pdf",
+			"docs/report-draft.pdf",
+			"old/report-2023.txt",
+			"misc/draft-notes.txt",
+			"misc/summary.pdf",
+		)
+
+	@Test
+	fun resultsArePinnedWhereTheyAreWithNothingSearchedAgainOrMoved() {
+		reports()
+
+		val shown = explored(picker(), "report")
+		val on = after(shown, BrowserEvent.Clicked(shown.rows.list[1].id, Click.Only))
+
+		assertFalse(on.found.pinned)
+		assertEquals(listOf("Pin search"), resultsMenuOf(on.found).labels())
+
+		val pinning = step(on, BrowserEvent.PinnedSearch(true))
+		val pinned = pinning.state
+
+		// Said of the view, and nothing asked of the index or the disk for it.
+		assertEquals(emptyList<Effect>(), pinning.effects)
+		assertTrue(pinned.found.pinned)
+		// The same results, the same rows, the cursor where it was, and nothing more behind it.
+		assertTrue(pinned.found.finding === on.found.finding)
+		assertTrue(pinned.listing === on.listing)
+		assertEquals(on.rows.list, pinned.rows.list)
+		assertEquals(on.cursor, pinned.cursor)
+		assertEquals(on.history, pinned.history)
+		// What the view keeps of the listing (how far it is scrolled) it keeps.
+		assertEquals(on.at.listed, pinned.at.listed)
+		assertEquals(listOf("Unpin search"), resultsMenuOf(pinned.found).labels())
+
+		// Its menu's item lets it go again: the view it was.
+		val menu = resultsMenuOf(pinned.found).entries.single() as MenuEntry.Item
+
+		assertEquals(on.at, after(pinned, menu.action).at)
+		assertEquals(on.at, after(pinned, BrowserEvent.PinnedSearch(false)).at)
+		// Anywhere but among results, there is nothing to pin.
+		assertEquals(picker().at, after(picker(), BrowserEvent.PinnedSearch(true)).at)
+	}
+
+	private fun Menu<BrowserEvent>.labels(): List<String> =
+		entries.filterIsInstance<MenuEntry.Item<BrowserEvent>>().map { it.label }
+
+	@Test
+	fun aSearchFromPinnedResultsIsMadeWithinThemAndItsResultsArePinnedToo() {
+		reports()
+
+		val pinned = after(explored(picker(), "report"), BrowserEvent.PinnedSearch(true))
+		val opened = after(pinned, BrowserEvent.OpenedSearch)
+
+		// The field is empty, as it always is, and the window knows what it searches within.
+		assertEquals("", opened.ready.text)
+		assertTrue(opened.ready.refines.any)
+		assertEquals(listOf("report"), opened.ready.refines.texts)
+
+		// What is typed is found among the pinned results alone: not the draft's notes, which no report is.
+		val typed = after(opened, BrowserEvent.SearchTyped("-draft"))
+
+		assertEquals("-draft", typed.ready.text)
+		assertEquals(setOf("report-2024.pdf", "report-2023.txt"), typed.listed().toSet())
+
+		// Shown, they are results of their own, behind which the pinned ones are as they were; and pinned as those are.
+		val refined = after(typed, BrowserEvent.SearchEntered)
+
+		assertEquals(setOf("report-2024.pdf", "report-2023.txt"), refined.shown().toSet())
+		assertEquals(listOf("report", "-draft"), refined.found.searches)
+		assertEquals("results for “report” › “-draft”", refined.placeName)
+		assertTrue(refined.found.pinned)
+		assertEquals(pinned.at, refined.history.back.last())
+
+		// So a search from them is made within them, with no pin clicked: the second within the first.
+		val twice = explored(refined, ".pdf")
+
+		assertEquals(listOf("report-2024.pdf"), twice.shown())
+		assertEquals(listOf("report", "-draft", ".pdf"), twice.found.searches)
+		assertTrue(twice.found.pinned)
+
+		// Searched again (something changed on disk), they are still what they were found within, and pinned.
+		root.resolve("docs/report-2024.pdf").deleteExisting()
+
+		val again = after(twice, BrowserEvent.Refreshed)
+
+		assertEquals(emptyList<String>(), again.shown())
+		assertEquals(twice.found.searches, again.found.searches)
+		assertTrue(again.found.pinned)
+
+		// Unpinned, a refinement alone is: what is behind it is pinned still, with its own search.
+		val let = after(refined, BrowserEvent.PinnedSearch(false))
+
+		assertFalse(let.found.pinned)
+		assertEquals(listOf("report", "-draft"), let.found.searches)
+		assertFalse(after(let, BrowserEvent.OpenedSearch).ready.refines.any)
+
+		val back = after(let, BrowserEvent.Back)
+
+		assertEquals(pinned.at, back.at)
+		assertEquals(
+			listOf("report"),
+			after(back, BrowserEvent.OpenedSearch).ready.refines.texts,
+		)
+	}
+
+	@Test
+	fun aPinIsTheViewsKeptThroughTheHistoryAndOtherResultsAreSearchedFromAsEver() {
+		reports()
+
+		// Two searches shown, one after the other, and only the second pinned.
+		val first = explored(picker(), "report")
+		val second = after(explored(first, "draft"), BrowserEvent.PinnedSearch(true))
+
+		assertFalse(second.found.refines.any)
+
+		// Away to a folder and back: the results, pinned still, and searched within.
+		val away = after(second, BrowserEvent.Opened(root.resolve("docs")))
+
+		assertEquals(root.resolve("docs"), away.folder)
+		assertFalse(after(away, BrowserEvent.OpenedSearch).ready.refines.any)
+
+		val back = after(away, BrowserEvent.Back)
+
+		assertTrue(back.found.pinned)
+		assertEquals(second.shown(), back.shown())
+		assertEquals(
+			listOf("report-draft.pdf"),
+			after(back, BrowserEvent.OpenedSearch, BrowserEvent.SearchTyped("report")).listed(),
+		)
+
+		// Back again, to the results never pinned: a search from them is of everything, and what it shows is not pinned.
+		val earlier = after(back, BrowserEvent.Back)
+
+		assertEquals(listOf("report"), earlier.found.searches)
+		assertFalse(earlier.found.pinned)
+
+		val global =
+			after(earlier, BrowserEvent.OpenedSearch, BrowserEvent.SearchTyped("summary"))
+
+		assertFalse(global.ready.refines.any)
+		assertEquals(listOf("summary.pdf"), global.listed())
+		assertFalse(after(global, BrowserEvent.SearchEntered).found.pinned)
+
+		// And forward again, to the pinned ones.
+		assertTrue(after(earlier, BrowserEvent.Forward).found.pinned)
+	}
+
+	@Test
+	fun theSearchOfResultsShownIsChangedWithinWhatTheyWereFoundWithin() {
+		reports()
+
+		val pinned = after(explored(picker(), "report"), BrowserEvent.PinnedSearch(true))
+
+		// A pinned search's own words, changed, are a search of everything: it refines nothing.
+		val own = after(pinned, BrowserEvent.EditedSearch("report"))
+
+		assertEquals("report", own.ready.text)
+		assertFalse(own.ready.refines.any)
+
+		// A refinement's words, changed, are still a search within what it refined.
+		val refined = explored(pinned, "-draft")
+		val edited = after(refined, BrowserEvent.EditedSearch("-draft"))
+
+		assertEquals("-draft", edited.ready.text)
+		assertEquals(listOf("report"), edited.ready.refines.texts)
+		assertEquals(
+			setOf("report-2024.pdf", "report-draft.pdf"),
+			after(edited, BrowserEvent.SearchTyped(".pdf")).listed().toSet(),
+		)
+	}
+
+	@Test
+	fun eachSearchIsReadOnItsOwnSoNothingInOneChangesWhatAnotherMeans() {
+		made(
+			"taxes/tax return 2024.pdf",
+			"taxes/tax return 2023.txt",
+			"taxes/return tax.pdf",
+			"docs/report-2024.pdf",
+			"docs/report-2023.txt",
+			"docs/report-draft.pdf",
+			"old/docs/report-1999.pdf",
+			"misc/notes-2024.pdf",
+		)
+
+		/** What [typed] finds within [pinned]'s results, pinned. */
+		fun within(pinned: String, typed: String): Set<String> =
+			after(
+				explored(picker(), pinned),
+				BrowserEvent.PinnedSearch(true),
+				BrowserEvent.OpenedSearch,
+				BrowserEvent.SearchTyped(typed),
+			).listed().toSet()
+
+		/** What [text] finds of everything. */
+		fun everywhere(text: String): Set<String> = searched(picker(), text).listed().toSet()
+
+		// A quote left open takes everything after it: typed after it, `.pdf` would be more of the phrase, and find
+		// nothing. Within it, it is a term of its own.
+		assertEquals(
+			setOf("tax return 2024.pdf", "tax return 2023.txt"),
+			everywhere("\"tax ret"),
+		)
+		assertEquals(emptySet<String>(), everywhere("\"tax ret .pdf"))
+		assertEquals(setOf("tax return 2024.pdf"), within("\"tax ret", ".pdf"))
+		// And a quote left open in what is typed takes nothing of what it is typed within.
+		assertEquals(setOf("tax return 2024.pdf"), within(".pdf", "\"tax ret"))
+
+		// Where both are whole, within is what both together find: a glob with alternatives, a regular expression, a
+		// path, something left out.
+		for (
+		(pinned, typed) in
+		listOf(
+			"report-*.{pdf,txt}" to "2024",
+			"r/^report-\\d{4}/" to "-2023",
+			"docs/" to ".pdf",
+			"dir:docs" to "-old/",
+			"-draft" to "report",
+			"report" to "r/\\d{4}\\.pdf$/",
+		)
+		) {
+			val both = everywhere("$pinned $typed")
+
+			assertTrue(both.isNotEmpty(), "$pinned $typed")
+			assertEquals(both, within(pinned, typed), "$typed within $pinned")
+			assertTrue(
+				everywhere(typed).size > both.size,
+				"$typed alone finds more than within $pinned",
+			)
+		}
+	}
+
+	@Test
+	fun prismsOwnThingsAreNotAmongPinnedResultsButHowAQueryIsWrittenIsStillAsked() {
+		reports()
+
+		val pinned = after(explored(picker(), "report"), BrowserEvent.PinnedSearch(true))
+
+		// Of everything, a picker's search finds the system's page by its name.
+		assertEquals(listOf(Own.System), searched(picker(), "system").ready.own)
+		// Within pinned results, it does not; a question mark alone still asks how a query is written.
+		assertEquals(emptyList<Own>(), searched(pinned, "system").ready.own)
+		assertEquals(listOf(Own.Help), searched(pinned, "?").ready.own)
+	}
+
+	@Test
+	fun aFolderPickersSearchWithinPinnedResultsFindsOnlyFolders() {
+		made("plans/", "old/plans-2023/", "old/plan.txt", "plans/draft.txt")
+
+		val pinned =
+			after(
+				explored(picker(Choosing.Folder()), "plan"),
+				BrowserEvent.PinnedSearch(true),
+			)
+
+		assertEquals(setOf("plans", "plans-2023"), pinned.shown().toSet())
+		assertEquals(
+			listOf("plans-2023"),
+			after(pinned, BrowserEvent.OpenedSearch, BrowserEvent.SearchTyped("2023")).listed(),
+		)
 	}
 }
