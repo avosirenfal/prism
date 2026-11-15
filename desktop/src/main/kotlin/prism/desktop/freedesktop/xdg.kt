@@ -26,6 +26,9 @@ class Xdg(
 
 	val dataHome: Path get() = absolute("XDG_DATA_HOME") ?: home.resolve(".local/share")
 	val configHome: Path get() = absolute("XDG_CONFIG_HOME") ?: home.resolve(".config")
+
+	/** Where what can be made again is kept: thumbnails, among much else. */
+	val cacheHome: Path get() = absolute("XDG_CACHE_HOME") ?: home.resolve(".cache")
 	val runtime: Path? get() = absolute("XDG_RUNTIME_DIR")
 
 	/** The data folders, the user's first: where MIME types and applications are looked for. */

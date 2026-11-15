@@ -18,6 +18,7 @@ a device, so a test that ran and a test that could not run are never confused.
 | the picker's rules (`StepTest`) | the JDK | never |
 | the picker clicked, typed and scrolled at, headless, around a running session: among the rest, a notch of the wheel moving the list three rows at any zoom, a touchpad's scroll moving it on the next frame and a notch turned mid-glide adding to it, a listing zoomed wider than its window scrolled across with its headings, and a modal put away by Escape (`InteractionTest`) | the JDK | never |
 | the gallery's thumbnails (`ThumbnailTest`) | the JDK | never |
+| the shared thumbnail cache read as freedesktop.org's standard has it (`ThumbnailCacheTest`); its addresses against GLib's own `g_filename_to_uri`, and a thumbnail made by ImageMagick | the JDK; GLib and ImageMagick | the two that ask GLib or ImageMagick, where it is not installed |
 | the picker's menus, as values (`MenuTest`) | the JDK | never |
 | the browser exploring: files opened, or offered to an application; copied, cut and pasted, with undo; made; quick access arranged, and an older version's pins read as it (`ExploreTest`) | Linux | never |
 | the user's actions: commands read and filled word by word, what is refused and why, conditions, the menus they are in, their keys, and each step of doing one (`ActionsTest`) | the JDK | never |

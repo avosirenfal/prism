@@ -2874,15 +2874,16 @@ private fun Tile(
 }
 
 /**
- * The picture of [row]: a small picture of an image (LocalThumbnails), made on an IO thread while its icon is shown,
- * at a size for how large it is drawn, or the icon alone for anything else.
+ * The picture of [row]: a small picture of the file (LocalThumbnails: an image's own, or the thumbnail the desktop's
+ * programs share of anything else), made on an IO thread while its icon is shown, at a size for how large it is
+ * drawn; or the icon alone, for a file with neither.
  */
 @Composable
 private fun Picture(row: Row, path: Path?, zoom: Float) {
 	val palette = LocalPalette.current
 	val thumbnails = LocalThumbnails.current
-	// An entry of a place is nowhere on disk to be drawn from: its icon alone.
-	val drawable = path != null && !row.isFolder && Thumbnails.drawable(row.name)
+	// An entry of a place is nowhere on disk to be drawn from: its icon alone. A folder has no picture.
+	val drawable = path != null && !row.isFolder
 
 	BoxWithConstraints(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
 		// Made for the longer side of its room, so that it is as sharp as it is drawn.
@@ -2895,7 +2896,7 @@ private fun Picture(row: Row, path: Path?, zoom: Float) {
 			produceState<ImageBitmap?>(null, row.modified, Thumbnails.sideFor(side)) {
 				value =
 					if (drawable)
-						thumbnails.of(path, row.modified, side)
+						thumbnails.of(path, row.modified, side, row.size?.value)
 					else
 						null
 			}

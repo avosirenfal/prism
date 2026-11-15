@@ -25,16 +25,23 @@ import org.jetbrains.skia.MipmapMode
 import org.jetbrains.skia.Rect
 import org.jetbrains.skia.Surface
 import org.jetbrains.skia.makeFromFileName
+import prism.desktop.freedesktop.ThumbnailCache
 
 /**
- * Small pictures of image files, for the gallery. Each is decoded by Skia (the library Compose draws with), scaled to
- * fit a square of one of a few sizes, from 128 to 2048 pixels, the first at least as large as the tile draws it (so a
- * gallery made larger gets sharper pictures, up to one picture as large as the window). Each is kept by the file's
- * path, the time it was last changed and the size, so that a file is decoded once however often its tile is drawn,
- * and again only once it has changed.
+ * Small pictures of files, for the gallery. An image file's is decoded by Skia (the library Compose draws with), scaled
+ * to fit a square of one of a few sizes, from 128 to 2048 pixels, the first at least as large as the tile draws it (so
+ * a gallery made larger gets sharper pictures, up to one picture as large as the window). A file Skia cannot decode (a
+ * video, a document) has the picture the desktop's programs have made of it, where one of them has: the thumbnail
+ * cache they [share][ThumbnailCache], which is read and never written. An image's is taken from there too where there
+ * is one as large as is wanted, which saves decoding the image itself.
+ *
+ * Each is kept by the file's path, the time it was last changed and the size, so that a file is decoded once however
+ * often its tile is drawn, and again only once it has changed. That a file has no picture is kept so too, for a
+ * while ([FORGOTTEN]): a folder of files with none is not looked through again each time it is scrolled, and a
+ * picture another program makes meanwhile is found soon enough.
  *
  * Decoding a photograph takes tens of milliseconds and the whole image's memory while it lasts, so at most
- * [parallel] are decoded at once, on IO threads; a tile scrolled away before its turn comes is never decoded at all,
+ * [parallel] are made at once, on IO threads; a tile scrolled away before its turn comes is never made at all,
  * since asking is cancelled with it. What is kept is the pictures used most recently, up to [budget] pixels in all
  * (four bytes each).
  *
@@ -44,6 +51,10 @@ import org.jetbrains.skia.makeFromFileName
 class Thumbnails(
 	private val budget: Long = 16L * 1024 * 1024,
 	parallel: Int = 4,
+	/** The thumbnails the desktop's programs share; none, for pictures of images alone. */
+	private val shared: ThumbnailCache? = ThumbnailCache.of(),
+	/** What time it is, in nanoseconds from whenever: what a file known to have no picture is forgotten by. */
+	private val now: () -> Long = System::nanoTime,
 ) {
 	private data class Key(
 		val path: Path,
@@ -51,38 +62,104 @@ class Thumbnails(
 		val side: Int,
 	)
 
-	/** The pictures kept, the least recently used first, and how many pixels they hold in all. */
-	private val kept = LinkedHashMap<Key, ImageBitmap>(64, 0.75f, true)
-	private var pixels = 0L
+	/** What is known of a file's picture: the picture, or that it has none. */
+	private sealed interface Known {
+		data class Picture(
+			val picture: ImageBitmap,
+		) : Known
 
-	private val decoding: CoroutineDispatcher = Dispatchers.IO.limitedParallelism(parallel)
-
-	/**
-	 * [path]'s picture, last changed at [modified], to be drawn [side] pixels across at most; null for a file that is
-	 * not an image Skia can decode.
-	 */
-	suspend fun of(path: Path, modified: Instant?, side: Int = SIDES[1]): ImageBitmap? {
-		if (!drawable(path.name))
-			return null
-
-		val key = Key(path, modified, sideFor(side))
-
-		return synchronized(kept) { kept[key] }
-			?: withContext(decoding) { pictureOf(path, key.side) }?.also { keep(key, it) }
+		data object None : Known
 	}
 
-	private fun keep(key: Key, picture: ImageBitmap) =
-		synchronized(kept) {
-			kept.put(key, picture)?.let { pixels -= it.area }
+	/**
+	 * What is kept: the pictures, the least recently used first, and how many pixels they hold in all; and the files
+	 * known to have none, with when each was found so. Reached only through [kept], one thread at a time.
+	 */
+	private class Kept(
+		private val budget: Long,
+	) {
+		private val pictures = LinkedHashMap<Key, ImageBitmap>(64, 0.75f, true)
+		private var pixels = 0L
+
+		private val none =
+			object : LinkedHashMap<Key, Long>(64, 0.75f, true) {
+				override fun removeEldestEntry(eldest: Map.Entry<Key, Long>): Boolean =
+					size > NONE_KEPT
+			}
+
+		/** What is known of [key] at [now]; null where nothing is, or it was found to have none too long ago. */
+		fun known(key: Key, now: Long): Known? =
+			pictures[key]?.let(Known::Picture)
+				?: none[key]?.let { found ->
+					if (now - found < FORGOTTEN)
+						Known.None
+					else
+						null.also { none.remove(key) }
+				}
+
+		/** [key]'s picture kept as [picture], or that it has none, found at [now]. */
+		fun keep(key: Key, picture: ImageBitmap?, now: Long) {
+			if (picture == null) {
+				none[key] = now
+
+				return
+			}
+
+			none.remove(key)
+			pictures.put(key, picture)?.let { pixels -= it.area }
 			pixels += picture.area
 
-			val oldest = kept.entries.iterator()
+			val oldest = pictures.entries.iterator()
 
 			while (pixels > budget && oldest.hasNext()) {
 				pixels -= oldest.next().value.area
 				oldest.remove()
 			}
 		}
+	}
+
+	private val kept = Guarded(Kept(budget))
+
+	private val decoding: CoroutineDispatcher = Dispatchers.IO.limitedParallelism(parallel)
+
+	/**
+	 * [path]'s picture, last changed at [modified] and of [bytes] bytes where that is known, to be drawn [side] pixels
+	 * across at most; null for a file that is not an image Skia can decode and has no thumbnail in the shared cache.
+	 */
+	suspend fun of(
+		path: Path,
+		modified: Instant?,
+		side: Int = SIDES[1],
+		bytes: Long? = null,
+	): ImageBitmap? {
+		val key = Key(path, modified, sideFor(side))
+
+		return when (val known = kept.with { known(key, now()) }) {
+			is Known.Picture -> known.picture
+			Known.None -> null
+			null ->
+				withContext(decoding) { made(path, modified, bytes, key.side) }
+					.also { kept.with { keep(key, it, now()) } }
+		}
+	}
+
+	/**
+	 * The picture of [path] made: from the shared cache's thumbnail of it, where that is still its picture, or, for
+	 * an image, from the image itself. An image is taken from the cache only at a size at least [side], so that it
+	 * is as sharp as one made here; anything else, at the best size there is, since there is nothing else to draw.
+	 */
+	private fun made(path: Path, modified: Instant?, bytes: Long?, side: Int): ImageBitmap? {
+		val image = drawable(path.name)
+
+		// A file whose time is not known cannot be told from one changed since its thumbnail was made.
+		val thumbnail = modified?.let { shared?.find(path, it, bytes, side, smaller = !image) }
+
+		return thumbnail?.let { pictureOf(it, side) }
+			?: if (image)
+				pictureOf(path, side)
+			else
+				null
+	}
 
 	/**
 	 * [path] decoded and scaled down to fit a square of [side]; null where it cannot be read or decoded. The file is
@@ -157,13 +234,29 @@ class Thumbnails(
 		/** The largest file decoded, in bytes: anything bigger is drawn as its icon. */
 		private const val LARGEST = 64L * 1024 * 1024
 
+		/** How long a file found to have no picture is taken to have none, in nanoseconds: ten seconds. */
+		private const val FORGOTTEN = 10_000_000_000L
+
+		/** How many files with no picture are remembered at once. */
+		private const val NONE_KEPT = 16384
+
 		/** The image formats Skia decodes, by their extensions. */
 		private val DECODED = setOf("png", "jpg", "jpeg", "gif", "webp", "bmp", "ico", "wbmp")
 
-		/** Whether a file of [name] has a picture to draw: an image Skia can decode. */
+		/** Whether a file of [name] is one whose picture is made here: an image Skia can decode. */
 		fun drawable(name: String): Boolean =
 			name.substringAfterLast('.', "").lowercase(Locale.ROOT) in DECODED
 	}
+}
+
+/**
+ * What is [held], reached only through [with], by one thread at a time: there is no way to it that is not under its
+ * lock.
+ */
+private class Guarded<T>(
+	private val held: T,
+) {
+	fun <R> with(body: T.() -> R): R = synchronized(this) { held.body() }
 }
 
 /** The pictures the gallery draws its tiles with: one store for the whole process, unless one is provided. */

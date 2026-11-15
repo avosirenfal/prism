@@ -281,6 +281,42 @@ What is kept is the pictures used most recently, up to 16 million pixels (64 MB)
 
 The picture above is the real window, on a virtual display, over a folder of generated pictures.
 
+### Thumbnails the desktop shares
+
+![A gallery of films and a document, drawn from the shared thumbnail cache](picker-shared-thumbnails.png)
+
+A file Skia cannot decode (a video, a PDF, a document) has a picture where another program has made one: prism reads
+the thumbnails the desktop's programs share, as freedesktop.org's Thumbnail Managing Standard keeps them
+(`ThumbnailCache`, in the desktop module). Nautilus, Thunar and Dolphin all write there, so a film one of them has
+shown has its frame in prism's gallery too. Prism **reads** the cache and writes nothing to it: it makes no
+thumbnails of videos or documents yet, so a file nothing else has shown has its icon (in the picture, the two films
+with icons: one whose thumbnail was made before the file last changed, and one that has none).
+
+Take `~/Videos/Lisbon, day one.mkv`. Its thumbnail is found by its address alone: the file's `file://` URI
+(`file:///home/u/Videos/Lisbon,%20day%20one.mkv`, written exactly as GLib writes one, since that is what the programs
+that fill the cache name their thumbnails by), its MD5 in hexadecimal, and `.png`, in a folder for each size under
+`$XDG_CACHE_HOME/thumbnails` (`~/.cache/thumbnails`): `normal` (128 pixels), `large` (256), `x-large` (512) and
+`xx-large` (1024). The one used is the smallest at least as large as the tile draws it, or the largest there is. The
+cache is never listed: each size is one file looked for by name, and for most files that is four names that are not
+there.
+
+A thumbnail says, in its PNG's text, which file it is of (`Thumb::URI`) and when that file was last changed
+(`Thumb::MTime`, in seconds), and may say how large it was (`Thumb::Size`). It is the file's picture only while the
+address is the file's and the time is exactly the file's (a file moved over another may be the older of the two), and
+the size too where it says one; a thumbnail that does not say whose it is, or when, is nobody's. Only the text is
+read to tell (the PNG's chunks are gone through, wherever in the file its text is, and its picture is not decoded), so
+a stale thumbnail costs a small read and the file shows its icon.
+
+An image has a thumbnail there as well, once a file manager has shown it. Prism takes it only where it is at least as
+large as the tile wants, so the picture is as sharp as one made from the image: a 50-megapixel JPEG takes about 220 ms
+to decode and a 256-pixel thumbnail of it about 3 ms to read. Wanted larger than the cache has, the image is decoded as
+before.
+
+That a file has no picture is remembered for ten seconds, so a folder of films with no thumbnails is not looked
+through again each time it is scrolled, and a thumbnail another program makes meanwhile shows up soon after. The
+standard's other two folders are not read: `fail`, where a program that could not make a thumbnail says so (of use to
+whoever makes them), and `.sh_thumbnails` folders kept beside the files on shared media, which nothing common writes.
+
 ### Larger and smaller
 
 Ctrl and the mouse's wheel draw the listing larger or smaller (Ctrl+= and Ctrl+- too, and Ctrl+0 back to its usual
@@ -825,7 +861,15 @@ list by one row, not a page, and a row far away is scrolled to directly (never b
 - **The rules** (`StepTest`): states and events in, states and effects out, with folders read from a small file
   system held in memory. Every rule above has a test there, the filters' among them.
 - **The thumbnails** (`ThumbnailTest`): real image files scaled to fit and not up, kept, made again once changed or
-  drawn larger, and nothing made of what is not an image.
+  drawn larger, and nothing made of what is not an image; a film's thumbnail taken from a shared cache made for the
+  test while it is still the film's picture, an image's only where it is large enough, a file found to have none
+  looked at again after a while; and the gallery, headless, showing a film's thumbnail and the icon of one whose
+  thumbnail is stale.
+- **The shared thumbnail cache** (`ThumbnailCacheTest`, in the desktop module): a thumbnail's name by the standard's
+  own example; a file's address written as GLib writes it, for awkward names kept in the test and, where GLib is
+  installed, for every ASCII character asked of `g_filename_to_uri` itself; a PNG's text read plain, compressed and
+  international, before its picture and after it, and from a thumbnail ImageMagick made, where that is installed;
+  which thumbnail is found, and when one that is there is no longer the file's.
 - **Recents** (`RecentsTest`): the lists' bound, order and one-of-each; both lists written by a use and read back
   from the file, by several writers at once; where a picker opens; the newest files of an index built for the test,
   and ten shown when the newest ninety-five have been deleted; the page's sections, and what is stale in each; the
