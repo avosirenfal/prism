@@ -119,12 +119,6 @@ open class DmenuCommand(
 	private val noFooter = flagged("--no-footer", "hide the footer")
 	private val password = flagged("--password", "show the search text as dots")
 
-	init {
-		// Vicinae's, of a preview prism does not have: taken, so its command lines work, and nothing done.
-		flagged("--no-quick-look", "accepted for compatibility with vicinae; does nothing")
-		flagged("--no-metadata", "accepted for compatibility with vicinae; does nothing")
-	}
-
 	/** What [args] ask for. */
 	fun options(args: Args): DmenuOptions =
 		DmenuOptions(

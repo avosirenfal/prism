@@ -143,15 +143,13 @@ class DmenuCommandTest {
 				"--password",
 			),
 		)
-		// A title asked for and then not: there is none. What Vicinae says of its preview is taken, and does nothing.
+		// A title asked for and then not: there is none.
 		assertEquals(
 			DmenuOptions(),
 			optionsOf(
 				"--section-title",
 				"Files",
 				"--no-section",
-				"--no-quick-look",
-				"--no-metadata",
 			),
 		)
 	}

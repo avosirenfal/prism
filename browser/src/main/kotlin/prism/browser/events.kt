@@ -174,8 +174,6 @@ sealed interface BrowserEvent : Input {
 		val last: Int,
 	) : BrowserEvent
 
-	/** The date column made to show [date]: when files were last modified, or when they were made. */
-
 	/** [column] shown in the listing, or left out. */
 	data class ShowedColumn(
 		val column: ColumnId,

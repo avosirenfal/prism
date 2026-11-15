@@ -176,7 +176,6 @@ changed:
 | `-W`, `--width PIXELS`, `-H`, `--height PIXELS` | the window's size, where the launcher's own is not wanted |
 | `--no-footer` | no line along the bottom |
 | `--password` | what is typed is shown as dots |
-| `--no-quick-look`, `--no-metadata` | taken, for Vicinae's command lines, and nothing done: prism has no preview |
 
 The window is the launcher's: where it is on the screen, its size, its corners and whether it closes when another
 window is given the keyboard are the launcher's settings (below), and a compositor's rule for the launcher is a rule
