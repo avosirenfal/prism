@@ -1751,9 +1751,16 @@ private fun BrowserState.aliasing(name: String, query: String): Step =
 
 /**
  * The search aliases as they now are: a search open is read with them, and searched for again where it is open,
- * since what it was typed as may mean something else now.
+ * since what it was typed as may mean something else now. Told of the aliases it already has (as a window is once,
+ * when it opens, of what the preferences say), nothing has changed and nothing is searched for again.
  */
 private fun BrowserState.aliased(aliases: Aliases): Step =
+	if (aliases.written == this.aliases.written)
+		Step(this)
+	else
+		changedAliases(aliases)
+
+private fun BrowserState.changedAliases(aliases: Aliases): Step =
 	copy(
 		aliases = aliases,
 		// A name being asked for is one more of the aliases there now are.
