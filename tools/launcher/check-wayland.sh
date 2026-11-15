@@ -206,10 +206,33 @@ corners() {
 	fi
 }
 
+# The daemon, started apart from this script: which process it is, kept for stopping it.
+started() {
+	PRISM_WINDOW_LOG=1 "$PRISM" daemon "$HOME" > "$work/daemon.out" 2>&1
+	status=$?
+	grep -o 'process [0-9]*' "$work/daemon.out" | head -1 | cut -d' ' -f2 > "$work/daemon.pid"
+	return "$status"
+}
+
+# The preferences made [1] (nothing given: none at all), for a daemon started anew: prism reads them as it starts,
+# and what it is told in its settings window after that, never the file again while it runs.
+prefer() {
+	daemon="$(cat "$work/daemon.pid")"
+	kill "$daemon"
+	eventually "the daemon ends, for its preferences to be set" 15 sh -c "! kill -0 $daemon 2> /dev/null"
+	mkdir -p "$XDG_CONFIG_HOME/prism"
+	if [ -n "${1:-}" ]; then
+		echo "$1" > "$XDG_CONFIG_HOME/prism/preferences.json"
+	else
+		rm -f "$XDG_CONFIG_HOME/prism/preferences.json"
+	fi
+	started
+	eventually "and answers again, with them" 20 "$PRISM" status
+}
+
 cd "$HOME" || exit 2
 echo "--- a daemon, in a Wayland session"
-check "the daemon starts" "0" "$(PRISM_WINDOW_LOG=1 "$PRISM" daemon "$HOME" > "$work/daemon.out" 2>&1; echo $?)"
-grep -o 'process [0-9]*' "$work/daemon.out" | head -1 | cut -d' ' -f2 > "$work/daemon.pid"
+check "the daemon starts" "0" "$(started; echo $?)"
 eventually "it answers" 20 "$PRISM" status
 
 echo "--- the launcher is a surface over the windows, not one of them"
@@ -306,9 +329,7 @@ eventually "and the command ends" 10 test -s "$work/toggled.status"
 check "as one put away" "1" "$(cat "$work/toggled.status")"
 
 echo "--- told to have square corners, it has them"
-mkdir -p "$XDG_CONFIG_HOME/prism"
-echo '{"launcher": {"rounded": false}}' > "$XDG_CONFIG_HOME/prism/preferences.json"
-sleep 1
+prefer '{"launcher": {"rounded": false}}'
 behind="$(pixel $middle)"
 "$PRISM" launcher
 eventually "it is shown" 10 have_windows "1 open"
@@ -320,9 +341,7 @@ wtype -k Escape
 sleep 0.5
 wtype -k Escape
 eventually "put away" 10 have_windows "none open"
-# Written anew, with nothing set, rather than taken away: a file taken away is not noticed until another is written.
-echo '{}' > "$XDG_CONFIG_HOME/prism/preferences.json"
-sleep 1
+prefer
 
 if [ "$compositor" != another ]; then
 	echo "--- a window that fills the screen does not cover it"
@@ -359,9 +378,7 @@ if [ "$compositor" != another ]; then
 	eventually "a window opened beside it takes the keyboard, and it is put away" 10 have_windows "none open"
 	kill "$terminal"
 	terminal=""
-	mkdir -p "$XDG_CONFIG_HOME/prism"
-	echo '{"launcher": {"closeUnfocused": false}}' > "$XDG_CONFIG_HOME/prism/preferences.json"
-	sleep 1
+	prefer '{"launcher": {"closeUnfocused": false}}'
 	"$PRISM" launcher
 	eventually "shown, to stay" 10 have_windows "1 open"
 	if [ "$compositor" = niri ]; then
@@ -377,8 +394,7 @@ if [ "$compositor" != another ]; then
 	eventually "and Escape, which is still its own, does" 10 have_windows "none open"
 	kill "$terminal"
 	terminal=""
-	rm "$XDG_CONFIG_HOME/prism/preferences.json"
-	sleep 1
+	prefer
 
 	echo "--- an application that is running is brought forward from its result's menu"
 	# An application of the check's own, running: a terminal whose window says it is that application's (its app id is
@@ -424,15 +440,12 @@ EOF
 	shot explorer
 
 	echo "--- told to be a window, the launcher is one"
-	mkdir -p "$XDG_CONFIG_HOME/prism"
-	echo '{"launcher": {"overlay": false}}' > "$XDG_CONFIG_HOME/prism/preferences.json"
-	sleep 1
+	prefer '{"launcher": {"overlay": false}}'
 	"$PRISM" launcher
 	eventually "it opens as a window of the compositor's" 10 has_title "Prism Launcher"
 	"$PRISM" launcher
 	eventually "and is put away by being asked for" 10 has_no_title "Prism Launcher"
-	rm "$XDG_CONFIG_HOME/prism/preferences.json"
-	sleep 1
+	prefer
 fi
 
 [ "$failed" -eq 0 ] && echo && echo PASSED
