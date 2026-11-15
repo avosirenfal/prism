@@ -17,8 +17,8 @@ what is so now rather than what happened (an entry and everything under it is as
 one twice is the same as making it once, so a batch read twice does no harm.
 
 Now and then, once the changes are a quarter of the size of the snapshot, the file is **compacted**: the index is
-written anew as one snapshot, into `index.prism.new` beside the file, flushed to the disk, and renamed over the old
-one. A reader sees the old file or the new one, never half of either.
+written anew as one snapshot, into a file of another name beside it, flushed to the disk, and renamed over the old
+one (`WholeFile`). A reader sees the old file or the new one, never half of either.
 
 Every frame is compressed with zstd (through zstd-jni, which carries the native library for each platform in its jar;
 a snapshot at level 9, since it is written now and then and read at every start, a frame of changes at level 3, since

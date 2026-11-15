@@ -1,15 +1,14 @@
 package prism.launcher
 
 import java.io.IOException
-import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.Files
 import java.nio.file.Path
-import java.nio.file.StandardCopyOption
 import java.time.Duration
 import java.time.Instant
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.ln
 import kotlin.math.pow
+import prism.linux.WholeFile
 
 /*
  * What has been started from the launcher, and how lately: what puts the applications a person uses before the ones
@@ -83,6 +82,7 @@ class MemoryLaunches(
 /**
  * Launches kept in [file]: a line an entry, its weight, the second it was last used, and its key, between tabs. A file
  * that cannot be read is no launches; one that cannot be written leaves them in memory, and says so to [report].
+ * Each use is added to the file as it then is, and the file written whole ([WholeFile]).
  */
 class LaunchFile(
 	private val file: Path,
@@ -93,11 +93,16 @@ class LaunchFile(
 	override val launches: Launches get() = held.get()
 
 	override fun used(key: String, at: Instant) {
-		val next = held.updateAndGet { it.used(key, at) }
-
 		try {
-			write(file, next)
+			// Added to the file as it is now, where there is one: another prism's launcher may have written to it.
+			WholeFile.locked(file) {
+				val next = (read(file).takeIf { Files.exists(file) } ?: held.get()).used(key, at)
+
+				write(file, next)
+				held.set(next)
+			}
 		} catch (failed: IOException) {
+			held.updateAndGet { it.used(key, at) }
 			report("keeping what the launcher started in $file", failed)
 		}
 	}
@@ -124,20 +129,12 @@ class LaunchFile(
 				Launches.NONE
 			}
 
-		/** [launches] written to [file] whole: beside it, then renamed over it. */
+		/** [launches] written to [file] whole ([WholeFile]). */
 		fun write(file: Path, launches: Launches) {
-			val beside = file.resolveSibling("${file.fileName}.new")
-
-			Files.createDirectories(file.parent)
-			Files.write(
-				beside,
+			WholeFile.replace(
+				file,
 				launches.uses.map { (key, used) -> "${used.weight}\t${used.at.epochSecond}\t$key" },
 			)
-			try {
-				Files.move(beside, file, StandardCopyOption.ATOMIC_MOVE)
-			} catch (unsupported: AtomicMoveNotSupportedException) {
-				Files.move(beside, file, StandardCopyOption.REPLACE_EXISTING)
-			}
 		}
 	}
 }

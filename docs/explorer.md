@@ -134,9 +134,20 @@ Arranging changes the window's sidebar at once, and asks for `Effect.Arrange(qui
 `PreferenceStore`. Every session collects the store's `StateFlow<Preferences>` and makes its sidebar again whenever it
 changes, so every other window follows.
 
-The store is a file, `$XDG_CONFIG_HOME/prism/preferences.json`, and the file is watched. A change written by another
-process (another `prism explore`, a `prism pick`, the daemon, or the user's editor) is read back and given to every
-window here. So a folder pinned in the explorer is in the next picker's sidebar too, and in any picker already open.
+The store is a file, `$XDG_CONFIG_HOME/prism/preferences.json`. A process has one store of it (`preferencesHere`,
+`app/search.kt`), which reads the file once, as the process starts, and hands every window what it holds and each
+change as it is made: a window never reads the file, and nothing reads it again because it changed. Every window is
+the running prism's, so a folder pinned in the explorer is in the next picker's sidebar too, and in any picker
+already open. A file changed by hand while prism runs is read the next time prism starts.
+
+A change is written at once, and whole: to another name in the same folder, flushed to the disk, and renamed over the
+file (`WholeFile`, `linux/whole.kt`, which writes every file prism rewrites: this one, `usage.prism`, `launches`,
+`recent-folders`, the index's snapshots and what it keeps of unmounted file systems, `mimeapps.list`). Whenever prism
+is killed or the power goes, the file is the old one or the new one. A window run as a process of its own
+(`--isolated`, or with no prism running) has its own store, and is not told what the running prism changes, nor the
+running prism what it does; but neither undoes the other's changes, since each change is made to the file as it is
+when it is written (read, changed and written under a lock, `preferences.json.lock`), not to what the process last
+read.
 
 ```json
 {

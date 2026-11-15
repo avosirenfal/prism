@@ -61,7 +61,6 @@ import prism.portal.Showing
 import prism.portal.own
 import prism.portal.serveFileChooser
 import prism.portal.serveFileManager
-import prism.preferences.PreferenceFile
 import prism.preferences.PreferenceStore
 import prism.window.NoDisplay
 import prism.window.WindowsFailed
@@ -245,7 +244,7 @@ internal class Windows(
 	fun run() {
 		val desktop = windowsDesktop()
 
-		PreferenceFile.open().use { preferences ->
+		preferencesHere.let { preferences ->
 			preferences.problem?.let {
 				Report.say("can't read the preferences ($it); using the defaults")
 			}

@@ -5,15 +5,14 @@ import java.io.DataInputStream
 import java.io.DataOutputStream
 import java.io.EOFException
 import java.io.IOException
-import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.Files
 import java.nio.file.NoSuchFileException
 import java.nio.file.Path
-import java.nio.file.StandardCopyOption
 import java.time.Duration
 import java.time.Instant
 import java.util.zip.CRC32C
 import kotlin.math.pow
+import prism.linux.WholeFile
 
 /*
  * What the user has done with the picker, which a search ranks by and `recent:` asks about. It is not what is on the
@@ -217,7 +216,7 @@ object UsageFile {
 		}
 	}
 
-	/** [usage] written to [file], whole. */
+	/** [usage] written to [file], whole ([WholeFile]). */
 	fun write(file: Path, usage: Usage) {
 		val out = ByteArrayOutputStream()
 
@@ -242,14 +241,7 @@ object UsageFile {
 					.allocate(4)
 					.putInt(crc)
 					.array()
-		val beside = file.resolveSibling("${file.fileName}.new")
 
-		file.parent?.let(Files::createDirectories)
-		Files.write(beside, whole)
-		try {
-			Files.move(beside, file, StandardCopyOption.ATOMIC_MOVE)
-		} catch (unsupported: AtomicMoveNotSupportedException) {
-			Files.move(beside, file, StandardCopyOption.REPLACE_EXISTING)
-		}
+		WholeFile.replace(file, whole)
 	}
 }

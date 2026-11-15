@@ -1,26 +1,23 @@
 package prism.preferences
 
 import java.io.IOException
-import java.nio.file.AtomicMoveNotSupportedException
-import java.nio.file.ClosedWatchServiceException
 import java.nio.file.Files
 import java.nio.file.NoSuchFileException
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
-import java.nio.file.StandardWatchEventKinds.ENTRY_CREATE
-import java.nio.file.StandardWatchEventKinds.ENTRY_MODIFY
-import java.nio.file.WatchService
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
+import prism.linux.WholeFile
 
 /*
  * Where the preferences are kept, and how a change reaches every window. A store holds the current value as a state
- * every window collects; a change is made through the store, which makes the new value and, for a file, writes it.
- * A file is also watched: a change made by another process (another window run on its own, the daemon, or the user's
- * editor) is read back, and every window here is given it too.
+ * every window collects; a change is made through the store, which makes the new value, writes it where it keeps a
+ * file, and hands it to every window: no window reads the file, and nothing reads it again because it changed. A
+ * process has one store of a file, read once as it starts; a file changed by hand while prism runs is as it was
+ * written the next time prism starts.
  */
 
 /** The preferences, as every window reads them, and the one way to change them. */
@@ -66,15 +63,18 @@ sealed interface PreferencesRead {
 }
 
 /**
- * Preferences kept in [file], as JSON, and watched for changes made to it from elsewhere. A file that cannot be read
+ * Preferences kept in [file], as JSON: read once, as the store is made, and written whole at each change
+ * ([WholeFile]). A change is made to the file as it then is, not to what this store last knew of it, so that what
+ * another process wrote meanwhile (a window run on its own, beside the prism that is running) is kept where the
+ * change does not touch it; every window of this process is then given what was written. A file that cannot be read
  * leaves every default in place, and is kept as it was, beside it with `.unreadable` after its name, before the first
  * change written over it, so nothing written by hand is lost.
  */
 class PreferenceFile private constructor(
 	val file: Path,
 	first: PreferencesRead,
-) : PreferenceStore,
-	AutoCloseable {
+	private val reading: (Path) -> PreferencesRead,
+) : PreferenceStore {
 	private val state = MutableStateFlow(first.preferences)
 
 	/** What the last read of the file said, where it could not be read; null where it could, or there was none. */
@@ -84,68 +84,21 @@ class PreferenceFile private constructor(
 
 	override val preferences: StateFlow<Preferences> = state.asStateFlow()
 
-	private val watcher: WatchService? =
-		try {
-			Files.createDirectories(file.parent)
-			file.parent.fileSystem.newWatchService().also {
-				file.parent.register(it, ENTRY_CREATE, ENTRY_MODIFY)
-			}
-		} catch (failed: IOException) {
-			null
-		}
-
-	private val thread =
-		watcher?.let {
-			Thread({ watch(it) }, "prism-preferences").apply {
-				isDaemon = true
-				start()
-			}
-		}
-
 	override fun update(change: (Preferences) -> Preferences) {
-		synchronized(this) {
-			val next = change(state.value)
+		WholeFile.locked(file) {
+			// What the file says now is what is changed; where it says nothing that can be read (it is not there,
+			// or was written wrong), what this store holds is.
+			val now =
+				when (val read = reading(file)) {
+					is PreferencesRead.Read -> read.preferences
+					PreferencesRead.Missing -> state.value
+					is PreferencesRead.Unreadable -> state.value.also { keepUnreadable() }
+				}
+			val next = change(now)
 
-			problem?.let { keepUnreadable() }
 			write(file, next)
 			problem = null
 			state.value = next
-		}
-	}
-
-	/** The file read again, as another process changed it; what it says is given every window, where it differs. */
-	private fun reread() {
-		synchronized(this) {
-			when (val read = read(file)) {
-				is PreferencesRead.Read -> {
-					problem = null
-					state.value = read.preferences
-				}
-				is PreferencesRead.Unreadable -> problem = read.why
-				// Removed: the defaults, as with no file.
-				PreferencesRead.Missing -> {
-					problem = null
-					state.value = Preferences.DEFAULT
-				}
-			}
-		}
-	}
-
-	private fun watch(watcher: WatchService) {
-		try {
-			while (true) {
-				val key = watcher.take()
-				val ours = key.pollEvents().any { (it.context() as? Path)?.fileName == file.fileName }
-
-				if (ours)
-					reread()
-				if (!key.reset())
-					return
-			}
-		} catch (closed: ClosedWatchServiceException) {
-			Unit
-		} catch (interrupted: InterruptedException) {
-			Unit
 		}
 	}
 
@@ -161,11 +114,6 @@ class PreferenceFile private constructor(
 		}
 	}
 
-	override fun close() {
-		watcher?.close()
-		thread?.join(1000)
-	}
-
 	companion object {
 		/** How the file is written: every setting, defaults too, so the file shows what can be set; read leniently. */
 		private val json =
@@ -175,8 +123,14 @@ class PreferenceFile private constructor(
 				ignoreUnknownKeys = true
 			}
 
-		/** The preferences in [file], and a store that keeps them there. */
-		fun open(file: Path = defaultFile()): PreferenceFile = PreferenceFile(file, read(file))
+		/**
+		 * The preferences in [file], and a store that keeps them there. The file is read with [reading], now and
+		 * before each change is written, and at no other time.
+		 */
+		fun open(
+			file: Path = defaultFile(),
+			reading: (Path) -> PreferencesRead = ::read,
+		): PreferenceFile = PreferenceFile(file, reading(file), reading)
 
 		/**
 		 * `$XDG_CONFIG_HOME/prism/preferences.json` (`~/.config/prism/preferences.json`): where a user's settings for
@@ -205,20 +159,12 @@ class PreferenceFile private constructor(
 				PreferencesRead.Unreadable(failed.message ?: failed.toString())
 			}
 
-		/** [preferences] written to [file] whole: beside it, then renamed over it, so it is never half written. */
+		/** [preferences] written to [file] whole ([WholeFile]): it is never half written. */
 		fun write(file: Path, preferences: Preferences) {
-			val beside = file.resolveSibling("${file.fileName}.new")
-
-			Files.createDirectories(file.parent)
-			Files.writeString(
-				beside,
+			WholeFile.replace(
+				file,
 				json.encodeToString(Preferences.serializer(), preferences) + "\n",
 			)
-			try {
-				Files.move(beside, file, StandardCopyOption.ATOMIC_MOVE)
-			} catch (unsupported: AtomicMoveNotSupportedException) {
-				Files.move(beside, file, StandardCopyOption.REPLACE_EXISTING)
-			}
 		}
 	}
 }

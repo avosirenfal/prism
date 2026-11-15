@@ -5,15 +5,14 @@ import java.io.IOException
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.channels.FileChannel
-import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.Files
 import java.nio.file.NoSuchFileException
 import java.nio.file.Path
-import java.nio.file.StandardCopyOption
 import java.nio.file.StandardOpenOption
 import java.util.zip.CRC32C
 import prism.linux.Dev
 import prism.linux.KernelDev
+import prism.linux.WholeFile
 
 /*
  * The index's file (docs/format.md says it byte by byte): a header, then frames. The first frame is a snapshot of the
@@ -128,11 +127,10 @@ object IndexFile {
 
 	/**
 	 * [file] made anew, holding [index] compacted, as one snapshot: written beside it, flushed to the disk, and
-	 * renamed over it, so the file is the old one or the new one, never half of either. Its length.
+	 * renamed over it ([WholeFile]), so the file is the old one or the new one, never half of either. Its length.
 	 */
 	fun write(file: Path, index: Index): Long {
 		val compact = index.compacted()
-		val beside = file.resolveSibling("${file.fileName}.new")
 
 		val header =
 			ByteBuffer
@@ -144,22 +142,10 @@ object IndexFile {
 
 		val snapshot = frame(SNAPSHOT, Out().also { written(it, compact) }.bytes())
 
-		file.parent?.let(Files::createDirectories)
-		FileChannel
-			.open(
-				beside,
-				StandardOpenOption.CREATE,
-				StandardOpenOption.WRITE,
-				StandardOpenOption.TRUNCATE_EXISTING,
-			).use {
-				it.write(arrayOf(header.array().let(ByteBuffer::wrap), ByteBuffer.wrap(snapshot)))
-				it.force(true)
-			}
-		try {
-			Files.move(beside, file, StandardCopyOption.ATOMIC_MOVE)
-		} catch (unsupported: AtomicMoveNotSupportedException) {
-			Files.move(beside, file, StandardCopyOption.REPLACE_EXISTING)
-		}
+		WholeFile.replace(
+			file,
+			listOf(header.array().let(ByteBuffer::wrap), ByteBuffer.wrap(snapshot)),
+		)
 
 		return (HEADER + snapshot.size).toLong()
 	}

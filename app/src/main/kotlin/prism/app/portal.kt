@@ -20,6 +20,7 @@ import prism.dbus.Opening
 import prism.desktop.MimeType
 import prism.desktop.freedesktop.Freedesktop
 import prism.desktop.freedesktop.Xdg
+import prism.linux.WholeFile
 import prism.portal.pathOf
 import prism.portal.showInFileManager
 
@@ -218,7 +219,7 @@ object PortalInstall : Command(
 		for ((path, text) in files) {
 			said += "wrote $path"
 			if (!args[dryRun])
-				Files.createDirectories(path.parent).also { Files.writeString(path, text) }
+				WholeFile.replace(path, text)
 		}
 
 		if (chooser) {
@@ -236,7 +237,7 @@ object PortalInstall : Command(
 				"set $CHOOSER_KEY=$BACKEND_NAME in $config" +
 				(line.before?.let { " (was $it)" } ?: "")
 			if (!args[dryRun])
-				Files.createDirectories(config.parent).also { Files.writeString(config, line.text) }
+				WholeFile.replace(config, line.text)
 		}
 
 		if (manager) {
@@ -260,8 +261,7 @@ object PortalInstall : Command(
 				installedFile(xdg).let { file ->
 					val kept = readInstalled(file)
 
-					Files.createDirectories(file.parent)
-					Files.writeString(
+					WholeFile.replace(
 						file,
 						Json.encodeToString(
 							Installed.serializer(),
@@ -316,7 +316,7 @@ object PortalUninstall : Command(
 							"removed $config (it only held prism's entry)"
 					}
 				else ->
-					Files.writeString(config, left).also {
+					WholeFile.replace(config, left).also {
 						said +=
 							"removed prism's entry from $config"
 					}

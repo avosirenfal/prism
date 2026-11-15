@@ -280,7 +280,12 @@ class FileTest {
 		assertTrue(file.fileSize() < compact * 3)
 		assertEquals(Index.EMPTY.with(indexer.index(root)).shape(), read.index.shape())
 		// Nothing was left half written beside it, and the store reads as it holds.
-		assertFalse(Files.exists(state.resolve("index.prism.new")))
+		assertEquals(
+			emptyList<String>(),
+			Files.list(state).use { all ->
+				all.map { it.fileName.toString() }.filter { it.endsWith(".new") }.toList()
+			},
+		)
 		assertEquals(store.index.shape(), IndexStore.open(file).index.shape())
 	}
 

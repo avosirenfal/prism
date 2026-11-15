@@ -11,7 +11,7 @@ import kotlin.io.path.isDirectory
 import kotlin.io.path.listDirectoryEntries
 import kotlin.io.path.name
 import kotlin.io.path.readLines
-import kotlin.io.path.writeLines
+import prism.linux.WholeFile
 
 /**
  * A file system's tree, kept while the file system is not mounted: which it is, where it was mounted, when it was
@@ -64,7 +64,8 @@ class Away private constructor(
 		try {
 			Files.createDirectories(folder)
 			IndexFile.write(treeOf(folder, volume), Index.of(setOf(tree.root), listOf(tree)))
-			noteOf(folder, volume).writeLines(
+			WholeFile.replace(
+				noteOf(folder, volume),
 				listOf(
 					volume.text,
 					hex(tree.root.bytes),
@@ -136,10 +137,10 @@ class Away private constructor(
 		if (folder == null)
 			return
 		try {
-			Files.createDirectories(folder)
-			folder
-				.resolve(MOUNTED)
-				.writeLines(mounted.map { (place, volume) -> "${hex(place.bytes)}\t${volume.text}" })
+			WholeFile.replace(
+				folder.resolve(MOUNTED),
+				mounted.map { (place, volume) -> "${hex(place.bytes)}\t${volume.text}" },
+			)
 		} catch (unwritten: IOException) {
 			Unit
 		}

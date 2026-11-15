@@ -2,15 +2,12 @@ package prism.browser
 
 import androidx.compose.runtime.Immutable
 import java.io.IOException
-import java.nio.channels.FileChannel
-import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.Files
 import java.nio.file.Path
-import java.nio.file.StandardCopyOption
-import java.nio.file.StandardOpenOption
 import java.time.Duration
 import java.time.Instant
 import java.util.concurrent.atomic.AtomicReference
+import prism.linux.WholeFile
 import prism.preferences.RecentSection
 
 /*
@@ -194,22 +191,9 @@ class RecentsFile(
 
 	override fun used(folders: List<Path>, app: AppKey?, at: Instant) {
 		try {
-			// One writer at a time in this process, and, by the lock, among processes.
-			synchronized(LOCKS) {
-				Files.createDirectories(file.parent)
-				FileChannel
-					.open(
-						file.resolveSibling("${file.fileName}.lock"),
-						StandardOpenOption.CREATE,
-						StandardOpenOption.WRITE,
-					).use { channel ->
-						channel.lock().use {
-							write(
-								file,
-								read(file).used(folders, app, at).without { !Files.isDirectory(it) },
-							)
-						}
-					}
+			// One writer at a time, here and among processes: what is added to is the file as it is now.
+			WholeFile.locked(file) {
+				write(file, read(file).used(folders, app, at).without { !Files.isDirectory(it) })
 			}
 		} catch (failed: IOException) {
 			report("keeping the folders lately used in $file", failed)
@@ -217,8 +201,6 @@ class RecentsFile(
 	}
 
 	companion object {
-		private val LOCKS = Any()
-
 		fun read(file: Path): RecentFolders =
 			try {
 				val uses =
@@ -246,25 +228,17 @@ class RecentsFile(
 				RecentFolders()
 			}
 
-		/** [folders] written to [file] whole: beside it, then renamed over it. */
+		/** [folders] written to [file] whole ([WholeFile]). */
 		fun write(file: Path, folders: RecentFolders) {
-			val beside = file.resolveSibling("${file.fileName}.new")
-
 			fun lines(app: AppKey?, list: RecentList): List<String> =
 				list.entries.map {
 					"${it.at.toEpochMilli()}\t${app?.id.orEmpty()}\t${escaped(it.folder.toString())}"
 				}
 
-			Files.createDirectories(file.parent)
-			Files.write(
-				beside,
+			WholeFile.replace(
+				file,
 				lines(null, folders.all) + folders.apps.flatMap { (app, list) -> lines(app, list) },
 			)
-			try {
-				Files.move(beside, file, StandardCopyOption.ATOMIC_MOVE)
-			} catch (unsupported: AtomicMoveNotSupportedException) {
-				Files.move(beside, file, StandardCopyOption.REPLACE_EXISTING)
-			}
 		}
 
 		// A folder's name can hold a new line, which would end its line here: written as two characters.

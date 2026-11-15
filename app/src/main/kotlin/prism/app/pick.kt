@@ -44,7 +44,6 @@ import prism.index.IndexFile
 import prism.index.IndexRead
 import prism.index.UsageFile
 import prism.index.UsageRead
-import prism.preferences.PreferenceFile
 import prism.preferences.Role
 import prism.window.Window
 import prism.window.application
@@ -125,7 +124,7 @@ object PickCommand : Command(
 		val home = Path(System.getProperty("user.home"))
 		val (search, finder) = indexing.searchOf(args, home)
 		val desktop = windowsDesktop()
-		val preferences = PreferenceFile.open()
+		val preferences = preferencesHere
 
 		preferences.problem?.let {
 			warn(this, "can't read the preferences ($it); using the defaults")

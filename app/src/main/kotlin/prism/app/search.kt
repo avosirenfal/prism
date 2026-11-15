@@ -34,11 +34,18 @@ import prism.preferences.PreferenceFile
  */
 
 /**
- * The search aliases as the preferences define them now: read from their file each time a search is asked for from
- * the command line, so that one changed in a settings window is in the next search, whoever answers it.
+ * This process's preferences: the one store of their file there is in it, read once, when first asked for. Every
+ * window the process opens is given what they are and each change made to them by this store, and so is whatever
+ * else here asks what they say (a search's aliases); nothing reads the file itself. In the prism that is running
+ * that is every window there is; a command run with no prism to serve it has its own, as the file was when it began.
  */
-internal fun aliasesNow(): Aliases =
-	aliasesOf(PreferenceFile.read(PreferenceFile.defaultFile()).preferences.aliases)
+internal val preferencesHere: PreferenceFile by lazy { PreferenceFile.open() }
+
+/**
+ * The search aliases as the preferences define them now: what this process's store holds, so that one changed in a
+ * settings window of the prism that is running is in the next search that prism answers.
+ */
+internal fun aliasesNow(): Aliases = aliasesOf(preferencesHere.preferences.value.aliases)
 
 /**
  * What [find] finds for [sought]: its query read, with the [aliases] it uses stood for, refused with what is wrong

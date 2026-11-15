@@ -57,7 +57,7 @@ class MenusTest {
 						.arranging(MenuKey.Sidebar, listOf(Placed.Slot("builtin.open"))),
 			)
 
-		PreferenceFile.open(file).use { it.update { set } }
+		PreferenceFile.open(file).update { set }
 
 		assertEquals(PreferencesRead.Read(set), PreferenceFile.read(file))
 		assertTrue(file.readText().contains("\"folder/space\""), file.readText())

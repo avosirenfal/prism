@@ -1,10 +1,8 @@
 package prism.desktop.freedesktop
 
 import java.io.IOException
-import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.Files
 import java.nio.file.Path
-import java.nio.file.StandardCopyOption
 import kotlin.io.path.extension
 import kotlin.io.path.isDirectory
 import kotlin.io.path.relativeTo
@@ -12,6 +10,7 @@ import prism.desktop.Application
 import prism.desktop.Applications
 import prism.desktop.FileTypes
 import prism.desktop.MimeType
+import prism.linux.WholeFile
 
 /*
  * Applications as freedesktop.org's specifications say them. Each data folder's `applications/` holds desktop entries,
@@ -181,17 +180,7 @@ class DesktopEntries(
 		return lines.joinToString("\n", postfix = "\n")
 	}
 
-	private fun write(file: Path, text: String) {
-		val beside = file.resolveSibling("${file.fileName}.new")
-
-		Files.createDirectories(file.parent)
-		Files.writeString(beside, text)
-		try {
-			Files.move(beside, file, StandardCopyOption.ATOMIC_MOVE)
-		} catch (unsupported: AtomicMoveNotSupportedException) {
-			Files.move(beside, file, StandardCopyOption.REPLACE_EXISTING)
-		}
-	}
+	private fun write(file: Path, text: String) = WholeFile.replace(file, text)
 
 	/** The entries read again: an application installed or removed meanwhile is seen. */
 	override fun reread() {
