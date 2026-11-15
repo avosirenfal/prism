@@ -152,7 +152,7 @@ check "what a term leaves out is left out" "1" "$("$PRISM" search a.txt -ext:txt
 check "nothing found is status 1" "1" "$("$PRISM" search zzzz > /dev/null; echo $?)"
 check "a query that cannot be searched for is status 2" "2" "$("$PRISM" search foo:bar 2> /dev/null; echo $?)"
 check "select gives the one match" "$tree/docs/a.txt" "$("$PRISM" search -s a.txt)"
-check "and refuses several, printing nothing" "3:" "$("$PRISM" search -s tree/ 2> /dev/null; echo "$?:")"
+check "and refuses several, printing nothing" "3:" "$("$PRISM" search -s tree/ '*' 2> /dev/null; echo "$?:")"
 check "options are run together before two dashes, and the query follows them" "$tree/docs/a.txt" \
 	"$("$PRISM" search -sb -- a -nothing)"
 check "where a dashed word that is no option is a mistake" "2" "$("$PRISM" search -nothing -- a 2> /dev/null; echo $?)"
