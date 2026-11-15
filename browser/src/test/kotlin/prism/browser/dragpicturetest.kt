@@ -11,6 +11,7 @@ import androidx.compose.ui.graphics.toPixelMap
 import androidx.compose.ui.platform.registerSkikoComposeImplementation
 import androidx.compose.ui.text.TextMeasurer
 import androidx.compose.ui.text.font.createFontFamilyResolver
+import androidx.compose.ui.text.intl.LocaleList
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.LayoutDirection
 import kotlin.io.path.Path
@@ -37,7 +38,7 @@ class DragPictureTest {
 
 	private val density = Density(2f)
 	private val measurer =
-		TextMeasurer(createFontFamilyResolver(), density, LayoutDirection.Ltr)
+		TextMeasurer(createFontFamilyResolver(), LocaleList("en"), density, LayoutDirection.Ltr)
 
 	/** [carrying]'s picture in [palette], drawn into pixels of its own at [density]. */
 	private fun drawn(

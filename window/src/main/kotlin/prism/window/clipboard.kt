@@ -163,6 +163,7 @@ internal object ComposeClipboard : Clipboard {
 	}
 
 	/** The desktop's clipboard as AWT's, which a text field's own menu asks whether there is text to paste. */
+	@Suppress("OVERRIDE_DEPRECATION") // Compose's interface still asks for it.
 	override val nativeClipboard: Any get() = AwtClipboard
 }
 

@@ -1237,7 +1237,7 @@ class FindTest {
 		assertTrue(Fault.MISTAKE in (broke.state.notice as Notice.Trouble).detail)
 		assertTrue(
 			"IllegalStateException: no such column" in
-				(broke.state.notice as Notice.Trouble).detail,
+				broke.state.notice.detail,
 		)
 
 		// An answer for results no longer shown is too late to say anything of.

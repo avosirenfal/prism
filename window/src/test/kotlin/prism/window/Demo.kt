@@ -24,6 +24,7 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 
 /** A window to look at by hand: `./gradlew :window:demo`. */
+@Suppress("DEPRECATION") // A value-based field, as the application's are.
 fun main() {
 	application("prism-demo") {
 		var clicks by remember { mutableIntStateOf(0) }

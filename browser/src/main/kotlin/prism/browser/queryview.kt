@@ -320,6 +320,7 @@ fun RowScope.AliasResult(alias: Alias) {
  * its term out of the search, faintly where the term is only unfinished. The text itself is not changed, so where
  * the caret is needs no mapping.
  */
+@Suppress("DEPRECATION") // What colours a value-based field, as Field is.
 class QueryColouring(
 	private val read: ReadQuery,
 	private val palette: Palette,

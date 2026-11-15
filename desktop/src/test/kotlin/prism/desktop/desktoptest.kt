@@ -560,7 +560,7 @@ class DesktopTest {
 
 		val runnable =
 			read.permissions!!.copy(
-				owner = read.permissions!!.owner.copy(run = true),
+				owner = read.permissions.owner.copy(run = true),
 			)
 
 		assertNull(facts.permit(file, runnable))

@@ -563,7 +563,7 @@ class LiveIndex private constructor(
 				try {
 					store.flush()
 				} catch (unwritten: Exception) {
-					Unit
+					// Said by whoever writes next.
 				}
 			}, scanning)
 	}

@@ -2478,7 +2478,7 @@ private fun HeaderCell(
 		)
 		if (sorted)
 			GlyphIcon(
-				if (sort!!.ascending)
+				if (sort.ascending)
 					Glyph.SortUp
 				else
 					Glyph.SortDown,

@@ -156,7 +156,7 @@ class OnDisk<T>(
 				StandardCopyOption.REPLACE_EXISTING,
 			)
 		} catch (gone: IOException) {
-			Unit
+			// Gone meanwhile: there is nothing to keep aside.
 		}
 	}
 }

@@ -192,6 +192,7 @@ sealed interface LauncherNotice {
  * The applications installed that a person chooses from, each made ready to be looked through ([Listed]), and with
  * the windows it has open among [windows]: those the desktop told of as the launcher was shown.
  */
+@ConsistentCopyVisibility
 data class Installed private constructor(
 	internal val listed: List<Listed>,
 	private val windows: List<OpenWindow>,

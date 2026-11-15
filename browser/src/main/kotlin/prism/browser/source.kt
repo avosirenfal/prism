@@ -207,9 +207,9 @@ object JvmFolderWatcher : FolderWatcher {
 					told.forEach { it(said) }
 			}
 		} catch (closed: ClosedWatchServiceException) {
-			Unit
+			// The service is closed: nothing more is watched.
 		} catch (stopped: InterruptedException) {
-			Unit
+			// Stopped: nothing more is read.
 		}
 	}
 }

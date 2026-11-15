@@ -12,6 +12,10 @@ version = "0.1.0"
 
 kotlin {
 	jvmToolchain(libs.version("jdk").toInt())
+	// A warning is a mistake not yet made, or one made: none is let stand, in the modules or their tests.
+	compilerOptions {
+		allWarningsAsErrors.set(true)
+	}
 }
 
 dependencies {

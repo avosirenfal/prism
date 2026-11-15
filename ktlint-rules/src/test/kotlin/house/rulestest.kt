@@ -4,6 +4,7 @@ import com.pinterest.ktlint.rule.engine.api.Code
 import com.pinterest.ktlint.rule.engine.api.EditorConfigOverride
 import com.pinterest.ktlint.rule.engine.api.KtLintRuleEngine
 import com.pinterest.ktlint.rule.engine.api.LintError
+import com.pinterest.ktlint.rule.engine.core.api.AutocorrectDecision
 import com.pinterest.ktlint.rule.engine.core.api.RuleId
 import com.pinterest.ktlint.rule.engine.core.api.editorconfig.CODE_STYLE_PROPERTY
 import com.pinterest.ktlint.rule.engine.core.api.editorconfig.CodeStyleValue
@@ -43,7 +44,7 @@ object Ktlint {
 	fun format(source: String): String =
 		engine.format(
 			Code.fromSnippet(source.trimIndent() + "\n"),
-		) { _, _ -> }
+		) { _ -> AutocorrectDecision.ALLOW_AUTOCORRECT }
 
 	fun lint(source: String): List<LintError> =
 		buildList {

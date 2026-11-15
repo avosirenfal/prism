@@ -355,7 +355,7 @@ object ProcessCommands : Commands {
 						watch.said(line, error)
 					}
 				} catch (closed: IOException) {
-					Unit
+					// The command closed its end: what was read so far is what it said.
 				}
 
 				return kept
@@ -407,7 +407,7 @@ class Temps(
 		try {
 			Runtime.getRuntime().addShutdownHook(Thread { clear() })
 		} catch (ending: IllegalStateException) {
-			Unit
+			// prism is ending already: what is made is cleared by the hook that is running.
 		}
 	}
 
@@ -442,7 +442,7 @@ class Temps(
 				}
 			}
 		} catch (failed: IOException) {
-			Unit
+			// Nothing made yet, or not to be listed: nothing is left to remove.
 		}
 	}
 
@@ -454,14 +454,14 @@ class Temps(
 					try {
 						Files.deleteIfExists(it)
 					} catch (failed: IOException) {
-						Unit
+						// What cannot be deleted is left.
 					}
 				}
 			}
 		} catch (failed: IOException) {
-			Unit
+			// Gone already, or not to be walked: left.
 		} catch (failed: java.io.UncheckedIOException) {
-			Unit
+			// Gone as it was walked: left.
 		}
 	}
 }
@@ -639,7 +639,7 @@ fun timeOf(text: String, zone: ZoneId = ZoneId.systemDefault()): Instant? {
 	try {
 		return Instant.parse(text)
 	} catch (notAnInstant: DateTimeParseException) {
-		Unit
+		// Not an instant: one of the other forms, tried next.
 	}
 
 	return TIMES.firstNotNullOfOrNull {

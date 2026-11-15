@@ -8,8 +8,13 @@ plugins {
 	id("org.jetbrains.kotlin.plugin.compose")
 }
 
+// What replaces it is other artifacts, which the Nix build's list of what Gradle may fetch (nix/deps.json) does
+// not hold: changed with that list, not apart from it.
 dependencies {
-	implementation(compose.desktop.currentOs)
+	@Suppress("DEPRECATION")
+	val desktop = compose.desktop.currentOs
+
+	implementation(desktop)
 	implementation(libs.library("compose-material3"))
 }
 

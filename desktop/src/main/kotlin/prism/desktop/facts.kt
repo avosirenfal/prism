@@ -112,7 +112,7 @@ class JvmFacts(
 				},
 			)
 		} catch (failed: IOException) {
-			Unit
+			// Counted as far as it could be.
 		}
 
 		return Contents(files, folders, bytes)

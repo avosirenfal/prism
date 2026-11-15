@@ -334,7 +334,6 @@ class Session(
 					}
 
 				stop?.invoke()
-				Unit
 			}
 			is Effect.Arrange ->
 				scope.launch(io) {

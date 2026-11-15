@@ -126,7 +126,7 @@ internal object WholeFile {
 		try {
 			FileChannel.open(folder, StandardOpenOption.READ).use { it.force(true) }
 		} catch (unsupported: IOException) {
-			Unit
+			// The file is whole all the same.
 		}
 	}
 }

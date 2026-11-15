@@ -68,6 +68,8 @@ class WindowTest {
 		return memory
 	}
 
+	// A value-based field, as the application's are: it is those the window is tried with.
+	@Suppress("DEPRECATION")
 	@Test
 	fun aWindowIsClickedTypedInDroppedOnAndCopiedFrom() {
 		assumeTrue(

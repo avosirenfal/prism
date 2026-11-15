@@ -130,7 +130,7 @@ internal fun filtersOf(
 	val chosen =
 		current?.let { wanted ->
 			all.firstOrNull { it.second == wanted }?.first
-				?: all.firstOrNull { it.second?.name == wanted.name }?.first
+				?: all.firstOrNull { it.second.name == wanted.name }?.first
 		}
 
 	return if (all.isEmpty())

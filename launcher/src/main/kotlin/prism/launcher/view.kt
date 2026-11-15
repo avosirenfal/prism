@@ -412,6 +412,7 @@ private fun ColumnScope.Found(
  * The field: a magnifier, what is typed, large ([placeholder] while nothing is), and a spinner while what is typed
  * is [searching] for. What is typed is shown as dots where it is [redacted].
  */
+@Suppress("DEPRECATION") // The window feeds value-based fields.
 @Composable
 internal fun QueryField(
 	placeholder: String,

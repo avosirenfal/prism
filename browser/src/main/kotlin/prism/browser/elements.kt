@@ -374,6 +374,7 @@ fun ToolButton(
  * keyboard is not in it, where one that does not shows its end: for text too long for its field that is read more
  * than it is typed.
  */
+@Suppress("DEPRECATION") // The window feeds value-based fields.
 @Composable
 fun Field(
 	text: String,
