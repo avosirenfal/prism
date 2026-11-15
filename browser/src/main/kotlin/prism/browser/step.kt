@@ -1616,7 +1616,8 @@ private fun BrowserState.chosenOwn(search: Search.Ready, own: Own): Step {
 
 /**
  * The [at]th match the window lists gone to, the window put away: a folder, into it; a file, to the folder it is in,
- * chosen, so that saving saves over it once the user says so, and opening opens it once they do.
+ * chosen there, so that opening opens it once the user says so. Saving, it is only chosen: the name to save under is
+ * what the name's field holds.
  */
 private fun BrowserState.chosenMatch(at: Int): Step {
 	val search = search as? Search.Ready ?: return Step(this)
