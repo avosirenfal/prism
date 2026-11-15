@@ -81,9 +81,27 @@ sealed interface BrowserEvent : Input {
 	/** Every row shown chosen, where several can be (Ctrl+A). */
 	data object ChoseAll : BrowserEvent
 
-	/** Letters typed in the listing: the cursor to the next row whose name starts with them. */
+	/**
+	 * A character typed in the listing, at [at] (milliseconds): one more of the letters that name a row ([Jump]),
+	 * where the one before it was typed within the pause, and the first of them otherwise; the cursor goes to the
+	 * row they name.
+	 */
 	data class Jumped(
-		val prefix: String,
+		val typed: Char,
+		val at: Long,
+	) : BrowserEvent
+
+	/** The last of the letters that name a row taken back (Backspace while they are being typed), at [at]. */
+	data class JumpErased(
+		val at: Long,
+	) : BrowserEvent
+
+	/**
+	 * The letters that name a row are done with: the pause after the one typed at [at] ran out, which ends them
+	 * only where none was typed since; or, with no [at], they were let go (Escape).
+	 */
+	data class JumpEnded(
+		val at: Long? = null,
 	) : BrowserEvent
 
 	data class Sorted(

@@ -13,6 +13,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.nativeKeyCode
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.test.ComposeUiTest
 import androidx.compose.ui.test.ExperimentalTestApi
@@ -244,6 +245,38 @@ class InteractionTest {
 			),
 		)
 		focused().performKeyInput { (held + key).reversed().forEach { keyUp(it) } }
+	}
+
+	/**
+	 * [key] pressed as prism's own window sends it (window/keys.kt): a press that says no character, then, where the
+	 * key types one, the [character] typed as an event of its own, then the release. With [said], the press says
+	 * that character itself, as the presses of Compose's own windows do.
+	 */
+	@OptIn(InternalComposeUiApi::class)
+	private fun ComposeUiTest.keyed(key: Key, character: Char? = null, said: Char? = null) {
+		fun awt(id: Int, char: Char) =
+			java.awt.event.KeyEvent(
+				Container(),
+				id,
+				0,
+				0,
+				if (id == java.awt.event.KeyEvent.KEY_TYPED)
+					java.awt.event.KeyEvent.VK_UNDEFINED
+				else
+					key.nativeKeyCode,
+				char,
+			)
+
+		fun sent(type: KeyEventType, id: Int, char: Char) =
+			focused().performKeyPress(
+				KeyEvent(key, type, char.code, nativeEvent = awt(id, char)),
+			)
+
+		val none = java.awt.event.KeyEvent.CHAR_UNDEFINED
+
+		sent(KeyEventType.KeyDown, java.awt.event.KeyEvent.KEY_PRESSED, said ?: none)
+		character?.let { sent(KeyEventType.Unknown, java.awt.event.KeyEvent.KEY_TYPED, it) }
+		sent(KeyEventType.KeyUp, java.awt.event.KeyEvent.KEY_RELEASED, none)
 	}
 
 	/** [key] pressed with Ctrl and Shift held. */
@@ -1310,6 +1343,120 @@ class InteractionTest {
 			focused().performKeyInput { keyUp(Key.CtrlLeft) }
 			waitUntil(timeoutMillis = TIMEOUT) { session.state.value.zoom == Zoom.By(3) }
 			focusIsIn("search")
+		}
+
+	@Test
+	fun lettersTypedInTheListingGoToTheRowTheyNameAsPrismsWindowTypesThem() =
+		picking { session ->
+			fun jump() = session.state.value.jump
+
+			fun chosen() =
+				session.state.value.chosenRows
+					.map { it.name }
+
+			row("todo.txt").performClick()
+			waitForIdle()
+			focusIsIn("listing")
+
+			// A press says no character, and the character comes after it: one letter, once.
+			keyed(Key.N, 'n')
+			waitUntil(timeoutMillis = TIMEOUT) { chosen() == listOf("notes.md") }
+			assertEquals("n", jump()?.typed)
+			onNodeWithTag("jump").assertTextEquals("n")
+			onNodeWithTag("jump").assertIsDisplayed()
+
+			// Space is bound to choosing, and is a letter of a name being typed; Backspace takes a letter back
+			// and does not go up a folder; and Escape lets the letters go, and nothing else.
+			keyed(Key.O, 'o')
+			keyed(Key.Spacebar, ' ')
+			assertEquals("no ", jump()?.typed)
+			assertEquals(false, jump()?.found)
+			assertEquals(listOf("notes.md"), chosen())
+			keyed(Key.Backspace)
+			keyed(Key.Backspace)
+			assertEquals("n", jump()?.typed)
+			assertEquals(work, session.state.value.folder)
+			keyed(Key.Escape)
+			waitForIdle()
+			assertEquals(null, jump())
+			assertEquals(0, onAllNodes(hasTestTag("jump")).fetchSemanticsNodes().size)
+			assertEquals(listOf("notes.md"), chosen())
+			assertFalse(session.outcome.isCompleted)
+
+			// With no name being typed, Space chooses as it is bound to, and what it types is no letter.
+			keyed(Key.Spacebar, ' ')
+			waitForIdle()
+			assertEquals(null, jump())
+
+			// A pause ends the letters: the chip goes, and what is typed next names a row anew.
+			keyed(Key.M, 'm')
+			waitUntil(timeoutMillis = TIMEOUT) { chosen() == listOf("Music") }
+			mainClock.advanceTimeBy(Jump.PAUSE + 100)
+			waitUntil(timeoutMillis = TIMEOUT) { jump() == null }
+			assertEquals(0, onAllNodes(hasTestTag("jump")).fetchSemanticsNodes().size)
+		}
+
+	@Test
+	fun lettersTypedInTheListingGoToTheRowTheyNameWhereThePressSaysTheLetter() =
+		picking { session ->
+			fun chosen() =
+				session.state.value.chosenRows
+					.map { it.name }
+
+			row("todo.txt").performClick()
+			waitForIdle()
+			focusIsIn("listing")
+
+			// The press says the letter, and nothing is typed after it.
+			keyed(Key.M, said = 'm')
+			waitUntil(timeoutMillis = TIMEOUT) { chosen() == listOf("Music") }
+			assertEquals(
+				"m",
+				session.state.value.jump
+					?.typed,
+			)
+
+			// A keyboard that says it both ways (Compose's own windows): still one letter a press; and Space, a
+			// letter of the name, once.
+			keyed(Key.A, 'a', said = 'a')
+			waitUntil(timeoutMillis = TIMEOUT) { chosen() == listOf("main.kt") }
+			assertEquals(
+				"ma",
+				session.state.value.jump
+					?.typed,
+			)
+			keyed(Key.Spacebar, ' ', said = ' ')
+			assertEquals(
+				"ma ",
+				session.state.value.jump
+					?.typed,
+			)
+			keyed(Key.Backspace)
+			assertEquals(
+				"ma",
+				session.state.value.jump
+					?.typed,
+			)
+
+			// Compose's test keyboard says the letter with the press, too.
+			press(Key.I)
+			waitForIdle()
+			assertEquals(
+				"mai",
+				session.state.value.jump
+					?.typed,
+			)
+			assertEquals(listOf("main.kt"), chosen())
+
+			// A letter with Ctrl is what it is bound to, and no letter of a name.
+			ctrl(Key.L)
+			waitForIdle()
+			assertEquals(
+				"mai",
+				session.state.value.jump
+					?.typed,
+			)
+			field("address").assertIsFocused()
 		}
 
 	@Test

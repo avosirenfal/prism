@@ -544,17 +544,86 @@ class StepTest {
 		assertEquals(Step(one), step(one, BrowserEvent.ChoseAll))
 	}
 
+	/** [text] typed into the listing of [state], a letter every tenth of a second from [from]. */
+	private fun typed(state: BrowserState, text: String, from: Long = 0): BrowserState =
+		after(
+			state,
+			*text
+				.mapIndexed {
+					at,
+					letter,
+					->
+					BrowserEvent.Jumped(letter, from + at * 100L)
+				}.toTypedArray(),
+		)
+
 	@Test
 	fun lettersTypedGoToTheRowTheyStart() {
-		val s = after(picker(), BrowserEvent.Jumped("s"))
+		val s = typed(picker(), "s")
 
 		assertEquals(listOf("screenshot 2.png"), names(s))
+		assertEquals(Jump("s", 0, found = true), s.jump)
 		// The same letter again goes on to the next row it starts.
-		assertEquals(listOf("screenshot 10.png"), names(after(s, BrowserEvent.Jumped("ss"))))
-		// More letters narrow it from where the cursor is.
-		assertEquals(listOf("song.flac"), names(after(s, BrowserEvent.Jumped("so"))))
-		// Nothing starting so: nothing moves.
-		assertEquals(listOf("screenshot 2.png"), names(after(s, BrowserEvent.Jumped("zz"))))
+		assertEquals(listOf("screenshot 10.png"), names(typed(s, "s", from = 100)))
+
+		// More letters narrow it from where the cursor is; and case is not told apart.
+		val so = typed(s, "O", from = 100)
+
+		assertEquals(listOf("song.flac"), names(so))
+		assertEquals(Jump("sO", 100, found = true), so.jump)
+		assertEquals(listOf("Holiday in Lisbon.jpg"), names(typed(picker(), "hol")))
+
+		// A space is a letter of a name begun, and begins none.
+		assertEquals(listOf("screenshot 10.png"), names(typed(picker(), "screenshot 1")))
+		assertNull(typed(picker(), " ").jump)
+		assertEquals(emptyList<String>(), names(typed(picker(), " ")))
+	}
+
+	@Test
+	fun lettersNoNameStartsWithGoToTheRowThatHasThemAndWhereNoneHasNothingMoves() {
+		// "Pictures" starts with a p; nothing starts with "po", and "Quarterly report.pdf" has it.
+		assertEquals(listOf("Pictures"), names(typed(picker(), "p")))
+
+		val port = typed(picker(), "port")
+
+		assertEquals(listOf("Quarterly report.pdf"), names(port))
+		assertEquals(Jump("port", 300, found = true), port.jump)
+
+		// No name has it: the cursor stays where the letters before it put it, and the jump says nothing was found.
+		val none = typed(picker(), "szq")
+
+		assertEquals(listOf("screenshot 2.png"), names(none))
+		assertEquals(Jump("szq", 200, found = false), none.jump)
+	}
+
+	@Test
+	fun aPauseEndsTheLettersTypedAndSoDoesGoingElsewhere() {
+		val so = typed(picker(), "so")
+
+		// Typed within the pause, a letter is one more of them; after it, the first of new ones.
+		assertEquals("son", typed(so, "n", from = 100 + Jump.PAUSE - 1).jump?.typed)
+
+		val anew = typed(so, "n", from = 100 + Jump.PAUSE)
+
+		assertEquals(Jump("n", 100 + Jump.PAUSE, found = true), anew.jump)
+		assertEquals(listOf("notes.md"), names(anew))
+
+		// The pause run out ends them, unless something was typed since; let go, they are ended whenever.
+		assertNull(after(so, BrowserEvent.JumpEnded(100)).jump)
+		assertEquals(so.jump, after(so, BrowserEvent.JumpEnded(0)).jump)
+		assertNull(after(so, BrowserEvent.JumpEnded()).jump)
+		assertEquals(listOf("song.flac"), names(after(so, BrowserEvent.JumpEnded())))
+
+		// The last letter taken back: what is left names a row from where the cursor is, and none left is none.
+		val back = after(so, BrowserEvent.JumpErased(200))
+
+		assertEquals(Jump("s", 200, found = true), back.jump)
+		assertEquals(listOf("song.flac"), names(back))
+		assertNull(after(back, BrowserEvent.JumpErased(300)).jump)
+		assertNull(after(picker(), BrowserEvent.JumpErased(0)).jump)
+
+		// Gone into another folder, what was typed named a row of the one left.
+		assertNull(after(so, BrowserEvent.Activated(id("Documents"))).jump)
 	}
 
 	// ---- arranging ----

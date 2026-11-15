@@ -801,6 +801,24 @@ sealed interface Choosing {
 	val many: Boolean get() = this is Files || this is Exploring
 }
 
+/**
+ * What is being typed into the listing to go to a row by its name: the letters [typed] so far, each within [PAUSE] of
+ * the one before; when the last of them was typed ([at], in milliseconds), which is what a pause is measured from;
+ * and whether a row was [found] for them. It is there only while it is being typed: a pause ends it, and what is
+ * typed after that names a row anew.
+ */
+@Immutable
+data class Jump(
+	val typed: String,
+	val at: Long,
+	val found: Boolean,
+) {
+	companion object {
+		/** How long a pause in typing ends the letters that name a row, in milliseconds. */
+		const val PAUSE = 1000L
+	}
+}
+
 /** Where the keyboard is in the listing: on [at], with a range chosen by Shift reaching from [anchor]. */
 @Immutable
 data class Cursor(
@@ -1227,6 +1245,8 @@ data class BrowserState(
 	val search: Search = Search.Unavailable(NO_INDEX),
 	/** The rows in sight, by their places in [rows], as the view last said; null before it has. */
 	val sight: IntRange? = null,
+	/** What is being typed into the listing to go to a row by its name, while it is. */
+	val jump: Jump? = null,
 	/**
 	 * The folder's rows whose creation times are being read now: one batch at a time, so that what comes into sight
 	 * meanwhile is read next.

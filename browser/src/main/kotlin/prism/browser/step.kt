@@ -184,7 +184,15 @@ private fun did(state: BrowserState, event: BrowserEvent): Step =
 		is BrowserEvent.Moved -> Step(state.moved(event.move, event.carry))
 		BrowserEvent.Toggled -> Step(state.toggled())
 		BrowserEvent.ChoseAll -> Step(state.choseAll())
-		is BrowserEvent.Jumped -> Step(state.jumped(event.prefix))
+		is BrowserEvent.Jumped -> Step(state.jumped(event.typed, event.at))
+		is BrowserEvent.JumpErased -> Step(state.jumpErased(event.at))
+		is BrowserEvent.JumpEnded ->
+			Step(
+				if (event.at == null || state.jump?.at == event.at)
+					state.copy(jump = null)
+				else
+					state,
+			)
 		// What cannot be ordered so (too many results to read every one's date) stays as it is.
 		is BrowserEvent.Sorted ->
 			if (state.orders(event.by))
@@ -581,6 +589,8 @@ internal fun BrowserState.shown(to: Location, history: History, landing: Landing
 			pointed = null,
 			address = Address.Crumbs,
 			waiting = null,
+			// What was being typed named a row of the place left.
+			jump = null,
 		)
 
 	return when (to) {
@@ -831,20 +841,46 @@ private fun BrowserState.choseAll(): BrowserState =
 		this
 
 /**
- * The cursor to the next row whose name starts with [prefix], from the cursor's own row (a second letter typed
- * narrows where it is) or, for one letter or the same letter again, from the row after it, so that pressing a
- * letter again goes through the rows it starts.
+ * [typed] typed into the listing at [at]: added to the letters typed before it, where the last of them was within
+ * the pause ([Jump.PAUSE]), and the first of new ones otherwise; and the cursor to the row they name ([sought]). A
+ * space begins nothing: it is a letter only of a name already begun.
  */
-private fun BrowserState.jumped(prefix: String): BrowserState {
-	if (prefix.isEmpty() || rows.isEmpty())
+private fun BrowserState.jumped(typed: Char, at: Long): BrowserState {
+	val before =
+		jump
+			?.takeIf { at - it.at < Jump.PAUSE }
+			?.typed
+			.orEmpty()
+
+	if (before.isEmpty() && typed.isWhitespace())
 		return this
 
-	val cycling = prefix.all { it.equals(prefix[0], ignoreCase = true) }
+	return sought(before + typed, at, onward = true)
+}
+
+/** The last of the letters being typed taken back, at [at]: the cursor to what the rest name, or nothing typed. */
+private fun BrowserState.jumpErased(at: Long): BrowserState {
+	val left = jump?.typed?.dropLast(1) ?: return this
+
+	return if (left.isEmpty())
+		copy(jump = null)
+	else
+		sought(left, at, onward = false)
+}
+
+/**
+ * The cursor to the row [typed] names, typed at [at]: the next whose name starts with it, from the cursor's own row
+ * (a second letter narrows where it is) or, for one letter or the same letter again and going [onward], from the
+ * row after it, so that pressing a letter again goes through the rows it starts; and where no name starts with it,
+ * the next that has it anywhere. Case is not told apart. Where none has it, nothing moves, and the jump says so.
+ */
+private fun BrowserState.sought(typed: String, at: Long, onward: Boolean): BrowserState {
+	val cycling = onward && typed.all { it.equals(typed[0], ignoreCase = true) }
 	val sought =
 		if (cycling)
-			prefix.take(1)
+			typed.take(1)
 		else
-			prefix
+			typed
 	val from = cursor?.at?.let(rows::indexOf)
 	val start =
 		when {
@@ -853,17 +889,23 @@ private fun BrowserState.jumped(prefix: String): BrowserState {
 			else -> from
 		}
 
-	val found =
+	// Every row once, from where the search starts and round to it again.
+	fun first(names: (String) -> Boolean): RowId? =
 		(0 until rows.size)
 			.asSequence()
 			.map { (start + it).mod(rows.size) }
-			.firstOrNull { rows.nameAt(it).startsWith(sought, ignoreCase = true) }
+			.firstOrNull { names(rows.nameAt(it)) }
 			?.let(rows::idAt)
-			?: return this
+
+	val found =
+		first { it.startsWith(sought, ignoreCase = true) }
+			?: first { it.contains(sought, ignoreCase = true) }
+			?: return copy(jump = Jump(typed, at, found = false))
 
 	return copy(
 		chose = choosing.chose(setOf(found), rows),
 		pointed = Cursor(found, found),
+		jump = Jump(typed, at, found = true),
 	)
 }
 

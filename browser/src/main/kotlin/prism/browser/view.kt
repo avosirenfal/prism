@@ -67,9 +67,11 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.awt.awtEventOrNull
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
@@ -156,7 +158,7 @@ import prism.window.WindowLocals
  * | arrows, Page Up and Down, Home, End | listing | the cursor; with Shift, choosing a run; with Ctrl, not choosing |
  * | Space | listing | the row at the cursor chosen, or no longer |
  * | Enter | listing, name | accept (a chosen folder is opened) |
- * | letters | listing | the next row whose name starts with them |
+ * | letters | listing | the row they name: the next whose name starts with them, or has them in it |
  * | Backspace, Alt+Up | listing; anywhere | the folder above |
  * | Alt+Left, Alt+Right | anywhere | back, forward |
  * | Ctrl+L, Alt+D | anywhere | type a path |
@@ -978,22 +980,6 @@ private fun glyphOf(kind: Place.Kind): Glyph =
 
 // ---- the listing: the folder's entries in columns ------------------------------------------------------------
 
-/** Letters typed into the listing in quick succession, which together name the row to go to. */
-@Immutable
-private data class Typing(
-	val prefix: String,
-	val at: Long,
-) {
-	fun then(letter: Char, now: Long): Typing =
-		if (now - at < TYPING_PAUSE)
-			Typing(prefix + letter, now)
-		else
-			Typing(letter.toString(), now)
-}
-
-/** How long a pause in typing ends the letters that name a row, in milliseconds. */
-private const val TYPING_PAUSE = 1000L
-
 /**
  * The listing, as one stop of the keyboard: what it shows is [BrowserState.rows], as rows in columns or as tiles in a
  * gallery, with the cursor's row ringed while the keyboard is here, and kept in sight as it moves. Each folder starts
@@ -1029,7 +1015,9 @@ private fun ListingPane(
 	val rowHeight = rowHeightOf(LocalRows.current, LocalType.current) * zoom
 	val chosen = state.choosing.rows
 	val renaming = state.renaming
-	var typing by remember { mutableStateOf(Typing("", 0)) }
+	// Whether the last key pressed was dealt with as it was pressed: what it then types, told of apart from the
+	// press by prism's own window, is no letter of a row's name.
+	var spent by remember { mutableStateOf(false) }
 	var pressed by remember { mutableStateOf<Pressed?>(null) }
 	// A row of several chosen, pressed with no key held: they all stay chosen until the press ends without a drag, as
 	// it would drag them all, and it alone is chosen then.
@@ -1313,13 +1301,8 @@ private fun ListingPane(
 		return event != null
 	}
 
-	fun key(key: KeyEvent): Boolean {
-		// A name being typed over has the keys; what it leaves is not the listing's.
-		if (key.type != KeyEventType.KeyDown || renaming != null)
-			return false
-
-		val chord = Chord.of(key) ?: return false
-
+	/** What [chord] is bound to do here done, or the cursor moved by it: whether it did anything. */
+	fun done(chord: Chord): Boolean {
 		for (action in bindings.listings(chord))
 			when (action) {
 				is Action ->
@@ -1389,15 +1372,68 @@ private fun ListingPane(
 			return true
 		}
 
-		// Letters typed jump to the next row whose name starts with them.
-		val letter =
-			key.utf16CodePoint
-				.takeIf {
-					it > ' '.code && !chord.ctrl && !chord.alt && !chord.meta
-				}?.toChar() ?: return false
+		return false
+	}
 
-		typing = typing.then(letter, System.currentTimeMillis())
-		onEvent(BrowserEvent.Jumped(typing.prefix))
+	/**
+	 * A key in the listing: what it is bound to, the cursor moved, or a letter of a row's name ([Jump]), which goes
+	 * to the row. A letter is told of in one of two ways, and is taken once: with the key's press, as Compose's own
+	 * windows and its tests tell of it; or after the press and apart from it, as prism's own window does (a press
+	 * there says no character). While a name is being typed, Space is one of its letters, Backspace takes the last
+	 * back, and Escape lets it go; otherwise they are what they are bound to.
+	 */
+	fun key(key: KeyEvent): Boolean {
+		// A name being typed over has the keys; what it leaves is not the listing's.
+		if (renaming != null)
+			return false
+
+		val now = System.currentTimeMillis()
+		val jumping = state.jump != null
+
+		// A character typed, told of after the press that typed it: a letter, unless the press was dealt with.
+		key.typed?.let { typed ->
+			val names = !spent && (typed > ' ' || (typed == ' ' && jumping))
+
+			if (names)
+				onEvent(BrowserEvent.Jumped(typed, now))
+
+			return names
+		}
+
+		if (key.type != KeyEventType.KeyDown)
+			return false
+
+		val chord = Chord.of(key) ?: return false
+		// The character the press itself says it types, where it says one.
+		val carried = key.carried.takeIf { !chord.ctrl && !chord.alt && !chord.meta }
+
+		if (jumping && !chord.ctrl && !chord.alt && !chord.meta) {
+			val named =
+				when (key.key) {
+					Key.Spacebar -> carried?.let { BrowserEvent.Jumped(it, now) }
+					Key.Backspace -> BrowserEvent.JumpErased(now)
+					Key.Escape -> BrowserEvent.JumpEnded()
+					else -> null
+				}
+
+			// Space with no character said is typed after: that is the letter, and the press is only kept from
+			// what Space is bound to.
+			if (named != null || key.key == Key.Spacebar) {
+				spent = named != null
+				named?.let(onEvent)
+
+				return true
+			}
+		}
+
+		spent = done(chord)
+		if (spent)
+			return true
+
+		val letter = carried?.takeIf { it > ' ' } ?: return false
+
+		spent = true
+		onEvent(BrowserEvent.Jumped(letter, now))
 
 		return true
 	}
@@ -1635,8 +1671,78 @@ private fun ListingPane(
 			hint.shown?.let { DropLine(wordsOf(it, exploring)) }
 			ContextMenuHost(menus, onEvent)
 		}
+
+		// The letters being typed to name a row, at the listing's foot for as long as they are; a pause after the
+		// last of them ends them, so that what is typed next names a row anew.
+		state.jump?.let { jump ->
+			LaunchedEffect(jump) {
+				delay(Jump.PAUSE)
+				onEvent(BrowserEvent.JumpEnded(jump.at))
+			}
+			JumpChip(jump, Modifier.align(Alignment.BottomStart))
+		}
 	}
 }
+
+/** What is being typed to go to a row by its name: over the listing's foot, tinted where no row is named so. */
+@Composable
+private fun JumpChip(jump: Jump, modifier: Modifier) {
+	val palette = LocalPalette.current
+	val type = LocalType.current
+	val shape = RoundedCornerShape(Radius.medium)
+
+	val tint =
+		if (jump.found)
+			palette.text
+		else
+			palette.dangerText
+
+	Row(
+		modifier
+			.padding(Space.m)
+			.shadow(6.dp, shape, ambientColor = palette.shadow, spotColor = palette.shadow)
+			.background(palette.overlay, shape)
+			.border(
+				1.dp,
+				if (jump.found)
+					palette.border
+				else
+					palette.dangerText,
+				shape,
+			).padding(horizontal = Space.m, vertical = Space.xs)
+			.semantics(mergeDescendants = true) {}
+			.testTag("jump"),
+		horizontalArrangement = Arrangement.spacedBy(Space.s),
+		verticalAlignment = Alignment.CenterVertically,
+	) {
+		GlyphIcon(Glyph.Search, palette.textMuted, type.icon * 0.85f)
+		Text(jump.typed, style = type.body.copy(color = tint), maxLines = 1)
+	}
+}
+
+/**
+ * The character an event is the typing of, where it is told of apart from the key's press, as prism's own window
+ * tells of one (AWT's `KEY_TYPED`); none for a press, a release, and what is no character.
+ */
+private val KeyEvent.typed: Char?
+	get() =
+		awtEventOrNull
+			?.takeIf {
+				it.id == java.awt.event.KeyEvent.KEY_TYPED && !it.isControlDown &&
+					!it.isMetaDown
+			}?.keyChar
+			?.takeIf { it != java.awt.event.KeyEvent.CHAR_UNDEFINED && !it.isISOControl() }
+
+/** The character a key's press says it types, where it says one: prism's own window's presses say none. */
+private val KeyEvent.carried: Char?
+	get() =
+		utf16CodePoint
+			.takeIf {
+				type == KeyEventType.KeyDown &&
+					it != 0 &&
+					it != java.awt.event.KeyEvent.CHAR_UNDEFINED.code
+			}?.toChar()
+			?.takeIf { !it.isISOControl() }
 
 /** A line under the listing saying what files dragged over the browser would be made, dropped where they are. */
 @Composable

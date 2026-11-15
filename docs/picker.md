@@ -624,9 +624,21 @@ palette, takes the keys a desktop's controls take, and reports only what it is f
 | `ring` | the ring around what the keyboard is on | |
 
 A control keeps only what a control keeps on any desktop: whether the pointer is over it, whether its menu is open,
-where the caret is in its text. The view adds four things of the same kind: which place the sidebar's arrows are on,
-the letters typed in quick succession in the listing, the last row pressed (for a double click), and the context menu
-open.
+where the caret is in its text. The view adds three things of the same kind: which place the sidebar's arrows are
+on, the last row pressed (for a double click), and the context menu open.
+
+### Letters typed in the listing
+
+Typing in the listing goes to a row by its name: `no` goes to `notes.md`. The letters are a `Jump` in the state (what
+was typed, when the last of it was, and whether a row was found for it), each one a `BrowserEvent.Jumped(letter, at)`:
+within a second of the letter before it, it is one more of them; after that, the first of new ones. The view ends
+them a second after the last (`JumpEnded`), which is what takes what was typed off the listing's foot.
+
+A letter reaches the listing in one of two ways, and is taken once. Compose's own windows, and its tests, say the
+character with the key's press. Prism's window (docs/window.md) says a press with no character, and then the
+character typed as an event of its own, as SDL tells of text; so the listing takes a letter from the typed event,
+unless the press before it was dealt with (bound to something, or a letter already). `InteractionTest` types both
+ways.
 
 ### Where the keyboard is
 
@@ -654,8 +666,8 @@ keyboard is on the listing, or on the name for a picker that saves.
 |---|---|---|
 | arrows, Page Up and Down, Home, End | listing | the cursor; with Shift, choosing a run; with Ctrl, not choosing (in a gallery, Left and Right along a line, Up and Down a line at a time) |
 | Space | listing | the row at the cursor chosen, or no longer |
-| Enter | listing, name | accept (a chosen folder is gone into) |
-| letters | listing | the next row whose name starts with them; the same letter again, the next such row |
+| Enter | listing, name | accept (a chosen folder is gone into); saving, Enter on a file in the listing asks whether to replace it |
+| letters | listing | the row they name: the next whose name starts with them, or, where none does, the next that has them in it; the same letter again, the next row it starts. What is typed is shown at the listing's foot, and a second's pause ends it. While it is being typed, Space is one of its letters, Backspace takes the last back, and Escape lets it go |
 | Backspace | listing | the folder above |
 | Ctrl+A | listing | every row chosen |
 | F6 | listing | rename the row chosen |
