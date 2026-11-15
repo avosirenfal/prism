@@ -201,6 +201,44 @@ class LauncherStateTest {
 	}
 
 	@Test
+	fun anApplicationNamedExactlyWhatIsTypedComesBeforeEverything() {
+		// prism's own entry is named as prism's word is: typed, it is the application that is meant.
+		val prism = Programs.application("prism", "Prism", "File Manager")
+		val tool = Programs.application("prism-settings", "Prism Settings Tool")
+		val installed = Installed.of(Programs.all + tool + prism)
+
+		fun typed(query: String, launches: Launches = Launches.NONE) =
+			step(
+				LauncherState(installed = installed, launches = launches, now = now),
+				LauncherEvent.Typed(query),
+			).state
+
+		val asked = typed("prism")
+
+		assertEquals(Entry.App(prism), asked.current)
+		assertEquals(listOf("Applications", "Prism"), asked.sections.map { it.title })
+		assertEquals(listOf("Prism", "Prism Settings Tool"), asked.titles("Applications"))
+		// What the word asks for of prism's own is still there, after it.
+		assertEquals(
+			listOf("Settings", "Key bindings", "System", "Search help", "Files"),
+			asked.titles("Prism"),
+		)
+		// In whatever case, and with space around it.
+		assertEquals(Entry.App(prism), typed(" PRISM ").current)
+
+		// However much another that fits has been used, the one named so is first.
+		val used =
+			(1..20).fold(Launches.NONE) { launches, _ ->
+				launches.used(Entry.App(tool).key, now)
+			}
+
+		assertEquals(Entry.App(prism), typed("prism", used).current)
+
+		// More words than its name are not its name: prism's own come first again.
+		assertEquals(Entry.Prism(Own.Settings), typed("prism set").current)
+	}
+
+	@Test
 	fun eachOfPrismsOwnChosenIsDoneWhereItBelongs() {
 		assertEquals(
 			listOf(LauncherEffect.Settings, LauncherEffect.Close),

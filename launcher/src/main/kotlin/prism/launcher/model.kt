@@ -249,7 +249,8 @@ data class LauncherState(
 	 * What is shown, in groups: the applications (and their actions) that fit [query], the best first, then what
 	 * prism does ([Does]), then the files the index found for it. With nothing typed, every application, those used
 	 * most and most lately first, and what prism does. Where [query] asks for prism's own ([Own.found]: the word
-	 * `prism`, or a bare `?`), what it asks for comes before everything, with whatever else prism does that fits.
+	 * `prism`, or a bare `?`), what it asks for comes before everything, with whatever else prism does that fits;
+	 * but for an application named exactly what is typed, which comes first of all, and its section with it.
 	 * The aliases the word being typed could name come after what is started and before the files: they are for
 	 * finding files, and Enter on the first thing shown still starts an application.
 	 */
@@ -289,8 +290,10 @@ data class LauncherState(
 		val applications = Section("Applications", programs)
 
 		(
-			if (own.isEmpty())
-				listOf(applications, Section(Entry.PRISM, does))
+			// What is typed is an application's very name: it is that application that is asked for, whatever
+			// of prism's own the same word asks for (`prism` is prism's word, and the explorer's name).
+			if (own.isEmpty() || programs.firstOrNull()?.let(::named) == true)
+				listOf(applications, Section(Entry.PRISM, own + does))
 			else
 				listOf(Section(Entry.PRISM, own + does), applications)
 		).plus(
@@ -350,11 +353,21 @@ data class LauncherState(
 		get() =
 			preferences.files && searchable && wordsOf(query).isNotEmpty() && files.query != query
 
-	/** [scored], the best first, and by name among equals; used ones before the rest of theirs. */
+	/** What is typed, as a name is compared with it: without the space around it, in lower case. */
+	private val asked: String by lazy { query.trim().lowercase() }
+
+	/** Whether [entry] is named exactly what is typed, whatever the case. */
+	private fun named(entry: Entry): Boolean = entry.title.lowercase() == asked
+
+	/**
+	 * [scored], the best first, and by name among equals; used ones before the rest of theirs. One named exactly
+	 * what is typed comes before them all, however much another has been used.
+	 */
 	private fun ranked(scored: List<Scored>): List<Entry> =
 		scored
 			.sortedWith(
-				compareByDescending<Scored> { it.score + launches.pointsOf(it.entry.key, now) }
+				compareByDescending<Scored> { it.title == asked }
+					.thenByDescending { it.score + launches.pointsOf(it.entry.key, now) }
 					.thenBy { it.title },
 			).map { it.entry }
 
