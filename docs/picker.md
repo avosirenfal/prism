@@ -894,7 +894,7 @@ keyboard is on the listing, or on the name for a picker that saves.
 | Ctrl+Z; Ctrl+Shift+Z, Ctrl+Y | anywhere but a text field | the picker's latest change to the disk undone; done again |
 | the mouse's side buttons | anywhere | back, forward |
 | F5, Ctrl+R | anywhere | the folder read again |
-| Escape | anywhere | cancel; in the path, first leave that; in the folder's search, first empty it, then go back to the listing |
+| Escape | anywhere | cancel; in the path, first leave that; in the folder's search, go back to the listing, what is typed left as it is (its × empties it) |
 
 The keys with Ctrl work while a field is being typed in, as well. That takes one more step than it seems to, because a
 key pressed with Ctrl reaches the window twice: once as the key going down, and once as the character it types, so

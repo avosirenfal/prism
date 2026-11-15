@@ -634,22 +634,44 @@ class InteractionTest {
 		}
 
 	@Test
-	fun escapeEmptiesTheSearchThenLeavesItForTheListingBeforeItCancels() =
+	fun escapeLeavesTheSearchForTheListingWithWhatWasTypedStillThereBeforeItCancels() =
 		picking { session ->
+			fun crossed() =
+				onAllNodes(hasTestTag("field-clear"), useUnmergedTree = true)
+					.fetchSemanticsNodes()
+					.isNotEmpty()
+
 			focused().performKeyInput { withKeyDown(Key.CtrlLeft) { pressKey(Key.F) } }
+			// No cross to empty a field with nothing in it.
+			assertFalse(crossed())
 			field("search").performTextReplacement("no")
+			waitUntil(timeoutMillis = TIMEOUT) { session.state.value.arrangement.query == "no" }
+
+			// Escape takes the keyboard back to the listing at once, as Enter does: what was typed is still there,
+			// the listing still narrowed by it, and nothing is cancelled.
 			press(Key.Escape)
-			field("search").assertTextEquals("")
-			field("search").assertIsFocused()
+			waitForIdle()
+			onNodeWithTag("listing").assertIsFocused()
+			field("search").assertTextEquals("no")
+			assertEquals("no", session.state.value.arrangement.query)
 			assertEquals(false, session.outcome.isCompleted)
 
-			// With nothing in it, Escape takes the keyboard back to the listing, as Enter does: nothing is cancelled.
+			// The cross at the field's end is what empties it.
+			onNodeWithTag("field-clear", useUnmergedTree = true).performClick()
+			waitUntil(timeoutMillis = TIMEOUT) {
+				session.state.value.arrangement.query
+					.isEmpty()
+			}
+			field("search").assertTextEquals("")
+			assertFalse(crossed())
+
+			// Emptied so, it has the keyboard, for what is looked for next; Escape leaves it as before,
+			field("search").assertIsFocused()
 			press(Key.Escape)
 			waitForIdle()
 			onNodeWithTag("listing").assertIsFocused()
 			assertEquals(false, session.outcome.isCompleted)
-
-			// And from the listing it is the picker's own.
+			// and from the listing Escape is the picker's own.
 			press(Key.Escape)
 			assertEquals(Outcome.Cancelled, ended(session))
 		}

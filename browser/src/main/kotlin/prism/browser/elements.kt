@@ -370,9 +370,11 @@ fun ToolButton(
  * been there. Each time [reselect] changes while the keyboard is in it, what [selecting] says is selected again, as
  * though the keyboard had just arrived: a combo box's text clicked, to be typed over. [onSelection] is told what is
  * selected (the caret, where nothing is) as the field shows it, for whoever gives a key a meaning that depends on
- * where the caret is. [badge], where there is one, is drawn after its glyph: a small mark of what the field is for. A field that [restsAtStart] shows its text from its beginning whenever the
- * keyboard is not in it, where one that does not shows its end: for text too long for its field that is read more
- * than it is typed.
+ * where the caret is. [badge], where there is one, is drawn after its glyph: a small mark of what the field is for.
+ * A field that [restsAtStart] shows its text from its beginning whenever the keyboard is not in it, where one that
+ * does not shows its end: for text too long for its field that is read more than it is typed. A field that can be
+ * emptied at a click ([onClear]) has a small cross at its end while it holds text, which the pointer presses; the
+ * keyboard does not stop at it.
  */
 @Suppress("DEPRECATION") // The window feeds value-based fields.
 @Composable
@@ -395,6 +397,7 @@ fun Field(
 	onSelection: (TextRange) -> Unit = {},
 	badge: (@Composable () -> Unit)? = null,
 	restsAtStart: Boolean = false,
+	onClear: (() -> Unit)? = null,
 ) {
 	val palette = LocalPalette.current
 	val type = LocalType.current
@@ -494,6 +497,41 @@ fun Field(
 			)
 		}
 		trailing?.let { GlyphIcon(it, palette.textMuted, type.icon * 0.85f) }
+		if (onClear != null && text.isNotEmpty())
+			ClearCross(onClear)
+	}
+}
+
+/** The small cross at a field's end that empties it: lit under the pointer, and no stop of the keyboard's. */
+@Composable
+private fun ClearCross(onClear: () -> Unit) {
+	val palette = LocalPalette.current
+	val type = LocalType.current
+	val source = remember { MutableInteractionSource() }
+	val felt = source.felt()
+
+	Box(
+		Modifier
+			.size(type.icon)
+			.background(
+				if (felt.hovered)
+					palette.hover
+				else
+					Color.Transparent,
+				CircleShape,
+			).focusProperties { canFocus = false }
+			.clickable(source, indication = null, onClick = onClear)
+			.testTag("field-clear"),
+		contentAlignment = Alignment.Center,
+	) {
+		GlyphIcon(
+			Glyph.Close,
+			if (felt.hovered)
+				palette.text
+			else
+				palette.textMuted,
+			type.icon * 0.6f,
+		)
 	}
 }
 

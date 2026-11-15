@@ -475,7 +475,12 @@ private fun Toolbar(state: BrowserState, stops: Stops, onEvent: (BrowserEvent) -
 			hint = "Search ${state.placeName}",
 			leading = Glyph.Search,
 			focus = stops.search,
-			onKey = { searchKey(it, state.arrangement.query, stops, onEvent) },
+			onKey = { searchKey(it, stops) },
+			// Emptied, it has the keyboard: whoever empties it is about to type what to look for next.
+			onClear = {
+				onEvent(BrowserEvent.Searched(""))
+				stops.search.requestFocus()
+			},
 		)
 		Spacer(Modifier.width(Space.s))
 		// Every window's, and kept: so it is here in a list too, where no picture is drawn to be seen going.
@@ -517,21 +522,12 @@ private fun Toolbar(state: BrowserState, stops: Stops, onEvent: (BrowserEvent) -
 }
 
 /**
- * Escape empties the search, and with nothing in it takes the keyboard back to the listing, as Enter and Down do
- * with what it found: it cancels nothing from here.
+ * Escape takes the keyboard back to the listing, as Enter and Down do, and leaves what is typed as it is, and the
+ * listing narrowed by it: it empties nothing and cancels nothing from here. The field's cross empties it.
  */
-private fun searchKey(
-	key: KeyEvent,
-	query: String,
-	stops: Stops,
-	onEvent: (BrowserEvent) -> Unit,
-): Boolean =
+private fun searchKey(key: KeyEvent, stops: Stops): Boolean =
 	when {
 		key.type != KeyEventType.KeyDown -> false
-		key.key == Key.Escape && query.isNotEmpty() ->
-			true.also {
-				onEvent(BrowserEvent.Searched(""))
-			}
 		key.key == Key.Escape || key.isEnter || key.key == Key.DirectionDown ->
 			true.also { stops.listing.requestFocus() }
 		else -> false
