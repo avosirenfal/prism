@@ -32,10 +32,33 @@ class Indexer(
 	val backend: Backend = Backend.Getdents,
 	val threads: Int = Runtime.getRuntime().availableProcessors(),
 	private val clock: java.time.Clock = java.time.Clock.systemUTC(),
+	/**
+	 * Whether a mount is of a file system that comes and goes with something outside the machine (a drive plugged
+	 * in, a share on another machine): one read only where it is asked for, never because it is under something
+	 * that is.
+	 */
+	private val portable: (Mount) -> Boolean = { Volumes.SYSTEM.of(it)?.portable == true },
+	/** The places asked for outright (an index's roots): read whatever is mounted there, and whatever the rules say. */
+	private val asked: Set<Where> = emptySet(),
 ) {
-	private val ignoredMounts: Set<Path> = mountsLeftOut(rules, mounts)
+	/**
+	 * The mount points not gone into from above: of the file systems the rules leave out, and of those that are
+	 * [portable], but for the ones [asked] for.
+	 */
+	private val ignoredMounts: Set<Path> =
+		(mountsLeftOut(rules, mounts) + mounts.filter(portable).map { it.at })
+			.filterNot { Where.of(it) in asked }
+			.toSet()
 	private val ignoredKeys: Set<String> = ignoredMounts.map(Where::keyOf).toSet()
 	private val scanner = Scanner(backend, rules, threads, ignoredMounts)
+
+	/** This indexer as it is with [mounts] mounted, and [asked] the places asked for outright. */
+	fun mounted(mounts: List<Mount>, asked: Set<Where> = this.asked): Indexer =
+		Indexer(rules, mounts, backend, threads, clock, portable, asked)
+
+	/** This indexer with [rules] in place of its own. */
+	fun ruled(rules: IgnoreRules): Indexer =
+		Indexer(rules, mounts, backend, threads, clock, portable, asked)
 
 	/** The mounts, by the bytes of where they are; where two are mounted at one place, the later, which is the one seen. */
 	private val mountsAt: Map<String, Mount> = mounts.associateBy { Where.keyOf(it.at) }
@@ -47,9 +70,12 @@ class Indexer(
 	fun index(where: Where): Change =
 		treeAt(where)?.let(Change::Indexed) ?: Change.Absent(where)
 
-	/** Whether the rules leave out the place at [where], or a folder above it. */
+	/**
+	 * Whether the rules leave out the place at [where], or a folder above it, up to a place asked for outright: what
+	 * is above one of those was set aside by the asking.
+	 */
 	fun leavesOut(where: Where): Boolean =
-		generateSequence(where) { it.parent }.any(::leftOut)
+		generateSequence(where) { it.parent }.takeWhile { it !in asked }.any(::leftOut)
 
 	/**
 	 * What is at [where] now, with everything under it: what the index makes of a change the watcher saw, or of a
@@ -64,7 +90,7 @@ class Indexer(
 
 	/** Whether the rules leave out the directory at [where]: by its name or path, or as the mount point of one. */
 	private fun leftOut(where: Where): Boolean =
-		!where.isRoot && (rules.ignores(where) || where.key in ignoredKeys)
+		!where.isRoot && where !in asked && (rules.ignores(where) || where.key in ignoredKeys)
 
 	/**
 	 * What makes the folder at [where] agree with the disk, one level deep: its entries listed once and compared with

@@ -234,6 +234,7 @@ object DaemonCommand : Command(
 
 			instance.says += { indexLine(daemon, settings) }
 			instance.says += { watchingLine(daemon, settings) }
+			instance.says += { keptLine(daemon) }
 
 			val names =
 				BusNames(
@@ -316,6 +317,18 @@ object DaemonCommand : Command(
 				""
 			else
 				"; reading ${reading.joinToString()} now"
+	}
+
+	/** The file systems that are not mounted and whose entries are kept for when they are. */
+	private fun keptLine(daemon: Daemon): String {
+		val kept = daemon.live.kept
+
+		return "unmounted file systems: " +
+			if (kept.isEmpty())
+				"none kept"
+			else
+				"${kept.size} kept until mounted again (" +
+					kept.joinToString { "${it.at}, ${"%,d".format(it.entries)} entries" } + ")"
 	}
 
 	private fun watchingLine(daemon: Daemon, settings: DaemonSettings): String =

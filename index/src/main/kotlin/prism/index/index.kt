@@ -6,6 +6,9 @@ package prism.index
  * index with it made once.
  */
 sealed interface Change {
+	/** The place it changes: what is there, and under it, is as the change says once it is made. */
+	val at: Where
+
 	/**
 	 * The folder (or file) at [tree]'s root is to be indexed, with everything under it as [tree] says: a root of the
 	 * index, unless it is already held under one, in which case it is read again as [Present] reads it. A new root's
@@ -13,7 +16,9 @@ sealed interface Change {
 	 */
 	data class Indexed(
 		val tree: Block,
-	) : Change
+	) : Change {
+		override val at: Where get() = tree.root
+	}
 
 	/**
 	 * The entry at [tree]'s root is now as [tree] says, with everything under it: made, changed, or read again. Not
@@ -22,12 +27,16 @@ sealed interface Change {
 	 */
 	data class Present(
 		val tree: Block,
-	) : Change
+	) : Change {
+		override val at: Where get() = tree.root
+	}
 
 	/** Nothing is at [where] any more, nor under it. */
 	data class Absent(
 		val where: Where,
-	) : Change
+	) : Change {
+		override val at: Where get() = where
+	}
 }
 
 /** An [entry] the index saw turn up, and when it did ([Index.newest]). */
@@ -356,10 +365,58 @@ class Index private constructor(
 		// Each graft, by the entry it was placed under.
 		val grafts = graftsUnder(null)
 
-		fun copy(builder: BlockBuilder, under: Int, at: Int, entry: Int) {
-			val (block, hidden) = placed[at].let { it.block to it.hidden }
+		val compact =
+			roots.sortedBy { it.key }.mapNotNull { root ->
+				locate(root)?.let { (at, entry) ->
+					Placed(
+						BlockBuilder(root).also { copy(it, -1, at, entry, grafts, null) }.built(),
+						Ranges.NONE,
+					)
+				}
+			}
 
-			val id =
+		return Index(roots, compact)
+	}
+
+	/**
+	 * What is held at [where], with everything under it, as one block of its own, each entry seen when it was: the
+	 * same block [compacted] would make of it, were it a root. Rooted at [at], where that is somewhere else: the same
+	 * tree as it would be there, which is how a file system mounted in another place than it was is put where it is
+	 * now. Null where nothing is held at [where].
+	 */
+	fun tree(where: Where, at: Where = where): Block? =
+		locate(where)?.let { (placedAt, entry) ->
+			BlockBuilder(at)
+				.also { copy(it, -1, placedAt, entry, graftsUnder(where), at.name) }
+				.built()
+		}
+
+	/**
+	 * The [entry] of the [at]th placed block, and everything under it that is not hidden, the [grafts] placed under
+	 * its folders among them, added to [builder] under [under]; named [named], where that is given: the top of a tree
+	 * that is to be somewhere else.
+	 */
+	private fun copy(
+		builder: BlockBuilder,
+		under: Int,
+		at: Int,
+		entry: Int,
+		grafts: Map<Pair<Int, Int>?, List<Int>>,
+		named: ByteArray?,
+	) {
+		val (block, hidden) = placed[at].let { it.block to it.hidden }
+
+		val id =
+			if (named != null)
+				builder.add(
+					under,
+					named,
+					block.kindOf(entry),
+					block.deviceOf(entry),
+					block.inodes[entry],
+					seen = block.seen[entry],
+				)
+			else
 				builder.add(
 					under,
 					block.names,
@@ -371,26 +428,16 @@ class Index private constructor(
 					block.seen[entry],
 				)
 
-			if (block.kindOf(entry) != Kind.Directory)
-				return
+		if (block.kindOf(entry) != Kind.Directory)
+			return
 
-			val children =
-				block.childrenOf(entry, hidden).map { at to it } +
-					grafts[at to entry].orEmpty().map { it to 0 }
+		val children =
+			block.childrenOf(entry, hidden).map { at to it } +
+				grafts[at to entry].orEmpty().map { it to 0 }
 
-			children
-				.sortedWith(::byName)
-				.forEach { (childAt, child) -> copy(builder, id, childAt, child) }
-		}
-
-		val compact =
-			roots.sortedBy { it.key }.mapNotNull { root ->
-				locate(root)?.let { (at, entry) ->
-					Placed(BlockBuilder(root).also { copy(it, -1, at, entry) }.built(), Ranges.NONE)
-				}
-			}
-
-		return Index(roots, compact)
+		children
+			.sortedWith(::byName)
+			.forEach { (childAt, child) -> copy(builder, id, childAt, child, grafts, null) }
 	}
 
 	companion object {

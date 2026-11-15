@@ -10,21 +10,30 @@ import java.util.concurrent.ThreadFactory
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.time.Duration
+import kotlin.time.Duration.Companion.days
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.toJavaDuration
+import prism.index.Away
 import prism.index.Change
 import prism.index.FileId
 import prism.index.Index
 import prism.index.IndexStore
 import prism.index.Indexer
+import prism.index.Kept
+import prism.index.Kind
 import prism.index.Name
 import prism.index.Results
 import prism.index.SearchContext
 import prism.index.Searched
+import prism.index.Volume
+import prism.index.VolumeId
+import prism.index.Volumes
 import prism.index.Where
 import prism.index.places
 import prism.index.query.Query
 import prism.index.search
+import prism.linux.Mount
+import prism.linux.Mounts
 
 /**
  * A change something saw on the disk, as a live index takes it: the [folder] it happened in, by the kernel's device and
@@ -45,6 +54,13 @@ data class LiveSettings(
 	val readRootsOnOpen: Boolean = true,
 	/** How long a place read for a search alone is kept, unasked for, before it is let go. */
 	val keepAdHoc: Duration = 10.minutes,
+	/** What is mounted, each time it is asked. */
+	val mounts: () -> List<Mount> = Mounts::current,
+	/** Which file system a mount is of; null for one nothing says is the same one the next time ([Volumes]). */
+	val volumes: (Mount) -> Volume? = Volumes.SYSTEM::of,
+	/** How long the tree of a file system that is not mounted is kept before it is let go. */
+	val keepAway: Duration = 30.days,
+	val clock: () -> Instant = Instant::now,
 )
 
 /** What a search of a live index gave. */
@@ -83,11 +99,23 @@ sealed interface LiveSearch {
  * `/nix/store`, or `~/.cache`) has that place read for it, with the rules that left it out set aside, into an index
  * of its own, in memory alone: never written, never mixed with the index proper, kept current as the index is, and
  * let go once no search has asked for it for [LiveSettings.keepAdHoc].
+ *
+ * **File systems that come and go.** A file system that is unmounted takes its entries out of the index, as anything
+ * no longer on the disk is; but its tree is kept beside the index ([Away]) instead of thrown away, and put back the
+ * moment the same file system is mounted again, in the same place or another, then read again for what changed while
+ * it was away. Which file system is which is what [LiveSettings.volumes] says of a mount; which is mounted at each
+ * place the index holds one is noted as it is seen, since a file system that has gone cannot be asked. The tree is
+ * kept wherever its entries would leave the index, whatever takes them out (the folder above read again, a root
+ * scanned, the mount point itself removed), and not only when the mounts are looked at ([remounted]), so nothing that
+ * happens between two looks loses it. A file system newly mounted under what the index holds is read at once, unless
+ * it is one that comes and goes with something outside the machine ([Volume.portable]) and was not asked for. A tree
+ * kept and not seen for [LiveSettings.keepAway] is let go ([expire]).
  */
 class LiveIndex private constructor(
 	private val store: IndexStore,
-	private val indexer: Indexer,
+	indexer: Indexer,
 	private val settings: LiveSettings,
+	private val away: Away,
 	/** Called with what a scan read before what it read is made: for a test to hold a scan, and change the disk meanwhile. */
 	private val beforeMaking: (Set<Where>) -> Unit,
 	read: Set<Where>,
@@ -133,6 +161,21 @@ class LiveIndex private constructor(
 		val used: Instant,
 	)
 
+	/** The indexer, as what is mounted now makes it: another each time the mounts change. */
+	@Volatile
+	private var indexer: Indexer = indexer
+
+	/** Which file system is mounted at each place the index holds one, as last seen. Under [lock]. */
+	private var mounted: Map<Where, VolumeId> = away.mounted()
+
+	/** The mounts as they were when last looked at, and which file system each is of; null before the first look. Under [lock]. */
+	private var looked: Looked? = null
+
+	private class Looked(
+		val mounts: List<Mount>,
+		val volumes: Map<Where, Volume>,
+	)
+
 	/** What every change is made under, one at a time. */
 	private val lock = Any()
 	private val scanIds = AtomicInteger()
@@ -168,11 +211,123 @@ class LiveIndex private constructor(
 					adHoc.values.filter { it.index == null }.map { it.place }
 			}
 
+	/** The file systems that are not mounted whose trees are kept, to be put back when they are. */
+	val kept: List<Kept> get() = away.kept
+
 	/** [paths] indexed, as roots of the index, each read as it is now (a root already, read again). */
 	fun index(paths: Collection<Path>): CompletableFuture<Unit> {
 		val places = paths.map(Where::of).toSet()
 
+		// Asked for outright, they are read whatever is mounted there.
+		synchronized(lock) { indexer = indexer.mounted(indexer.mounts, index.roots + places) }
+
 		return scan(places) { places.map(indexer::index) }
+	}
+
+	/**
+	 * What is mounted looked at, and the index made to agree, where it has changed since it was last looked at:
+	 *
+	 * - a file system the index held at a place, and that is no longer mounted there, has its tree kept ([Away]),
+	 *   and the place read again, for what is there now;
+	 * - a file system mounted now whose tree is kept is put back where it is mounted, as it was, and read again
+	 *   for what changed while it was away;
+	 * - any other mounted since the last look, under what the index holds, is read, unless the indexer leaves it out
+	 *   (the rules do, or it is [Volume.portable] and not asked for).
+	 *
+	 * Completes once what it read is made.
+	 */
+	fun remounted(): CompletableFuture<Unit> {
+		val mounts = settings.mounts()
+		val read = LinkedHashSet<Where>()
+
+		synchronized(lock) {
+			val before = looked
+
+			// Which file system each mount is of is asked only when the mounts have changed: it is read from the disk.
+			if (mounts != before?.mounts) {
+				looked = Looked(mounts, volumesOf(mounts))
+				indexer = indexer.mounted(mounts)
+			}
+
+			val now = looked?.volumes.orEmpty()
+
+			for ((place, volume) in mounted)
+				if (now[place]?.id != volume) {
+					keep(place, volume)
+					read += place
+				}
+			mounted = mounted.filter { (place, volume) -> now[place]?.id == volume }
+
+			val were = before?.mounts?.map { Where.of(it.at) }?.toSet()
+
+			// What is mounted where the index holds its place and has not noted it: put back, where its tree is kept;
+			// noted, unless it is one the indexer leaves out. A place the index does not hold yet (its root still
+			// being read) is noted at a later look, once it does.
+			for ((place, volume) in now) {
+				if (place in mounted || !holds(place))
+					continue
+
+				val back = away.take(volume.id, place)
+
+				if (back != null)
+					store.make(listOf(Change.Present(back)))
+				if (back == null && indexer.leavesOut(place))
+					continue
+				mounted = mounted + (place to volume.id)
+				// Put back, or mounted since the last look: read. At the first look, the roots are being read anyway.
+				if (back != null || (were != null && place !in were))
+					read += place
+			}
+			if (mounted != away.mounted())
+				away.note(mounted)
+		}
+
+		return scan(read) { read.mapNotNull(indexer::reread) }
+	}
+
+	/** The trees of file systems not seen mounted for [LiveSettings.keepAway], let go: which they were. */
+	fun expire(): List<Kept> =
+		away.expire(settings.clock().minus(settings.keepAway.toJavaDuration()))
+
+	/** Which file system is mounted at each place, of those that say which they are; the later, of two at one place. */
+	private fun volumesOf(mounts: List<Mount>): Map<Where, Volume> =
+		mounts
+			.mapNotNull { mount ->
+				settings.volumes(mount)?.let { Where.of(mount.at) to it }
+			}.toMap()
+
+	/** Whether the index holds [place], or would hold what is put there: a root, or in a folder it holds. */
+	private fun holds(place: Where): Boolean =
+		place in index.roots ||
+			place.parent?.let { index.find(it)?.kind == Kind.Directory } == true
+
+	/** The tree the index holds at [place], which is [volume]'s, kept, where there is anything of it but the place. */
+	private fun keep(place: Where, volume: VolumeId) {
+		index
+			.tree(
+				place,
+			)?.takeIf { it.size > 1 }
+			?.let { away.keep(volume, it, settings.clock()) }
+	}
+
+	/**
+	 * [changes] made in the index, the tree of every file system they would take out of it kept first: one the index
+	 * holds at or under a place they change, and that is no longer mounted there. Under [lock].
+	 */
+	private fun make(changes: List<Change>) {
+		val under = mounted.filterKeys { place -> changes.any { place.within(it.at) } }
+
+		if (under.isNotEmpty()) {
+			val now = volumesOf(settings.mounts())
+			val gone = under.filter { (place, volume) -> now[place]?.id != volume }
+
+			gone.forEach { (place, volume) -> keep(place, volume) }
+			if (gone.isNotEmpty()) {
+				mounted = mounted - gone.keys
+				away.note(mounted)
+			}
+		}
+		store.make(changes)
 	}
 
 	/** Every root read again, as it is now: what is done where changes may have been missed. */
@@ -198,7 +353,7 @@ class LiveIndex private constructor(
 
 		synchronized(lock) {
 			scans = scans.mapValues { (_, scan) -> scan.copy(changed = scan.changed + changes) }
-			store.make(made(changes, store.index, indexer))
+			make(made(changes, store.index, indexer))
 			adHoc =
 				adHoc.mapValues { (_, it) ->
 					when (val held = it.index) {
@@ -299,8 +454,8 @@ class LiveIndex private constructor(
 				synchronized(lock) {
 					val meanwhile = scans.getValue(id).changed.all()
 
-					store.make(changes)
-					store.make(made(meanwhile, store.index, indexer))
+					make(changes)
+					make(made(meanwhile, store.index, indexer))
 					scans = scans - id
 				}
 				// What was read is made, whether or not it can be written now: a write that fails is said by whoever
@@ -320,7 +475,7 @@ class LiveIndex private constructor(
 		}
 
 		val rules = indexer.rules.notIgnoring(indexer.rules.matching(place))
-		val own = Indexer(rules, indexer.mounts, indexer.backend, indexer.threads)
+		val own = indexer.ruled(rules)
 		val begun = AdHoc(place, own, null, Meanwhile.NONE, CompletableFuture(), now)
 
 		adHoc = adHoc + (place to begun)
@@ -383,7 +538,14 @@ class LiveIndex private constructor(
 				else
 					wanted - held
 
-			return LiveIndex(store, indexer, settings, beforeMaking, read)
+			return LiveIndex(
+				store,
+				indexer.mounted(indexer.mounts, wanted),
+				settings,
+				Away.beside(file),
+				beforeMaking,
+				read,
+			)
 		}
 
 		/**

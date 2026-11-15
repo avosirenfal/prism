@@ -128,3 +128,35 @@ fun unmount(target: Path): Sys<Unit> =
 	}
 
 private const val MNT_DETACH = 2
+
+private val statfsHandle =
+	Libc.capturing(
+		"statfs",
+		FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS),
+	)
+
+/** As many bytes as `struct statfs` is, and more. */
+private const val STATFS_SIZE = 128L
+
+/** Where `f_fsid` is in `struct statfs`, on a 64-bit Linux: after seven words. */
+private const val STATFS_FSID = 56L
+
+/**
+ * `statfs(2)`'s `f_fsid` of the file system [path] is on: a number the file system gives itself. Some keep it from
+ * one mount to the next (ZFS and btrfs make it from what is written on the disk; ext4 from its UUID), and some make
+ * it from the device's number, which is another every time: what it is worth is the file system's to say, and whoever
+ * asks knows which they asked.
+ */
+fun fsidOf(path: Path): Sys<Long> =
+	Arena.ofConfined().use { arena ->
+		val scratch = arena.allocate(STATFS_SIZE, 8)
+
+		val result =
+			statfsHandle.invokeExact(
+				CallState.segment(),
+				arena.allocateFrom(path.toString()),
+				scratch,
+			) as Int
+
+		CallState.outcome("statfs", result.toLong()) { scratch.get(JAVA_LONG, STATFS_FSID) }
+	}

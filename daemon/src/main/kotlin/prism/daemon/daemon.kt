@@ -9,6 +9,7 @@ import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
 import kotlin.io.path.Path
 import kotlin.time.Duration
+import kotlin.time.Duration.Companion.days
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 import prism.index.Indexer
@@ -92,6 +93,10 @@ data class DaemonSettings(
 	val tick: Duration = 5.seconds,
 	/** How often the roots are read again where there is no watcher to say what changed. */
 	val rescanWithoutWatcher: Duration = 30.minutes,
+	/** How often what is mounted is looked at, for file systems that have come or gone. */
+	val mounts: Duration = 2.seconds,
+	/** How often the trees kept of file systems long unmounted are looked through, for those to let go. */
+	val expiry: Duration = 1.days,
 	/**
 	 * Where what goes wrong is said, with what was being done: standard error, unless told otherwise. A daemon goes on
 	 * from whatever it reports here.
@@ -177,6 +182,16 @@ class Daemon private constructor(
 		ticks.scheduleWithFixedDelay({
 			carrying("keeping the index", ::tick)
 		}, every, every, TimeUnit.MILLISECONDS)
+		// What is mounted, looked at from the first moment and often: a file system that goes has its tree kept, and
+		// one that comes is in the index, within a look of it happening.
+		ticks.scheduleWithFixedDelay({
+			carrying("looking at what is mounted") {
+				reported("reading what was mounted", live.remounted())
+			}
+		}, 0, settings.mounts.inWholeMilliseconds, TimeUnit.MILLISECONDS)
+		ticks.scheduleWithFixedDelay({
+			carrying("letting go of file systems long unmounted") { live.expire() }
+		}, 0, settings.expiry.inWholeMilliseconds, TimeUnit.MILLISECONDS)
 	}
 
 	private fun tick() {

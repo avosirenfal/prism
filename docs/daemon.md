@@ -97,6 +97,46 @@ A test holds a scan after it has read and before what it read is made, makes a f
 and lets the scan land: the index ends as the disk is. Without the changes being made again, the test fails, the
 removed file back and the made one missing.
 
+## File systems that come and go
+
+A file system that is unmounted is no longer on the disk, so its entries leave the index, and no search finds them.
+They used to be thrown away, and the whole file system read again from nothing when it came back. They are kept
+now, and put back the moment it does:
+
+1. **Which file system is which.** A mount point and a device number say nothing lasting: a drive plugged in again
+   is another device, perhaps mounted somewhere else. `Volumes` (`index/volumes.kt`) gives each mount a `VolumeId`
+   from something the file system carries itself:
+
+   | the file system | is known by |
+   |---|---|
+   | on a block device (ext4, xfs, btrfs, FAT, NTFS, anything whose source is under `/dev`) | the UUID written in it, as udev read it (`ID_FS_UUID` in `/run/udev/data`), or as `/dev/disk/by-uuid` names it; and the folder of it that is mounted, so each btrfs subvolume is its own |
+   | ZFS | the dataset's name and its `f_fsid`, which ZFS makes from an id written in the pool |
+   | a share on another machine (NFS, SMB, sshfs and the like) | its type, what was mounted (`server:/export`) and the folder of it |
+   | anything else (memory, overlays, the kernel's own) | nothing: it is never taken for one seen before |
+
+2. **Which is mounted where** is noted as it is seen (every two seconds the daemon looks at `/proc/self/mountinfo`),
+   since a file system that has gone cannot be asked what it was.
+3. **Going.** When the entries under a mount point are about to leave the index and its file system is no longer
+   mounted there, the tree is kept first (`Away`, `index/away.kt`): as a file in the index's own format in a folder
+   beside the index's file (`index.prism.away/`), each entry with when it was first seen. That is done wherever the
+   entries would leave, whatever takes them out: the next look at the mounts, a scan of the root above, or the
+   watcher seeing the mount point itself removed, which a desktop does the instant it unmounts a drive.
+4. **Coming back.** A file system mounted whose tree is kept is put back where it is mounted now, the same place or
+   another, as it was, so it is searched at once; then it is read again, for what changed while it was away. What
+   was there before is as old as it was (`new:` and the order of results know when each entry was first seen), and
+   what is new is new.
+5. **New.** A file system mounted under what the index holds, and never seen, is read at once.
+6. **Letting go.** A tree whose file system has not been seen for 30 days is deleted; the daemon looks once a day.
+
+A file system that comes and goes with something outside the machine (`Volume.portable`: on a drive that says it
+is removable or is on USB, or on another machine) is not read only because it was mounted, and a scan of a folder
+above it does not go into it: reading someone's whole NAS because it was mounted is nobody's wish. One asked for
+outright is read, and kept, like any other: `prism daemon / /run/media/you/Backup` indexes both.
+
+`prism status` says what is kept (`unmounted file systems: 1 kept until mounted again (/mnt/data, 81,204 entries)`).
+`AwayTest` has each of the above with folders standing in for file systems; `VolumesTest` reads the identities
+from a made-up `/sys`, `/dev` and `/run/udev`.
+
 ## Searching places the rules leave out
 
 The index leaves out `/nix/store`, `node_modules`, `~/.cache` and the rest, so a search does not find what is in them.
