@@ -394,6 +394,8 @@ data class Act(
  * The buttons at the foot of a dialog or a page, always in the same order, as a desktop's are: those that are aside
  * from what it is for ([aside]: Reset, Copy) at its start; then, at its end, the ways out of it ([secondary]: Cancel,
  * Close), and last, at the far end, what it is for ([primary]), which is [Emphasis.Danger] where it cannot be undone.
+ * Between the two ends, where there is something to say of what the buttons would do ([note]: "Unsaved changes"),
+ * it is said, quietly.
  */
 @Composable
 fun ButtonRow(
@@ -402,6 +404,7 @@ fun ButtonRow(
 	secondary: List<Act> = emptyList(),
 	aside: List<Act> = emptyList(),
 	danger: Boolean = false,
+	note: String = "",
 ) {
 	@Composable
 	fun Button(act: Act, emphasis: Emphasis) =
@@ -420,7 +423,13 @@ fun ButtonRow(
 		horizontalArrangement = Arrangement.spacedBy(Space.s),
 	) {
 		aside.forEach { Button(it, Emphasis.Quiet) }
-		Spacer(Modifier.weight(1f))
+		Text(
+			note,
+			Modifier.weight(1f).testTag("buttons-note"),
+			style = LocalType.current.muted,
+			maxLines = 1,
+			overflow = TextOverflow.Ellipsis,
+		)
 		secondary.forEach { Button(it, Emphasis.Secondary) }
 		primary?.let { Button(it, if (danger) Emphasis.Danger else Emphasis.Primary) }
 	}

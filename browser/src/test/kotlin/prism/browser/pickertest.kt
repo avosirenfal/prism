@@ -1,5 +1,21 @@
 package prism.browser
 
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.toAwtImage
+import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertTextEquals
+import androidx.compose.ui.test.captureToImage
+import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.v2.runSkikoComposeUiTest
+import androidx.compose.ui.unit.Density
 import java.nio.file.Path
 import java.time.Instant
 import java.time.ZoneOffset
@@ -168,6 +184,106 @@ class PickerTest {
 			)
 		}
 	}
+
+	/**
+	 * The window that arranges quick access with something changed in it and not applied: the sidebar behind as it
+	 * was, "Unsaved changes" said, and Apply to be pressed. Drawn in a window of the test's, since what is changed
+	 * is the window's own until it is applied, and is changed by pressing it.
+	 */
+	@OptIn(ExperimentalTestApi::class)
+	@Test
+	fun whatIsChangedInTheWindowThatArrangesQuickAccessWaitsToBeApplied() {
+		val state = fixture(Choosing.Exploring()).copy(arrangingQuick = true)
+
+		for ((tone, palette) in listOf("light" to Palette.Light, "dark" to Palette.Dark))
+			runSkikoComposeUiTest(Size(2200f, 1520f), Density(2f)) {
+				// The window itself: it is drawn over the browser, apart from it.
+				fun drawn(name: String) =
+					screenshot(
+						name,
+						onNodeWithTag("quick-access").captureToImage().toAwtImage().let { image ->
+							java.io
+								.ByteArrayOutputStream()
+								.also { javax.imageio.ImageIO.write(image, "png", it) }
+								.toByteArray()
+						},
+					)
+
+				setContent {
+					BrowserTheme(palette) {
+						CompositionLocalProvider(LocalMotion provides false) { FileBrowser(state) }
+					}
+				}
+				waitForIdle()
+				onNodeWithTag("apply").assertIsNotEnabled()
+				drawn("quick-clean-$tone")
+
+				onNodeWithTag("picker:Home").performClick()
+				onNodeWithTag("explorer:Documents").performClick()
+				waitForIdle()
+				onNodeWithTag("apply").assertIsEnabled()
+				onNodeWithTag("buttons-note").assertTextEquals("Unsaved changes")
+				// Behind it, the sidebar is as it was.
+				onNodeWithTag("place:Documents").assertExists()
+				drawn("quick-changed-$tone")
+			}
+	}
+
+	/**
+	 * Quick access changed from elsewhere while its window is open (a folder pinned from its menu in another
+	 * window): a window nothing was changed in takes it up; one something was changed in keeps what it has, and
+	 * applied, that is what is kept, as a settings window's own fields are.
+	 */
+	@OptIn(ExperimentalTestApi::class)
+	@Test
+	fun quickAccessChangedElsewhereIsTakenUpByAWindowNothingWasChangedIn_AndWrittenOverByOneThatWas() =
+		runSkikoComposeUiTest(Size(1100f, 760f), Density(1f)) {
+			val taxes = home.resolve("Documents/Taxes")
+			val letters = home.resolve("Documents/Letters")
+			var state by mutableStateOf(fixture(Choosing.Exploring()).copy(arrangingQuick = true))
+
+			fun pinnedElsewhere(folder: Path) {
+				state =
+					state.copy(
+						sidebar =
+							state.sidebar.copy(
+								quick = state.sidebar.quick.pinning(folder, Role.Explorer),
+							),
+					)
+			}
+
+			fun listed(name: String) =
+				onAllNodes(hasTestTag("quick:$name")).fetchSemanticsNodes().isNotEmpty()
+
+			setContent {
+				BrowserTheme(Palette.Light) {
+					CompositionLocalProvider(LocalMotion provides false) {
+						FileBrowser(state) { event ->
+							if (event is BrowserEvent.Arranged)
+								state = state.copy(sidebar = state.sidebar.copy(quick = event.quick))
+						}
+					}
+				}
+			}
+			waitForIdle()
+
+			pinnedElsewhere(taxes)
+			waitForIdle()
+			assertTrue(listed("Taxes"))
+			onNodeWithTag("apply").assertIsNotEnabled()
+
+			onNodeWithTag("picker:Home").performClick()
+			waitForIdle()
+			pinnedElsewhere(letters)
+			waitForIdle()
+			assertFalse(listed("Letters"))
+			onNodeWithTag("apply").assertIsEnabled()
+			onNodeWithTag("apply").performClick()
+			waitForIdle()
+			assertEquals(listOf(taxes), state.sidebar.quick.pins)
+			assertFalse(state.sidebar.quick.shows(Builtin.Home, Role.Picker))
+			onNodeWithTag("apply").assertIsNotEnabled()
+		}
 
 	@Test
 	fun oneNameIsWrittenAsItIsAndSeveralInQuotes() {

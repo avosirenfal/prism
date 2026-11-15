@@ -1045,11 +1045,26 @@ class InteractionTest {
 			// Prism's own have boxes, and no way to remove them; the explorer's unticked, one goes from this window's
 			// sidebar, and is still the pickers'.
 			onNodeWithTag("remove:Music").assertDoesNotExist()
+			// Nothing changed yet, there is nothing to apply.
+			onNodeWithTag("apply").assertIsNotEnabled()
+			onNodeWithTag("buttons-note").assertTextEquals("")
 			wheelTo("explorer:Music")
 			onNodeWithTag("explorer:Music").performClick()
+			waitForIdle()
+			// Changed in the window alone: the sidebar behind is as it was, until it is applied.
+			onNodeWithTag("buttons-note").assertTextEquals("Unsaved changes")
+			onNodeWithTag("place:Music").assertExists()
+			assertTrue(
+				session.state.value.sidebar.quick
+					.shows(Builtin.Music, WindowRole.Explorer),
+			)
+			onNodeWithTag("apply").performClick()
 			waitUntil(timeoutMillis = TIMEOUT) {
 				onAllNodes(hasTestTag("place:Music")).fetchSemanticsNodes().isEmpty()
 			}
+			// Applied, the window stays, with nothing more to apply.
+			onNodeWithTag("quick-access").assertExists()
+			onNodeWithTag("apply").assertIsNotEnabled()
 			assertFalse(
 				session.state.value.sidebar.quick
 					.shows(Builtin.Music, WindowRole.Explorer),
@@ -1074,6 +1089,7 @@ class InteractionTest {
 					.indexOf(QuickItem.Own(Builtin.Trash))
 
 			onNodeWithTag("up:Trash").performClick()
+			onNodeWithTag("apply").performClick()
 			waitUntil(timeoutMillis = TIMEOUT) {
 				session.state.value.sidebar.quick.items
 					.indexOf(QuickItem.Own(Builtin.Trash)) == trashWas - 1
@@ -1090,6 +1106,7 @@ class InteractionTest {
 			}
 
 			quickKeys { withKeyDown(Key.CtrlLeft) { pressKey(Key.Z) } }
+			onNodeWithTag("apply").performClick()
 			waitUntil(timeoutMillis = TIMEOUT) {
 				session.state.value.sidebar.quick.items
 					.indexOf(QuickItem.Own(Builtin.Trash)) == trashWas
@@ -1099,6 +1116,7 @@ class InteractionTest {
 					Key.CtrlLeft,
 				) { withKeyDown(Key.ShiftLeft) { pressKey(Key.Z) } }
 			}
+			onNodeWithTag("apply").performClick()
 			waitUntil(timeoutMillis = TIMEOUT) {
 				session.state.value.sidebar.quick.items
 					.indexOf(QuickItem.Own(Builtin.Trash)) == trashWas - 1
@@ -1120,6 +1138,7 @@ class InteractionTest {
 				repeat(10) { moveBy(Offset(0f, -line * 0.25f)) }
 				up()
 			}
+			onNodeWithTag("apply").performClick()
 			waitUntil(timeoutMillis = TIMEOUT) {
 				session.state.value.sidebar.quick.items
 					.indexOf(QuickItem.Own(Builtin.Trash)) == trashAt - 2
@@ -1129,14 +1148,27 @@ class InteractionTest {
 				onAllNodes(hasTestTag("quick-access")).fetchSemanticsNodes().isEmpty()
 			}
 
-			// Opened again, Escape puts it away, wherever in it the keyboard is.
+			// Opened again, and something changed: closed, or left by Escape wherever in it the keyboard is, what
+			// was not applied is not kept, as a settings window's is not.
+			val applied = session.state.value.sidebar.quick
+
 			onNodeWithTag("arrange-quick-access").performClick()
+			onNodeWithTag("all:picker").performClick()
+			waitForIdle()
+			onNodeWithTag("apply").assertIsEnabled()
 			onNode(isFocused() and hasAnyAncestor(hasTestTag("quick-access"))).performKeyInput {
 				pressKey(Key.Escape)
 			}
 			waitUntil(timeoutMillis = TIMEOUT) {
 				onAllNodes(hasTestTag("quick-access")).fetchSemanticsNodes().isEmpty()
 			}
+			assertEquals(applied, session.state.value.sidebar.quick)
+
+			// And opened once more it is as it is kept, with nothing of what was left behind.
+			onNodeWithTag("arrange-quick-access").performClick()
+			onNodeWithTag("apply").assertIsNotEnabled()
+			onNodeWithTag("all:picker").assertIsOn()
+			onNodeWithTag("done").performClick()
 		}
 
 	@Test
@@ -1151,10 +1183,12 @@ class InteractionTest {
 			// them; and it is barred where some are ticked and some not.
 			onNodeWithTag("all:picker").assertIsOn()
 			onNodeWithTag("all:picker").performClick()
+			onNodeWithTag("apply").performClick()
 			waitUntil(timeoutMillis = TIMEOUT) { quick().items.none { it.shown.picker } }
 			assertTrue(quick().items.all { it.shown.explorer })
 			onNodeWithTag("all:picker").assertIsOff()
 			onNodeWithTag("picker:Home").performClick()
+			onNodeWithTag("apply").performClick()
 			waitUntil(timeoutMillis = TIMEOUT) { quick().shows(Builtin.Home, WindowRole.Picker) }
 			onNodeWithTag("all:picker").assert(
 				SemanticsMatcher.expectValue(
@@ -1163,15 +1197,18 @@ class InteractionTest {
 				),
 			)
 			onNodeWithTag("all:picker").performClick()
+			onNodeWithTag("apply").performClick()
 			waitUntil(timeoutMillis = TIMEOUT) { quick().items.all { it.shown.picker } }
 
 			// The file systems, apart from the entries: unticked for the explorer, they go from this sidebar.
 			onNodeWithTag("filesystems:explorer").performClick()
+			onNodeWithTag("apply").performClick()
 			waitUntil(timeoutMillis = TIMEOUT) {
 				onAllNodes(hasTestTag("place:Root")).fetchSemanticsNodes().isEmpty()
 			}
 			assertEquals(ShownIn(explorer = false, picker = true), quick().filesystems)
 			onNodeWithTag("filesystems:explorer").performClick()
+			onNodeWithTag("apply").performClick()
 			waitUntil(timeoutMillis = TIMEOUT) {
 				onAllNodes(hasTestTag("place:Root")).fetchSemanticsNodes().isNotEmpty()
 			}
@@ -1180,11 +1217,13 @@ class InteractionTest {
 			onNode(hasSetTextAction() and hasAnyAncestor(hasTestTag("pin-path")))
 				.performTextInput("~/Documents/Taxes")
 			onNodeWithTag("pin").performClick()
+			onNodeWithTag("apply").performClick()
 			waitUntil(timeoutMillis = TIMEOUT) { work.resolve("Documents/Taxes") in quick().pins }
 			onNodeWithTag("place:Taxes").assertExists()
 			// It has a way out, which prism's own have not: taken away, it is in neither kind of window.
 			wheelTo("remove:Taxes")
 			onNodeWithTag("remove:Taxes").performClick()
+			onNodeWithTag("apply").performClick()
 			waitUntil(timeoutMillis = TIMEOUT) { quick().pins.isEmpty() }
 			onNodeWithTag("done").performClick()
 		}
@@ -1217,6 +1256,7 @@ class InteractionTest {
 			onNodeWithTag("quick-filesystems").assertIsDisplayed()
 			onNodeWithTag("pin-path").assertIsDisplayed()
 			onNodeWithTag("done").assertIsDisplayed()
+			onNodeWithTag("apply").assertIsDisplayed()
 			onNodeWithTag("quick:pin-120").assertIsNotDisplayed()
 
 			// The first folder pinned, held and brought down to the foot of the list: the list scrolls under it
@@ -1245,6 +1285,7 @@ class InteractionTest {
 				}
 				up()
 			}
+			onNodeWithTag("apply").performClick()
 			waitUntil(timeoutMillis = TIMEOUT) { at("pin-001") > before + 8 }
 			onNodeWithTag("done").performClick()
 		}

@@ -145,9 +145,12 @@ is the line for the file systems, with its two boxes; then a field that pins a f
 across the top reads one (`~/Projects` is in the home folder); and "Reset", prism's own in their own order before the
 folders pinned, everything shown everywhere. The entries scroll, however many there are, between the columns'
 headings and what is under them, which stay where they are; what is dragged near the top or the bottom of them scrolls
-them under it. Each change is made as it is made, so the sidebar behind shows it, and is
-undone and done again by the keys for that (Ctrl+Z, Ctrl+Shift+Z) while the window is open: its own changes, not what
-the browser undoes of the disk; closed, they are forgotten. The sidebar, and this window, are drawn as large as
+them under it. What is changed is changed in the window's own copy: the sidebar behind stays as it is, the window
+says "Unsaved changes", and "Apply" keeps the copy, at which every window shows it, and leaves the window open;
+"Close", or Escape, leaves with what was not applied forgotten, as a settings window's is. A change is undone and
+done again by the keys for that (Ctrl+Z, Ctrl+Shift+Z) while the window is open: the copy's own changes, not what
+the browser undoes of the disk. Quick access changed from elsewhere meanwhile (a folder pinned in another window)
+is taken up by a copy nothing was changed in; one that was changed stays as it is, and applied, is what is kept. The sidebar, and this window, are drawn as large as
 the preferences' sidebar size says (Display, "Sidebar"); Ctrl and the wheel do not zoom them.
 
 Arranging changes the window's sidebar at once, and asks for `Effect.Arrange(quick)`, which the session writes to the

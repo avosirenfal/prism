@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -48,9 +49,10 @@ import prism.preferences.ShownIn
  * There may be hundreds of entries: they scroll, between the columns' headings and what is under them, which stay
  * where they are, and what is dragged near the top or the bottom scrolls them under it.
  *
- * Each change is made as it is made, so the sidebar behind shows it; Done, or Escape, closes it. Its changes are
- * undone and done again by the window's keys for that (Ctrl+Z, Ctrl+Shift+Z), while it is open, apart from what the
- * window undoes; closed, they are forgotten.
+ * What is changed is changed in a copy of its own, which the sidebar behind does not show: Apply keeps it, and every
+ * window then shows it, and the window stays; Close, or Escape, leaves it, and what was not applied is forgotten, as
+ * a settings window's is. Its changes are undone and done again by the window's keys for that (Ctrl+Z,
+ * Ctrl+Shift+Z), while it is open, apart from what the window undoes of the disk.
  */
 
 /** The window that arranges [sidebar]'s quick access; a folder typed into it with `~` is in [home]. */
@@ -61,8 +63,13 @@ internal fun QuickAccessLayer(
 	onEvent: (BrowserEvent) -> Unit,
 ) {
 	val type = LocalType.current
-	val quick = sidebar.quick
-	val entries = sidebar.arranging
+	// Quick access as it is kept, and as this window has it: what is changed here is changed in a copy, which the
+	// sidebar behind does not show until it is applied.
+	val kept = sidebar.quick
+	var from by remember { mutableStateOf(kept) }
+	var quick by remember { mutableStateOf(kept) }
+	val entries = remember(sidebar, quick) { sidebar.copy(quick = quick).arranging }
+	val changed = quick != kept
 	val done = remember { FocusRequester() }
 	var typed by remember { mutableStateOf("") }
 	// What is typed, as the path across the top reads one: from the home folder after `~`.
@@ -71,24 +78,42 @@ internal fun QuickAccessLayer(
 	val bindings = LocalBindings.current
 	// What this window has changed, to be undone: its own, not the browser's, and gone with it.
 	var edits by remember { mutableStateOf(Edits<QuickAccess>()) }
-	// Quick access as it is now, for the keys to undo from: the modal hears them through what it was first given.
+	// The copy as it is now, for the keys to undo from: the modal hears them through what it was first given.
 	val now by rememberUpdatedState(quick)
 	val scroll = rememberScrollState()
+
+	// Changed from elsewhere while this is open (a folder pinned from its menu in another window): a copy nothing
+	// was changed in is that now; one that was changed stays as it is, and applied, is what is kept, as a settings
+	// window's own fields are.
+	LaunchedEffect(kept) {
+		if (quick == from)
+			quick = kept
+		from = kept
+	}
 
 	fun arranged(to: QuickAccess) {
 		if (to != quick) {
 			edits = edits.edited(quick)
-			onEvent(BrowserEvent.Arranged(to))
+			quick = to
 		}
 	}
 
-	/** Undone or done again, where there was something to: what it goes back to made so. */
+	/** Undone or done again, where there was something to: the copy goes back to what it was. */
 	fun stepped(undone: Undone<QuickAccess>?): Boolean =
 		undone
 			?.also {
 				edits = it.edits
-				onEvent(BrowserEvent.Arranged(it.to))
+				quick = it.to
 			} != null
+
+	/**
+	 * The copy kept, and shown by every window: the window stays, for more to be changed. The keyboard goes to the
+	 * way out, since the button it was on can no longer be pressed, and left on nothing no key would reach the window.
+	 */
+	fun apply() {
+		onEvent(BrowserEvent.Arranged(quick))
+		done.requestFocus()
+	}
 
 	fun undoing(key: KeyEvent): Boolean =
 		key.type == KeyEventType.KeyDown &&
@@ -117,18 +142,21 @@ internal fun QuickAccessLayer(
 			focus = done,
 			onKey = ::undoing,
 			buttons = {
+				// As a settings window's: what waits to be applied said, Apply, and Close, which applies nothing.
 				ButtonRow(
-					Act("Done", "done", focus = done, onClick = ::close),
+					Act("Apply", "apply", changed, onClick = ::apply),
+					secondary = listOf(Act("Close", "done", focus = done, onClick = ::close)),
 					aside =
 						listOf(
 							Act("Reset", "reset", quick != reset(quick)) { arranged(reset(quick)) },
 						),
+					note = if (changed) "Unsaved changes" else "",
 				)
 			},
 		) {
 			Text(
 				"Drag to reorder. Tick where each place is shown. To pin a folder, use its " +
-					"context menu or enter its path below.",
+					"context menu or enter its path below. Changes take effect when applied.",
 				style = type.muted,
 			)
 			// The columns' headings, which stay where they are over the entries as those scroll.
