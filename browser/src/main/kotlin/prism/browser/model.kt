@@ -106,18 +106,17 @@ data class Shown<T : Comparable<T>>(
 }
 
 /**
- * When a file was made: not read yet, read and kept by its file system ([At]), or read and not kept, which many file
- * systems (FAT, NFS, and others) do not. Unix's "ctime" is another thing, when the file's inode last changed; this is
- * its birth time.
+ * When a file was made: kept by its file system ([At]), or not kept, which many file systems (FAT, NFS, and others)
+ * do not. Unix's "ctime" is another thing, when the file's inode last changed; this is its birth time. It is read
+ * with the rest of what a folder's row shows, in the one call that reads its size and its date, so a row of a folder
+ * has always one or the other: there is no row whose time is still to come.
  */
 @Immutable
 sealed interface Created {
-	data object Unread : Created
-
 	data object Unkept : Created
 
-	/** Asked for, and prism went wrong reading it ([Answer.Broke]): not known, and not asked for again. */
-	data object Unknown : Created
+	/** Not a thing its listing says: a search's result, an entry of the trash or of a place, which have no such column. */
+	data object Unsaid : Created
 
 	data class At(
 		val time: Instant,
@@ -142,8 +141,8 @@ data class Row(
 	/** When it was last modified; null where that is not read, or could not be. */
 	val modified: Instant?,
 	val hidden: Boolean,
-	/** When it was made, read after the folder is (a listing's creation times are read behind, those in sight first). */
-	val created: Created = Created.Unread,
+	/** When it was made, where its listing says (a folder's does, of every row, as it is read). */
+	val created: Created = Created.Unsaid,
 ) {
 	val isFolder: Boolean get() = category == Category.Folder
 
@@ -533,6 +532,38 @@ internal class Memo<K, V>(
 			?: compute(key).also { last.set(key to it) }
 }
 
+/**
+ * Reads of the whole of the folder shown, under way: how many ([reads], at least one), and what the folder was told
+ * had changed since the first of them began ([touched]). A read says what the folder held at some moment while it
+ * was read, which may be before a change it was told of meanwhile: so what changed meanwhile is read once the last
+ * of them is back, after it, and never before, where what the read then said would undo it.
+ */
+@Immutable
+data class Rereading(
+	val reads: Int,
+	val touched: Touch = Touch.NOTHING,
+)
+
+/** What a listing waits for before it shows what was asked of it ([BrowserState.wait]). */
+@Immutable
+sealed interface Wait {
+	/** The folder to be read. */
+	data object Reading : Wait
+
+	/** A search's results to be put in order by [column]: read on disk, every one, or worked out behind. */
+	data class Ordering(
+		val column: ColumnId,
+	) : Wait
+
+	companion object {
+		/**
+		 * How long a wait lasts before anything says there is one, in milliseconds: most are over sooner (a folder
+		 * is read in a few), and one that is shows nothing of itself, where a word or a spinner would only flash.
+		 */
+		const val GRACE_MILLIS = 100L
+	}
+}
+
 /** What the folder shown holds: being read, read, or why it could not be. */
 @Immutable
 sealed interface Listing {
@@ -547,16 +578,64 @@ sealed interface Listing {
 	 * in no particular order. What the listing shows of them is [rows]: sorted once for each order, and narrowed
 	 * again only when what narrows them changes, so that moving the cursor through a large folder does neither.
 	 *
-	 * A listing is equal only to itself: two reads of a folder are two listings, however alike.
+	 * A listing is equal only to itself: two reads of a folder are two listings, however alike. But a folder read
+	 * again, or told that some of its entries changed, is the listing it was where nothing of it differs ([reread],
+	 * [with]), and shows the very rows it showed where nothing it shows does: so that what changes on disk and is
+	 * not seen (a hidden file written to, while hidden files are not shown) changes nothing that is drawn.
 	 */
-	class Shown(
+	class Shown private constructor(
 		val entries: List<Row>,
+		/** These in the order a listing they came of was last in: its own, with what changed put in place ([with]). */
+		sortedBefore: Pair<Order, List<Row>>?,
+		/** The rows a listing these came of last showed, where these show the same ([with]). */
+		arrangedBefore: Pair<Arrangement, Rows>?,
 	) : Read {
-		private val sortedBy = Memo<Order, List<Row>> { sorted(entries, it) }
+		constructor(entries: List<Row>) : this(entries, null, null)
+
+		private val sortedBy = Memo(sortedBefore) { sorted(entries, it) }
 		private val arranged =
-			Memo<Arrangement, Rows> { Rows(sortedBy(it.order).filter(it::admits)) }
+			Memo(arrangedBefore) { Rows(sortedBy(it.order).filter(it::admits)) }
+
+		/** The entries by what each is known by: worked out once, when a change is first made to them. */
+		private val known: Map<RowId, Row> by lazy { entries.associateBy { it.id } }
 
 		fun rows(arrangement: Arrangement): Rows = arranged(arrangement)
+
+		/**
+		 * This listing with [changed] of its entries as each now is: its row, or none for one that is gone. Where none
+		 * of them differs from what is held, this very listing. Where some do, another, which shows the very rows
+		 * this last showed unless one of those that differ is, or was, among them: the rows are arranged again only
+		 * for a change that is seen. And then they are not put in order again, every one: those that came are put
+		 * in their places among the rest, in the order this was last in.
+		 */
+		fun with(changed: Map<RowId, Row?>): Shown {
+			val differing = changed.filter { (id, row) -> known[id] != row }
+
+			if (differing.isEmpty())
+				return this
+
+			val seen =
+				arranged.kept?.takeIf { (arrangement, _) ->
+					differing.none { (id, row) ->
+						known[id]?.let(arrangement::admits) == true ||
+							row?.let(arrangement::admits) == true
+					}
+				}
+
+			val come = differing.values.filterNotNull()
+
+			return Shown(
+				entries.filterNot { it.id in differing } + come,
+				sortedBy.kept?.let { (order, sorted) ->
+					order to merged(sorted, differing.keys, come, order)
+				},
+				seen,
+			)
+		}
+
+		/** This listing, read again and found to hold [read]: [with] every entry that came, went or changed. */
+		fun reread(read: Shown): Shown =
+			with((known.keys + read.known.keys).associateWith { read.known[it] })
 
 		override fun toString(): String = "Shown(${entries.size} entries)"
 	}
@@ -607,14 +686,15 @@ sealed interface Listing {
 		fun knowing(stats: Stats, changed: Ranks): Found {
 			val moved = few || changed.any { stats[it] == Stat.Gone }
 
+			// Rows that would move are kept where they are all the same while the order asked for cannot be had
+			// yet: they are shown as they were until it can, and put in it once.
 			return Found(
 				finding,
 				stats,
 				orders,
-				arranged.kept.takeUnless { moved }?.let { (arrangement, rows) ->
-					arrangement to
-						rows.knowing(stats)
-				},
+				arranged.kept
+					?.takeIf { (arrangement, _) -> !moved || awaited(arrangement.order, stats) != null }
+					?.let { (arrangement, rows) -> arrangement to rows.knowing(stats) },
 			)
 		}
 
@@ -647,10 +727,35 @@ sealed interface Listing {
 				?.takeIf { orders(it) && !few && it !in orders }
 
 		/**
+		 * The column [order] is by that these cannot be shown in order by yet, if there is one: one being worked out
+		 * behind ([pending]), or, of few results, a size or a date while those are still being read. Until it can be,
+		 * they are shown as they last were ([rows]): never in an order made of half of what it is by.
+		 */
+		fun awaited(order: Order): ColumnId? = awaited(order, stats)
+
+		private fun awaited(order: Order, stats: Stats): ColumnId? =
+			pending(order)
+				?: (order as? Order.By)
+					?.sort
+					?.by
+					?.takeIf { few && it in READ_FROM_DISK && !stats.complete }
+
+		/**
 		 * The rows shown: filtered as a folder's are, then in the arrangement's order (best first, where that is not
 		 * an order these can be had in), folders first.
 		 */
 		private fun arrange(arrangement: Arrangement): Rows.Found {
+			// Not to be had in that order yet: as they were last shown, in the order they were in, where they were
+			// shown (and with what is now left out, where that changed); none of them, where they were not.
+			if (awaited(arrangement.order) != null)
+				return arranged.kept?.let { (last, rows) ->
+					when {
+						last.copy(order = arrangement.order) == arrangement -> rows
+						awaited(last.order) == null -> arrange(arrangement.copy(order = last.order))
+						else -> rows
+					}
+				} ?: Rows.Found(matches, stats, Ranks.NONE)
+
 			val sort = (arrangement.order as? Order.By)?.sort
 			val sorted = sort?.let { orderedBy(it.by) }
 			val descending = sort?.ascending == false
@@ -684,6 +789,11 @@ sealed interface Listing {
 		}
 
 		override fun toString(): String = "Found(${matches.size} results, $stats)"
+
+		private companion object {
+			/** What a result's row is ordered by that only reading it on disk says. */
+			val READ_FROM_DISK = setOf(ColumnId.Modified, ColumnId.Size)
+		}
 	}
 
 	/**
@@ -1328,11 +1438,8 @@ data class BrowserState(
 	val sight: IntRange? = null,
 	/** What is being typed into the listing to go to a row by its name, while it is. */
 	val jump: Jump? = null,
-	/**
-	 * The folder's rows whose creation times are being read now: one batch at a time, so that what comes into sight
-	 * meanwhile is read next.
-	 */
-	val bornReading: Set<RowId> = emptySet(),
+	/** The reads of the whole of the folder shown that are under way, where any is ([Rereading]). */
+	val rereading: Rereading? = null,
 	/** The user's actions and places, with prism's own: what the menus offer beyond what the browser does itself. */
 	val actions: Actions = Actions.NONE,
 	/** How the context menus are arranged, as the preferences say: their entries in order, and when each is shown. */
@@ -1462,6 +1569,18 @@ data class BrowserState(
 
 	/** The rows the listing shows, its arrangement applied; none while it is read, or when it could not be. */
 	val rows: Rows get() = rowsOf(listing, arrangement)
+
+	/**
+	 * What is waited for before the listing can show what was asked of it, if anything is: the folder to be read,
+	 * or a search's results to be put in the order asked for. Until then it shows what it showed, or nothing: never
+	 * what it has so far, in whatever order that happens to be in.
+	 */
+	val wait: Wait? get() =
+		when (val listing = listing) {
+			Listing.Reading -> Wait.Reading
+			is Listing.Found -> listing.awaited(arrangement.order)?.let(Wait::Ordering)
+			is Listing.Shown, is Listing.Recent, is Listing.Unreadable -> null
+		}
 
 	/** The path to [folder], as steps from the home folder where it is under it and from the root otherwise. */
 	val crumbs: List<Crumb> by lazy { folder?.let { crumbsOf(it, home) }.orEmpty() }

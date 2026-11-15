@@ -124,6 +124,14 @@ object Fixtures {
 			}
 				?: Listing.Unreadable("No such file or directory")
 
+		/** What [tree] says of each of [names] in [folder]: its row, or none where it holds no such row. */
+		override fun entries(folder: Path, names: Set<String>): Map<String, Row?> =
+			names.associateWith { name ->
+				tree[folder]
+					?.firstOrNull { it.name == name }
+					?.let { it.copy(item = Item.OnDisk(folder.resolve(name))) }
+			}
+
 		/** What [tree] says of each path: its row's size and date, or gone where it holds no such row. */
 		override fun stat(paths: List<Path>): List<Stat> =
 			paths.map { path ->

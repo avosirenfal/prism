@@ -62,6 +62,12 @@ interface Disk {
 	/** [folder]'s entries, every one, hidden ones too; or why it cannot be read. */
 	fun read(folder: Path): Listing.Read
 
+	/**
+	 * The entries [names] of [folder], as each is now: its row, or none for one that is not there. What a folder
+	 * that changed is asked, of the entries that did: those are read, and no others.
+	 */
+	fun entries(folder: Path, names: Set<String>): Map<String, Row?>
+
 	/** What is at each of [paths]. */
 	fun look(paths: List<Path>): Map<Path, Found>
 
@@ -84,14 +90,37 @@ interface Disk {
 	fun sameVolume(a: Path, b: Path): Boolean
 }
 
+/** What of a folder changed on disk, as whatever watches it says. */
+sealed interface Touch {
+	/** These of its entries, by their names: made, taken from it, or written to. */
+	data class Entries(
+		val names: Set<String>,
+	) : Touch
+
+	/** Something, and the watcher cannot say what (it lost count, or the folder itself is gone): all of it is read. */
+	data object Everything : Touch
+
+	/** This and [other] together: everything, where either is; the entries of both, otherwise. */
+	operator fun plus(other: Touch): Touch =
+		if (this is Entries && other is Entries)
+			Entries(names + other.names)
+		else
+			Everything
+
+	companion object {
+		/** No entry: what a watcher woken for nothing says, which is told to no one. */
+		val NOTHING: Touch = Entries(emptySet())
+	}
+}
+
 /**
- * What tells a browser that the folder it shows has changed on disk, so that it reads it again: something made in it,
- * taken from it, or written to. How a platform says so is its own (inotify on Linux, through the JVM here; FSEvents
- * and the USN journal elsewhere); a browser only asks to be told.
+ * What tells a browser that the folder it shows has changed on disk, and which of its entries, so that it reads
+ * those again: something made in it, taken from it, or written to. How a platform says so is its own (inotify on
+ * Linux, through the JVM here; FSEvents and the USN journal elsewhere); a browser only asks to be told.
  */
 fun interface FolderWatcher {
 	/** [changed] called, on some thread, whenever what [folder] holds changes, until what this gives is closed. */
-	fun watch(folder: Path, changed: () -> Unit): AutoCloseable
+	fun watch(folder: Path, changed: (Touch) -> Unit): AutoCloseable
 
 	companion object {
 		/** Nothing watched: a browser that reads a folder when it is asked to, and not otherwise. */
@@ -105,7 +134,7 @@ fun interface FolderWatcher {
  * every folder watched; a folder watched by several browsers is watched once.
  */
 object JvmFolderWatcher : FolderWatcher {
-	private val watched = HashMap<WatchKey, MutableList<() -> Unit>>()
+	private val watched = HashMap<WatchKey, MutableList<(Touch) -> Unit>>()
 
 	private val service: WatchService by lazy {
 		FileSystems.getDefault().newWatchService().also { service ->
@@ -116,7 +145,7 @@ object JvmFolderWatcher : FolderWatcher {
 		}
 	}
 
-	override fun watch(folder: Path, changed: () -> Unit): AutoCloseable {
+	override fun watch(folder: Path, changed: (Touch) -> Unit): AutoCloseable {
 		val key =
 			try {
 				folder.register(service, ENTRY_CREATE, ENTRY_DELETE, ENTRY_MODIFY)
@@ -147,14 +176,31 @@ object JvmFolderWatcher : FolderWatcher {
 			while (true) {
 				val key = service.take()
 
-				key.pollEvents()
+				// What each event is of is the entry's name; one of none is the service saying it lost count.
+				val touch =
+					key
+						.pollEvents()
+						.map { event ->
+							(event.context() as? Path)
+								?.let { Touch.Entries(setOf(it.toString())) }
+								?: Touch.Everything
+						}.fold(Touch.NOTHING, Touch::plus)
 
 				val told = synchronized(watched) { watched[key]?.toList().orEmpty() }
+				// A folder that is gone is watched no longer; whoever watched it is told it changed, all of it.
+				val gone = !key.reset()
 
-				told.forEach { it() }
-				// A folder that is gone is watched no longer; whoever watched it was told it changed.
-				if (!key.reset())
+				if (gone)
 					synchronized(watched) { watched.remove(key) }
+
+				val said =
+					if (gone)
+						Touch.Everything
+					else
+						touch
+
+				if (said != Touch.NOTHING)
+					told.forEach { it(said) }
 			}
 		} catch (closed: ClosedWatchServiceException) {
 			Unit
@@ -272,13 +318,8 @@ fun Services.answer(
 				asking.within?.let { findingIn(it, asking) } ?: finder.findingOf(asking),
 				asking.purpose,
 			)
-		is Effect.Born ->
-			Answer.Born(
-				asking.folder,
-				asking.names.associateWith { name ->
-					desktop?.facts?.bornAt(asking.folder.resolve(name))
-				},
-			)
+		is Effect.ReadEntries ->
+			Answer.EntriesRead(asking.folder, disk.entries(asking.folder, asking.names))
 		is Effect.Stat ->
 			Answer.Stated(
 				asking.matches,
@@ -376,6 +417,9 @@ class JvmDisk(
 	private val trash: Trash = Trash.ofUser(),
 ) : Disk {
 	override fun read(folder: Path): Listing.Read = listingOf(folder)
+
+	override fun entries(folder: Path, names: Set<String>): Map<String, Row?> =
+		entriesOf(folder, names)
 
 	override fun look(paths: List<Path>): Map<Path, Found> = paths.associateWith(::foundAt)
 
@@ -645,22 +689,6 @@ fun pickerOf(
 ): BrowserState =
 	opened(choosing, folder, home, sidebarOf(places, home), title).settled(disk)
 
-/** What [folder] holds, as rows in no particular order, or why it cannot be read. */
-fun listingOf(folder: Path): Listing.Read =
-	try {
-		Listing.Shown(
-			Files.newDirectoryStream(folder).use { entries ->
-				entries.mapNotNull(::rowOf)
-			},
-		)
-	} catch (failed: IOException) {
-		Listing.Unreadable(failed.message ?: failed.toString())
-	} catch (failed: DirectoryIteratorException) {
-		Listing.Unreadable(failed.cause?.message ?: failed.toString())
-	} catch (denied: SecurityException) {
-		Listing.Unreadable(denied.message ?: "Permission denied.")
-	}
-
 /** What is at [path], following a link to what it leads to. */
 private fun foundAt(path: Path): Found =
 	try {
@@ -704,70 +732,34 @@ private fun rowOf(entry: TrashEntry): Row {
 	)
 }
 
-/** One entry as a row, its symlink followed for what it is and left as it is otherwise; null if it vanished. */
-internal fun rowOf(entry: Path): Row? {
-	val own =
-		try {
-			Files.readAttributes(entry, BasicFileAttributes::class.java, LinkOption.NOFOLLOW_LINKS)
-		} catch (gone: IOException) {
-			return null
-		}
-
-	// A link to a folder is shown as the folder it leads to, since that is what opening it does.
-	val target =
-		if (own.isSymbolicLink)
-			followed(entry) ?: own
-		else
-			own
-	val name = entry.name
-	val folder = target.isDirectory
-	val category =
-		when {
-			folder -> Category.Folder
-			own.isSymbolicLink && !target.isRegularFile -> Category.Link
-			else -> categoryOf(name)
-		}
-
-	return Row(
-		id = RowId(name),
-		item = Item.OnDisk(entry),
-		name = name,
-		category = category,
-		type =
-			if (folder)
-				"Folder"
-			else
-				typeOf(name, category),
-		size =
-			if (folder)
-				null
-			else
-				target.size().let { Shown(it, sizeOf(it)) },
-		modified = target.lastModifiedTime().toInstant(),
-		hidden = name.startsWith("."),
-	)
-}
-
-private fun followed(link: Path): BasicFileAttributes? =
-	try {
-		Files.readAttributes(link, BasicFileAttributes::class.java)
-	} catch (dangling: IOException) {
-		null
-	}
-
 /**
  * [rows] in [order], folders before files whatever it is, as every file manager has them; in the order they were
  * listed, where it is by no column. Names compare as people read them: case aside, and numbers by their value, so
- * `file2` comes before `file10`. By a time that is not known of every row (when a file was made, which is read behind,
- * and not kept by every file system), those not known are last whichever way, by name among themselves.
+ * `file2` comes before `file10`. By a time that is not known of every row (when a file was made, which not every
+ * file system keeps), those not known are last whichever way, by name among themselves.
  */
-fun sorted(rows: List<Row>, order: Order): List<Row> {
-	val sort = order.sort ?: return rows.sortedWith(compareBy { !it.isFolder })
-	val folders = compareBy<Keyed> { !it.row.isFolder }
-	val byName = Comparator<Keyed> { a, b -> naturalOrder(a.row.name, b.row.name) }
+fun sorted(rows: List<Row>, order: Order): List<Row> = RowOrder(order).sorted(rows)
+
+/**
+ * [sorted], which is in [order], as it is in that order once the rows [gone] are taken from it and the rows [come]
+ * put into it: what a folder's rows are after a few of its entries changed, without putting every row in order
+ * again. Each row that came is looked for a place among those kept, which are left where they are.
+ */
+internal fun merged(
+	sorted: List<Row>,
+	gone: Set<RowId>,
+	come: List<Row>,
+	order: Order,
+): List<Row> = RowOrder(order).merged(sorted, gone, come)
+
+/** How rows are put in an [order]: folders before files, and then as its column says. */
+private class RowOrder(
+	order: Order,
+) {
+	private val byName = Comparator<Keyed> { a, b -> naturalOrder(a.row.name, b.row.name) }
 
 	/** By what each row holds, as it is. */
-	fun byRow(compare: Comparator<Row>) =
+	private fun byRow(compare: Comparator<Row>) =
 		ByColumn(
 			{ "" },
 			Comparator<Keyed> {
@@ -779,51 +771,108 @@ fun sorted(rows: List<Row>, order: Order): List<Row> {
 		)
 
 	/** By a text made of each row: made once a row, where a sort compares each a dozen times and more. */
-	fun byText(text: (Row) -> String) =
+	private fun byText(text: (Row) -> String) =
 		ByColumn(text, Comparator<Keyed> { a, b -> naturalOrder(a.key, b.key) }.then(byName))
 
-	val byColumn =
-		when (sort.by) {
-			ColumnId.Name -> ByColumn({ "" }, byName)
-			ColumnId.Modified -> byRow(compareBy { it.modified })
-			ColumnId.Type -> byText { it.type }
-			ColumnId.Size -> byRow(compareBy { it.size })
-			ColumnId.Created -> byRow(compareBy { it.created.at })
-			ColumnId.Deleted -> byRow(compareBy { it.deleted })
-			ColumnId.Extension -> byText { extensionOf(it.name).orEmpty() }
-			ColumnId.Location -> byText { it.location.orEmpty() }
-		}
-
-	val directed =
-		if (sort.ascending)
-			byColumn.compare
-		else
-			byColumn.compare.reversed()
-
-	val known: ((Row) -> Boolean)? =
-		when (sort.by) {
-			ColumnId.Created -> { row -> row.created.at != null }
-			ColumnId.Deleted -> { row -> row.deleted != null }
-			else -> null
-		}
-
-	val ordered =
-		known?.let {
-			Comparator<Keyed> { a, b ->
-				when {
-					known(a.row) && known(b.row) -> directed.compare(a, b)
-					known(a.row) -> -1
-					known(b.row) -> 1
-					else -> byName.compare(a, b)
-				}
+	/** The column's own way, where the order is by one. */
+	private val byColumn: ByColumn? =
+		order.sort?.let { sort ->
+			when (sort.by) {
+				ColumnId.Name -> ByColumn({ "" }, byName)
+				ColumnId.Modified -> byRow(compareBy { it.modified })
+				ColumnId.Type -> byText { it.type }
+				ColumnId.Size -> byRow(compareBy { it.size })
+				ColumnId.Created -> byRow(compareBy { it.created.at })
+				ColumnId.Deleted -> byRow(compareBy { it.deleted })
+				ColumnId.Extension -> byText { extensionOf(it.name).orEmpty() }
+				ColumnId.Location -> byText { it.location.orEmpty() }
 			}
-		} ?: directed
+		}
 
-	return rows
-		.map {
-			Keyed(it, byColumn.key(it))
-		}.sortedWith(folders.then(ordered))
-		.map { it.row }
+	/** Folders first; then, by a column, as it says, with what it does not know of last whichever way it runs. */
+	private val compare: Comparator<Keyed> =
+		compareBy<Keyed> { !it.row.isFolder }.let { folders ->
+			val sort = order.sort
+			val column = byColumn
+
+			if (sort == null || column == null) {
+				folders
+			} else {
+				val directed =
+					if (sort.ascending)
+						column.compare
+					else
+						column.compare.reversed()
+
+				val known: ((Row) -> Boolean)? =
+					when (sort.by) {
+						ColumnId.Created -> { row -> row.created.at != null }
+						ColumnId.Deleted -> { row -> row.deleted != null }
+						else -> null
+					}
+
+				folders.then(
+					known?.let {
+						Comparator<Keyed> { a, b ->
+							when {
+								known(a.row) && known(b.row) -> directed.compare(a, b)
+								known(a.row) -> -1
+								known(b.row) -> 1
+								else -> byName.compare(a, b)
+							}
+						}
+					} ?: directed,
+				)
+			}
+		}
+
+	private fun keyed(row: Row) = Keyed(row, byColumn?.key?.invoke(row).orEmpty())
+
+	/** [rows] in the order: as they were listed, among those the order does not tell apart. */
+	fun sorted(rows: List<Row>): List<Row> =
+		rows.map(::keyed).sortedWith(compare).map { it.row }
+
+	fun merged(sorted: List<Row>, gone: Set<RowId>, come: List<Row>): List<Row> {
+		val kept =
+			if (gone.isEmpty())
+				sorted
+			else
+				sorted.filterNot { it.id in gone }
+
+		if (come.isEmpty())
+			return kept
+
+		val merged = ArrayList<Row>(kept.size + come.size)
+		var from = 0
+
+		for (coming in come.map(::keyed).sortedWith(compare)) {
+			val at = placeOf(coming, kept, from)
+
+			merged.addAll(kept.subList(from, at))
+			merged += coming.row
+			from = at
+		}
+		merged.addAll(kept.subList(from, kept.size))
+
+		return merged
+	}
+
+	/** Where [coming] goes among [kept], from [from] on: before the first row that comes after it. */
+	private fun placeOf(coming: Keyed, kept: List<Row>, from: Int): Int {
+		var low = from
+		var high = kept.size
+
+		while (low < high) {
+			val middle = (low + high) ushr 1
+
+			if (compare.compare(keyed(kept[middle]), coming) <= 0)
+				low = middle + 1
+			else
+				high = middle
+		}
+
+		return low
+	}
 }
 
 /** A row, with the text it is sorted by where its column is sorted by one. */

@@ -415,11 +415,28 @@ place; on Windows, the USN journal.
 
 ## A folder shown is kept as it is on disk
 
-A window reads its folder again whenever what the folder holds changes, whoever changed it: a file extracted beside
-an archive, a download finishing, something made in a terminal. What says so is a `FolderWatcher` (`browser/source.kt`),
-which a browser's services are given: the JVM's watch service here (inotify on Linux), and whatever another platform
-has behind the same interface. The folder is read a moment after it changes, so that many changes made together are
-one reading, and what is chosen and where the cursor is stay as they were. The pickers are given the same watcher.
+A window shows what its folder holds as that changes, whoever changed it: a file extracted beside an archive, a
+download finishing, something made in a terminal. What says so is a `FolderWatcher` (`browser/source.kt`), which a
+browser's services are given: the JVM's watch service here (inotify on Linux), and whatever another platform has
+behind the same interface. It says which entries changed (`Touch.Entries`: made, removed, written to, their
+permissions or dates changed), or, where it cannot (it lost count, or the folder itself went), only that something
+did (`Touch.Everything`). The pickers are given the same watcher.
+
+A change is applied as a change, a moment after it is made, so that many made together (a build writing a thousand
+files) are one:
+
+- **Only the entries that changed are read** (`Effect.ReadEntries`, one statx(2) each), however many the folder
+  holds. The whole folder is read again only where the watcher could not say which.
+- **The listing is what it was but for those** (`Listing.Shown.with`): the rows that came are put in their places
+  among the rest, which are not put in order again.
+- **What is not seen changes nothing that is drawn.** Where no row shown differs (a hidden file written to while
+  hidden files are not shown, a file made while only folders are), the listing shows the very rows it showed, and
+  nothing of it is composed again; where nothing at all differs (a file written with what it held), the window's
+  state is the very state. So a home folder whose history and log files are written all day is drawn once.
+- **What is chosen and where the cursor is stay as they were.**
+
+Reading a folder, which is all showing it does, changes nothing in it and is told of by no watcher: a folder shown is
+never read again for having been read.
 
 ## Choosing with a rectangle
 
@@ -479,8 +496,18 @@ shows is worked out from its looks for what it shows (`BrowserState.arrangement`
 
 When a file was made is its birth time, which statx(2) gives where the file system keeps it (ext4, btrfs, XFS, tmpfs
 do; FAT and NFS do not, and those show "—"); it is not Unix's "ctime", which is when the file's inode last changed. It
-is read behind the folder, a batch at a time: those in sight first, then the rest in the folder's order, each answer
-asking for the next, so that what is scrolled to is read next. Ordered by it, those not known are last, by name.
+is read with the rest of what a row shows, in the one call that reads the entry's size and date (`browser/entries.kt`:
+the folder is opened once, and each name asked about relative to it), so a row is whole as soon as there is one, and a
+folder ordered by it is in that order from the first moment it is shown. Ordered by it, those whose file system keeps
+none are last, by name.
+
+**Never in an order made of half of what it is by.** A folder's rows have everything every column orders by as they
+arrive. A search's results do not: their sizes and dates are read after they are found, and their order by name is
+worked out behind where there are many. While the order asked for cannot be had yet (`Listing.Found.awaited`), they
+are shown as they were, and put in it once, when it can; results found already in such an order show nothing until
+they can be shown in it. What is waited for (`BrowserState.wait`: a folder being read, results being ordered) is said
+in the status line, with a spinner, only once it has lasted a tenth of a second (`Wait.GRACE_MILLIS`): a folder read
+sooner than that, as nearly all are, shows nothing of the wait.
 
 **The filters** (which hidden entries are shown, and which kinds of file) are kept the same way, for each kind of
 listing and each layout: a gallery can leave out hidden files that a list of the same folder shows. The filter menu

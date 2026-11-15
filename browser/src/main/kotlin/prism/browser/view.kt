@@ -1660,6 +1660,9 @@ private fun ListingPane(
 						)
 					is Listing.Shown, is Listing.Found, is Listing.Recent ->
 						when {
+							// Results waiting to be put in order, with none shown before: nothing yet, as a folder
+							// being read shows nothing.
+							rows.isEmpty() && state.wait != null -> Box(Modifier.fillMaxSize())
 							// Every section of the Recents page collapsed is no rows, and still something to show.
 							rows.isEmpty() && headings.isEmpty() -> {
 								val none = state.entryCount == 0
@@ -2724,10 +2727,8 @@ private fun EntryRow(
 								muted,
 								cell,
 							)
-						// Read behind, those in sight first: blank until it is; a dash where the file system keeps none.
-						// Not known, prism having gone wrong reading it, is blank too: nothing is said that is not so.
-						Created.Unread, Created.Unknown ->
-							DateCell(null, null, column.aligned, dates, muted, cell)
+						// A dash where the file system keeps none; nothing, in a listing that does not say.
+						Created.Unsaid -> DateCell(null, null, column.aligned, dates, muted, cell)
 						Created.Unkept -> DateCell(null, "—", column.aligned, dates, muted, cell)
 					}
 				ColumnId.Location -> TextCell(whereOf(row, home), column.aligned, muted, cell)
@@ -2984,11 +2985,7 @@ private fun Footer(state: BrowserState, stops: Stops, onEvent: (BrowserEvent) ->
 				) { onEvent(BrowserEvent.Filtered(it)) }
 		}
 		Row(verticalAlignment = Alignment.CenterVertically) {
-			Text(
-				statusOf(state),
-				style = type.muted,
-				modifier = Modifier.weight(1f).testTag("status"),
-			)
+			StatusLine(state, Modifier.weight(1f))
 			ButtonRow(
 				Act(state.accept.label, "accept", state.accept.enabled) {
 					onEvent(BrowserEvent.Accepted)
@@ -3013,8 +3010,38 @@ private fun StatusBar(state: BrowserState) {
 			.padding(horizontal = Space.l),
 		verticalAlignment = Alignment.CenterVertically,
 	) {
+		StatusLine(state, Modifier.weight(1f))
+	}
+}
+
+/**
+ * The status line: what [statusOf] says, and, before it, a spinner while the listing waits for something
+ * ([BrowserState.wait]) and has waited a moment ([Wait.GRACE_MILLIS]). A wait shorter than that says nothing.
+ */
+@Composable
+private fun StatusLine(state: BrowserState, modifier: Modifier = Modifier) {
+	val type = LocalType.current
+	val waiting = state.wait != null
+
+	val waited by produceState(false, waiting) {
+		value = false
+		if (waiting) {
+			delay(Wait.GRACE_MILLIS)
+			value = true
+		}
+	}
+
+	Row(
+		modifier,
+		horizontalArrangement = Arrangement.spacedBy(Space.s),
+		verticalAlignment = Alignment.CenterVertically,
+	) {
+		if (waiting && waited)
+			Box(Modifier.testTag("waiting")) {
+				Spinner(LocalPalette.current.textMuted, STATUS_SPINNER, stroke = 2.dp)
+			}
 		Text(
-			statusOf(state),
+			statusOf(state, waited),
 			style = type.muted,
 			maxLines = 1,
 			overflow = TextOverflow.Ellipsis,
@@ -3023,11 +3050,15 @@ private fun StatusBar(state: BrowserState) {
 	}
 }
 
+/** How large the status line's spinner is: as its text is tall. */
+private val STATUS_SPINNER = 14.dp
+
 /**
  * How many rows are shown (of how many, where some are left out) and how many chosen, as the status line says it; of
- * a search's results, what they are ordered by, where it is being worked out still or cannot be had of so many.
+ * a search's results, what they are being put in order by, where they wait for that. What is waited for is said
+ * only once it has been [waited] for a moment.
  */
-private fun statusOf(state: BrowserState): String {
+private fun statusOf(state: BrowserState, waited: Boolean): String {
 	state.system?.let { return statusOf(it) }
 
 	val shown = state.rows.size
@@ -3047,12 +3078,9 @@ private fun statusOf(state: BrowserState): String {
 			"${"%,d".format(entries)} ${noun}s"
 
 	val ordering =
-		found?.let {
-			when (val column = it.pending(state.arrangement.order)) {
-				null -> null
-				else -> "sorting by ${state.kind.labelOf(column).lowercase()}…"
-			}
-		}
+		(state.wait as? Wait.Ordering)
+			?.takeIf { waited }
+			?.let { "sorting by ${state.kind.labelOf(it.column).lowercase()}…" }
 
 	val counted =
 		if (shown == entries)
@@ -3068,7 +3096,7 @@ private fun statusOf(state: BrowserState): String {
 
 	return listOfNotNull(
 		if (state.listing is Listing.Reading)
-			"Loading…"
+			"Loading…".takeIf { waited }
 		else
 			counted,
 		"$chosen selected".takeIf {

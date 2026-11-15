@@ -98,64 +98,6 @@ class StepTest {
 	}
 
 	@Test
-	fun whenAFoldersFilesWereMadeIsReadBehindABatchAtATimeThoseInSightFirst() {
-		val folder = home.resolve("Many")
-		val names = (0 until 3000).map { "f%04d.txt".format(it) }
-
-		val arrived =
-			step(
-				opened(Choosing.Exploring(), folder, home, Fixtures.sidebar).state,
-				Answer.Arrived(
-					folder,
-					Listing.Shown(names.map { Fixtures.row(it, 1, folder = folder) }),
-				),
-			)
-
-		// Nothing in sight said yet: the folder's first 2048, in its order.
-		val first = arrived.effects.filterIsInstance<Effect.Born>().single()
-
-		assertEquals(names.take(2048), first.names)
-
-		// Scrolled to the end meanwhile: nothing more is asked while a batch is read.
-		val scrolled = step(arrived.state, BrowserEvent.Scrolled(2980, 2999))
-
-		assertTrue(scrolled.effects.none { it is Effect.Born })
-
-		// The batch read: what is in sight next, before the rest.
-		val made = Instant.parse("2026-01-02T03:04:05Z")
-		val read = step(scrolled.state, Answer.Born(folder, first.names.associateWith { made }))
-
-		assertEquals(
-			names.subList(2980, 3000),
-			read.effects
-				.filterIsInstance<Effect.Born>()
-				.single()
-				.names,
-		)
-		assertEquals(
-			Created.At(made),
-			read.state.rows[0].created,
-		)
-
-		// Then the rest, and then nothing; a file system that keeps none is said so.
-		val inSight =
-			step(read.state, Answer.Born(folder, names.subList(2980, 3000).associateWith { null }))
-		val rest = inSight.effects.filterIsInstance<Effect.Born>().single()
-
-		assertEquals(names.subList(2048, 2980), rest.names)
-		assertEquals(Created.Unkept, inSight.state.rows[2999].created)
-
-		val done = step(inSight.state, Answer.Born(folder, rest.names.associateWith { made }))
-
-		assertTrue(done.effects.none { it is Effect.Born })
-		// An answer for a folder no longer shown changes nothing.
-		assertEquals(
-			done.state,
-			step(done.state, Answer.Born(home, mapOf(names[0] to null))).state,
-		)
-	}
-
-	@Test
 	fun aListingIsOrderedByWhenItsFilesWereMadeThoseNotKnownLastAndTheDateColumnSaysWhichTime() {
 		val folder = home.resolve("Few")
 		val old = Instant.parse("2020-01-01T00:00:00Z")
@@ -167,25 +109,14 @@ class StepTest {
 				Answer.Arrived(
 					folder,
 					Listing.Shown(
-						listOf("a", "b", "c", "d").map {
-							Fixtures.row(it, 1, folder = folder)
+						mapOf("a" to old, "b" to null, "c" to new, "d" to null).map { (name, made) ->
+							Fixtures
+								.row(name, 1, folder = folder)
+								.copy(created = made?.let(Created::At) ?: Created.Unkept)
 						},
 					),
 				),
-			).let {
-				step(
-					it.state,
-					Answer.Born(
-						folder,
-						mapOf(
-							"a" to old,
-							"b" to null,
-							"c" to new,
-							"d" to null,
-						),
-					),
-				)
-			}.state
+			).state
 
 		fun order(state: BrowserState) = (0 until state.rows.size).map { state.rows[it].name }
 

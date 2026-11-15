@@ -566,10 +566,13 @@ sealed interface Answer : Input {
 		val purpose: Purpose,
 	) : Answer
 
-	/** When the entries of [folder] named were made: each one's time, or none where its file system keeps none. */
-	data class Born(
+	/**
+	 * The entries of [folder] named, as they are on disk now ([Effect.ReadEntries]): each one's row, or none where it is no
+	 * longer there.
+	 */
+	data class EntriesRead(
 		val folder: Path,
-		val times: Map<String, Instant?>,
+		val rows: Map<String, Row?>,
 	) : Answer
 
 	/** What reading the results at [ranks] among [matches] on disk said of each, one for one ([Stats.read]). */
@@ -628,9 +631,13 @@ sealed interface Answer : Input {
 		val fault: Fault,
 	) : Answer
 
-	/** What [folder] holds changed on disk, as whatever watches it says: made by anything, prism or not. */
+	/**
+	 * What [folder] holds changed on disk, as whatever watches it says: made by anything, prism or not. [touch] says
+	 * which of its entries, where the watcher can.
+	 */
 	data class Touched(
 		val folder: Path,
+		val touch: Touch = Touch.Everything,
 	) : Answer
 
 	/** A line [task] wrote as it runs. */
@@ -1139,10 +1146,13 @@ sealed interface Effect {
 		val within: PlaceTree? = null,
 	) : Asking
 
-	/** When the entries [names] of [folder] were made, read, and sent back as [Answer.Born]. */
-	data class Born(
+	/**
+	 * The entries [names] of [folder] read again, those alone, and sent back as [Answer.EntriesRead]: what a change to a
+	 * folder asks for, which is never the whole of it read over.
+	 */
+	data class ReadEntries(
 		val folder: Path,
-		val names: List<String>,
+		val names: Set<String>,
 	) : Asking
 
 	/** The results at [ranks] among [matches] read on disk, and what was read sent back as [Answer.Stated]. */

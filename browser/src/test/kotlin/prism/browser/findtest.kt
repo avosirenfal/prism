@@ -12,6 +12,7 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertInstanceOf
 import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
@@ -448,6 +449,85 @@ class FindTest {
 		assertNull(
 			(ordered.listing as Listing.Found).pending(ordered.look.order),
 		)
+	}
+
+	@Test
+	fun resultsAreShownAsTheyWereUntilTheyCanBeInTheOrderAskedForAndThenInIt() {
+		made(*(0 until 600).map { "few/file-%03d.txt".format(it) }.toTypedArray())
+		// Each changed at a time of its own, in no order of names.
+		for (at in 0 until 600)
+			java.nio.file.Files.setLastModifiedTime(
+				root.resolve("few/file-%03d.txt".format(at)),
+				java.nio.file.attribute.FileTime.from(
+					Instant.parse("2026-01-01T00:00:00Z").plusSeconds((at * 37L) % 600),
+				),
+			)
+
+		fun newestFirst(state: BrowserState) =
+			state.rows.list
+				.zipWithNext()
+				.all { (a, b) -> a.modified!! >= b.modified!! }
+
+		// Found, and shown best first before any is read on disk: three batches of them are asked for.
+		val found = step(searched(picker(), "file"), BrowserEvent.SearchEntered)
+		val stats = found.effects.filterIsInstance<Effect.Stat>()
+		val best = found.state.shown()
+
+		assertEquals(600, best.size)
+		assertEquals(3, stats.size)
+		assertNull(found.state.wait)
+
+		// Asked for by date, which none is read for yet: they stay as they were, and it is waited for.
+		val asked = step(found.state, BrowserEvent.Sorted(ColumnId.Modified)).state
+
+		assertEquals(Wait.Ordering(ColumnId.Modified), asked.wait)
+		assertEquals(best, asked.shown())
+
+		// As each batch is read, still as they were, whatever is now known of some: never in an order of half of them.
+		val some =
+			stats
+				.dropLast(
+					1,
+				).fold(asked) { at, stat -> step(at, disk.answer(stat, finder)).state }
+
+		assertEquals(Wait.Ordering(ColumnId.Modified), some.wait)
+		assertEquals(best, some.shown())
+		assertTrue(some.rows[0].modified != null)
+
+		// The last read, they are in the order asked for, once.
+		val all = step(some, disk.answer(stats.last(), finder)).state
+
+		assertNull(all.wait)
+		assertEquals(600, all.rows.size)
+		assertTrue(newestFirst(all))
+
+		// Searched for again in that order (refreshed), there is nothing they were shown as: nothing is shown until
+		// every one is read, and then all of them, in order.
+		val again = step(all, BrowserEvent.Refreshed)
+		val search = again.effects.filterIsInstance<Effect.Search>().single()
+		val fresh = step(again.state, disk.answer(search, finder))
+		val batches = fresh.effects.filterIsInstance<Effect.Stat>()
+
+		assertEquals(Wait.Ordering(ColumnId.Modified), fresh.state.wait)
+		assertEquals(0, fresh.state.rows.size)
+		assertEquals(3, batches.size)
+
+		val partly =
+			batches
+				.dropLast(
+					1,
+				).fold(fresh.state) { at, stat -> step(at, disk.answer(stat, finder)).state }
+
+		assertEquals(0, partly.rows.size)
+
+		val whole = step(partly, disk.answer(batches.last(), finder)).state
+
+		assertNull(whole.wait)
+		assertEquals(600, whole.rows.size)
+		assertTrue(newestFirst(whole))
+
+		// What an order by name needs is all there as they are found: nothing is waited for, read or not.
+		assertNull(step(found.state, BrowserEvent.Sorted(ColumnId.Name)).state.wait)
 	}
 
 	@Test
@@ -1167,7 +1247,7 @@ class FindTest {
 	}
 
 	@Test
-	fun aFolderPrismGotWrongReadingIsShownAsNotReadAndItsTimesAreNotAskedAgain() {
+	fun aFolderPrismGotWrongReadingIsShownAsNotReadAndWhatChangedInItNotReadIsSaid() {
 		made("a.txt", "b.txt")
 
 		val state = picker()
@@ -1177,18 +1257,24 @@ class FindTest {
 		assertEquals(Listing.Unreadable(fault.said), unread.listing)
 		assertNull(unread.notice)
 
-		// When its entries were made, asked for and not answered: every time not read is given up, and none asked.
+		// Read, every row says when it was made, or that its file system does not: nothing more is asked for.
 		val reading = step(state, Answer.Arrived(root, disk.read(root)))
-		val born = reading.effects.filterIsInstance<Effect.Born>().single()
-		val broke = step(reading.state, Answer.Broke(born, fault))
 
-		assertEquals(
-			listOf(Created.Unknown, Created.Unknown),
-			broke.state.rows.list
-				.map { it.created },
+		assertEquals(emptyList<Effect>(), reading.effects)
+		assertTrue(
+			reading.state.rows.list.all {
+				it.created is Created.At ||
+					it.created == Created.Unkept
+			},
 		)
-		assertEquals(emptySet<RowId>(), broke.state.bornReading)
-		assertEquals(emptyList<Effect>(), broke.effects + broke.state.bornNext().effects)
+
+		// What changed in it, asked for and not answered: the folder is shown as it was, and it is said.
+		val touched = step(reading.state, Answer.Touched(root, Touch.Entries(setOf("a.txt"))))
+		val asked = touched.effects.filterIsInstance<Effect.ReadEntries>().single()
+		val broke = step(touched.state, Answer.Broke(asked, fault))
+
+		assertSame(reading.state.rows, broke.state.rows)
+		assertEquals(emptyList<Effect>(), broke.effects)
 		assertInstanceOf(Notice.Broke::class.java, broke.state.notice)
 	}
 

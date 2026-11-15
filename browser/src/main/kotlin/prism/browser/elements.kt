@@ -1092,7 +1092,7 @@ val LocalMotion = staticCompositionLocalOf { true }
 
 /** Something under way with no end in sight: an arc going round, or, where nothing moves, standing still. */
 @Composable
-fun Spinner(color: Color, size: Dp = 22.dp) {
+fun Spinner(color: Color, size: Dp = 22.dp, stroke: Dp = 3.dp) {
 	var turn by remember { mutableStateOf(0f) }
 
 	if (LocalMotion.current)
@@ -1109,7 +1109,7 @@ fun Spinner(color: Color, size: Dp = 22.dp) {
 			startAngle = turn,
 			sweepAngle = 270f,
 			useCenter = false,
-			style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round),
+			style = Stroke(width = stroke.toPx(), cap = StrokeCap.Round),
 		)
 	}
 }

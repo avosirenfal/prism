@@ -92,6 +92,7 @@ fun opened(
 				Zoom.nearest(zoom).let {
 					Zooms(list = Zoom.By(minOf(it.step, Zoom.LIST_LARGEST.step)), gallery = it)
 				},
+			rereading = Rereading(1),
 		)
 
 	return Step(state, listOf(Effect.Read(shown)))
@@ -226,7 +227,7 @@ private fun did(state: BrowserState, event: BrowserEvent): Step =
 			}
 		is BrowserEvent.Scrolled ->
 			state.copy(sight = event.first..event.last).let { seen ->
-				seen.scrolled(event.first, event.last).then { it.bornNext() }
+				seen.scrolled(event.first, event.last)
 			}
 		BrowserEvent.ToggledHiddenFiles ->
 			state.filtering {
@@ -571,9 +572,13 @@ internal fun BrowserState.went(to: Path, landing: Landing? = landingFrom(to)): S
  */
 internal fun BrowserState.reread(landing: Landing? = null): Step =
 	when (val at = at) {
+		// Shown as it is until the read arrives; what it is told of meanwhile is read after that.
 		is Location.Folder ->
 			Step(
-				copy(landing = landing ?: this.landing),
+				copy(
+					landing = landing ?: this.landing,
+					rereading = rereading?.let { it.copy(reads = it.reads + 1) } ?: Rereading(1),
+				),
 				listOf(Effect.Read(at.path)),
 			)
 		is Location.Results -> {
@@ -650,10 +655,13 @@ internal fun BrowserState.shown(to: Location, history: History, landing: Landing
 			waiting = null,
 			// What was being typed named a row of the place left.
 			jump = null,
+			// And what was being read was the place left.
+			rereading = null,
 		)
 
 	return when (to) {
-		is Location.Folder -> Step(left, listOf(Effect.Read(to.path)))
+		is Location.Folder ->
+			Step(left.copy(rereading = Rereading(1)), listOf(Effect.Read(to.path)))
 		is Location.Results -> left.showingResults(to.finding)
 		// A place listed already is shown from what its listing gave; one that is not, once it is listed.
 		is Location.Place ->
@@ -1215,10 +1223,16 @@ private fun answered(state: BrowserState, answer: Answer): Step =
 		is Answer.Listed -> state.listed(answer.placed, answer.listing)
 		is Answer.Ran -> state.ran(answer.job, answer.failure)
 		is Answer.Said -> state.said(answer.task, answer.line)
-		// The folder shown changed on disk: read again, what is chosen and where the cursor is kept as they are.
+		// The folder shown changed on disk: what is chosen and where the cursor is are kept as they are. Told which
+		// of its entries changed, those alone are read again; told only that something did, all of it is.
 		is Answer.Touched ->
 			if (answer.folder == state.folder)
-				state.reread()
+				state.touched(answer.folder, answer.touch)
+			else
+				Step(state)
+		is Answer.EntriesRead ->
+			if (answer.folder == state.folder)
+				Step(state.retold(answer.rows))
 			else
 				Step(state)
 		is Answer.TempMade -> state.openingOut(answer.folder, answer.carried)
@@ -1241,17 +1255,7 @@ private fun answered(state: BrowserState, answer: Answer): Step =
 		// A read of a folder no longer shown is too late to matter.
 		is Answer.Arrived ->
 			if (answer.folder == state.folder)
-				state.arrived(answer.read).copy(bornReading = emptySet()).bornNext()
-			else
-				Step(state)
-		is Answer.Born ->
-			if (answer.folder == state.folder)
-				state
-					.born(
-						answer.times.mapValues { (_, time) ->
-							time?.let(Created::At) ?: Created.Unkept
-						},
-					).bornNext()
+				state.read(answer.folder, answer.read)
 			else
 				Step(state)
 		is Answer.Changed -> state.changed(answer.change, answer.result, answer.doing)
@@ -1349,7 +1353,7 @@ private fun BrowserState.broke(asking: Effect.Asking, fault: Fault): Step {
 	return when (asking) {
 		is Effect.Read ->
 			if (asking.folder == folder)
-				Step(arrived(unread).copy(bornReading = emptySet()))
+				read(asking.folder, unread)
 			else
 				Step(this)
 		Effect.ReadTrash ->
@@ -1393,20 +1397,8 @@ private fun BrowserState.broke(asking: Effect.Asking, fault: Fault): Step {
 					).said()
 				}
 				?: Step(this)
-		// Every time not read yet is given up, not only those asked for: the next would be asked the same way.
-		is Effect.Born ->
-			if (asking.folder == folder)
-				Step(
-					born(
-						(listing as? Listing.Shown)
-							?.entries
-							.orEmpty()
-							.filter { it.created == Created.Unread }
-							.associate { it.name to Created.Unknown },
-					).copy(bornReading = emptySet()),
-				).said()
-			else
-				Step(this)
+		// What changed is not known, then: the folder is shown as it was, until it is next read.
+		is Effect.ReadEntries -> Step(this).said()
 		// The order that could not be worked out is given up: the results are best first, as they are before any.
 		is Effect.Order ->
 			(listing as? Listing.Found)
@@ -1439,8 +1431,8 @@ internal fun failingOf(asking: Effect.Asking): String =
 		Effect.ReadStorage -> "Couldn't read this computer's storage"
 		is Effect.Search -> "Couldn't search for “${asking.text}”"
 		is Effect.Stat -> "Couldn't read the sizes and dates of the results"
-		is Effect.Born ->
-			"Couldn't read creation dates in “${asking.folder.fileName ?: asking.folder}”"
+		is Effect.ReadEntries ->
+			"Couldn't read what changed in “${asking.folder.fileName ?: asking.folder}”"
 		is Effect.Order -> "Couldn't sort the results"
 		is Effect.Open -> "Couldn't open ${countOf(asking.paths)}"
 		is Effect.Terminal -> "Couldn't open a terminal"
@@ -1457,7 +1449,7 @@ internal fun failingOf(asking: Effect.Asking): String =
  * landed where the state says it should. A folder picker's listing holds only folders.
  */
 internal fun BrowserState.arrived(read: Listing.Read): BrowserState {
-	val listing =
+	val held =
 		when {
 			read is Listing.Shown && choosing is Choosing.Folder ->
 				Listing
@@ -1469,9 +1461,83 @@ internal fun BrowserState.arrived(read: Listing.Read): BrowserState {
 			else -> read
 		}
 
-	val shown = relisted(listing).copy(landing = null)
+	// What is shown already, read again: the listing it was, as far as it is ([Listing.Shown.reread]).
+	val was = listing as? Listing.Shown
+	val listing = (held as? Listing.Shown)?.let { was?.reread(it) } ?: held
 
-	return landing?.let(shown::landed) ?: shown
+	// Nothing of it differs: nothing is marked anew, and nothing shown is touched.
+	val shown =
+		if (listing === this.listing)
+			this
+		else
+			relisted(listing)
+
+	return if (shown === this && landing == null)
+		this
+	else
+		shown.copy(landing = null).let { landing?.let(it::landed) ?: it }
+}
+
+/**
+ * [folder], which is shown, told to have changed on disk, and what of it ([touch]): the entries named are read
+ * again, those alone, or, where it cannot be said which, the whole of it. While the whole of it is being read
+ * already, nothing is read yet: what a read that began before the change says would undo what was read of the
+ * change, so the change is read once that read is back ([read]).
+ */
+private fun BrowserState.touched(folder: Path, touch: Touch): Step {
+	val rereading = rereading
+
+	return when {
+		rereading != null ->
+			Step(copy(rereading = rereading.copy(touched = rereading.touched + touch)))
+		touch is Touch.Entries && listing is Listing.Shown ->
+			Step(this, listOf(Effect.ReadEntries(folder, touch.names)))
+		else -> reread()
+	}
+}
+
+/**
+ * [folder], which is shown, read, the whole of it ([arrived]); and, that being the last such read under way, what
+ * it was told had changed while they were is read now, after them.
+ */
+private fun BrowserState.read(folder: Path, read: Listing.Read): Step {
+	val under = rereading?.takeIf { it.reads > 1 }?.let { it.copy(reads = it.reads - 1) }
+	val shown = arrived(read)
+
+	val settled =
+		if (shown.rereading == under)
+			shown
+		else
+			shown.copy(rereading = under)
+
+	return when (val touched = rereading?.touched?.takeIf { under == null }) {
+		null, Touch.NOTHING -> Step(settled)
+		else -> settled.touched(folder, touched)
+	}
+}
+
+/**
+ * The folder shown, some of its entries having changed on disk: [rows] says what each of those named now is (none,
+ * for one no longer there). The listing is what it was but for those; where none of them differs from what was held
+ * (a file written and the same size and date as before), it is the very listing it was, and the state the very state.
+ * A folder picker's listing holds no files, so one that came is not among them.
+ */
+private fun BrowserState.retold(rows: Map<String, Row?>): BrowserState {
+	val was = listing as? Listing.Shown ?: return this
+
+	val listing =
+		was.with(
+			rows
+				.mapKeys { (name, _) -> RowId(name) }
+				.mapValues { (_, row) ->
+					row?.takeIf { it.isFolder || choosing !is Choosing.Folder }
+				},
+		)
+
+	return if (listing === was)
+		this
+	else
+		relisted(listing)
 }
 
 private fun BrowserState.looked(lookup: Lookup, at: (Path) -> Found): Step =
@@ -2286,75 +2352,6 @@ fun pathOf(name: String, folder: Path?, home: Path): Path? =
 	}
 
 // ---- when the folder's files were made ----------------------------------------------------------------------------
-
-/** How many of the rows in sight have when they were made read at once: a window's worth, back soon. */
-private const val BORN_IN_SIGHT = 256
-
-/** How many of the rest at the least, once those in sight are read; for a large folder, an eighth of it at a time. */
-private const val BORN_BEHIND = 2048
-
-/**
- * When the folder's rows were made asked for, a batch at a time, where none is being read: those in sight that are not
- * read yet first, then the rest in the folder's order. Each answer asks for the next, so a scroll meanwhile is read
- * next, after the batch being read.
- */
-internal fun BrowserState.bornNext(): Step {
-	val listing = listing as? Listing.Shown ?: return Step(this)
-	val folder = folder ?: return Step(this)
-
-	if (bornReading.isNotEmpty())
-		return Step(this)
-
-	fun unread(row: Row) = row.created == Created.Unread && row.path != null
-
-	val shown = rows
-	val inSight =
-		sight
-			?.let { (it.first.coerceAtLeast(0)..it.last.coerceAtMost(shown.size - 1)) }
-			?.map(shown::get)
-			.orEmpty()
-			.filter(::unread)
-			.take(BORN_IN_SIGHT)
-
-	val batch =
-		inSight.ifEmpty {
-			listing.entries
-				.asSequence()
-				.filter(::unread)
-				.take(maxOf(BORN_BEHIND, listing.entries.size / 8))
-				.toList()
-		}
-
-	if (batch.isEmpty())
-		return Step(this)
-
-	return Step(
-		copy(
-			bornReading =
-				batch
-					.map {
-						it.id
-					}.toSet(),
-		),
-		listOf(Effect.Born(folder, batch.map { it.name })),
-	)
-}
-
-/** The folder's rows with when they were made, as [times] says of those it names. */
-private fun BrowserState.born(times: Map<String, Created>): BrowserState {
-	val listing = listing as? Listing.Shown ?: return copy(bornReading = emptySet())
-
-	val entries =
-		listing.entries.map { row ->
-			times[row.name]?.let { row.copy(created = it) }
-				?: row
-		}
-
-	return relisted(Listing.Shown(entries)).copy(
-		bornReading =
-			bornReading - times.keys.map(::RowId).toSet(),
-	)
-}
 
 /** Quick access arranged as [quick], shown so at once, and kept for every window. */
 private fun BrowserState.arranging(quick: QuickAccess): Step =

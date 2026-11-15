@@ -161,21 +161,27 @@ class Session(
 				}
 		}
 
-		// The folder shown is watched, whichever it is, and read again a moment after it changes: a moment, so that
-		// many changes made at once are one reading, and then no sooner than a little later, so that a folder written
-		// to without pause is not read without pause.
+		// The folder shown is watched, whichever it is, and what changed in it is read again a moment after it
+		// does: a moment, so that many changes made at once (a build writing a thousand files) are one change to
+		// what is shown, and then no sooner than a little later, so that a folder written to without pause is not
+		// read without pause. What is told meanwhile is gathered, every entry of it.
 		scope.launch(io) {
 			state.map { it.folder }.distinctUntilChanged().collectLatest { folder ->
 				if (folder == null)
 					return@collectLatest
 
-				val touched = Channel<Unit>(Channel.CONFLATED)
-				val watch = services.watcher.watch(folder) { touched.trySend(Unit) }
+				val touched = Channel<Touch>(Channel.UNLIMITED)
+				val watch = services.watcher.watch(folder) { touched.trySend(it) }
 
 				try {
-					for (touch in touched) {
+					for (first in touched) {
 						delay(SETTLES_MILLIS)
-						inputs.send(Answer.Touched(folder))
+						inputs.send(
+							Answer.Touched(
+								folder,
+								generateSequence { touched.tryReceive().getOrNull() }.fold(first, Touch::plus),
+							),
+						)
 						delay(RESTS_MILLIS)
 					}
 				} finally {
@@ -384,7 +390,8 @@ private fun refusedOf(asking: Effect.Asking, why: String): Answer? =
 		// With no folder to bring them out into, nothing is opened: the action is let go.
 		is Effect.Scratch -> Answer.Ran(Job(asking.pending.action.label, emptyList()), why)
 		is Effect.Temp -> Answer.Ran(Job(asking.carried.pending.action.label, emptyList()), why)
-		is Effect.Look, Effect.ReadStorage, is Effect.Search, is Effect.Stat, is Effect.Born,
+		is Effect.Look, Effect.ReadStorage, is Effect.Search, is Effect.Stat,
+		is Effect.ReadEntries,
 		is Effect.Order, is Effect.ReadClip, is Effect.ReadRecents,
 		-> null
 	}
