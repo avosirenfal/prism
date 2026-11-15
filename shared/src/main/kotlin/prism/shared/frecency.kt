@@ -23,6 +23,12 @@ data class Used(
 		return weight * 0.5.pow(age.toDouble() / HALF_LIFE.seconds)
 	}
 
+	/**
+	 * Whether it has been used on more than one occasion: a first use weighs exactly one, and any use after it adds
+	 * to what was left of that.
+	 */
+	val established: Boolean get() = weight > 1.0
+
 	companion object {
 		val HALF_LIFE: Duration = Duration.ofDays(14)
 	}
@@ -53,14 +59,41 @@ data class Uses<K>(
 			.map { it.key to it.value }
 			.toList()
 
-	/** These, without all but the [most] used as of [now]: what keeps what is kept of them from growing for ever. */
-	fun capped(most: Int, now: Instant): Uses<K> =
-		if (uses.size <= most)
-			this
-		else
-			Uses(most(most, now).toMap())
+	/**
+	 * These, with no more than [bound] of them kept, as of [now]. What is kept is chosen so that what is used and
+	 * what is merely passed through are not weighed against each other:
+	 *
+	 * - A thing used on more than one occasion is *established*. The established are kept by weight, the heaviest
+	 *   first, in all the room there is but [trial] places.
+	 * - Everything else (a thing used once so far, and any established thing there was no room for) is *on trial*,
+	 *   and the [trial] most lately used of those are kept, whatever they weigh.
+	 *
+	 * So: a thing just used is always kept, however heavy the rest are, and stays while fewer than [trial] other
+	 * things on trial are used after it; used again in that time, it is established and is weighed with the rest.
+	 * Things used once, however many (every folder of a tree walked through), take [trial] places at the most, and
+	 * put out nothing that is established. And nothing is put out while there is room: under the [bound], these are
+	 * themselves.
+	 */
+	fun capped(bound: Int, now: Instant, trial: Int = trialOf(bound)): Uses<K> {
+		if (uses.size <= bound)
+			return this
+
+		val (often, once) = uses.entries.partition { it.value.established }
+		val established = often.sortedByDescending { it.value.weightAt(now) }
+		val kept = established.take((bound - trial).coerceAtLeast(0))
+
+		val tried =
+			(once + established.drop(kept.size))
+				.sortedByDescending { it.value.at }
+				.take(bound - kept.size)
+
+		return Uses((kept + tried).associate { it.key to it.value })
+	}
 
 	companion object {
+		/** How many of [bound] places are for what is on trial: a fifth, and one at the least. */
+		fun trialOf(bound: Int): Int = (bound / 5).coerceIn(minOf(1, bound), bound)
+
 		/**
 		 * Uses as a file: a line a thing, its weight, the second it was last used, and its key as [written] writes
 		 * it, between tabs. A line that does not say one ([read] gives no key for it) is left out.

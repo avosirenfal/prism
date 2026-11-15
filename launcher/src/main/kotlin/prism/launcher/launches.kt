@@ -31,11 +31,15 @@ data class Launches(
 	fun pointsOf(key: String, now: Instant): Int =
 		minOf(MOST, (PER_DOUBLING * ln(1 + weightOf(key, now)) / ln(2.0)).toInt())
 
-	/** These, with the entry of [key] used once more, [at]. */
-	fun used(key: String, at: Instant): Launches = Launches(kept.used(key, at))
+	/** These, with the entry of [key] used once more, [at]; no more than [KEPT] of them are kept ([Uses.capped]). */
+	fun used(key: String, at: Instant): Launches =
+		Launches(kept.used(key, at).capped(KEPT, at))
 
 	companion object {
 		val NONE = Launches(Uses())
+
+		/** How many entries' uses are kept at the most: far more than are installed, and few enough to read at once. */
+		const val KEPT = 2000
 
 		private const val PER_DOUBLING = 20
 		private const val MOST = 60

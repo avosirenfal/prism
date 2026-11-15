@@ -9,12 +9,13 @@ import java.nio.file.Path
 import java.time.Duration
 import java.time.Instant
 import java.util.zip.CRC32C
-import kotlin.math.pow
 import prism.shared.Format
 import prism.shared.Loaded
 import prism.shared.OnDisk
 import prism.shared.Parsed
 import prism.shared.Stored
+import prism.shared.Used
+import prism.shared.Uses
 
 /*
  * What the user has done with the picker, which a search ranks by and `recent:` asks about. It is not what is on the
@@ -27,38 +28,28 @@ import prism.shared.Stored
  * and a weight needs no list of every use behind it.
  */
 
-/** How much each place has been used lately, and when each was last picked. A value: a use makes another. */
+/**
+ * How much each place has been used lately ([uses]: a weight each, halving as it ages, as everything prism keeps the
+ * use of is kept), and when each was last picked itself ([picks]). A value: a use makes another.
+ */
 class Usage private constructor(
-	private val used: Map<Where, Used>,
+	val uses: Uses<Where>,
+	private val picks: Map<Where, Instant>,
 ) {
-	/** One place's use: its [weight] as of [at] (when it was last used), and when it was last picked itself. */
-	data class Used(
-		val weight: Double,
-		val at: Instant,
-		val picked: Instant?,
-	) {
-		/** The weight as of [now]: halved for every [HALF_LIFE] since [at]. */
-		fun weightAt(now: Instant): Double {
-			val since = Duration.between(at, now).toMillis().coerceAtLeast(0)
+	/** Every place used, and how much. */
+	val places: Map<Where, Used> get() = uses.uses
 
-			return weight * 0.5.pow(since.toDouble() / HALF_LIFE.toMillis())
-		}
-	}
-
-	/** Every place used, and how. */
-	val places: Map<Where, Used> get() = used
-
-	val size: Int get() = used.size
+	val size: Int get() = places.size
 
 	/** How much [where] has been used, as of [now]: about how many times lately; 0 for a place never used. */
-	fun weightOf(where: Where, now: Instant): Double = used[where]?.weightAt(now) ?: 0.0
+	fun weightOf(where: Where, now: Instant): Double = uses.weightOf(where, now)
 
 	/** When [where] was last picked, if it was. */
-	fun pickedAt(where: Where): Instant? = used[where]?.picked
+	fun pickedAt(where: Where): Instant? = picks[where]
 
 	/** The places picked since [since]. */
 	fun pickedSince(since: Instant): List<Where> =
-		used.filterValues { it.picked != null && it.picked >= since }.keys.toList()
+		picks.filterValues { it >= since }.keys.toList()
 
 	/**
 	 * Usage once [picked] were given to an application at [at]: a use, and a pick, of each, and a use of each folder
@@ -66,60 +57,54 @@ class Usage private constructor(
 	 */
 	fun picked(picked: List<Where>, at: Instant): Usage {
 		val folders = picked.mapNotNull { it.parent }.distinct() - picked.toSet()
-		val uses =
-			picked.associateWith { used(it, at, picked = true) } +
-				folders.associateWith { used(it, at, picked = false) }
 
-		return Usage(used + uses)
-	}
-
-	/** [where]'s use once it is used again at [at]. */
-	private fun used(where: Where, at: Instant, picked: Boolean): Used {
-		val was = used[where]
-		val weight = (was?.weightAt(at) ?: 0.0) + 1.0
-		val latest = maxOf(at, was?.at ?: at)
-
-		return Used(
-			weight,
-			latest,
-			if (picked)
-				maxOf(at, was?.picked ?: at)
-			else
-				was?.picked,
+		return Usage(
+			(picked.distinct() + folders).fold(uses) { uses, where -> uses.used(where, at) },
+			picks + picked.associateWith { maxOf(at, picks[it] ?: at) },
 		)
 	}
 
 	/**
 	 * This usage without what is too little and too old to count, as of [now]: a place used once some months ago,
-	 * and not picked since [keepingPicks] ago. What is written is kept small by it.
+	 * and not picked since [keepingPicks] ago; and, of what is left, no more than [KEPT] ([Uses.capped]). What is
+	 * written is kept small by it.
 	 */
 	fun pruned(now: Instant, keepingPicks: Duration = Duration.ofDays(90)): Usage {
 		val cutoff = now.minus(keepingPicks)
 
-		return Usage(
-			used.filterValues {
-				it.weightAt(now) >= LEAST || (it.picked != null && it.picked >= cutoff)
-			},
-		)
+		val counted =
+			Uses(
+				uses.uses.filter { (where, used) ->
+					used.weightAt(now) >= LEAST || picks[where]?.let { it >= cutoff } == true
+				},
+			).capped(KEPT, now)
+
+		return Usage(counted, picks.filterKeys { it in counted.uses })
 	}
 
-	override fun equals(other: Any?): Boolean = other is Usage && used == other.used
+	override fun equals(other: Any?): Boolean =
+		other is Usage && uses == other.uses && picks == other.picks
 
-	override fun hashCode(): Int = used.hashCode()
+	override fun hashCode(): Int = 31 * uses.hashCode() + picks.hashCode()
 
-	override fun toString(): String = "Usage(${used.size} places)"
+	override fun toString(): String = "Usage($size places)"
 
 	companion object {
 		/** How long a use takes to count half as much. */
-		val HALF_LIFE: Duration = Duration.ofDays(14)
+		val HALF_LIFE: Duration = Used.HALF_LIFE
 
 		/** The least weight worth keeping: one use, about six half-lives ago. */
 		private const val LEAST = 0.02
 
-		/** Nothing used yet. */
-		val NONE = Usage(emptyMap())
+		/** How many places' uses are kept at the most. */
+		const val KEPT = 5000
 
-		fun of(used: Map<Where, Used>): Usage = Usage(used)
+		/** Nothing used yet. */
+		val NONE = Usage(Uses(), emptyMap())
+
+		/** A usage of [uses], of which [picks] were picked themselves: only what is used can have been. */
+		fun of(uses: Uses<Where>, picks: Map<Where, Instant>): Usage =
+			Usage(uses, picks.filterKeys { it in uses.uses })
 	}
 }
 
@@ -192,10 +177,15 @@ object UsageFile {
 								val picked =
 									read.readLong().takeIf { it != NEVER }?.let(Instant::ofEpochMilli)
 
-								Where(path) to Usage.Used(weight, at, picked)
+								Triple(Where(path), Used(weight, at), picked)
 							}
 
-						Loaded.Read(Usage.of(used.toMap()))
+						Loaded.Read(
+							Usage.of(
+								Uses(used.associate { it.first to it.second }),
+								used.mapNotNull { (where, _, picked) -> picked?.let { where to it } }.toMap(),
+							),
+						)
 					}
 				} catch (short: EOFException) {
 					Loaded.Unreadable("it ends too soon")
@@ -211,12 +201,13 @@ object UsageFile {
 					write.write(MAGIC)
 					write.writeShort(VERSION.toInt())
 					write.writeInt(value.size)
-					for ((where, used) in value.places.entries.sortedBy { it.key.key }) {
+					for ((where, used) in value.uses.uses.entries
+						.sortedBy { it.key.key }) {
 						write.writeShort(where.bytes.size)
 						write.write(where.bytes)
 						write.writeDouble(used.weight)
 						write.writeLong(used.at.toEpochMilli())
-						write.writeLong(used.picked?.toEpochMilli() ?: NEVER)
+						write.writeLong(value.pickedAt(where)?.toEpochMilli() ?: NEVER)
 					}
 				}
 

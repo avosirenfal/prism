@@ -202,8 +202,8 @@ class RecentStore private constructor(
 		Recents(
 			folders.value.value,
 			files.value.value,
-			waiting.guarded { told }.fold(accesses.value.value) { uses, (folder, at) ->
-				uses.used(folder, at)
+			waiting.guarded {
+				told.fold(accesses.value.value) { uses, (folder, at) -> uses.used(folder, at) }
 			},
 		)
 
@@ -238,26 +238,26 @@ class RecentStore private constructor(
 			flush(at)
 	}
 
-	/** The accesses told so far written, as of [at]: all but the [MOST_ACCESSED] most used are let go. */
+	/**
+	 * The accesses told so far written, as of [at]: all but [MOST_ACCESSED] are let go ([Uses.capped]). Written
+	 * while what was told is still held, so that whoever reads meanwhile ([read]) finds each access once: told, or
+	 * written, and never neither.
+	 */
 	fun flush(at: Instant) {
-		val told =
-			waiting.guarded {
-				told.also {
-					told = emptyList()
-					written = at
+		waiting.guarded {
+			if (told.isNotEmpty())
+				accesses.update {
+					told
+						.fold(this) { uses, (folder, at) -> uses.used(folder, at) }
+						.capped(MOST_ACCESSED, at)
 				}
-			}
-
-		if (told.isNotEmpty())
-			accesses.update {
-				told
-					.fold(this) { uses, (folder, at) -> uses.used(folder, at) }
-					.capped(MOST_ACCESSED, at)
-			}
+			told = emptyList()
+			written = at
+		}
 	}
 
 	companion object {
-		/** How many folders' accesses are kept: those used most. */
+		/** How many folders' accesses are kept: far more than the page shows, so that one can come to be shown. */
 		const val MOST_ACCESSED = 500
 
 		/** How long accesses are held before they are written. */

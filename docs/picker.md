@@ -229,8 +229,13 @@ folder was recorded there too: what it holds is kept.)
 **How much a folder is used** (`Recents.accesses`, a `prism.shared.Uses`): going to a folder counts as a use of it,
 in the explorer and in a picker, by whatever means (a click, a path typed, Back and Forward; not the folder read
 again); so does picking a folder, and picking a file from one. Each use adds one to the folder's weight, and the
-weight halves every two weeks, as the launcher's count of what it started does (the same type). The 500 most used
-are kept, in `$XDG_STATE_HOME/prism/folder-accesses`. Nothing waits for it: a session tells the store off the
+weight halves every two weeks, as the launcher's count of what it started and the index's count of what was picked
+do (the same type). The page shows the ten heaviest; 500 are kept, in `$XDG_STATE_HOME/prism/folder-accesses`, so
+that a folder has room to come to be among the ten. Which 500 (`Uses.capped`): a folder used on more than one
+occasion is established, and the established are kept by weight in four fifths of the room; the last fifth is for
+what is on trial (a folder used once so far), the latest used first. So a folder used for the first time is always
+kept, and stays until a hundred others have been used once after it; used again by then, it is established. And a
+walk through hundreds of folders takes the trial's places only, and puts out nothing that is used. Nothing waits for it: a session tells the store off the
 thread that makes its states, and the store holds what it is told and writes it no oftener than every five seconds,
 and when the window closes.
 
