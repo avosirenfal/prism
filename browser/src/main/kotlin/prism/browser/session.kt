@@ -258,6 +258,16 @@ class Session(
 				scope.launch(io) {
 					services.preferences.update { it.arranging(effect.quick) }
 				}
+			is Effect.Alias ->
+				scope.launch(io) {
+					// Added to the aliases as they are now, which a settings window may have changed meanwhile:
+					// where it is no longer one among them, they are left as they are.
+					services.preferences.update {
+						it.copy(
+							aliases = aliasAdded(it.aliases, effect.name, effect.query) ?: it.aliases,
+						)
+					}
+				}
 			is Effect.Ask -> requests(effect.request)
 			is Effect.Finish -> {
 				(effect.outcome as? Outcome.Chosen)?.let { chosen ->

@@ -93,6 +93,29 @@ object QueryText {
 
 		return ReadQuery(syntax, syntax.terms.map { Reading(text, aliases, folders).of(it) })
 	}
+
+	/**
+	 * One query's text that asks for what [texts] ask for together, each of them a query read on its own (a search,
+	 * and those it was made within): them with a space between, where that reads as the very terms they read as
+	 * apart. Null where it does not: one of them is left unfinished (a quote not closed), and would take what is
+	 * written after it for its own.
+	 */
+	fun joined(texts: List<String>): String? {
+		val parts = texts.map(String::trim).filter(String::isNotEmpty)
+		val joined = parts.joinToString(" ")
+
+		return joined.takeIf {
+			parts.none { unfinished(it) != null } && written(joined) == parts.flatMap(::written)
+		}
+	}
+
+	/** What [text] leaves unfinished, where it leaves anything: what is said of it. */
+	fun unfinished(text: String): Problem? =
+		read(text).problems.firstOrNull { it.kind == Problem.Kind.Unfinished }
+
+	/** Each term of [text], as it is written. */
+	private fun written(text: String): List<String> =
+		QueryGrammar.read(text).terms.map { text.substring(it.span.start, it.span.end) }
 }
 
 /**

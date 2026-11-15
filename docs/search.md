@@ -433,6 +433,10 @@ open.
 - **A folder needs its `/`.** `~/projects` is the folder itself, as an entry; `~/projects/` is what is inside it,
   which is what an alias for a folder is for. The page says so under a query that names a folder without it, and
   mends it when asked.
+- **From a search.** "Search results" in the address bar, right-clicked, has "Save as alias…": it asks for a name
+  and keeps the search shown under it, held to the same rule as the page's (`Aliases.unfitAdded`). Results found
+  within pinned searches are kept as all of those searches written as one (`QueryText.joined`); results found
+  inside a place (an archive) are not offered it.
 - **Finding one.** A word typed that begins an alias's name lists it (in a browser's search before the matches, in
   the launcher after the applications), and choosing it, or Tab, puts its name in the field with a space after it.
   The search's help lists them all with what each stands for. An alias used is coloured as one; one there is none of

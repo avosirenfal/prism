@@ -683,6 +683,15 @@ class PlacesTest {
 		assertEquals(setOf("deep", "main.c", "a.txt"), pinned.names().toSet())
 		assertTrue(at.pinned)
 		assertEquals(top.place?.placed, at.within?.placed)
+		// What was found inside a place is no search of the index: there is no keeping it as an alias.
+		assertEquals(
+			listOf("Unpin search"),
+			resultsMenuOf(at)
+				.entries
+				.filterIsInstance<MenuEntry.Item<BrowserEvent>>()
+				.map { it.label },
+		)
+		assertEquals(pinned.notice, pinned.then(BrowserEvent.SavingAlias).notice)
 
 		// What is typed is found among them, by the place's own listing: the archive's entry, and nothing of the disk.
 		val refined =

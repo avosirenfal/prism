@@ -719,7 +719,7 @@ const val PINNED_SEARCH = "Pinned search"
 
 /**
  * The menu of the bar that says a search's [results] are shown: they are pinned, or, pinned, let go, which the key
- * [bindings] bind to it does too.
+ * [bindings] bind to it does too; and the search is kept as an alias, to be searched for again by a name.
  */
 fun resultsMenuOf(
 	results: Location.Results,
@@ -734,6 +734,13 @@ fun resultsMenuOf(
 			BrowserEvent.PinnedSearch(!results.pinned),
 			keys = bindings.keys(Action.PinSearch),
 		)
+
+		// What was searched for inside a place (an archive, say) is not a search of the index, which is what an
+		// alias stands for.
+		if (results.within == null) {
+			separator()
+			item("Save as alias…", BrowserEvent.SavingAlias)
+		}
 	}
 
 /** Whether [event] would change how the listing is drawn: whether a menu item that does it has anything to do. */

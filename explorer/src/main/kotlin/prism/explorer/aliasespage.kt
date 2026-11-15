@@ -39,7 +39,6 @@ import prism.browser.Space
 import prism.browser.ToolButton
 import prism.browser.colouredQuery
 import prism.index.query.AliasName
-import prism.index.query.AliasProblem
 import prism.index.query.QueryText
 import prism.browser.Page as PageLayout
 
@@ -245,14 +244,6 @@ private fun AliasRow(
 		}
 	}
 }
-
-/** Whether it is the name that is wrong, and not the query. */
-private val AliasProblem.ofName: Boolean
-	get() =
-		when (this) {
-			AliasProblem.Unnamed, AliasProblem.Misnamed, is AliasProblem.Taken -> true
-			AliasProblem.Empty, is AliasProblem.Wrong -> false
-		}
 
 /** In place of the rows, where there are none: what an alias is, by two that are added as they are when chosen. */
 @Composable

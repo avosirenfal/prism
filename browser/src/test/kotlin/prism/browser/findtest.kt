@@ -1351,7 +1351,7 @@ class FindTest {
 		val on = after(shown, BrowserEvent.Clicked(shown.rows.list[1].id, Click.Only))
 
 		assertFalse(on.found.pinned)
-		assertEquals(listOf("Pin search"), resultsMenuOf(on.found).labels())
+		assertEquals("Pin search", resultsMenuOf(on.found).labels().first())
 
 		val pinning = step(on, BrowserEvent.PinnedSearch(true))
 		val pinned = pinning.state
@@ -1367,10 +1367,10 @@ class FindTest {
 		assertEquals(on.history, pinned.history)
 		// What the view keeps of the listing (how far it is scrolled) it keeps.
 		assertEquals(on.at.listed, pinned.at.listed)
-		assertEquals(listOf("Unpin search"), resultsMenuOf(pinned.found).labels())
+		assertEquals("Unpin search", resultsMenuOf(pinned.found).labels().first())
 
 		// Its menu's item lets it go again: the view it was.
-		val menu = resultsMenuOf(pinned.found).entries.single() as MenuEntry.Item
+		val menu = resultsMenuOf(pinned.found).entries.first() as MenuEntry.Item
 
 		assertEquals(on.at, after(pinned, menu.action).at)
 		assertEquals(on.at, after(pinned, BrowserEvent.PinnedSearch(false)).at)

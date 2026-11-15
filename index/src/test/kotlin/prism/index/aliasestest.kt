@@ -329,4 +329,52 @@ class AliasesTest {
 		// With no aliases at all, every one is unknown.
 		assertEquals(1, QueryText.read("raws@").problems.size)
 	}
+
+	@Test
+	fun oneMoreAliasIsFitOrNotByTheRuleEveryAliasWrittenIsHeldTo() {
+		val written = listOf("raws" to "ext:raw", "docs" to "ext:pdf")
+
+		assertNull(Aliases.unfitAdded(written, "reports", "report docs@"))
+		assertEquals(AliasProblem.Unnamed, Aliases.unfitAdded(written, "", "report"))
+		assertEquals(AliasProblem.Misnamed, Aliases.unfitAdded(written, "my docs", "report"))
+		// A name one of them has, whatever its case.
+		assertEquals(
+			"“raws@” is already defined",
+			Aliases.unfitAdded(written, "RAWS", "report")?.message,
+		)
+		assertEquals(AliasProblem.Empty, Aliases.unfitAdded(written, "nothing", "  "))
+		assertEquals(
+			"Unknown alias “nosuch@”",
+			Aliases.unfitAdded(written, "bad", "nosuch@ x")?.message,
+		)
+		// One left unfinished is searched for, but is no way to leave a definition.
+		assertTrue(Aliases.unfitAdded(written, "open", "\"tax ret") is AliasProblem.Wrong)
+
+		// What was written is what the aliases made of it say they were written as.
+		assertEquals(written, Aliases.of(written).aliases.written)
+	}
+
+	@Test
+	fun searchesMadeWithinEachOtherAreWrittenAsOneWhereThatMeansTheSame() {
+		assertEquals("report .pdf", QueryText.joined(listOf("report", ".pdf")))
+		assertEquals(
+			"\"tax return\" -draft r/^inv\\d+/ docs/ ext:pdf",
+			QueryText.joined(listOf(" \"tax return\" -draft ", "r/^inv\\d+/", "docs/ ext:pdf")),
+		)
+		assertEquals("raws@ 2024/", QueryText.joined(listOf("raws@", "", "2024/")))
+		assertEquals("report", QueryText.joined(listOf("report")))
+
+		// As one, they read as the terms they read as apart.
+		assertEquals(
+			QueryText.read("report").query.terms + QueryText.read(".pdf").query.terms,
+			QueryText.read(QueryText.joined(listOf("report", ".pdf"))!!).query.terms,
+		)
+
+		// A quote left open would take what is written after it for its own: there is no writing those as one.
+		assertNull(QueryText.joined(listOf("\"tax ret", ".pdf")))
+		assertNotNull(QueryText.unfinished("\"tax ret"))
+		assertNull(QueryText.unfinished("\"tax ret\""))
+		// Left open in the last of them it takes nothing, but is still unfinished.
+		assertNull(QueryText.joined(listOf(".pdf", "\"tax ret")))
+	}
 }

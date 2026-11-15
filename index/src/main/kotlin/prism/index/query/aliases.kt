@@ -94,6 +94,14 @@ fun interface AliasSource {
 sealed interface AliasProblem {
 	val message: String
 
+	/** Whether it is the name that is wrong, and not the query. */
+	val ofName: Boolean
+		get() =
+			when (this) {
+				Unnamed, Misnamed, is Taken -> true
+				Empty, is Wrong -> false
+			}
+
 	/** Nothing for a name. */
 	data object Unnamed : AliasProblem {
 		override val message get() = "Enter a name"
@@ -135,6 +143,9 @@ class Aliases private constructor(
 	val all: List<Alias> get() = defined.values.toList()
 
 	val isEmpty: Boolean get() = defined.isEmpty()
+
+	/** These as they were written, each a name and its query, in order. */
+	val written: List<Pair<String, String>> get() = all.map { it.name.text to it.text }
 
 	operator fun get(name: AliasName): Alias? = defined[name.key]
 
@@ -234,6 +245,16 @@ class Aliases private constructor(
 
 		/** The aliases [written], name to query: those that can be made. */
 		fun of(written: Map<String, String>): Read = of(written.toList())
+
+		/**
+		 * What stops an alias named [name], for [query], from being one more of those [written]: what is wrong
+		 * with it among them, as is said of any alias written ([Read.unfit]); null where nothing is.
+		 */
+		fun unfitAdded(
+			written: List<Pair<String, String>>,
+			name: String,
+			query: String,
+		): AliasProblem? = (written + (name to query)).let { of(it).unfit(it.lastIndex, name) }
 	}
 }
 

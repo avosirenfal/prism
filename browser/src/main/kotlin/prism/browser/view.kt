@@ -130,6 +130,7 @@ import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import prism.desktop.Place
+import prism.index.query.AliasProblem
 import prism.preferences.Align
 import prism.preferences.Builtin
 import prism.preferences.ColumnId
@@ -3074,6 +3075,7 @@ private fun wordsOf(notice: Notice): Words =
 				null,
 			)
 		is Notice.Asking -> Words(notice.prompt, "", "OK", "Cancel")
+		is Notice.NamingAlias -> Words("Save as alias", "", "Save", "Cancel")
 		is Notice.ConfirmAction -> Words(notice.label, notice.question, notice.label, "Cancel")
 	}
 
@@ -3153,6 +3155,8 @@ private fun NoticeLayer(notice: Notice, onEvent: (BrowserEvent) -> Unit) {
 	// Deleting for good that was not what was asked for starts with the keyboard on the way out of it, so Enter alone
 	// does nothing; what was asked for outright starts on Yes.
 	val wary = (notice as? Notice.ConfirmErase)?.wary == true
+	// What is answered by typing starts with the keyboard where it is typed.
+	val typed = notice is Notice.Asking || notice is Notice.NamingAlias
 	val trouble = notice is Notice.Trouble || notice is Notice.ConfirmErase
 
 	Modal(
@@ -3180,7 +3184,9 @@ private fun NoticeLayer(notice: Notice, onEvent: (BrowserEvent) -> Unit) {
 				Act(
 					words.yes,
 					"yes",
-					focus = first.takeIf { notice !is Notice.Asking && !wary },
+					// An alias is saved only once it can be one.
+					enabled = (notice as? Notice.NamingAlias)?.problem == null,
+					focus = first.takeIf { !typed && !wary },
 				) {
 					onEvent(
 						if (asks)
@@ -3234,6 +3240,14 @@ private fun NoticeLayer(notice: Notice, onEvent: (BrowserEvent) -> Unit) {
 			SelectionContainer {
 				Text(words.detail, style = type.body, modifier = Modifier.testTag("notice-detail"))
 			}
+
+		/** Enter, pressed where an answer is typed: the answer given, as the button gives it. */
+		fun entered(key: KeyEvent): Boolean =
+			(key.type == KeyEventType.KeyDown && key.isEnter).also {
+				if (it)
+					onEvent(BrowserEvent.Confirmed)
+			}
+
 		// A line an action asks for: typed here, Enter giving it as the button does.
 		if (notice is Notice.Asking)
 			Field(
@@ -3241,13 +3255,72 @@ private fun NoticeLayer(notice: Notice, onEvent: (BrowserEvent) -> Unit) {
 				{ onEvent(BrowserEvent.AnswerTyped(it)) },
 				Modifier.fillMaxWidth().testTag("answer"),
 				focus = first,
-				onKey = {
-					(it.type == KeyEventType.KeyDown && it.isEnter).also { entered ->
-						if (entered)
-							onEvent(BrowserEvent.Confirmed)
-					}
-				},
+				onKey = ::entered,
 			)
+		if (notice is Notice.NamingAlias)
+			NamingAlias(notice, first, ::entered) { onEvent(BrowserEvent.AnswerTyped(it)) }
+	}
+}
+
+/**
+ * What asks for an alias's name: the name, typed before the `@` it is used with, as the aliases' own page shows one;
+ * under it the search it would stand for, as a search's field colours it; and, while it cannot be saved, why, in
+ * that page's words.
+ */
+@Composable
+private fun NamingAlias(
+	notice: Notice.NamingAlias,
+	focus: FocusRequester,
+	onKey: (KeyEvent) -> Boolean,
+	onName: (String) -> Unit,
+) {
+	val palette = LocalPalette.current
+	val type = LocalType.current
+	val problem = notice.problem
+	val query =
+		remember(notice.query, notice.among, palette) {
+			colouredQuery(notice.query, notice.among, palette)
+		}
+
+	/** What is wrong, said under what it is wrong with. */
+	@Composable
+	fun Said(problem: AliasProblem) =
+		Text(
+			problem.message,
+			// A name not yet typed is not a mistake.
+			style =
+				if (problem == AliasProblem.Unnamed)
+					type.muted
+				else
+					type.muted.copy(color = palette.dangerText),
+			modifier = Modifier.testTag("alias-problem"),
+		)
+
+	Column(verticalArrangement = Arrangement.spacedBy(Space.s)) {
+		Field(
+			notice.name,
+			onName,
+			Modifier.fillMaxWidth().testTag("alias-name"),
+			hint = "name",
+			trailing = Glyph.At,
+			focus = focus,
+			onKey = onKey,
+			style = type.mono,
+		)
+		problem?.takeIf { it.ofName }?.let { Said(it) }
+		Text(
+			query,
+			style = type.mono,
+			maxLines = 3,
+			overflow = TextOverflow.Ellipsis,
+			modifier =
+				Modifier
+					.fillMaxWidth()
+					.background(palette.sunken, RoundedCornerShape(Radius.medium))
+					.padding(Space.m)
+					.testTag("alias-query"),
+		)
+		problem?.takeUnless { it.ofName }?.let { Said(it) }
 	}
 }
 

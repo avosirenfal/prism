@@ -5,6 +5,7 @@ import java.nio.file.Path
 import java.time.Instant
 import java.time.ZoneId
 import prism.desktop.Launched
+import prism.index.query.AliasName
 import prism.index.query.Aliases
 import prism.index.query.Own
 import prism.index.query.QueryText
@@ -392,6 +393,7 @@ private fun did(state: BrowserState, event: BrowserEvent): Step =
 		is BrowserEvent.EditedSearch ->
 			state.openedSearch(event.text, state.shownResults?.refines ?: Refines.NONE)
 		is BrowserEvent.PinnedSearch -> Step(state.pinned(event.pinned))
+		BrowserEvent.SavingAlias -> state.namingAlias()
 		BrowserEvent.ToggledSearchHelp -> Step(state.withSearch { copy(help = !help) })
 		BrowserEvent.ClosedSearch ->
 			Step(
@@ -505,6 +507,12 @@ private fun noticed(state: BrowserState, notice: Notice, event: BrowserEvent): S
 						state.copy(notice = null),
 					)
 				is Notice.Asking -> state.copy(notice = null).typed(notice.text)
+				// Kept only where it can be one: while it cannot, the notice stays, saying why.
+				is Notice.NamingAlias ->
+					if (notice.problem == null)
+						state.copy(notice = null).aliasing(notice.name, notice.query)
+					else
+						Step(state)
 				is Notice.ConfirmAction ->
 					state.pending?.let { state.copy(notice = null).doing(it.copy(confirmed = true)) }
 						?: Step(state.copy(notice = null))
@@ -523,10 +531,15 @@ private fun noticed(state: BrowserState, notice: Notice, event: BrowserEvent): S
 			)
 		is BrowserEvent.AnswerTyped ->
 			Step(
-				if (notice is Notice.Asking)
-					state.copy(notice = notice.copy(text = event.text))
-				else
-					state,
+				when (notice) {
+					is Notice.Asking -> state.copy(notice = notice.copy(text = event.text))
+					// The `@` is how a name is used: typed here, it is not part of the name.
+					is Notice.NamingAlias ->
+						state.copy(
+							notice = notice.copy(name = event.text.removeSuffix("${AliasName.SIGN}")),
+						)
+					else -> state
+				},
 			)
 		BrowserEvent.Cancelled -> Step(state, listOf(Effect.Finish(Outcome.Cancelled)))
 		is BrowserEvent.Stopped -> state.stopping(event.task)
@@ -1544,11 +1557,48 @@ private fun BrowserState.pinned(pinned: Boolean): BrowserState =
 	shownResults?.let { copy(at = it.copy(pinned = pinned)) } ?: this
 
 /**
+ * The name asked for, under which the search whose results are shown is kept as an alias: of the whole index's
+ * results only, since that is what an alias searches. Results found within pinned searches are all of those searches
+ * at once, written as one ([QueryText.joined]); where one of them was left unfinished they cannot be written so, and
+ * that is said instead.
+ */
+private fun BrowserState.namingAlias(): Step {
+	val results = shownResults?.takeIf { it.within == null } ?: return Step(this)
+	val query = QueryText.joined(results.searches)
+
+	return notice(
+		if (query != null)
+			Notice.NamingAlias(query, "", aliases)
+		else
+			Notice.Failed(
+				"Couldn't save as alias",
+				results.searches
+					.firstNotNullOfOrNull { text ->
+						QueryText.unfinished(text)?.let { "${it.message} in “$text”." }
+					}.orEmpty() + " Edit the search, then save it.",
+			),
+	)
+}
+
+/**
+ * An alias, [name] for [query], one more of those there are: in every search of this window at once, and kept for
+ * every window.
+ */
+private fun BrowserState.aliasing(name: String, query: String): Step =
+	aliased(Aliases.of(aliases.written + (name to query)).aliases).let {
+		Step(it.state, it.effects + Effect.Alias(name, query))
+	}
+
+/**
  * The search aliases as they now are: a search open is read with them, and searched for again where it is open,
  * since what it was typed as may mean something else now.
  */
 private fun BrowserState.aliased(aliases: Aliases): Step =
-	copy(aliases = aliases).withSearch { copy(aliases = aliases) }.let {
+	copy(
+		aliases = aliases,
+		// A name being asked for is one more of the aliases there now are.
+		notice = (notice as? Notice.NamingAlias)?.copy(among = aliases) ?: notice,
+	).withSearch { copy(aliases = aliases) }.let {
 		if (it.search.open)
 			it.previewing()
 		else

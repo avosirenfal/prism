@@ -22,7 +22,9 @@ import androidx.compose.ui.test.MouseButton
 import androidx.compose.ui.test.MouseInjectionScope
 import androidx.compose.ui.test.SemanticsNodeInteraction
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsFocused
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsNotSelected
 import androidx.compose.ui.test.assertIsOff
 import androidx.compose.ui.test.assertIsOn
@@ -66,6 +68,8 @@ import prism.preferences.Builtin
 import prism.preferences.ColumnId
 import prism.preferences.Hidden
 import prism.preferences.Layout
+import prism.preferences.MemoryPreferences
+import prism.preferences.PreferenceStore
 import prism.preferences.Preferences
 import prism.preferences.QuickItem
 import prism.preferences.Sort
@@ -107,6 +111,7 @@ class InteractionTest {
 		folder: Path = home(),
 		width: State<Dp>? = null,
 		finder: Finder? = null,
+		preferences: PreferenceStore = MemoryPreferences(),
 		check: ComposeUiTest.(Session) -> Unit,
 	) = runComposeUiTest {
 		val running = arrayOfNulls<Session>(1)
@@ -127,10 +132,9 @@ class InteractionTest {
 									BrowserState.NO_INDEX,
 								),
 						),
-						JvmDisk(trash = Trash(bin)),
+						Services(JvmDisk(trash = Trash(bin)), finder, preferences = preferences),
 						scope,
 						clipboard = { copied += it },
-						finder = finder,
 					)
 				}
 
@@ -1923,6 +1927,110 @@ class InteractionTest {
 			press(Key.F2)
 			waitForIdle()
 			assertFalse(shown("search-pinned"))
+		}
+	}
+
+	@Test
+	fun theResultsBarKeepsTheSearchAsAnAliasUnderTheNameTypedForIt() {
+		val home = home()
+		val preferences = MemoryPreferences(Preferences(aliases = mapOf("md" to ".md")))
+
+		picking(folder = home, finder = finderOf(home), preferences = preferences) { session ->
+			fun shown(tag: String) = onAllNodes(hasTestTag(tag)).fetchSemanticsNodes().isNotEmpty()
+
+			fun results() = session.state.value.at as Location.Results
+
+			fun saves() = onNodeWithTag("yes")
+
+			fun said() = onNodeWithTag("alias-problem", useUnmergedTree = true)
+
+			// Results pinned and searched within: two searches, kept as one.
+			press(Key.F2)
+			waitForIdle()
+			field("search-query").performTextReplacement("notes")
+			waitUntil(timeoutMillis = TIMEOUT) { shown("match:notes.md") }
+			press(Key.Enter)
+			waitUntil(timeoutMillis = TIMEOUT) { session.state.value.results != null }
+			waitForIdle()
+			onNodeWithTag(
+				"results-crumb",
+				useUnmergedTree = true,
+			).performMouseInput { rightClick() }
+			waitForIdle()
+			onNodeWithTag("menu:Pin search").performClick()
+			waitForIdle()
+			press(Key.F2)
+			waitForIdle()
+			field("search-query").performTextReplacement("md@")
+			waitUntil(timeoutMillis = TIMEOUT) { shown("match:notes.md") }
+			press(Key.Enter)
+			waitUntil(timeoutMillis = TIMEOUT) { results().searches == listOf("notes", "md@") }
+			waitForIdle()
+
+			// The bar's menu asks for its name, the keyboard in the field, the search shown under it.
+			onNodeWithTag(
+				"results-crumb",
+				useUnmergedTree = true,
+			).performMouseInput { rightClick() }
+			waitForIdle()
+			onNodeWithTag("menu:Save as alias…").performClick()
+			waitForIdle()
+			field("alias-name").assertIsFocused()
+			onNodeWithTag("alias-query", useUnmergedTree = true).assertTextEquals("notes md@")
+			// Nothing typed, there is nothing to save, and Enter saves nothing.
+			saves().assertIsNotEnabled()
+			said().assertTextEquals("Enter a name")
+			press(Key.Enter)
+			waitForIdle()
+			assertTrue(session.state.value.notice is Notice.NamingAlias)
+
+			// A name that is none, and one that is taken, say so and are not saved.
+			field("alias-name").performTextReplacement("my notes")
+			waitForIdle()
+			said().assertTextEquals("Use only letters and digits")
+			saves().assertIsNotEnabled()
+			field("alias-name").performTextReplacement("MD")
+			waitForIdle()
+			said().assertTextEquals("“md@” is already defined")
+			saves().assertIsNotEnabled()
+
+			// One that can be is saved by Enter: written to the preferences, and in effect at once.
+			field("alias-name").performTextReplacement("mdnotes")
+			waitForIdle()
+			assertFalse(shown("alias-problem"))
+			saves().assertIsEnabled()
+			press(Key.Enter)
+			waitUntil(timeoutMillis = TIMEOUT) {
+				preferences.preferences.value.aliases ==
+					mapOf("md" to ".md", "mdnotes" to "notes md@")
+			}
+			waitForIdle()
+			assertEquals(null, session.state.value.notice)
+			assertFalse(shown("notice"))
+			press(Key.F2)
+			waitForIdle()
+			field("search-query").performTextReplacement("mdnotes@")
+			waitUntil(timeoutMillis = TIMEOUT) { shown("match:notes.md") }
+			press(Key.Escape)
+			waitForIdle()
+
+			// Asked for again and let go of with Escape, nothing more is kept.
+			onNodeWithTag(
+				"results-crumb",
+				useUnmergedTree = true,
+			).performMouseInput { rightClick() }
+			waitForIdle()
+			onNodeWithTag("menu:Save as alias…").performClick()
+			waitForIdle()
+			field("alias-name").performTextReplacement("another")
+			waitForIdle()
+			press(Key.Escape)
+			waitForIdle()
+			assertEquals(null, session.state.value.notice)
+			assertEquals(
+				setOf("md", "mdnotes"),
+				preferences.preferences.value.aliases.keys,
+			)
 		}
 	}
 

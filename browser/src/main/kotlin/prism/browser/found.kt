@@ -80,6 +80,19 @@ class StaticFinder(
 fun aliasesOf(written: Map<String, String>): Aliases = Aliases.of(written).aliases
 
 /**
+ * The aliases [written] in the preferences with one more, [name] for [query]; null where it cannot be one among
+ * them, by the one rule there is for that ([Aliases.unfitAdded]).
+ */
+fun aliasAdded(
+	written: Map<String, String>,
+	name: String,
+	query: String,
+): Map<String, String>? =
+	(written + (name to query)).takeIf {
+		Aliases.unfitAdded(written.toList(), name, query) == null
+	}
+
+/**
  * The searches a search is made within, the outermost first, each as it was typed: the pinned results it was begun
  * from, and what those were made within. None, for a search of everything.
  *

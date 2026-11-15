@@ -207,6 +207,9 @@ sealed interface BrowserEvent : Input {
 		val pinned: Boolean,
 	) : BrowserEvent
 
+	/** The search whose results are shown is to be kept as an alias: its name is asked for ([Notice.NamingAlias]). */
+	data object SavingAlias : BrowserEvent
+
 	/** How a query is written shown in place of the search's field and matches (its `?`), or left for them again. */
 	data object ToggledSearchHelp : BrowserEvent
 
@@ -1202,6 +1205,12 @@ sealed interface Effect {
 	/** Quick access arranged as [quick]: a preference, so every window is given it. */
 	data class Arrange(
 		val quick: QuickAccess,
+	) : Effect
+
+	/** A search alias, [name] for [query], added to those there are: a preference, so every search is given it. */
+	data class Alias(
+		val name: String,
+		val query: String,
 	) : Effect
 
 	/** [request] made of the application around the browser. */

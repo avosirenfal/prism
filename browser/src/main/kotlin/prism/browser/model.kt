@@ -8,6 +8,7 @@ import prism.desktop.Place
 import prism.desktop.Storage
 import prism.desktop.StoreKind
 import prism.desktop.TerminalChoice
+import prism.index.query.AliasProblem
 import prism.index.query.Aliases
 import prism.preferences.Builtin
 import prism.preferences.ColumnId
@@ -971,6 +972,19 @@ sealed interface Notice {
 		val label: String,
 		val question: String,
 	) : Notice
+
+	/**
+	 * The search shown, to be kept as an alias: the [query] it would stand for, its [name] as typed so far, and the
+	 * aliases there are ([among]), which say whether it can be one more of them ([problem]).
+	 */
+	data class NamingAlias(
+		val query: String,
+		val name: String,
+		val among: Aliases,
+	) : Notice {
+		/** What stops it from being kept, as the aliases' own page would say it: nothing, where it can be. */
+		val problem: AliasProblem? by lazy { Aliases.unfitAdded(among.written, name, query) }
+	}
 }
 
 /**
