@@ -44,7 +44,7 @@ import prism.preferences.Sort
  * - Renaming, the trash and making a folder are asked of the disk, and the folder is read again after, whatever came
  *   of it. The Delete key asks before it moves anything to the trash; Shift+Delete and the menu do not. A name with a
  *   slash in it, or `.` or `..`, is refused before the disk is asked.
- * - F2 searches the index, in a window over the picker that lists
+ * - Ctrl+Shift+F searches the index, in a window over the picker that lists
  *   the first few matches as the query is typed, its field empty each time it opens. A match chosen is gone to: a folder, into it; a file, to the folder it is in, chosen (saving, its name to
  *   save over). The search given shows every match in the listing, as a folder holding them all would show them,
  *   filtered as a folder is and ordered best first; Back from a folder gone into from them returns to them. A folder
@@ -393,6 +393,13 @@ private fun did(state: BrowserState, event: BrowserEvent): Step =
 		BrowserEvent.OpenedSearch ->
 			state.openedSearch("", state.shownResults?.refining ?: Refines.NONE)
 		// The results shown searched for again are searched for within what they were.
+		// A place is gone to from anywhere: the search is of everything, whatever results are shown.
+		BrowserEvent.OpenedGoTo -> state.openedSearch("", Refines.NONE, Aim.Go())
+		BrowserEvent.ToggledThumbnails ->
+			Step(
+				state.copy(thumbnails = !state.thumbnails),
+				listOf(Effect.Thumbnail(!state.thumbnails)),
+			)
 		is BrowserEvent.EditedSearch ->
 			state.openedSearch(event.text, state.shownResults?.refines ?: Refines.NONE)
 		is BrowserEvent.PinnedSearch -> Step(state.pinned(event.pinned))
@@ -412,10 +419,13 @@ private fun did(state: BrowserState, event: BrowserEvent): Step =
 		is BrowserEvent.MatchMoved -> Step(state.withSearch { moved(event.by) })
 		is BrowserEvent.MatchChosen -> state.chosenMatch(event.at)
 		// With a result's menu open, Enter is the menu's: the action the arrows are on.
+		// From the field, every match is shown; but where the window is to go somewhere, the first thing it lists is
+		// gone to, and nothing is done while it lists nothing.
 		BrowserEvent.SearchEntered ->
 			(state.search as? Search.Ready)?.let { search ->
 				search.menu?.let { state.acted(search, it.of, it.actions.current) }
 					?: search.highlighted?.let(state::chosenMatch)
+					?: Step(state).takeIf { search.aim is Aim.Go }
 			} ?: state.showingMatches()
 		is BrowserEvent.MatchMenuOpened -> Step(state.menuOpened(event.at))
 		BrowserEvent.MatchMenuClosed -> Step(state.withSearch { copy(menu = null) })
@@ -427,7 +437,11 @@ private fun did(state: BrowserState, event: BrowserEvent): Step =
 						?.let { state.acted(search, menu.of, it) }
 				}
 			} ?: Step(state)
-		BrowserEvent.ShowedResults -> state.showingMatches()
+		BrowserEvent.ShowedResults ->
+			if ((state.search as? Search.Ready)?.aim is Aim.Go)
+				Step(state)
+			else
+				state.showingMatches()
 		BrowserEvent.MadeFile ->
 			state.folder?.let {
 				state.making(Change.MakeFile(it.resolve(state.freeName("New file"))))
@@ -1252,6 +1266,8 @@ private fun answered(state: BrowserState, answer: Answer): Step =
 			)
 		is Answer.Aliased -> state.aliased(answer.aliases)
 		is Answer.RecentsFolded -> Step(state.rearranged(collapsed = answer.collapsed))
+		is Answer.Thumbnailed -> Step(state.copy(thumbnails = answer.shown))
+		is Answer.Located -> state.located(answer)
 		// A read of a folder no longer shown is too late to matter.
 		is Answer.Arrived ->
 			if (answer.folder == state.folder)
@@ -1372,6 +1388,8 @@ private fun BrowserState.broke(asking: Effect.Asking, fault: Fault): Step {
 				Step(copy(waiting = null)).said()
 			else
 				Step(this)
+		// Nothing is known to be there, then: the index's matches are what there is to go to.
+		is Effect.Locate -> Step(this)
 		// A change half done is a change: what is shown is read again, and nothing is kept to undo.
 		is Effect.Make, is Effect.Erase -> reread().said()
 		// What was last read of the machine's storage stays, which is what it is.
@@ -1423,7 +1441,7 @@ private fun BrowserState.broke(asking: Effect.Asking, fault: Fault): Step {
 internal fun failingOf(asking: Effect.Asking): String =
 	when (asking) {
 		is Effect.Read -> "Couldn't read “${asking.folder.fileName ?: asking.folder}”"
-		is Effect.Look -> "Couldn't look up the path"
+		is Effect.Look, is Effect.Locate -> "Couldn't look up the path"
 		is Effect.Make -> failingOf(asking.change, asking.doing)
 		is Effect.Erase -> "Couldn't delete ${erasedOf(asking.erasing)}"
 		Effect.ReadTrash -> "Couldn't read the trash"
@@ -1626,16 +1644,23 @@ private fun BrowserState.withSearch(change: Search.Ready.() -> Search): BrowserS
  * was opened from are: a search made from pinned results is one more of the same refining, and the next is made
  * within it without its being pinned by hand. With no index, the window says why there is no search.
  */
-private fun BrowserState.openedSearch(text: String, refines: Refines): Step {
+private fun BrowserState.openedSearch(
+	text: String,
+	refines: Refines,
+	aim: Aim = Aim.Find,
+): Step {
 	val opened =
 		Search
 			.Ready(
 				open = true,
-				// How a query is written is still to be asked for; the rest are not among any search's results.
-				offers = offers.filter { !refines.any || it == Own.Help },
+				// How a query is written is still to be asked for; the rest are not among any search's results, and
+				// none of them is a place to go to.
+				offers =
+					offers.filter { aim is Aim.Find && (!refines.any || it == Own.Help) },
 				refines = refines,
-				pins = shownResults?.pinned == true,
+				pins = aim is Aim.Find && shownResults?.pinned == true,
 				aliases = aliases,
+				aim = aim,
 			).typed(text)
 
 	return when (val search = search) {
@@ -1713,21 +1738,51 @@ private fun BrowserState.aliased(aliases: Aliases): Step =
 private fun BrowserState.previewing(): Step {
 	val search = search as? Search.Ready ?: return Step(this)
 
+	// Where a place to go to is asked for and what is typed is a path, what is at it on the disk is asked too: the
+	// index need not hold it for it to be gone to.
+	val locating =
+		listOfNotNull(
+			search.text
+				.trim()
+				.takeIf { search.aim is Aim.Go && (it.startsWith("/") || it.startsWith("~")) }
+				?.let { pathOf(it, null, home) }
+				?.let { Effect.Locate(search.text, it) },
+		)
+
 	// Nothing typed, or nothing yet that can be searched for (`ext:` alone), would find everything: nothing is found.
 	if (!search.searchable)
-		return Step(copy(search = search.copy(found = null)))
+		return Step(copy(search = search.copy(found = null).aimed()), locating)
 
 	return Step(
 		this,
-		listOf(
+		locating +
 			Effect.Search(
 				search.text,
 				queryOf(search.read, choosing, search.refines, search.aliases),
 				Purpose.Preview,
 				inPlace?.tree,
 			),
-		),
 	)
+}
+
+/**
+ * What is on the disk at the path typed, for a search's window that is to go somewhere and still has that typed: a
+ * folder or a file there is listed first, to be gone to; nothing there, and nothing is listed for it.
+ */
+private fun BrowserState.located(answer: Answer.Located): Step {
+	val search = search as? Search.Ready ?: return Step(this)
+
+	if (search.aim !is Aim.Go || search.text != answer.text)
+		return Step(this)
+
+	val there =
+		when (answer.found) {
+			Found.Folder -> Aim.There(answer.text, answer.path, folder = true)
+			Found.File -> Aim.There(answer.text, answer.path, folder = false)
+			is Found.Nothing -> null
+		}
+
+	return Step(copy(search = search.copy(aim = Aim.Go(there), menu = null).aimed()))
 }
 
 private fun Search.Ready.closed(): Search =
@@ -1803,6 +1858,11 @@ private fun BrowserState.acted(
 		when (of) {
 			is Search.Listed.Prisms -> return chosenOwn(search.copy(menu = null), of.own)
 			is Search.Listed.Named -> return searchTyped(of.completed)
+			is Search.Listed.Place ->
+				return when (action) {
+					MatchAction.CopyPath -> Step(closed, listOf(Effect.Copy(of.path.toString())))
+					else -> gone(search, of)
+				}
 			is Search.Listed.Match -> of
 		}
 
@@ -1878,6 +1938,8 @@ private fun BrowserState.gone(search: Search.Ready, listed: Search.Listed): Step
 			is Search.Listed.Prisms -> return chosenOwn(search.copy(menu = null), listed.own)
 			// Its name goes in the field, which stays open for the rest of the query.
 			is Search.Listed.Named -> return searchTyped(listed.completed)
+			is Search.Listed.Place ->
+				return copy(search = search.closed()).wentTo(listed.path, listed.folder)
 			is Search.Listed.Match -> listed
 		}
 
@@ -1901,14 +1963,18 @@ private fun BrowserState.gone(search: Search.Ready, listed: Search.Listed): Step
 			gone
 	}
 
-	return if (matches.isFolder(rank))
-		closed.went(path)
+	return closed.wentTo(path, matches.isFolder(rank))
+}
+
+/** To what is at [path] on the disk: into it, where it is a [folder]; to the folder a file is in, the file chosen. */
+private fun BrowserState.wentTo(path: Path, folder: Boolean): Step =
+	if (folder)
+		went(path)
 	else
 		path.parent?.let {
-			closed.went(it, Landing.On(RowId(path.fileName.toString()), choose = true))
+			went(it, Landing.On(RowId(path.fileName.toString()), choose = true))
 		}
-			?: Step(closed)
-}
+			?: Step(this)
 
 /** Every match shown in the listing: at once where the search for what is typed is back, and once it is otherwise. */
 private fun BrowserState.showingMatches(): Step {
@@ -1966,9 +2032,11 @@ private fun BrowserState.searched(finding: Finding, purpose: Purpose): Step {
 
 			// The arrows stay on the match they were on, where the new matches still list that many.
 			val found =
-				search.copy(found = finding, menu = null).let {
-					it.copy(highlighted = it.highlighted?.takeIf { at -> at < it.listed })
-				}
+				search
+					.copy(found = finding, menu = null)
+					.let {
+						it.copy(highlighted = it.highlighted?.takeIf { at -> at < it.listed })
+					}.aimed()
 
 			when {
 				!search.showing -> Step(copy(search = found))

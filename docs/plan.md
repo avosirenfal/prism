@@ -180,7 +180,7 @@ threads, drawn larger or smaller with Ctrl and the wheel, the gallery up to one 
 for what was pressed, and one component that draws any of them) rename, trash and make folders, and Ctrl+Z undoes
 any of it. Nothing is deleted for good: the trash is as far as anything goes.
 
-F2 searches the whole index, Everything's and Listary's way: a window over the picker lists the first matches
+Ctrl+Shift+F searches the whole index, Everything's and Listary's way: a window over the picker lists the first matches
 as the query is typed, coloured as it is read; a match chosen is gone to (a file chosen in its folder, its name ready
 to save over); Enter shows every match in the listing as a folder holding them all would, filtered as a folder is,
 best first, millions of them without making millions of rows, and Back returns to them from a folder gone into.

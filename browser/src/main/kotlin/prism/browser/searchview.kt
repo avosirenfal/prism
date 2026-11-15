@@ -141,16 +141,29 @@ internal fun SearchLayer(
 						.onPreviewKeyEvent {
 							val down = it.type == KeyEventType.KeyDown
 							val escape = down && it.key == Key.Escape
-							val again = down && Chord.of(it)?.let(bindings::window) == Action.SearchIndex
+
+							// Either of the chords that open it: the search begun again, or a place to go to asked for.
+							val again =
+								Chord
+									.of(it)
+									?.takeIf { _ -> down }
+									?.let(bindings::window)
+									?.let { action ->
+										when (action) {
+											Action.SearchIndex -> BrowserEvent.OpenedSearch
+											Action.GoTo -> BrowserEvent.OpenedGoTo
+											else -> null
+										}
+									}
 
 							when {
 								escape && menu != null -> onEvent(BrowserEvent.MatchMenuClosed)
 								escape && helping -> onEvent(BrowserEvent.ToggledSearchHelp)
 								escape -> onEvent(BrowserEvent.ClosedSearch)
-								again -> onEvent(BrowserEvent.OpenedSearch)
+								again != null -> onEvent(again)
 							}
 
-							escape || again
+							escape || again != null
 						},
 				) {
 					when (search) {
@@ -285,10 +298,11 @@ private fun Searching(
 			{ onEvent(BrowserEvent.SearchTyped(it)) },
 			Modifier.weight(1f).testTag("search-query"),
 			hint =
-				if (search.refines.any)
-					"Search in results"
-				else
-					"Search everywhere",
+				when {
+					search.aim is Aim.Go -> "Go to location"
+					search.refines.any -> "Search in results"
+					else -> "Search everywhere"
+				},
 			leading = Glyph.Search,
 			height = tall,
 			focus = field,
@@ -350,6 +364,7 @@ private fun Searching(
 					null -> "match:"
 					is Search.Listed.Prisms -> "own:${listed.own.title}"
 					is Search.Listed.Named -> "alias:${listed.alias.name}"
+					is Search.Listed.Place -> "place:${listed.path}"
 					is Search.Listed.Match -> "match:${listed.matches.nameOf(listed.rank)}"
 				}
 			},
@@ -361,6 +376,7 @@ private fun Searching(
 				null -> Unit
 				is Search.Listed.Prisms -> OwnResult(listed.own)
 				is Search.Listed.Named -> AliasResult(listed.alias)
+				is Search.Listed.Place -> Place(listed, home)
 				is Search.Listed.Match -> Match(listed.matches.rowOf(listed.rank, null), home)
 			}
 		}
@@ -472,13 +488,23 @@ private fun Footer(
 			KeyHint("Move", listOf("↑", "↓"))
 		// What Enter does to what the arrows are on, said as its menu says it: the first of its actions.
 		search.highlighted?.let(search::listedAt)?.let { listed ->
+			// Where the window is to go somewhere, that is what Enter does to anything of the disk's.
 			actionsOf(listed, role, terminal = false)
 				.firstOrNull()
-				?.let { KeyHint(it.label, listOf("↵")) }
+				?.let {
+					KeyHint(
+						if (search.aim is Aim.Go && listed !is Search.Listed.Named)
+							MatchAction.GoTo.label
+						else
+							it.label,
+						listOf("↵"),
+					)
+				}
 			bindings.of(Action.ShowActions).firstOrNull()?.let { KeyHint("Actions", it) }
 		}
-		// Every match in the listing: what Enter does from the field, and a click does wherever the arrows are.
-		if (matches != null && matches.size > 0 && search.searchable)
+		// Every match in the listing: what Enter does from the field, and a click does wherever the arrows are. Not
+		// where the window is to go to one place: there is no showing them all there.
+		if (matches != null && matches.size > 0 && search.searchable && search.aim is Aim.Find)
 			Box(
 				Modifier
 					.clip(RoundedCornerShape(Radius.small))
@@ -492,6 +518,27 @@ private fun Footer(
 			}
 		KeyHint("Close", listOf("Esc"))
 	}
+}
+
+/** What is on the disk at the path typed, in its row: its icon, its name, and where it is, as a match has them. */
+@Composable
+private fun RowScope.Place(place: Search.Listed.Place, home: Path) {
+	val palette = LocalPalette.current
+	val type = LocalType.current
+	val name = place.path.fileName?.toString() ?: place.path.toString()
+
+	GlyphIcon(
+		if (place.folder) Glyph.Folder else Glyph.File,
+		palette.text,
+		type.icon,
+		category =
+			if (place.folder)
+				Category.Folder
+			else
+				categoryOf(name),
+	)
+	Spacer(Modifier.width(Space.s + Space.xxs))
+	ResultText(name, folderOf(place.path, home))
 }
 
 /** One match, in its row: its icon, its name, and where it is. */

@@ -132,10 +132,10 @@ class KeysTest {
 			given.rebound(
 				given.rebound!!
 					.awaiting(Slot.Bound(Action.Back, chord("Ctrl+B")))
-					.pressed(chord("Ctrl+G")),
+					.pressed(chord("Ctrl+J")),
 			)
 
-		assertEquals(mapOf("Back" to listOf("Ctrl+G")), rebound.written.pickerBindings)
+		assertEquals(mapOf("Back" to listOf("Ctrl+J")), rebound.written.pickerBindings)
 		assertEquals(mapOf("Back" to listOf("Ctrl+B")), rebound.written.bindings)
 		// The explorer's tab rebinds the explorer's, and leaves a picker's own as they are.
 		assertEquals(rebound.rebinding, rebound.copy(keys = KeyTab.Explorer).rebound)

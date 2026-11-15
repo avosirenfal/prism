@@ -189,8 +189,17 @@ sealed interface BrowserEvent : Input {
 
 	// ---- the search of the index ----
 
-	/** The search's window opened over the picker, with nothing typed into it yet (F2). */
+	/** The search's window opened over the picker, with nothing typed into it yet. */
 	data object OpenedSearch : BrowserEvent
+
+	/**
+	 * The search's window opened to go somewhere ([Aim.Go]), with nothing typed into it yet: what is chosen in it is
+	 * gone to, and the first thing it lists is what Enter chooses.
+	 */
+	data object OpenedGoTo : BrowserEvent
+
+	/** Thumbnails shown where they were not, or icons in their place where they were: in every window, and kept so. */
+	data object ToggledThumbnails : BrowserEvent
 
 	/**
 	 * The search's window opened with [text] in it, to be searched for again or changed: what the results shown were
@@ -259,7 +268,7 @@ sealed interface BrowserEvent : Input {
 
 	// ---- changing what is on disk ----
 
-	/** A row's name made into a field to type a new one into (F6). */
+	/** A row's name made into a field to type a new one into (F2). */
 	data class StartedRenaming(
 		val row: RowId,
 	) : BrowserEvent
@@ -533,6 +542,13 @@ sealed interface Answer : Input {
 		val found: Map<Path, Found>,
 	) : Answer
 
+	/** What is at [path], which is what [text], typed where a place to go to is asked for, says as a path. */
+	data class Located(
+		val text: String,
+		val path: Path,
+		val found: Found,
+	) : Answer
+
 	data class Changed(
 		val change: Change,
 		val result: ChangeResult,
@@ -681,6 +697,11 @@ sealed interface Answer : Input {
 	/** The sidebar, as the places pinned (which another window may have changed) and the drives now make it. */
 	data class Placed(
 		val sidebar: Sidebar,
+	) : Answer
+
+	/** Whether files are shown by their thumbnails, as the preferences now say: changed here, or in another window. */
+	data class Thumbnailed(
+		val shown: Boolean,
 	) : Answer
 
 	/** The sections of the Recents page the user has collapsed, as the preferences now say: here, or in another window. */
@@ -1108,6 +1129,12 @@ sealed interface Effect {
 		val lookup: Lookup,
 	) : Asking
 
+	/** What is at [path], which [text] typed says as a path, sent back as [Answer.Located]. */
+	data class Locate(
+		val text: String,
+		val path: Path,
+	) : Asking
+
 	/** [change] made on disk, for [doing], and what came of it sent back as [Answer.Changed]. */
 	data class Make(
 		val change: Change,
@@ -1232,6 +1259,11 @@ sealed interface Effect {
 	data class Alias(
 		val name: String,
 		val query: String,
+	) : Effect
+
+	/** Thumbnails [shown], or icons in their place: a preference, so every window, and the next, has it so. */
+	data class Thumbnail(
+		val shown: Boolean,
 	) : Effect
 
 	/**

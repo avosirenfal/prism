@@ -89,6 +89,8 @@ data class Preferences(
 	val aliases: Map<String, String> = emptyMap(),
 	/** The sections of the Recents page shown as their headings alone, in every window. */
 	val recentsCollapsed: Set<RecentSection> = emptySet(),
+	/** Whether files are shown by small pictures of themselves where there are any: icons alone, where not. */
+	val thumbnails: Boolean = true,
 ) {
 	/** The actions and places written here. */
 	val written: ActionsFile get() = ActionsFile(actions, places)

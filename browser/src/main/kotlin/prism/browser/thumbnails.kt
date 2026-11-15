@@ -1,5 +1,6 @@
 package prism.browser
 
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.toComposeImageBitmap
@@ -252,3 +253,9 @@ class Thumbnails(
 
 /** The pictures the gallery draws its tiles with: one store for the whole process, unless one is provided. */
 val LocalThumbnails = staticCompositionLocalOf { Thumbnails() }
+
+/**
+ * Whether files are drawn by their pictures at all: where not (the user's choice, kept in the preferences), each is
+ * its type's icon, and no picture is made or looked for.
+ */
+val LocalPictured = compositionLocalOf { true }

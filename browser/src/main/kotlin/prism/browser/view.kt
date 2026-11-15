@@ -165,7 +165,7 @@ import prism.window.WindowLocals
  * | Alt+Left, Alt+Right | anywhere | back, forward |
  * | Ctrl+L, Alt+D | anywhere | type a path |
  * | Ctrl+F, F3 | anywhere | search the folder shown |
- * | F2 | anywhere | search the index: the first matches as it is typed, every one in the listing on Enter |
+ * | Ctrl+Shift+F | anywhere | search the index: the first matches as it is typed, every one in the listing on Enter |
  * | Ctrl+H | anywhere | hidden files shown, or not |
  * | F5, Ctrl+R | anywhere | the folder read again |
  * | Ctrl+A | listing | every row chosen |
@@ -218,6 +218,7 @@ fun FileBrowser(
 	CompositionLocalProvider(
 		LocalKeyboardUse provides keyboard,
 		LocalDropHint provides hint,
+		LocalPictured provides state.thumbnails,
 	) {
 		Box(
 			modifier
@@ -349,6 +350,8 @@ private fun windowAction(
 			Action.Up -> BrowserEvent.Up
 			Action.EditAddress -> BrowserEvent.EditedAddress
 			Action.SearchIndex -> BrowserEvent.OpenedSearch
+			Action.GoTo -> BrowserEvent.OpenedGoTo
+			Action.ToggleThumbnails -> BrowserEvent.ToggledThumbnails
 			// Whichever the results shown are not: where no results are shown, there is nothing to pin.
 			Action.PinSearch ->
 				(state.at as? Location.Results)?.let { BrowserEvent.PinnedSearch(!it.pinned) }
@@ -465,6 +468,16 @@ private fun Toolbar(state: BrowserState, stops: Stops, onEvent: (BrowserEvent) -
 			onKey = { searchKey(it, state.arrangement.query, stops, onEvent) },
 		)
 		Spacer(Modifier.width(Space.s))
+		// Every window's, and kept: so it is here in a list too, where no picture is drawn to be seen going.
+		ToolButton(
+			if (state.thumbnails)
+				Glyph.Pictures
+			else
+				Glyph.PicturesOff,
+			"Thumbnails",
+			enabled = state.system == null,
+			modifier = Modifier.testTag("thumbnails").semantics { selected = state.thumbnails },
+		) { onEvent(BrowserEvent.ToggledThumbnails) }
 		MenuButton(
 			Glyph.Filter,
 			"Filters",
@@ -493,7 +506,10 @@ private fun Toolbar(state: BrowserState, stops: Stops, onEvent: (BrowserEvent) -
 	}
 }
 
-/** Escape empties the search before it cancels anything; Enter and Down take the keyboard to what it found. */
+/**
+ * Escape empties the search, and with nothing in it takes the keyboard back to the listing, as Enter and Down do
+ * with what it found: it cancels nothing from here.
+ */
 private fun searchKey(
 	key: KeyEvent,
 	query: String,
@@ -506,7 +522,7 @@ private fun searchKey(
 			true.also {
 				onEvent(BrowserEvent.Searched(""))
 			}
-		key.isEnter || key.key == Key.DirectionDown ->
+		key.key == Key.Escape || key.isEnter || key.key == Key.DirectionDown ->
 			true.also { stops.listing.requestFocus() }
 		else -> false
 	}
@@ -2883,8 +2899,10 @@ private fun Tile(
 private fun Picture(row: Row, path: Path?, zoom: Float) {
 	val palette = LocalPalette.current
 	val thumbnails = LocalThumbnails.current
-	// An entry of a place is nowhere on disk to be drawn from: its icon alone. A folder has no picture.
-	val drawable = path != null && !row.isFolder
+	val pictured = LocalPictured.current
+	// An entry of a place is nowhere on disk to be drawn from: its icon alone. A folder has no picture; and no file
+	// has, where pictures are not to be shown.
+	val drawable = pictured && path != null && !row.isFolder
 
 	BoxWithConstraints(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
 		// Made for the longer side of its room, so that it is as sharp as it is drawn.
@@ -2894,7 +2912,7 @@ private fun Picture(row: Row, path: Path?, zoom: Float) {
 		// as a search's first result and the next search's are) starts without one, rather than keeping the last file's.
 		// For the same file, the last picture stays while one for a new size or a new version of it is made.
 		val picture by key(path) {
-			produceState<ImageBitmap?>(null, row.modified, Thumbnails.sideFor(side)) {
+			produceState<ImageBitmap?>(null, row.modified, Thumbnails.sideFor(side), drawable) {
 				value =
 					if (drawable)
 						thumbnails.of(path, row.modified, side, row.size?.value)

@@ -244,11 +244,11 @@ app/build/compose/binaries/main/app/prism/bin/prism index --file /tmp/idx/index.
 DISPLAY=:99 app/build/compose/binaries/main/app/prism/bin/prism pick --index /tmp/idx/index.prism ~ > picked.txt &
 ```
 
-Then, once a click has given the window the keyboard, F2, a query typed as fast as a person types, Enter to
+Then, once a click has given the window the keyboard, Ctrl+Shift+F, a query typed as fast as a person types, Enter to
 show every match in the listing, and the arrows and Enter to go to one:
 
 ```bash
-DISPLAY=:99 xdotool key F2 && DISPLAY=:99 xdotool type --delay 30 "report -ext:pdf"
+DISPLAY=:99 xdotool key ctrl+shift+f && DISPLAY=:99 xdotool type --delay 30 "report -ext:pdf"
 ```
 
 ```bash
@@ -256,7 +256,7 @@ DISPLAY=:99 xdotool key Return
 ```
 
 ```bash
-DISPLAY=:99 xdotool key F2 Down Down Return
+DISPLAY=:99 xdotool key ctrl+shift+f Down Down Return
 ```
 
 `--index` with a file that is not there says so on standard error, and the picker opens without a search.

@@ -30,7 +30,7 @@ import prism.shared.Published
 import prism.index.Kind as EntryKind
 
 /*
- * Searching the index from the picker. F2 opens a search over the picker ([Search]): a field, and the first
+ * Searching the index from the picker. Ctrl+Shift+F opens a search over the picker ([Search]): a field, and the first
  * few matches under it as they are found. A match chosen goes to it; the search given (Enter, or its button) shows
  * every match in the listing, as if a folder held them all ([Location.Results], [Listing.Found]).
  *
@@ -134,7 +134,32 @@ fun queryOf(
 			listOfNotNull(Term(Test.Is(setOf(Flag.Dir))).takeIf { choosing is Choosing.Folder }),
 	)
 
-/** The search of the index that F2 opens over the picker, its field empty each time it is opened. */
+/**
+ * What a search's window is open for: to find things ([Find]: what Enter does from its field is to show every match
+ * in the listing), or to go to one place ([Go]: Enter goes to the first thing listed, and there is no showing them
+ * all).
+ */
+@Immutable
+sealed interface Aim {
+	data object Find : Aim
+
+	/**
+	 * To go somewhere. What is typed may be the place itself, said as a path: [there] is what is on the disk at it,
+	 * where something is, whether or not the index holds it.
+	 */
+	data class Go(
+		val there: There? = null,
+	) : Aim
+
+	/** What is on the disk at the path that [text] is, typed into the field: a folder, or a file. */
+	data class There(
+		val text: String,
+		val path: Path,
+		val folder: Boolean,
+	)
+}
+
+/** The search of the index that opens over the picker, its field empty each time it is opened. */
 @Immutable
 sealed interface Search {
 	/** Whether its window is open over the picker. */
@@ -176,6 +201,8 @@ sealed interface Search {
 		val pins: Boolean = false,
 		/** The user's search aliases: what a `name@` in [text] stands for. */
 		val aliases: Aliases = Aliases.NONE,
+		/** What the window is open for: to find things, or to go to one. */
+		val aim: Aim = Aim.Find,
 	) : Search {
 		/** Prism's own things that [text] asks for, the best first. */
 		val own: List<Own> by lazy { Own.found(text, offers) }
@@ -186,8 +213,23 @@ sealed interface Search {
 		/** The aliases the word being typed at the end of [text] could be on its way to naming, where it could. */
 		val completing: AliasCompletion? by lazy { aliases.completing(read) }
 
-		/** How many things the window lists before the matches: prism's own, and the aliases a word could name. */
-		private val before: Int get() = own.size + (completing?.aliases?.size ?: 0)
+		/** The matches there are to list: those last found, for [text] or for what was typed before it. */
+		private val matches: Matches? get() = (found as? Finding.Matched)?.matches
+
+		/**
+		 * The place typed as a path, where the window is to go somewhere and something is there: listed first, but
+		 * for where the first match is that very place, which is then listed once.
+		 */
+		val there: Aim.There? by lazy {
+			(aim as? Aim.Go)?.there?.takeIf { there ->
+				there.text == text &&
+					matches?.let { it.rank(0)?.let(it::pathOf) } != there.path
+			}
+		}
+
+		/** How many things the window lists before the matches: prism's own, a place typed, aliases a word could name. */
+		private val before: Int
+			get() = own.size + (if (there != null) 1 else 0) + (completing?.aliases?.size ?: 0)
 
 		/** Whether [text] asks for anything yet: a query of no terms (nothing typed, or `ext:` alone) would find all. */
 		val searchable: Boolean get() = read.query.terms.isNotEmpty()
@@ -200,28 +242,46 @@ sealed interface Search {
 			}
 
 		/** How many things the window lists, a few of them in sight at once: prism's own, and every match. */
-		val listed: Int get() = before + ((found as? Finding.Matched)?.matches?.size ?: 0)
+		val listed: Int get() = before + (matches?.size ?: 0)
 
 		/**
-		 * The [index]th thing the window lists: one of prism's own, after them an alias the word being typed could
-		 * name, and after those a match; nothing past the last.
+		 * The [index]th thing the window lists: one of prism's own, after them the place typed as a path, an alias
+		 * the word being typed could name, and after those a match; nothing past the last.
 		 */
-		fun listedAt(index: Int): Listed? =
-			own.getOrNull(index)?.let(Listed::Prisms)
+		fun listedAt(index: Int): Listed? {
+			val placed = own.size + (if (there != null) 1 else 0)
+
+			return own.getOrNull(index)?.let(Listed::Prisms)
+				?: there?.takeIf { index == own.size }?.let { Listed.Place(it.path, it.folder) }
 				?: completing?.let { completion ->
-					completion.aliases.getOrNull(index - own.size)?.let {
+					completion.aliases.getOrNull(index - placed)?.let {
 						Listed.Named(it, completion.completed(it))
 					}
 				}
-				?: (found as? Finding.Matched)?.matches?.let { matches ->
+				?: matches?.let { matches ->
 					matches.rank(index - before)?.let { Listed.Match(matches, it) }
 				}
+		}
 
-		/** This search with [text] typed into its field: the arrows on the first of prism's own it asks for, if any. */
+		/**
+		 * This search with [text] typed into its field: the arrows on the first of prism's own it asks for, if any;
+		 * and, where the window is to go somewhere, on the first thing listed whatever it is ([aimed]).
+		 */
 		fun typed(text: String): Ready =
-			copy(text = text, showing = false, help = false, menu = null).let {
-				it.copy(highlighted = 0.takeIf { _ -> it.own.isNotEmpty() })
-			}
+			copy(text = text, showing = false, help = false, menu = null)
+				.let {
+					it.copy(highlighted = 0.takeIf { _ -> it.own.isNotEmpty() })
+				}.aimed()
+
+		/**
+		 * This, with the arrows on the first thing listed where the window is to go somewhere and they are on
+		 * nothing: Enter there goes to what they are on, so they start on the best there is.
+		 */
+		fun aimed(): Ready =
+			if (aim is Aim.Go && (highlighted == null || highlighted >= listed))
+				copy(highlighted = 0.takeIf { listed > 0 })
+			else
+				this
 	}
 
 	/**
@@ -250,6 +310,12 @@ sealed interface Search {
 		data class Match(
 			val matches: Matches,
 			val rank: Rank,
+		) : Listed
+
+		/** What is on the disk at the path typed, a [folder] or a file: a place to go to, held by the index or not. */
+		data class Place(
+			val path: Path,
+			val folder: Boolean,
 		) : Listed
 	}
 

@@ -1429,7 +1429,7 @@ data class BrowserState(
 	val landing: Landing? = null,
 	/** The row whose name was asked to be typed over: [renaming] is that, where the listing shows the row. */
 	private val naming: Renaming? = null,
-	/** The search of the index, as F2 opens it; unavailable where there is no index. */
+	/** The search of the index, as Ctrl+Shift+F opens it; unavailable where there is no index. */
 	val search: Search = Search.Unavailable(NO_INDEX),
 	/** The user's search aliases, as the preferences define them: what a `name@` in a search stands for. */
 	val aliases: Aliases = Aliases.NONE,
@@ -1457,6 +1457,8 @@ data class BrowserState(
 	val asker: AppKey? = null,
 	/** The sections of the Recents page shown as their headings alone: the user's, every window's. */
 	val recentsCollapsed: Set<RecentSection> = emptySet(),
+	/** Whether files are shown by small pictures of themselves: the user's choice, every window's. */
+	val thumbnails: Boolean = true,
 	/** What was last read of the marks given, for a copy that changes none of them to be given again. */
 	private val marked: Marked = Marked(),
 ) {

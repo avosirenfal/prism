@@ -90,7 +90,7 @@ class MenuTest {
 			BrowserEvent.CopiedPaths(listOf(home.resolve("notes.md"))),
 			menu.item("Copy path").action,
 		)
-		assertEquals("F6", menu.item("Rename").keys)
+		assertEquals("F2", menu.item("Rename").keys)
 		// From a menu, the trash at once: only the Delete key alone asks first.
 		assertEquals(
 			BrowserEvent.Trashed(listOf(RowId("notes.md"))),

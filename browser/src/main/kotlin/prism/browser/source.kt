@@ -310,6 +310,12 @@ fun Services.answer(
 	when (asking) {
 		is Effect.Read -> Answer.Arrived(asking.folder, disk.read(asking.folder))
 		is Effect.Look -> Answer.Looked(asking.lookup, disk.look(asking.lookup.paths))
+		is Effect.Locate ->
+			Answer.Located(
+				asking.text,
+				asking.path,
+				disk.look(listOf(asking.path))[asking.path] ?: Found.Nothing(inFolder = false),
+			)
 		is Effect.Make -> Answer.Changed(asking.change, disk.make(asking.change), asking.doing)
 		is Effect.Erase -> Answer.Erased(asking.erasing, disk.erase(asking.erasing))
 		Effect.ReadTrash -> Answer.TrashRead(disk.trash())
@@ -669,6 +675,9 @@ tailrec fun Step.settled(services: Services): BrowserState {
 	effects.filterIsInstance<Effect.Carry>().forEach { services.carried.set(it.carried) }
 	effects.filterIsInstance<Effect.Arrange>().forEach { arrange ->
 		services.preferences.update { arranging(arrange.quick) }
+	}
+	effects.filterIsInstance<Effect.Thumbnail>().forEach { thumbnail ->
+		services.preferences.update { copy(thumbnails = thumbnail.shown) }
 	}
 	effects.filterIsInstance<Effect.FoldRecents>().forEach { fold ->
 		services.preferences.update { folding(fold.section, fold.collapsed) }

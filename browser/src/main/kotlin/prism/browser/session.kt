@@ -141,6 +141,14 @@ class Session(
 				.collect { inputs.send(Answer.Relisted(it)) }
 		}
 
+		// Whether thumbnails are shown, as any window last said.
+		scope.launch(io) {
+			services.preferences.preferences
+				.map { it.thumbnails }
+				.distinctUntilChanged()
+				.collect { inputs.send(Answer.Thumbnailed(it)) }
+		}
+
 		// The sections of the Recents page the user has collapsed, in any window.
 		scope.launch(io) {
 			services.preferences.preferences
@@ -304,6 +312,10 @@ class Session(
 						)
 					}
 				}
+			is Effect.Thumbnail ->
+				scope.launch(io) {
+					services.preferences.update { copy(thumbnails = effect.shown) }
+				}
 			is Effect.FoldRecents ->
 				scope.launch(io) {
 					services.preferences.update { folding(effect.section, effect.collapsed) }
@@ -419,7 +431,7 @@ private fun refusedOf(asking: Effect.Asking, why: String): Answer? =
 		// With no folder to bring them out into, nothing is opened: the action is let go.
 		is Effect.Scratch -> Answer.Ran(Job(asking.pending.action.label, emptyList()), why)
 		is Effect.Temp -> Answer.Ran(Job(asking.carried.pending.action.label, emptyList()), why)
-		is Effect.Look, Effect.ReadStorage, is Effect.Search, is Effect.Stat,
+		is Effect.Look, is Effect.Locate, Effect.ReadStorage, is Effect.Search, is Effect.Stat,
 		is Effect.ReadEntries,
 		is Effect.Order, is Effect.ReadClip, is Effect.ReadRecents,
 		-> null

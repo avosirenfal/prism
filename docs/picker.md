@@ -281,6 +281,13 @@ What is kept is the pictures used most recently, up to 16 million pixels (64 MB)
 
 The picture above is the real window, on a virtual display, over a folder of generated pictures.
 
+### Thumbnails turned off
+
+The button left of the filters' (a picture; struck through while they are off) turns thumbnails off and on, and so
+does the action "Toggle thumbnails", which has no key until it is given one. Off, every file is its type's icon and
+no picture is decoded or looked for. It is a preference (`thumbnails` in `preferences.json`): changed in one window
+it is so in every window at once, and in the next one opened.
+
 ### Thumbnails the desktop shares
 
 ![A gallery of films and a document, drawn from the shared thumbnail cache](picker-shared-thumbnails.png)
@@ -348,7 +355,7 @@ Right-click a file in the listing, and a menu opens at the pointer:
 |---|---|
 | Open | Enter |
 | — | |
-| Rename | F6 |
+| Rename | F2 |
 | Copy path | Ctrl+Shift+C |
 | — | |
 | Move to trash | Delete |
@@ -373,7 +380,7 @@ What makes this easy to grow is that **a menu is data**. Here is the file's menu
 menu {
     item("Open", BrowserEvent.Picked(row.id), keys = "Enter")
     separator()
-    item("Rename", BrowserEvent.StartedRenaming(row.id), keys = "F6")
+    item("Rename", BrowserEvent.StartedRenaming(row.id), keys = "F2")
     item("Copy path", BrowserEvent.CopiedPaths(paths), keys = "Ctrl+Shift+C")
     separator()
     item("Move to trash", BrowserEvent.Trashed(ids), keys = "Delete")
@@ -386,7 +393,7 @@ can be chosen, a tick or a dot, its keys), a **submenu** (a label and a menu), o
 several rows) leaves no stray line, and a submenu with nothing in it is left out.
 
 Each item's action is the event choosing it reports, exactly as if the user had pressed its keys: "Rename" reports
-`StartedRenaming`, the same event F6 reports. So choosing from a menu is just another way to do what the picker can
+`StartedRenaming`, the same event F2 reports. So choosing from a menu is just another way to do what the picker can
 already do, and the reducer decides what comes of it. The menu knows nothing of what its actions mean: a `Menu<A>` is
 generic in its action, and the picker's menus are `Menu<BrowserEvent>`.
 
@@ -432,7 +439,7 @@ while it is open (a column hidden from its own heading's menu) closes with it.
 A picker is where people find a file is misnamed, or that a folder is needed, so it can change things a little, as
 the desktop's own dialogs can:
 
-- **Rename** (F6, or the menu): the row's name becomes a field with the name's stem selected, so typing replaces the
+- **Rename** (F2, or the menu): the row's name becomes a field with the name's stem selected, so typing replaces the
   name but not its extension. Enter, or clicking away, gives the new name; Escape leaves it as it was. A name with a
   slash in it, or `.` or `..`, is refused before the disk is asked. The disk never renames onto something already
   there.
@@ -523,11 +530,11 @@ a sideways scroll (a tilted wheel, a touchpad) as a scroll (`mouseChords`, `brow
 ## Searching the index
 
 Searching the folder shown (Ctrl+F) narrows the rows the folder already has. Searching the index looks through every
-file the index holds, wherever it is. Its key is F2, from anywhere. Here is one search, followed through.
+file the index holds, wherever it is. Its key is Ctrl+Shift+F, from anywhere. Here is one search, followed through.
 
 ![The search's window over the picker](picker-search-index.png)
 
-**The window opens.** F2 is `BrowserEvent.OpenedSearch`. The state's `search` is `Search.Ready` when the
+**The window opens.** Ctrl+Shift+F is `BrowserEvent.OpenedSearch`. The state's `search` is `Search.Ready` when the
 picker was given an index, and `Search.Unavailable(why)` when it was not. Opening makes a `Search.Ready` afresh, with
 nothing typed, and the view draws a window over the picker: a field with a `?` button beside it, what the field found
 under them, and along the bottom how many matches there are and what the keys do now. Without an index, the window
@@ -587,10 +594,10 @@ match does the same as Enter on it.
 "Explore results", clicked, is `ShowedResults`): every match is shown in the listing. Where the picker is, `at`, becomes `Location.Results` in place
 of `Location.Folder`, and the folder left goes into the history, so Back returns to it. The path across the top says
 "Search results" and what was searched for; clicking it opens the window again with that in its field
-(`EditedSearch`), to be changed. The window closes; the next F2 opens it empty, since what was searched for last
+(`EditedSearch`), to be changed. The window closes; the next Ctrl+Shift+F opens it empty, since what was searched for last
 is seldom what is wanted next.
 
-**Pressed again while the window is open,** F2 (or whatever chord is bound to it that no field types)
+**Pressed again while the window is open,** Ctrl+Shift+F (or whatever chord is bound to it that no field types)
 empties the field and leaves the keyboard in it, for something else to be searched for at once. The window holds the
 keyboard while it is open, so it reads the binding itself.
 
@@ -605,7 +612,14 @@ results shown are pinned, which the bar says with a pin. Nothing is searched aga
 moves; pinning only sets a flag on the view (`Location.Results.pinned`). The same menu's "Unpin search" clears it.
 The action "Pin search" does both, and has no key until one is bound to it.
 
-**F2 from pinned results searches within them.** The field is empty as always, and shows a pin (its tooltip
+**Ctrl+G asks for a place to go to.** It is the same window, open for another thing (`Aim.Go`, where a search is
+`Aim.Find`): the field says "Go to location", the arrows start on the first thing listed, and Enter goes to it (into
+a folder; to a file's folder, with the file selected, which in a picker chooses it and accepts nothing). There is no
+"Explore results" here, and none of prism's own items. It always searches everything, pinned results or not. What is
+typed may be the place itself: for text that begins with `/` or `~`, the disk is asked what is at that path
+(`Effect.Locate`), and a folder or file there is listed first, whether or not the index holds it.
+
+**Ctrl+Shift+F from pinned results searches within them.** The field is empty as always, and shows a pin (its tooltip
 says "Pinned search"). What you type is found only among the pinned results: with results for `report` pinned,
 `-draft` finds the reports that are not drafts, and `.pdf` those that are PDFs. Each search is read on its own
 and their terms are searched for together (`Refines`), so a quote left open in one cannot swallow the other.
@@ -613,10 +627,10 @@ Prism's own things are not listed there, but for `?`.
 
 **Enter shows what was found as results of their own,** with the pinned results behind them in the history. The
 bar names both searches, `“report” › “-draft”`. They are pinned too, as the results they were found within are,
-so the next F2 searches within them in turn; unpinning them unpins only them.
+so the next Ctrl+Shift+F searches within them in turn; unpinning them unpins only them.
 
 **The pin goes where the view goes.** Leave pinned results for a folder and come Back, and they are still pinned.
-Go Back further, to results that were never pinned, and F2 searches everything again. Clicking the bar to change
+Go Back further, to results that were never pinned, and Ctrl+Shift+F searches everything again. Clicking the bar to change
 a search changes that one search: it is searched for within whatever it was found within before.
 
 ### What can be done to a match
@@ -727,7 +741,7 @@ picker changes for that.
 
 `--index` alone reads the usual file, `$XDG_CACHE_HOME/prism/index.prism`; `--index FILE` reads that one. A folder
 after `--index` is the folder to open, not the index. Where there is no index, or it cannot be read, the picker says so
-on standard error and opens without a search, and F2's window says why.
+on standard error and opens without a search, and Ctrl+Shift+F's window says why.
 
 Which matches are "best" is the index's ranking: docs/search.md, "Which results come first".
 
@@ -830,13 +844,14 @@ keyboard is on the listing, or on the name for a picker that saves.
 | letters | listing | the row they name: the next whose name starts with them, or, where none does, the next that has them in it; the same letter again, the next row it starts. What is typed is shown at the listing's foot, and a second's pause ends it. While it is being typed, Space is one of its letters, Backspace takes the last back, and Escape lets it go |
 | Backspace | listing | the folder above |
 | Ctrl+A | listing | every row chosen |
-| F6 | listing | rename the row chosen |
+| F2 | listing | rename the row chosen |
 | Delete | listing | the rows chosen to their trashes; asked first only where a drive has none, to delete them for good |
 | Shift+Delete | listing | the rows chosen deleted for good, once asked |
 | Ctrl+Shift+C | listing | the paths of the rows chosen (or of the folder) copied |
 | Shift+F10, the menu key | listing | the menu of the rows chosen, or of the folder |
 | Alt+Left, Alt+Right, Alt+Up | anywhere | back, forward, up |
 | Ctrl+L, Alt+D | anywhere | type a path |
+| Ctrl+G | anywhere | go to a location: the search's window, where Enter goes to the first thing it lists |
 | Ctrl+F, F3 | anywhere | search |
 | Ctrl+H | anywhere | every hidden entry shown, or none |
 | Ctrl+Shift+N | anywhere | a new folder |
@@ -845,7 +860,7 @@ keyboard is on the listing, or on the name for a picker that saves.
 | Ctrl+Z; Ctrl+Shift+Z, Ctrl+Y | anywhere but a text field | the picker's latest change to the disk undone; done again |
 | the mouse's side buttons | anywhere | back, forward |
 | F5, Ctrl+R | anywhere | the folder read again |
-| Escape | anywhere | cancel; in the path or a search with words in it, first leave that |
+| Escape | anywhere | cancel; in the path, first leave that; in the folder's search, first empty it, then go back to the listing |
 
 The keys with Ctrl work while a field is being typed in, as well. That takes one more step than it seems to, because a
 key pressed with Ctrl reaches the window twice: once as the key going down, and once as the character it types, so
@@ -892,7 +907,7 @@ list by one row, not a page, and a row far away is scrolled to directly (never b
   temporary folder, then clicked, double-clicked, Ctrl- and Shift-clicked, typed at and tabbed through with
   Compose's own test input, and what it shows and how it ends checked: the filter menu by pointer, by Ctrl-click and
   by keyboard, its boxes ticked with the menu staying open and its filters cleared; a box in a context menu, and
-  several columns hidden from the headings' menu in one visit; a row's menu renaming it on disk; F6 and Escape; the trash, without asking, by Delete and by the menu,
+  several columns hidden from the headings' menu in one visit; a row's menu renaming it on disk; F2 and Escape; the trash, without asking, by Delete and by the menu,
   and Ctrl+Z and Ctrl+Shift+Z putting back and trashing again; Shift+Delete asking first, Escape on its notice
   cancelling, and Enter deleting for good; the trash in quick access, an entry put back from it; quick
   access's own window, one of prism's own hidden there and not removable, and moved; the folder's menu sorting
@@ -913,7 +928,7 @@ list by one row, not a page, and a row far away is scrolled to directly (never b
   filtered, ordered and read on disk as a folder's would be, a folder among them gone into and Back to them; a name
   saved beside a result, and nowhere without one; a result trashed and gone once searched for again; more than 10,000
   results read as they come into sight, not ordered by size, and ordered by name behind; a pick ranking higher; and
-  the window and the results drawn, in both palettes. `InteractionTest` has F2, the `?`,
+  the window and the results drawn, in both palettes. `InteractionTest` has Ctrl+Shift+F, the `?`,
   typing, Enter and the arrows as a user presses them.
 
 `prism pick` itself has been run in a real window on a virtual X display (Xvfb), driven by xdotool: opening a file
@@ -929,7 +944,7 @@ Enter, Ctrl+Z, Ctrl+Shift+Z and Shift+Delete on real files, with the trash in a 
 says how to do the same.
 
 The search of the index has been run the same way, over an index `prism index` made of a small home: a missing index
-warned of and the picker opening without search; F2 with a query typed by real keys; Enter showing every
+warned of and the picker opening without search; Ctrl+Shift+F with a query typed by real keys; Enter showing every
 match in the listing; a folder among them gone into, and Alt+Left back to them; the window opened again with what was
 typed, the arrows down to a file, Enter going to its folder with it chosen and named, and Enter again printing its
 path. The real keyboard found what the tests could not: typing quickly lost letters (`report` became `rprt`), since a

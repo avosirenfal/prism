@@ -26,7 +26,7 @@ import prism.shared.orElse
 import prism.window.activationToken
 
 /*
- * What the commands that open windows (`prism pick`, `prism explore`) take alike: the index F2 searches, the
+ * What the commands that open windows (`prism pick`, `prism explore`) take alike: the index Ctrl+Shift+F searches, the
  * palette, and whether the window manager draws a title bar.
  */
 
@@ -64,7 +64,7 @@ private val INDEX_FILE =
 	}
 
 /**
- * `--index [FILE]` of [command]: F2 searches an index read once from its file (and the usage beside it), as
+ * `--index [FILE]` of [command]: Ctrl+Shift+F searches an index read once from its file (and the usage beside it), as
  * it was read: what the daemon will hand a window it opens, kept current; for now, a copy to develop against. Where
  * there is none, or it cannot be read, the command says so on standard error and opens without.
  */
@@ -76,7 +76,7 @@ internal class Indexing(
 			"--index",
 			type = INDEX_FILE,
 			help =
-				"enable search (F2) from an index file, read once and not kept up to date; " +
+				"enable search (Ctrl+Shift+F) from an index file, read once and not kept up to date; " +
 					"FILE defaults to \$XDG_CACHE_HOME/prism/index.prism",
 		)
 

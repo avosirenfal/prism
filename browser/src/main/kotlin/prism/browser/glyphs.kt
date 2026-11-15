@@ -37,6 +37,9 @@ enum class Glyph {
 	Documents,
 	Downloads,
 	Pictures,
+
+	/** The picture with a stroke through it: files shown by their icons, their pictures not. */
+	PicturesOff,
 	Music,
 	Videos,
 	Drive,
@@ -147,6 +150,10 @@ fun DrawScope.drawGlyph(
 		Glyph.Documents -> documents(unit, tint)
 		Glyph.Downloads -> downloads(unit, tint)
 		Glyph.Pictures -> pictures(unit, tint)
+		Glyph.PicturesOff -> {
+			pictures(unit, tint.copy(alpha = tint.alpha * 0.45f))
+			stroked(unit, tint, listOf(4f to 20.5f, 20f to 3.5f))
+		}
 		Glyph.Music -> music(unit, tint)
 		Glyph.Videos -> videos(unit, tint)
 		Glyph.Drive -> drive(unit, tint)

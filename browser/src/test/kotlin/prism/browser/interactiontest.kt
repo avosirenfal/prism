@@ -602,16 +602,34 @@ class InteractionTest {
 		}
 
 	@Test
-	fun escapeEmptiesTheSearchBeforeItCancels() =
+	fun escapeEmptiesTheSearchThenLeavesItForTheListingBeforeItCancels() =
 		picking { session ->
 			focused().performKeyInput { withKeyDown(Key.CtrlLeft) { pressKey(Key.F) } }
 			field("search").performTextReplacement("no")
 			press(Key.Escape)
 			field("search").assertTextEquals("")
+			field("search").assertIsFocused()
 			assertEquals(false, session.outcome.isCompleted)
 
+			// With nothing in it, Escape takes the keyboard back to the listing, as Enter does: nothing is cancelled.
+			press(Key.Escape)
+			waitForIdle()
+			onNodeWithTag("listing").assertIsFocused()
+			assertEquals(false, session.outcome.isCompleted)
+
+			// And from the listing it is the picker's own.
 			press(Key.Escape)
 			assertEquals(Outcome.Cancelled, ended(session))
+		}
+
+	@Test
+	fun escapeInAnEmptySearchOfTheFolderGoesBackToTheListing() =
+		picking(Choosing.Exploring()) {
+			focused().performKeyInput { withKeyDown(Key.CtrlLeft) { pressKey(Key.F) } }
+			field("search").assertIsFocused()
+			press(Key.Escape)
+			waitForIdle()
+			onNodeWithTag("listing").assertIsFocused()
 		}
 
 	@Test
@@ -894,10 +912,10 @@ class InteractionTest {
 		}
 
 	@Test
-	fun f6RenamesAndEscapeLeavesTheNameAsItWas() =
+	fun f2RenamesAndEscapeLeavesTheNameAsItWas() =
 		picking { session ->
 			row("todo.txt").performClick()
-			press(Key.F6)
+			press(Key.F2)
 			field("rename").performTextReplacement("done.txt")
 			press(Key.Escape)
 
@@ -1170,7 +1188,7 @@ class InteractionTest {
 			// An archive's window is the archive's: the places on disk are not beside it.
 			assertEquals(0, onAllNodes(hasTestTag("places")).fetchSemanticsNodes().size)
 
-			// F2 searches the archive, by its own listing, though this window has no index of the disk.
+			// Ctrl+Shift+F searches the archive, by its own listing, though this window has no index of the disk.
 			session.send(BrowserEvent.OpenedSearch)
 			waitUntil(timeoutMillis = TIMEOUT) { session.state.value.search.open }
 			session.send(BrowserEvent.SearchTyped("todo"))
@@ -1303,7 +1321,7 @@ class InteractionTest {
 			Choosing.Exploring(),
 			finder = StaticFinder(prism.index.Index.EMPTY, home = work),
 		) { session ->
-			press(Key.F2)
+			ctrlShift(Key.F)
 			waitUntil(timeoutMillis = TIMEOUT) { session.state.value.search.open }
 			field("search-query").performTextReplacement("report")
 			waitUntil(timeoutMillis = TIMEOUT) {
@@ -1311,7 +1329,7 @@ class InteractionTest {
 					"report"
 			}
 
-			press(Key.F2)
+			ctrlShift(Key.F)
 			waitUntil(timeoutMillis = TIMEOUT) {
 				(session.state.value.search as Search.Ready).text.isEmpty()
 			}
@@ -1952,11 +1970,11 @@ class InteractionTest {
 		)
 
 	@Test
-	fun f2SearchesTheIndexAndEnterShowsEveryMatchInTheListing() {
+	fun ctrlShiftFSearchesTheIndexAndEnterShowsEveryMatchInTheListing() {
 		val home = home()
 
 		picking(folder = home, finder = finderOf(home)) { session ->
-			press(Key.F2)
+			ctrlShift(Key.F)
 			waitForIdle()
 			onNodeWithTag("search-layer").assertExists()
 			focusIsIn("search-query")
@@ -1976,7 +1994,7 @@ class InteractionTest {
 			onNodeWithTag("status").assertTextEquals("1 result")
 
 			// Opened again, its field is empty; opened from the results' bar, it holds what they were searched for.
-			press(Key.F2)
+			ctrlShift(Key.F)
 			waitForIdle()
 			field("search-query").assertTextEquals("")
 			press(Key.Escape)
@@ -1996,7 +2014,7 @@ class InteractionTest {
 
 			fun results() = session.state.value.at as Location.Results
 
-			press(Key.F2)
+			ctrlShift(Key.F)
 			waitForIdle()
 			// A search of everything says nothing of a pin.
 			assertFalse(shown("search-pinned"))
@@ -2020,7 +2038,7 @@ class InteractionTest {
 			row("notes.md").assertIsDisplayed()
 
 			// The search opened from them is empty, and shows that it searches within them.
-			press(Key.F2)
+			ctrlShift(Key.F)
 			waitForIdle()
 			field("search-query").assertTextEquals("")
 			onNodeWithTag("search-pinned", useUnmergedTree = true).assertExists()
@@ -2042,7 +2060,7 @@ class InteractionTest {
 			waitForIdle()
 			assertFalse(results().pinned)
 			assertFalse(shown("results-pinned"))
-			press(Key.F2)
+			ctrlShift(Key.F)
 			waitForIdle()
 			assertFalse(shown("search-pinned"))
 		}
@@ -2063,7 +2081,7 @@ class InteractionTest {
 			fun said() = onNodeWithTag("alias-problem", useUnmergedTree = true)
 
 			// Results pinned and searched within: two searches, kept as one.
-			press(Key.F2)
+			ctrlShift(Key.F)
 			waitForIdle()
 			field("search-query").performTextReplacement("notes")
 			waitUntil(timeoutMillis = TIMEOUT) { shown("match:notes.md") }
@@ -2077,7 +2095,7 @@ class InteractionTest {
 			waitForIdle()
 			onNodeWithTag("menu:Pin search").performClick()
 			waitForIdle()
-			press(Key.F2)
+			ctrlShift(Key.F)
 			waitForIdle()
 			field("search-query").performTextReplacement("md@")
 			waitUntil(timeoutMillis = TIMEOUT) { shown("match:notes.md") }
@@ -2125,7 +2143,7 @@ class InteractionTest {
 			waitForIdle()
 			assertEquals(null, session.state.value.notice)
 			assertFalse(shown("notice"))
-			press(Key.F2)
+			ctrlShift(Key.F)
 			waitForIdle()
 			field("search-query").performTextReplacement("mdnotes@")
 			waitUntil(timeoutMillis = TIMEOUT) { shown("match:notes.md") }
@@ -2159,7 +2177,7 @@ class InteractionTest {
 		picking(folder = home, finder = finderOf(home)) { _ ->
 			fun shown(tag: String) = onAllNodes(hasTestTag(tag)).fetchSemanticsNodes().isNotEmpty()
 
-			press(Key.F2)
+			ctrlShift(Key.F)
 			waitForIdle()
 			onNodeWithTag("search-layer").assertExists()
 			focusIsIn("search-query")
@@ -2205,7 +2223,7 @@ class InteractionTest {
 		val home = home()
 
 		picking(folder = home, finder = finderOf(home)) { _ ->
-			press(Key.F2)
+			ctrlShift(Key.F)
 			waitForIdle()
 			field("search-query").performTextReplacement("?")
 			waitForIdle()
@@ -2221,7 +2239,7 @@ class InteractionTest {
 		val home = home()
 
 		picking(folder = home, finder = finderOf(home)) { session ->
-			press(Key.F2)
+			ctrlShift(Key.F)
 			waitForIdle()
 			field("search-query").performTextReplacement("letter")
 			waitUntil(timeoutMillis = TIMEOUT) {
@@ -2241,6 +2259,53 @@ class InteractionTest {
 	}
 
 	@Test
+	fun ctrlGAsksForAPlaceAndEnterGoesToTheFirstThingListed() {
+		val home = home()
+
+		picking(folder = home, finder = finderOf(home)) { session ->
+			ctrl(Key.G)
+			waitUntil(timeoutMillis = TIMEOUT) { session.state.value.search.open }
+			assertEquals(Aim.Go(), (session.state.value.search as Search.Ready).aim)
+			field("search-query").performTextReplacement("letter")
+			waitUntil(timeoutMillis = TIMEOUT) {
+				onAllNodes(hasTestTag("match:letter.odt")).fetchSemanticsNodes().isNotEmpty()
+			}
+			// The arrows are on it already, and there is no showing every match here.
+			onNodeWithTag("match:letter.odt").assertIsSelected()
+			assertTrue(onAllNodes(hasTestTag("search-go")).fetchSemanticsNodes().isEmpty())
+			press(Key.Enter)
+			waitUntil(timeoutMillis = TIMEOUT) {
+				session.state.value.chosenRows
+					.map { it.name } == listOf("letter.odt")
+			}
+			assertEquals(work.resolve("Documents"), session.state.value.folder)
+			assertFalse(session.state.value.search.open)
+			assertEquals(false, session.outcome.isCompleted)
+
+			// Asked for again while a search of everything is open, the window is for going somewhere.
+			ctrlShift(Key.F)
+			waitUntil(timeoutMillis = TIMEOUT) { session.state.value.search.open }
+			assertEquals(Aim.Find, (session.state.value.search as Search.Ready).aim)
+			ctrl(Key.G)
+			waitUntil(timeoutMillis = TIMEOUT) {
+				(session.state.value.search as Search.Ready).aim is Aim.Go
+			}
+		}
+	}
+
+	@Test
+	fun theToolbarsButtonTurnsThumbnailsOffAndOn() =
+		picking { session ->
+			assertTrue(session.state.value.thumbnails)
+			onNodeWithTag("thumbnails").assertIsSelected()
+			onNodeWithTag("thumbnails").performClick()
+			waitUntil(timeoutMillis = TIMEOUT) { !session.state.value.thumbnails }
+			onNodeWithTag("thumbnails").assertIsNotSelected()
+			onNodeWithTag("thumbnails").performClick()
+			waitUntil(timeoutMillis = TIMEOUT) { session.state.value.thumbnails }
+		}
+
+	@Test
 	fun theRightArrowShowsWhatCanBeDoneToAMatchAndLeftAndEscapeLeaveOnlyTheMenu() {
 		val home = home()
 
@@ -2249,7 +2314,7 @@ class InteractionTest {
 
 			fun menu() = (session.state.value.search as Search.Ready).menu
 
-			press(Key.F2)
+			ctrlShift(Key.F)
 			waitForIdle()
 			field("search-query").performTextReplacement("letter")
 			waitUntil(timeoutMillis = TIMEOUT) { shown("match:letter.odt") }
@@ -2321,7 +2386,7 @@ class InteractionTest {
 	@Test
 	fun withNoIndexTheSearchSaysSo() {
 		picking { _ ->
-			press(Key.F2)
+			ctrlShift(Key.F)
 			waitForIdle()
 			onNodeWithTag("search-ok").assertIsDisplayed()
 			press(Key.Escape)

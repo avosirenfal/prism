@@ -50,6 +50,7 @@ fun actionsOf(listed: Search.Listed, role: Role, terminal: Boolean): List<MatchA
 	when (listed) {
 		is Search.Listed.Prisms -> listOf(MatchAction.Own)
 		is Search.Listed.Named -> listOf(MatchAction.Use)
+		is Search.Listed.Place -> listOf(MatchAction.GoTo, MatchAction.CopyPath)
 		is Search.Listed.Match -> {
 			val folder = listed.matches.isFolder(listed.rank)
 			val onDisk = listed.matches.tree == null
