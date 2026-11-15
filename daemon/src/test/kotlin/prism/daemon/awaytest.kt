@@ -303,6 +303,38 @@ class AwayTest {
 	}
 
 	@Test
+	fun aMountWhoseFileSystemCannotBeAskedForAMomentIsStillTheOneItWas() {
+		made("mnt/data/a.txt")
+		mounts = listOf(mount("/dev/data", "mnt/data"))
+
+		var answering = true
+		val flaky = settings.copy(volumes = { settings.volumes(it).takeIf { answering } })
+
+		LiveIndex
+			.open(
+				file,
+				listOf(root),
+				Indexer(
+					IgnoreRules(emptySet(), emptySet()),
+					mounts,
+					clock = clock,
+					portable = portable,
+				),
+				flaky,
+			).use { live ->
+				live.opened.done()
+				live.remounted().done()
+
+				// Nothing says which it is, this time: it is mounted as it was, so it is what it was.
+				answering = false
+				live.remounted().done()
+				live.rescanRoots().done()
+				assertTrue("mnt/data/a.txt" in live.index.names())
+				assertEquals(emptyList<Any>(), live.kept)
+			}
+	}
+
+	@Test
 	fun oneNotSeenForLongIsLetGo() {
 		made("mnt/data/a.txt")
 		mounts = listOf(mount("/dev/data", "mnt/data"))

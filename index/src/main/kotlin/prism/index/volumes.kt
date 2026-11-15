@@ -68,6 +68,8 @@ class Volumes(
 		when {
 			networked(mount.type) ->
 				Volume(VolumeId("net:${mount.type}:${mount.source}:${mount.root}"), portable = true)
+			// A snapshot looked into is mounted for as long as it is looked at: nothing to keep, or to read.
+			mount.type == ZFS && '@' in mount.source -> null
 			mount.type == ZFS ->
 				fsid(mount.at)?.let {
 					Volume(

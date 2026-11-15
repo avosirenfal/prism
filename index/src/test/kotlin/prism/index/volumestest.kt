@@ -138,8 +138,9 @@ class VolumesTest {
 			Volume(VolumeId("zfs:tank/home:1234"), portable = false),
 			volumes.of(mount("tank/home", "zfs", at = "/tank/home")),
 		)
-		// One that cannot be asked is not known.
+		// One that cannot be asked is not known; nor is a snapshot, which is mounted only while it is looked into.
 		assertNull(volumes.of(mount("tank/other", "zfs", at = "/tank/other")))
+		assertNull(volumes.of(mount("tank/home@monday", "zfs", at = "/tank/home")))
 		assertEquals(
 			Volume(VolumeId("net:nfs4:nas:/export:/"), portable = true),
 			volumes.of(mount("nas:/export", "nfs4")),

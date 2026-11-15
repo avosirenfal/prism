@@ -168,13 +168,14 @@ class LiveIndex private constructor(
 	/** Which file system is mounted at each place the index holds one, as last seen. Under [lock]. */
 	private var mounted: Map<Where, VolumeId> = away.mounted()
 
-	/** The mounts as they were when last looked at, and which file system each is of; null before the first look. Under [lock]. */
-	private var looked: Looked? = null
+	/** The mounts as they were when last looked at; null before the first look. Under [lock]. */
+	private var looked: List<Mount>? = null
 
-	private class Looked(
-		val mounts: List<Mount>,
-		val volumes: Map<Where, Volume>,
-	)
+	/**
+	 * Which file system each mount there is now is of, as it was found when the mount was first seen: asked once a
+	 * mount, so that a mount whose file system cannot be asked for a moment is not taken for another's. Under [lock].
+	 */
+	private var known: Map<Mount, Volume> = emptyMap()
 
 	/** What every change is made under, one at a time. */
 	private val lock = Any()
@@ -243,13 +244,12 @@ class LiveIndex private constructor(
 		synchronized(lock) {
 			val before = looked
 
-			// Which file system each mount is of is asked only when the mounts have changed: it is read from the disk.
-			if (mounts != before?.mounts) {
-				looked = Looked(mounts, volumesOf(mounts))
+			if (mounts != before) {
+				looked = mounts
 				indexer = indexer.mounted(mounts)
 			}
 
-			val now = looked?.volumes.orEmpty()
+			val now = volumesOf(mounts)
 
 			for ((place, volume) in mounted)
 				if (now[place]?.id != volume) {
@@ -258,7 +258,7 @@ class LiveIndex private constructor(
 				}
 			mounted = mounted.filter { (place, volume) -> now[place]?.id == volume }
 
-			val were = before?.mounts?.map { Where.of(it.at) }?.toSet()
+			val were = before?.map { Where.of(it.at) }?.toSet()
 
 			// What is mounted where the index holds its place and has not noted it: put back, where its tree is kept;
 			// noted, unless it is one the indexer leaves out. A place the index does not hold yet (its root still
@@ -289,12 +289,20 @@ class LiveIndex private constructor(
 	fun expire(): List<Kept> =
 		away.expire(settings.clock().minus(settings.keepAway.toJavaDuration()))
 
-	/** Which file system is mounted at each place, of those that say which they are; the later, of two at one place. */
-	private fun volumesOf(mounts: List<Mount>): Map<Where, Volume> =
-		mounts
-			.mapNotNull { mount ->
-				settings.volumes(mount)?.let { Where.of(mount.at) to it }
-			}.toMap()
+	/**
+	 * Which file system is mounted at each place, of those that say which they are; the later, of two at one place.
+	 * A mount seen before is of what it was then; one not yet known is asked again, each time. Under [lock].
+	 */
+	private fun volumesOf(mounts: List<Mount>): Map<Where, Volume> {
+		val volumes =
+			mounts.mapNotNull { mount ->
+				(known[mount] ?: settings.volumes(mount))?.let { mount to it }
+			}
+
+		known = volumes.toMap()
+
+		return volumes.associate { (mount, volume) -> Where.of(mount.at) to volume }
+	}
 
 	/** Whether the index holds [place], or would hold what is put there: a root, or in a folder it holds. */
 	private fun holds(place: Where): Boolean =
