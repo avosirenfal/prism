@@ -172,11 +172,15 @@ private fun did(state: BrowserState, event: BrowserEvent): Step =
 		is BrowserEvent.Clicked -> Step(state.clicked(event.row, event.click))
 		BrowserEvent.ClickedNowhere -> Step(state.copy(chose = state.choosing.unchosen()))
 		is BrowserEvent.Activated -> state.activated(event.row)
+		// A row given as the answer, from its menu: saving, a file to save over, which is asked first as opening it
+		// asks; otherwise chosen, and accepted.
 		is BrowserEvent.Picked ->
-			if (event.row in state.rows)
-				state.copy(chose = state.choosing.chose(setOf(event.row), state.rows)).accepted()
-			else
-				Step(state)
+			when {
+				event.row !in state.rows -> Step(state)
+				state.choosing is Choosing.SaveAs -> state.activated(event.row)
+				else ->
+					state.copy(chose = state.choosing.chose(setOf(event.row), state.rows)).accepted()
+			}
 		is BrowserEvent.Moved -> Step(state.moved(event.move, event.carry))
 		BrowserEvent.Toggled -> Step(state.toggled())
 		BrowserEvent.ChoseAll -> Step(state.choseAll())
@@ -330,7 +334,7 @@ private fun did(state: BrowserState, event: BrowserEvent): Step =
 			Step(state.rearranged(offered = state.offered.using(event.filter)))
 		is BrowserEvent.Named ->
 			Step(
-				state.copy(chose = state.choosing.named(event.text, state.rows)),
+				state.copy(chose = state.choosing.named(event.text)),
 			)
 		BrowserEvent.EditedAddress ->
 			Step(
@@ -871,10 +875,10 @@ internal fun BrowserState.activated(id: RowId): Step {
 	return when {
 		row.isFolder -> went(path)
 		choosing is Choosing.Exploring -> Step(this, listOf(Effect.Open(listOf(path))))
+		// Saving, a file opened is the file to save over: chosen, and saved over once the user says so. The name
+		// typed is left as it is, for the answer to be no.
 		choosing is Choosing.SaveAs ->
-			copy(
-				chose = choosing.chose(setOf(id), rows),
-			).accepted()
+			copy(chose = choosing.chose(setOf(id), rows)).notice(Notice.Replace(path))
 		else -> finished(listOf(path))
 	}
 }
@@ -910,15 +914,8 @@ internal fun BrowserState.accepted(): Step {
 				files.isNotEmpty() -> finished(files.mapNotNull { it.path })
 				else -> chosen.singleOrNull()?.let { opening(it) } ?: Step(this)
 			}
-		is Choosing.SaveAs ->
-			when (val one = chosen.singleOrNull()) {
-				null -> looking(choosing.name)
-				else ->
-					if (one.isFolder)
-						opening(one)
-					else
-						looking(choosing.name)
-			}
+		// The name typed is what is saved under, whatever row is chosen.
+		is Choosing.SaveAs -> looking(choosing.name)
 		is Choosing.Folder ->
 			when {
 				!choosing.typed.isNullOrBlank() -> looking(choosing.typed)
@@ -1877,7 +1874,8 @@ private fun BrowserState.freeName(wanted: String): String {
 
 /**
  * [ids] chosen in place of what was: all of them where several can be, and otherwise the one (callers give one).
- * Choosing a row puts the name field back to showing what is chosen; saving, a file chosen gives its name.
+ * Opening, choosing a row puts the name field back to showing what is chosen; saving, the name to save under is
+ * left as it is.
  */
 internal fun Choosing.chose(ids: Set<RowId>, rows: Rows): Choosing {
 	val one = ids.lastOrNull()
@@ -1885,11 +1883,7 @@ internal fun Choosing.chose(ids: Set<RowId>, rows: Rows): Choosing {
 	return when (this) {
 		is Choosing.OneFile -> Choosing.OneFile(one)
 		is Choosing.Files -> Choosing.Files(ids)
-		is Choosing.SaveAs ->
-			Choosing.SaveAs(
-				name = one?.let(rows::get)?.takeUnless { it.isFolder }?.name ?: name,
-				chosen = one,
-			)
+		is Choosing.SaveAs -> copy(chosen = one)
 		is Choosing.Folder -> Choosing.Folder(one)
 		is Choosing.Exploring -> Choosing.Exploring(ids)
 	}
@@ -1925,20 +1919,12 @@ internal fun Choosing.unchosen(): Choosing =
 		is Choosing.Exploring -> copy(chosen = emptySet())
 	}
 
-/** [text] typed into the name field. Saving, a folder chosen is let go, so the button saves again. */
-private fun Choosing.named(text: String, rows: Rows): Choosing =
+/** [text] typed into the name field. */
+private fun Choosing.named(text: String): Choosing =
 	when (this) {
 		is Choosing.OneFile -> copy(typed = text)
 		is Choosing.Files -> copy(typed = text)
-		is Choosing.SaveAs ->
-			copy(
-				name = text,
-				chosen =
-					chosen?.takeUnless {
-						rows[it]?.isFolder ==
-							true
-					},
-			)
+		is Choosing.SaveAs -> copy(name = text)
 		is Choosing.Folder -> copy(typed = text)
 		// Nothing is typed into a name field while exploring: there is none.
 		is Choosing.Exploring -> this

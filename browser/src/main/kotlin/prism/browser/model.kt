@@ -744,8 +744,9 @@ data class Renaming(
  * What the picker is asked to choose, and what has been chosen so far. Each kind holds exactly what it can: a
  * picker for one file cannot hold two, and one that saves always has a name to save under.
  *
- * The name field shows what has been chosen until something is typed into it; from then on, what was typed is what
- * the picker accepts ([typed]), until a row is chosen again.
+ * Opening, the name field shows what has been chosen until something is typed into it; from then on, what was typed
+ * is what the picker accepts ([typed]), until a row is chosen again. Saving, the field is the name to save under and
+ * nothing else: choosing a row never writes into it.
  */
 @Immutable
 sealed interface Choosing {
@@ -761,7 +762,11 @@ sealed interface Choosing {
 		val typed: String? = null,
 	) : Choosing
 
-	/** A name to save under, in the folder shown. Choosing a file gives its name; choosing a folder, a way into it. */
+	/**
+	 * A name to save under, in the folder shown. A row chosen is only chosen: the [name] is what is typed, and what
+	 * is saved under, whatever is chosen. A file is saved over by opening it (a double click, Enter on it), once the
+	 * user has said so.
+	 */
 	data class SaveAs(
 		val name: String,
 		val chosen: RowId? = null,
@@ -1385,16 +1390,10 @@ data class BrowserState(
 
 	/**
 	 * The button that accepts, worked out from what has been chosen and typed, in the asking application's words
-	 * where it gave any; but for a folder chosen while saving, which the button opens, and says so.
+	 * where it gave any.
 	 */
 	val accept: Accept
-		get() =
-			ownAccept.let { own ->
-				if (acceptLabel == null || (own.label == "Open" && choosing is Choosing.SaveAs))
-					own
-				else
-					own.copy(label = acceptLabel)
-			}
+		get() = ownAccept.let { own -> acceptLabel?.let { own.copy(label = it) } ?: own }
 
 	private val ownAccept: Accept
 		get() =
@@ -1410,11 +1409,8 @@ data class BrowserState(
 						choosing.typed?.isNotBlank()
 							?: chosenRows.let { chosen -> chosen.any { !it.isFolder } || chosen.size == 1 },
 					)
-				is Choosing.SaveAs ->
-					if (chosenRows.singleOrNull()?.isFolder == true)
-						Accept("Open", true)
-					else
-						Accept("Save", choosing.name.isNotBlank())
+				// The name alone says whether there is something to save under, whatever row is chosen.
+				is Choosing.SaveAs -> Accept("Save", choosing.name.isNotBlank())
 				// A folder picker always has a folder in a folder: the one shown, when none is chosen or typed.
 				is Choosing.Folder ->
 					Accept(

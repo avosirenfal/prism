@@ -107,7 +107,7 @@ What the picker is for is a sealed type, and each kind holds only what it can:
 |---|---|---|---|
 | `OneFile` | one row or none | Open, once something is chosen or typed | a file is opened; a folder is gone into |
 | `Files` | any number of rows | Open, once a file is chosen (or one folder) | the files among them are opened; one folder alone is gone into |
-| `SaveAs` | one row or none, and always a name | Save, once the name is not blank; Open while a folder is chosen | saved under the name, asking first if it is a file already; a chosen folder is gone into |
+| `SaveAs` | one row or none, and always a name | Save, once the name is not blank, whatever is chosen | saved under the name, asking first if it is a file already |
 | `Folder` | one folder or none | Select folder, always | the chosen folder, or the folder shown when none is |
 
 So a picker for one file cannot hold two chosen rows: the type has room for one. And a saving picker always has a
@@ -119,9 +119,15 @@ no state that breaks those can exist, and so the view is never given one.
 
 ### The name field
 
-The name field shows what is chosen ("notes.md", or `"a.txt" "b.txt"` for several) until you type into it. From then
-on, what you typed is what the picker accepts, until you choose a row again. That is stored as the `typed` text of the
-`Choosing`: null while the field follows the rows, the text once you have typed.
+Opening, the name field shows what is chosen ("notes.md", or `"a.txt" "b.txt"` for several) until you type into it.
+From then on, what you typed is what the picker accepts, until you choose a row again. That is stored as the `typed`
+text of the `Choosing`: null while the field follows the rows, the text once you have typed.
+
+Saving, the field is the name to save under and nothing else. A click on a file or a folder, or the arrows moving
+to one, only chooses it: the name (the one the application suggested, or what you typed) is left as it is, and Save
+saves under it, in the folder shown, whatever is chosen. A file is saved over by opening it: a double click, or Enter
+on it in the listing, or "Replace" in its menu, asks whether to replace it, and saves over it once you say so. A
+folder opened is gone into, the name kept. With no name there is nothing to save under, and the button is off.
 
 What is typed can be a name, several names in quotes, a path (`Documents/2026`), a path from your home (`~/notes`),
 or a path from the root (`/etc/hosts`). Before the picker does anything with it, it is looked up on disk:
@@ -463,7 +469,7 @@ to, as the picker's kind says:
 | the picker | a file chosen | a folder chosen |
 |---|---|---|
 | opens files | its folder, with the file chosen; Open opens it | into the folder |
-| saves | its folder, with the file chosen and its name in the name field; Save asks before replacing it | into the folder |
+| saves | its folder, with the file chosen and the name to save under left as it was; opening the file (a double click, Enter) asks before replacing it | into the folder |
 | chooses a folder | (it finds only folders) | into the folder |
 
 Nothing is accepted for you. Going to a match is only going there; the picker's own button still accepts. A click on a

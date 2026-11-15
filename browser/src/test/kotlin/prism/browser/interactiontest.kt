@@ -427,16 +427,64 @@ class InteractionTest {
 		}
 
 	@Test
-	fun savingOverAFileAsksFirst() =
+	fun savingAClickOnlyChoosesAndADoubleClickAsksToReplace() =
 		picking(Choosing.SaveAs("draft.txt")) { session ->
+			// A click chooses the file, and the name to save under is left alone.
 			row("notes.md").performClick()
-			field("name").assertTextEquals("notes.md")
-			onNodeWithTag("accept").performClick()
+			waitForIdle()
+			row("notes.md").assertIsSelected()
+			field("name").assertTextEquals("draft.txt")
+			onNodeWithTag("accept").assertTextEquals("Save")
 
+			// A folder clicked is chosen too, and the button still saves.
+			row("Documents").performClick()
+			waitForIdle()
+			field("name").assertTextEquals("draft.txt")
+			onNodeWithTag("accept").assertTextEquals("Save")
+
+			// A double click on a file asks whether to save over it, and yes saves over it.
+			row("notes.md").performMouseInput { doubleClick() }
 			waitUntil(timeoutMillis = TIMEOUT) {
 				onAllNodes(hasTestTag("notice")).fetchSemanticsNodes().isNotEmpty()
 			}
+			field("name").assertTextEquals("draft.txt")
 			onNodeWithTag("yes").assertIsFocused()
+			onNodeWithTag("yes").performClick()
+
+			assertEquals(Outcome.Chosen(listOf(work.resolve("notes.md"))), ended(session))
+		}
+
+	@Test
+	fun savingEnterOnAFileInTheListAsksToReplaceIt() =
+		picking(Choosing.SaveAs("draft.txt")) { session ->
+			row("notes.md").performClick()
+			waitForIdle()
+			focusIsIn("listing")
+			press(Key.Enter)
+			waitUntil(timeoutMillis = TIMEOUT) {
+				onAllNodes(hasTestTag("notice")).fetchSemanticsNodes().isNotEmpty()
+			}
+			assertEquals(Notice.Replace(work.resolve("notes.md")), session.state.value.notice)
+			field("name").assertTextEquals("draft.txt")
+		}
+
+	@Test
+	fun savingUnderTheNameOfAFileThereIsAsksFirst() =
+		picking(Choosing.SaveAs("draft.txt")) { session ->
+			// Typed and entered, and typed and the button pressed: asked both ways.
+			field("name").performTextReplacement("notes.md")
+			press(Key.Enter)
+			waitUntil(timeoutMillis = TIMEOUT) {
+				onAllNodes(hasTestTag("notice")).fetchSemanticsNodes().isNotEmpty()
+			}
+			assertEquals(Notice.Replace(work.resolve("notes.md")), session.state.value.notice)
+			onNodeWithTag("no").performClick()
+			waitForIdle()
+
+			onNodeWithTag("accept").performClick()
+			waitUntil(timeoutMillis = TIMEOUT) {
+				onAllNodes(hasTestTag("notice")).fetchSemanticsNodes().isNotEmpty()
+			}
 			onNodeWithTag("yes").performClick()
 
 			assertEquals(Outcome.Chosen(listOf(work.resolve("notes.md"))), ended(session))

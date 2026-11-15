@@ -1036,6 +1036,7 @@ private fun ListingPane(
 	var deferred by remember { mutableStateOf<RowId?>(null) }
 	val hint = LocalDropHint.current
 	val exploring = state.choosing is Choosing.Exploring
+	val saving = state.choosing is Choosing.SaveAs
 	val world = LocalWorld.current
 	val columns = state.columns.shown
 	// Each part of a date as wide as its widest, and a character of the rows' text, at the size the rows are drawn.
@@ -1322,8 +1323,9 @@ private fun ListingPane(
 		for (action in bindings.listings(chord))
 			when (action) {
 				is Action ->
-					// Enter on one row is a double click of it, which an action of the user's may be the doing of.
-					if (action == Action.Open && exploring && targets().size == 1) {
+					// Enter on one row is a double click of it, which an action of the user's may be the doing of; and
+					// saving, it is the file to save over, or the folder to go into, and never the name typed.
+					if (action == Action.Open && (exploring || saving) && targets().size == 1) {
 						activate(targets().single().id)
 
 						return true

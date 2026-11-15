@@ -201,7 +201,7 @@ class FindTest {
 	}
 
 	@Test
-	fun aFileChosenToSaveOverIsGoneToNamedAndReplacedOnlyOnceTheUserSaysSo() {
+	fun aFileGoneToWhileSavingIsChosenAndTheNameIsLeftAsItWas() {
 		made("deep/budget.xlsx", "other.txt")
 
 		val chosen =
@@ -210,13 +210,17 @@ class FindTest {
 				BrowserEvent.MatchChosen(0),
 			)
 
+		// Gone to and chosen, as a click would choose it: the name to save under is what it was.
 		assertEquals(root.resolve("deep"), chosen.folder)
-		assertEquals("budget.xlsx", chosen.nameField)
 		assertEquals(listOf("budget.xlsx"), chosen.chosenRows.map { it.name })
+		assertEquals("untitled.xlsx", chosen.nameField)
 
-		val saving = after(chosen, BrowserEvent.Accepted)
-
-		assertEquals(Notice.Replace(root.resolve("deep/budget.xlsx")), saving.notice)
+		// Save saves under the name, beside it; opened, it is saved over once the user says so.
+		assertNull(after(chosen, BrowserEvent.Accepted).notice)
+		assertEquals(
+			Notice.Replace(root.resolve("deep/budget.xlsx")),
+			after(chosen, BrowserEvent.Activated(chosen.chosenRows.single().id)).notice,
+		)
 	}
 
 	@Test

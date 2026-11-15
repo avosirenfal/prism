@@ -991,43 +991,105 @@ class StepTest {
 	}
 
 	@Test
-	fun savingOverAFileAsksFirst() {
+	fun savingARowChosenIsOnlyChosenAndTheNameIsWhatIsSavedUnder() {
 		val save =
 			after(
 				picker(Choosing.SaveAs("draft.txt")),
 				BrowserEvent.Clicked(id("notes.md"), Click.Only),
 			)
 
-		// Choosing a file gives its name.
-		assertEquals("notes.md", save.nameField)
+		// A click chooses the file and nothing else: the name is what it was, and Save saves under it.
+		assertEquals(listOf("notes.md"), names(save))
+		assertEquals("draft.txt", save.nameField)
+		assertEquals(Accept("Save", true), save.accept)
+		assertEquals(
+			chosen(listOf(home.resolve("draft.txt"))),
+			step(save, BrowserEvent.Accepted).settledEffects(),
+		)
 
-		val asked = after(save, BrowserEvent.Accepted)
+		// Moved to with the keyboard, the same.
+		val moved = after(save, BrowserEvent.Moved(Move.By(1), Carry.Choose))
+
+		assertEquals(1, names(moved).size)
+		assertTrue(names(moved) != names(save))
+		assertEquals("draft.txt", moved.nameField)
+
+		// What was typed stays what was typed, whatever is chosen after it.
+		val typed =
+			after(
+				save,
+				BrowserEvent.Named("other.txt"),
+				BrowserEvent.Clicked(id("todo.txt"), Click.Only),
+			)
+
+		assertEquals("other.txt", typed.nameField)
+		assertEquals(listOf("todo.txt"), names(typed))
+		assertEquals(
+			chosen(listOf(home.resolve("other.txt"))),
+			step(typed, BrowserEvent.Accepted).settledEffects(),
+		)
+
+		// With no name there is nothing to save under, a file chosen or not: the button is off, and does nothing.
+		val unnamed = after(save, BrowserEvent.Named(""))
+
+		assertEquals(Accept("Save", false), unnamed.accept)
+		assertEquals(Step(unnamed), step(unnamed, BrowserEvent.Accepted))
+	}
+
+	@Test
+	fun savingOverAFileAsksFirst() {
+		val save = picker(Choosing.SaveAs("draft.txt"))
+
+		// A file opened (a double click, Enter on it) is the file to save over, once the user says so.
+		val asked = after(save, BrowserEvent.Activated(id("notes.md")))
 
 		assertEquals(Notice.Replace(home.resolve("notes.md")), asked.notice)
+		assertEquals(listOf("notes.md"), names(asked))
+		assertEquals("draft.txt", asked.nameField)
 		assertEquals(
 			chosen(listOf(home.resolve("notes.md"))),
 			effectsOf(asked, BrowserEvent.Confirmed),
 		)
-		assertNull(after(asked, BrowserEvent.Dismissed).notice)
+
+		// Answered no, nothing is saved, and the name is still what it was.
+		val kept = after(asked, BrowserEvent.Dismissed)
+
+		assertNull(kept.notice)
+		assertEquals("draft.txt", kept.nameField)
+
+		// Its menu's "Replace" asks the same; and so does the name of a file there is, typed and accepted.
+		assertEquals(
+			Notice.Replace(home.resolve("notes.md")),
+			after(save, BrowserEvent.Picked(id("notes.md"))).notice,
+		)
+		assertEquals(
+			Notice.Replace(home.resolve("notes.md")),
+			after(save, BrowserEvent.Named("notes.md"), BrowserEvent.Accepted).notice,
+		)
 	}
 
 	@Test
-	fun savingWithAFolderChosenGoesIntoIt() {
+	fun savingAFolderChosenIsOnlyChosenAndOpenedIsGoneInto() {
 		val save =
 			after(
 				picker(Choosing.SaveAs("draft.txt")),
 				BrowserEvent.Clicked(id("Documents"), Click.Only),
 			)
 
-		assertEquals(Accept("Open", true), save.accept)
+		// Chosen, it changes neither the name nor what the button does: Save saves here, under the name.
+		assertEquals(Accept("Save", true), save.accept)
 		assertEquals("draft.txt", save.nameField)
+		assertEquals(
+			chosen(listOf(home.resolve("draft.txt"))),
+			step(save, BrowserEvent.Accepted).settledEffects(),
+		)
 
-		val there = after(save, BrowserEvent.Accepted)
+		// Opened, it is gone into, with the name still to save under.
+		val there = after(save, BrowserEvent.Activated(id("Documents")))
 
 		assertEquals(home.resolve("Documents"), there.folder)
 		assertEquals("draft.txt", there.nameField)
-		// Typing a name lets the folder go, so the button saves again.
-		assertEquals(Accept("Save", true), after(save, BrowserEvent.Named("other.txt")).accept)
+		assertEquals(Accept("Save", true), there.accept)
 	}
 
 	@Test
