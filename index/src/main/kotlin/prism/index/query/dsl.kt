@@ -143,7 +143,14 @@ object PathPatterns {
 
 		return when {
 			under -> PathPattern(base, levelsOf(pieces.dropLast(1)), PathPattern.Last.Under)
-			last == "**" -> PathPattern(base, levelsOf(pieces.dropLast(1)), PathPattern.Last.Under)
+			// Everything under, said in so many words: kept as the level it is, which tells it from a folder named
+			// (`a/`), though both are all there is under `a`.
+			last == "**" ->
+				PathPattern(
+					base,
+					levelsOf(pieces.dropLast(1)) + Segment.AnyLevels,
+					PathPattern.Last.Under,
+				)
 			last.startsWith("**") ->
 				PathPattern(
 					base,

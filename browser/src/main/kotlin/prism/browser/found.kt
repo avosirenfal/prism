@@ -154,7 +154,9 @@ value class Refines private constructor(
 
 /**
  * The query [read] asks for, as [choosing] searches it, within [refines] (whose own `name@`s are the user's
- * [aliases]): a folder picker finds only folders, as if `is:dir` were typed.
+ * [aliases]): a folder picker finds only folders, as if `is:dir` were typed. That `is:dir` is the picker's and not
+ * the user's, so it is said after what they typed is aimed ([Query.aimed]): `funny/` in a folder picker is the
+ * folders named funny, as it is anywhere, and not the folders inside them, which it would be had they typed it.
  */
 fun queryOf(
 	read: ReadQuery,
@@ -163,7 +165,7 @@ fun queryOf(
 	aliases: Aliases,
 ): Query =
 	Query(
-		refines.terms(aliases) + read.query.terms +
+		Query(refines.terms(aliases) + read.query.terms).aimed().terms +
 			listOfNotNull(Term(Test.Is(setOf(Flag.Dir))).takeIf { choosing is Choosing.Folder }),
 	)
 

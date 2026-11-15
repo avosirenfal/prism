@@ -96,7 +96,8 @@ A term with a `/` in it is a path. Each `/` is one level:
 - an absolute path matches the whole path: `/home/*/Documents/*.pdf` is a PDF directly in any user's `Documents`;
 - `**` is any number of levels, as a whole level (`funny/**/b`) or starting the last one (`funny/**.jpg`, which is
   `funny/**` and then `*.jpg`);
-- a trailing `/` (or a last level of `**`) is everything under the folder, at any depth: `work/2024/`, `/mnt/photos/`;
+- a trailing `/` is a folder, and a last level of `**` is everything under one, at any depth: `work/2024/`,
+  `/mnt/photos/**` (what a folder term finds is the next section);
 - `~` is the home folder, and `~name` is a folder the user has named so, an alias for one folder or several:
   `~/Downloads/`, `~reports/`.
 
@@ -317,8 +318,8 @@ each, results ranked and ordered:
 | `is:dir` | 131,842 | 9 ms |
 | `dir:photos *.jpg` | 1,106,888 | 51 ms |
 | `dir:project*:1 =readme` | 13,878 | 17 ms |
-| `/home/*/Documents/` | 352,114 | 23 ms |
-| `work/2024/` | 34,467 | 12 ms |
+| `/home/*/Documents/ *` | 352,114 | 23 ms |
+| `work/2024/ *` | 34,467 | 12 ms |
 | `r/^img_\d{4}/` | 1,106,888 | 63 ms |
 | `r/2024/p` | 180,409 | 279 ms |
 
@@ -402,6 +403,39 @@ that is the order they were made in, as it happened, with no need of the dates t
 it, and `Index.newest(count)` gives the newest entries, newest first, in one pass over the stamps: what a picker
 offers as what was lately made.
 
+## Folders, and what is in them
+
+A path that ends in `/` is a **folder term**: `funny/`, `nsight*/`, `~/projects/`. It says where, and tests nothing
+of an entry itself. Every other term is an **entry term**: a word, an extension, `type:`, `is:`, `dir:`, a regex, a
+path that ends in a name (`funny/*`), a path that ends in `**`.
+
+- **With an entry term**, a query finds entries, and each folder term says they are inside such a folder, at any
+  depth.
+- **With folder terms and no entry term**, a query finds the folders themselves, to be gone to, and not what they
+  hold. With several, it finds the folders one of them names that are inside what each of the others names, in
+  whatever order they are written.
+
+| query | finds |
+|---|---|
+| `funny/` | the folders named exactly `funny` (not `funny-videos`, and not a file named `funny`) |
+| `nsight*/`, `*nsight/`, `*nsight*/` | the folders whose names start with, end with, hold `nsight` |
+| `~/projects/` | that one folder |
+| `~/projects/ prism/` | the folders named `prism` under `~/projects` |
+| `funny/*` | what is directly in folders named `funny` |
+| `funny/ *`, `funny/**` | everything under them |
+| `funny/ .jpg`, `funny/ type:image` | the JPEGs, the pictures, under them |
+| `funny/ is:dir` | the folders under them: `is:dir` is asked of an entry |
+| `funny/ -draft/` | the folders named `funny` that are not under a folder named `draft` |
+
+A folder term negated (`-draft/`) says where not to look, and is neither kind: it changes nothing of which case
+holds. A folder picker shows only folders, as if `is:dir` were typed; that is the picker's and not the user's, so
+`funny/` in one is the folders named `funny` still.
+
+It is decided in one place, `Query.aimed` (`index/query/query.kt`): a query of folder terms alone is searched for as
+`Test.Folders`, a folder one of its paths leads to that is under what every other leads to. The index's walk checks
+it with the states it already keeps of an entry's ancestors, one step further for the entry's own name: over 1.1
+million entries `work/2024/` takes 6 ms, where `work/2024/ *` takes 9.
+
 ## Aliases
 
 An alias is a name for a query written often, used in another by its name and an `@`. With `projects` defined as
@@ -409,7 +443,9 @@ An alias is a name for a query written often, used in another by its name and an
 
 | query | finds |
 |---|---|
-| `projects@ prism/` | everything under `~/projects` with `prism/` in its path: the prism project's folder |
+| `projects@` | the folder `~/projects` |
+| `projects@ prism/` | the folders named `prism` under `~/projects`: the prism project's folder, to go to |
+| `projects@ prism/ main` | what is named `main` in it |
 | `raws@` | the raw files under `~/Photos` |
 | `raws@ 2024/` | those of them under a folder named `2024` |
 | `-raws@ ext:raw` | the raw files that are not under `~/Photos` |
@@ -430,9 +466,10 @@ open.
   way about, and one of several is "not all of these", which the index checks as a group (`Test.All`).
 - **Aliases in aliases.** A definition may use others (`raws2024` as `raws@ 2024/`). One that would come back to
   itself is not an alias, and the page says so; nor is one whose query is wrong, or names an alias there is none of.
-- **A folder needs its `/`.** `~/projects` is the folder itself, as an entry; `~/projects/` is what is inside it,
-  which is what an alias for a folder is for. The page says so under a query that names a folder without it, and
-  mends it when asked.
+- **A folder needs its `/`.** `~/projects` is an entry term, the folder as something found, which nothing else can
+  then be inside; `~/projects/` is a folder term, which alone finds the folder and with other terms says where they
+  are (above), which is what an alias for a folder is for. The page says so under a query that names a folder
+  without it, and mends it when asked.
 - **From a search.** "Search results" in the address bar, right-clicked, has "Save as alias…": it asks for a name
   and keeps the search shown under it, held to the same rule as the page's (`Aliases.unfitAdded`). Results found
   within pinned searches are kept as all of those searches written as one (`QueryText.joined`); results found

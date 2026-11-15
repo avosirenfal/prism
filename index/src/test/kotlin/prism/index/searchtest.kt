@@ -421,7 +421,7 @@ class SearchTest {
 				+exactly("report")
 			},
 		)
-		// work/2024/
+		// work/2024/ *
 		assertEquals(
 			setOf(
 				"work/2024/q1.xlsx",
@@ -429,12 +429,22 @@ class SearchTest {
 				"work/2024/notes/x.md",
 				"other/work/2024/y.txt",
 			),
-			found { +path("work/2024/") },
+			found {
+				+path("work/2024/")
+				+word("*")
+			},
 		)
-		// /mnt/photos/
+		// /mnt/photos/ *, and /mnt/photos/**, which is the same said in one term
 		assertEquals(
 			setOf("mnt/photos/2023", "mnt/photos/2023/a.jpg", "mnt/photos/b.jpg"),
-			found { +path("$root/mnt/photos/") },
+			found {
+				+path("$root/mnt/photos/")
+				+word("*")
+			},
+		)
+		assertEquals(
+			setOf("mnt/photos/2023", "mnt/photos/2023/a.jpg", "mnt/photos/b.jpg"),
+			found { +path("$root/mnt/photos/**") },
 		)
 		// /home/*/Documents/*.pdf
 		assertEquals(
@@ -451,15 +461,22 @@ class SearchTest {
 				aliases = mapOf("reports" to listOf(root.resolve("work"), root.resolve("home/bob"))),
 			)
 
-		// ~/Downloads/
+		// ~/Downloads/ *
 		assertEquals(
 			setOf(
 				"home/alice/Downloads/invoice.pdf",
 				"home/alice/Downloads/sub",
 				"home/alice/Downloads/sub/invoice2.pdf",
 			),
-			found(named) { +path("~/Downloads/") },
+			found(named) {
+				+path("~/Downloads/")
+				+word("*")
+			},
 		)
+		// ~/Downloads/, ~/ and ~reports/ alone: the folders themselves
+		assertEquals(setOf("home/alice/Downloads"), found(named) { +path("~/Downloads/") })
+		assertEquals(setOf("home/alice"), found(named) { +path("~/") })
+		assertEquals(setOf("work", "home/bob"), found(named) { +path("~reports/") })
 		// ~/Downloads/inv
 		assertEquals(
 			setOf("home/alice/Downloads/invoice.pdf"),

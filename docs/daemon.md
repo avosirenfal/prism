@@ -149,9 +149,9 @@ What the index leaves out is said by rules (`Exclusions`, `index/exclusions.kt`)
 
 **What a rule names.** A folder by its path (`/nix`, `~/Games`), or entries by a query in the search language
 (docs/search.md). A rule covers every entry it names and everything under one: nothing under a folder left out is
-held, at any depth. A rule that is one path term ending in `/` names the folder itself, where the same words typed as
-a search find what is inside it: `build/` as a rule is each folder named build and all it holds (a file named `build`
-is no folder, and is kept). A rule tells upper case from lower, as the disk does, unless a term of it says otherwise.
+held, at any depth. A rule of folder terms alone names the folders, as the same words typed as a search find them
+(docs/search.md, "Folders, and what is in them"): `build/` as a rule is each folder named build and all it holds (a
+file named `build` is no folder, and is kept). A rule tells upper case from lower, as the disk does, unless a term of it says otherwise.
 A query a rule may be is one that can be decided of an entry by where it is, what it is called and what kind of thing
 it is, as the disk is read: `recent:`, `new:`, `mount:`, an alias (`raws@`) and a named folder (`~work`) are refused,
 with why.

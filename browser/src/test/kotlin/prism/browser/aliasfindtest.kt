@@ -91,10 +91,12 @@ class AliasFindTest {
 
 		val prism = searched(explorer(), "projects@ prism/").ready.found as Finding.Matched
 
+		// Folder terms alone: the folder, to be gone to; and with something asked of what is in it, that.
 		assertEquals(
-			listOf("$root/projects/prism/notes.md"),
+			listOf("$root/projects/prism"),
 			prism.matches.ranks.map { prism.matches.pathOf(it).toString() },
 		)
+		assertEquals(setOf("notes.md"), searched(explorer(), "projects@ prism/ notes").listed())
 
 		// One there is none of is said, and the rest is searched for without it.
 		val unknown = searched(explorer(), "nosuch@ .raw")

@@ -267,11 +267,16 @@ class AliasesTest {
 
 	@Test
 	fun anAliasStandsForItsQueryAmongTheOtherTerms() {
-		// The user's own two.
+		// The user's own two. A folder under the folders the first stands for: the folder, to be gone to.
+		assertEquals(setOf("projects/prism"), found("projects@ prism/"))
+		assertEquals(setOf("projects/prism"), found("prism/ projects@"))
+		// And with something asked of what is in it, what is in it.
 		assertEquals(
 			setOf("projects/prism/build.kts", "projects/prism/src", "projects/prism/src/main.kt"),
-			found("projects@ prism/"),
+			found("projects@ prism/ *"),
 		)
+		// Alone, it is the folder it names.
+		assertEquals(setOf("projects"), found("projects@"))
 		assertEquals(setOf("Photos/a.raw", "Photos/2024/b.raw"), found("raws@"))
 		assertEquals(setOf("Photos/2024/b.raw"), found("raws@ 2024/"))
 		// One that uses another.
@@ -300,7 +305,8 @@ class AliasesTest {
 			QueryText.read("-$root/projects/ prism").query,
 			QueryText.read("-projects@ prism", aliases).query,
 		)
-		assertEquals(setOf("elsewhere/prism/e.txt"), found("-projects@ prism/"))
+		assertEquals(setOf("elsewhere/prism"), found("-projects@ prism/"))
+		assertEquals(setOf("elsewhere/prism/e.txt"), found("-projects@ prism/ *"))
 		assertEquals(QueryText.read("draft").query, QueryText.read("-final@", aliases).query)
 	}
 

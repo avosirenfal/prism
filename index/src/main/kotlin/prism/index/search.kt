@@ -105,15 +105,24 @@ fun Query.named(context: SearchContext = SearchContext()): List<Where> =
 		.filterNot { it.negated }
 		.flatMap { term ->
 			val pattern = (term.test as? Test.InPath)?.pattern ?: return@flatMap emptyList()
+			// A path that ends in `**` is the folder before it, and all under: the same place as that folder's.
+			val segments =
+				if (pattern.last == PathPattern.Last.Under &&
+					pattern.segments.lastOrNull() == Segment.AnyLevels
+				)
+					pattern.segments.dropLast(1)
+				else
+					pattern.segments
+
 			val whole =
-				pattern.segments.all {
+				segments.all {
 					(it as? Segment.Named)?.pattern is TextPattern.Literal
 				}
 
 			val folders =
 				placesOf(
 					pattern.base,
-					pattern.segments,
+					segments,
 					context,
 				).takeIf { whole }.orEmpty()
 
@@ -296,7 +305,9 @@ private class Plan(
 		/** How many entries a walk takes at a time, a slice of a block walked on one core. */
 		const val SLICE = 1 shl 16
 
-		fun of(query: Query, context: SearchContext, index: Index): Planning {
+		fun of(asked: Query, context: SearchContext, index: Index): Planning {
+			// What is searched for is what the query is aimed at: the folders, for one of folder terms alone.
+			val query = asked.aimed()
 			// Each check that keeps a state at each level of a walk has a slot of its own for it.
 			val slots = generateSequence(0) { it + 1 }.iterator()
 			val compiled = query.terms.map { compile(it, context, index) { slots.next() } }
@@ -312,32 +323,46 @@ private class Plan(
 						if (context.hiding.none)
 							emptyList()
 						else
-							query.named(context),
+							asked.named(context),
 					),
 				)
 		}
 
-		/** The words whose match of a name ranks a result: those of the terms that ask for a name to hold some text. */
-		private fun wordsOf(query: Query, context: SearchContext): List<Word> =
-			query.terms
+		/**
+		 * The words whose match of a name ranks a result: those of the terms that ask for a name to hold some text,
+		 * and the names of the folders a query of folder terms asks for.
+		 */
+		private fun wordsOf(query: Query, context: SearchContext): List<Word> {
+			fun word(text: String, case: Case): Word {
+				val sensitive = case.sensitive(context.caseSensitive)
+				val bytes = text.encodeToByteArray()
+
+				return Word(
+					if (sensitive)
+						bytes
+					else
+						Fold.folded(bytes),
+					folded = !sensitive,
+				)
+			}
+
+			fun said(pattern: TextPattern?): String? =
+				(pattern as? TextPattern.Literal)?.text?.takeIf { it.isNotEmpty() }
+
+			return query.terms
 				.filterNot { it.negated }
-				.mapNotNull { term ->
-					val test = term.test as? Test.Name
-					val literal = test?.match?.pattern as? TextPattern.Literal
-
-					literal?.takeIf { it.text.isNotEmpty() }?.let {
-						val sensitive = test.case.sensitive(context.caseSensitive)
-						val bytes = it.text.encodeToByteArray()
-
-						Word(
-							if (sensitive)
-								bytes
-							else
-								Fold.folded(bytes),
-							folded = !sensitive,
-						)
+				.flatMap { term ->
+					when (val test = term.test) {
+						is Test.Name -> listOfNotNull(said(test.match.pattern)?.let { word(it, test.case) })
+						is Test.Folders ->
+							test.places.mapNotNull { place ->
+								said((place.pattern.segments.lastOrNull() as? Segment.Named)?.pattern)
+									?.let { word(it, place.case) }
+							}
+						else -> emptyList()
 					}
 				}
+		}
 
 		/** [term] compiled, or why it cannot be run. */
 		private fun compile(
@@ -484,6 +509,21 @@ private class Plan(
 							no,
 						)
 					}
+				}
+				is Test.Folders -> {
+					val parts =
+						test.places.map { place ->
+							val nfa =
+								Nfa.of(
+									levelsOf(place.pattern.base, place.pattern.segments, context),
+									sensitive(place.case),
+								)
+									?: return refusal(place.pattern.base)
+
+							UnderCheck(nfa, slot(), negated = false)
+						}
+
+					made { _, _ -> FoldersCheck(parts.toTypedArray(), no) }
 				}
 				is Test.All -> {
 					val inner = test.terms.map { compile(it, context, index, slot) }
@@ -1189,9 +1229,54 @@ private class UnderCheck(
 	override fun test(walk: Walk, entry: Int): Boolean =
 		walk.state(slot, walk.depth) and UNDER != 0L
 
+	/** Whether [entry]'s own path is what the pattern leads to: it is the folder the path names, where it is one. */
+	fun itself(walk: Walk, entry: Int): Boolean {
+		val block = walk.block
+		val above = walk.state(slot, walk.depth) and UNDER.inv()
+
+		return nfa.accepts(
+			nfa.step(
+				above,
+				block.names,
+				block.folded,
+				block.nameAt[entry],
+				block.nameAt[entry + 1],
+			),
+		)
+	}
+
 	private companion object {
 		/** An ancestor's path matched: everything below is under it. */
 		const val UNDER = 1L shl 62
+	}
+}
+
+/**
+ * The folders a query of folder terms alone asks for ([Test.Folders]): a folder one of [places] leads to, which is
+ * under what every other of them leads to. A folder named as its own ancestor is (`funny` in `funny`) is one too.
+ */
+private class FoldersCheck(
+	private val places: Array<UnderCheck>,
+	negated: Boolean,
+) : Check(negated) {
+	override val cost: Int = 2 + 3 * places.size
+
+	override val ancestral: List<AncestralCheck> = places.toList()
+
+	override fun test(walk: Walk, entry: Int): Boolean {
+		if (!walk.block.kindOf(entry).isDirectory)
+			return false
+
+		var named = false
+
+		for (place in places)
+			when {
+				place.itself(walk, entry) -> named = true
+				place.test(walk, entry) -> Unit
+				else -> return false
+			}
+
+		return named
 	}
 }
 

@@ -55,8 +55,21 @@ class SearchBenchmark {
 					+dir("project*", Depth.exactly(1))
 					+exactly("readme")
 				},
+				"/home/*/Documents/ *" to {
+					+path("/home/*/Documents/")
+					+word("*")
+				},
+				"work/2024/ *" to {
+					+path("work/2024/")
+					+word("*")
+				},
+				// Folder terms alone: the folders themselves.
 				"/home/*/Documents/" to { +path("/home/*/Documents/") },
 				"work/2024/" to { +path("work/2024/") },
+				"work/ 2024/" to {
+					+path("work/")
+					+path("2024/")
+				},
 				"r/^img_\\d{4}/" to { +regex("^img_\\d{4}") },
 				"r/2024/p" to { +regex("2024", RegexOn.Path) },
 			)

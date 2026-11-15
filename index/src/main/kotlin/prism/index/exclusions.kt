@@ -27,10 +27,9 @@ import prism.shared.Guarded
  *
  * A rule names entries by a path (`/nix`, `~/Games`: the folder there) or by a query in the search language
  * (`build/`, `.o`, `is:dir ^tmp_`). What a rule does it does to every entry it names AND TO EVERYTHING UNDER ONE:
- * nothing under a folder left out is held, at any depth. A rule that is one path term ending in `/` names the folder
- * itself, where the same words typed as a search find what is inside it: `build/` as a rule is every folder named
- * build, and with it all it holds. A rule tells upper case from lower, as the disk does, unless one of its terms
- * says otherwise.
+ * nothing under a folder left out is held, at any depth. A rule of folder terms alone names the folders, as the same
+ * words typed as a search find them ([Query.aimed]): `build/` as a rule is every folder named build, and with it
+ * all it holds. A rule tells upper case from lower, as the disk does, unless one of its terms says otherwise.
  *
  * What is done is one of two things ([Exclusion]): the entries are not indexed at all, or they are indexed and left
  * out of every search's results until a search names where they are.
@@ -96,38 +95,10 @@ sealed interface Naming {
 		val query: Query,
 	) : Naming {
 		/**
-		 * One path term that ends in `/` names the folder (`build/`: every folder named build), where as a search
-		 * it finds what is in it; anything else names what it finds.
+		 * What the query finds, as a search for it does: for folder terms alone, the folders they name (`build/`:
+		 * every folder named build), and for anything else the entries.
 		 */
-		override val itself: Query
-			get() {
-				val term = query.terms.singleOrNull()?.takeUnless { it.negated }
-				val test = term?.test as? Test.InPath
-				val named = test?.pattern?.segments?.lastOrNull() as? Segment.Named
-
-				return if (test == null || named == null ||
-					test.pattern.last != PathPattern.Last.Under
-				)
-					query
-				else
-					Query(
-						listOf(
-							Term(
-								Test.InPath(
-									PathPattern(
-										test.pattern.base,
-										test.pattern.segments.dropLast(1),
-										PathPattern.Last.Entry(
-											NameMatch(named.pattern, NamePart.Whole, Anchors.BOTH),
-										),
-									),
-									test.case,
-								),
-							),
-							Term(Test.Is(setOf(Flag.Dir))),
-						),
-					)
-			}
+		override val itself: Query get() = query.aimed()
 
 		override fun equals(other: Any?): Boolean = other is Sought && other.text == text
 
@@ -206,6 +177,7 @@ sealed interface Naming {
 					is Test.New -> "A rule can't use new:"
 					is Test.Mount -> "A rule can't use mount:"
 					is Test.All -> unfit(test.terms)
+					is Test.Folders -> test.places.firstNotNullOfOrNull { named(it.pattern.base) }
 					is Test.InPath -> named(test.pattern.base)
 					is Test.Dir -> (test.target as? DirTarget.Located)?.let { named(it.base) }
 					is Test.Name, is Test.Regex, is Test.Ext, is Test.Type, is Test.Is -> null

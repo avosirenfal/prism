@@ -290,8 +290,12 @@ class ExclusionsTest {
 			setOf("games/whatever/foo.cfg"),
 			index.found("$root/games/whatever/ foo", rules),
 		)
-		// The folder itself, asked for by its path.
+		// The folder itself, asked for by its path, with the slash after it (a folder term alone) or without.
 		assertEquals(setOf("games"), index.found("$root/games", rules))
+		assertEquals(setOf("games"), index.found("$root/games/", rules))
+		assertEquals(setOf("games/whatever"), index.found("$root/games/ whatever/", rules))
+		// A folder term that says no place from the root names nothing hidden.
+		assertEquals(emptySet<String>(), index.found("whatever/", rules))
 		// What is above it does not show it: a search of `/` is not a search of what is hidden.
 		assertEquals(setOf("docs/foo.txt"), index.found("$root/ foo", rules))
 		assertEquals(setOf("docs/foo.txt"), index.found("/ foo", rules))

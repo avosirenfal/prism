@@ -101,6 +101,67 @@ class GoToTest {
 	}
 
 	@Test
+	fun aFolderTermAloneFindsTheFolderWhichEnterGoesInto() {
+		made(
+			"funny/a.jpg",
+			"funny/sub/b.jpg",
+			"x/funny/c.jpg",
+			"funny-videos/v.mp4",
+			"other/funny",
+		)
+
+		// The folders named so, not what is in them: in the window to go somewhere, and the one to find things.
+		val going = going(browser(), "funny/")
+
+		assertEquals(listOf("funny", "funny"), going.ready.names())
+		assertEquals(
+			setOf(root.resolve("funny"), root.resolve("x/funny")),
+			setOf(
+				after(going, BrowserEvent.SearchEntered).folder,
+				after(going, BrowserEvent.MatchMoved(1), BrowserEvent.SearchEntered).folder,
+			),
+		)
+
+		val finding =
+			after(browser(), BrowserEvent.OpenedSearch, BrowserEvent.SearchTyped("funny/"))
+
+		assertEquals(listOf("funny", "funny"), finding.ready.names())
+		// With something asked of what is in them, that.
+		assertEquals(
+			listOf("a.jpg", "b.jpg", "c.jpg"),
+			going(browser(), "funny/ .jpg").ready.names().sorted(),
+		)
+		assertEquals(listOf("sub"), going(browser(), "funny/ sub/").ready.names())
+
+		// A folder picker's own `is:dir` is not the user's: the folders named so still, where typed it is those
+		// in them.
+		val picker = browser(Choosing.Folder())
+
+		assertEquals(listOf("funny", "funny"), going(picker, "funny/").ready.names())
+		assertEquals(listOf("sub"), going(picker, "funny/ is:dir").ready.names())
+
+		// Shown as a listing, they are folders; pinned, a search from them is within them: the terms of both.
+		val shown = after(finding, BrowserEvent.SearchEntered)
+
+		assertEquals(listOf("funny", "funny"), shown.rows.list.map { it.name })
+
+		val pinned = after(shown, BrowserEvent.PinnedSearch(true))
+
+		fun refined(text: String) =
+			after(
+				pinned,
+				BrowserEvent.OpenedSearch,
+				BrowserEvent.SearchTyped(text),
+				BrowserEvent.SearchEntered,
+			).rows.list
+				.map { it.name }
+				.sorted()
+
+		assertEquals(listOf("a.jpg", "b.jpg", "c.jpg"), refined(".jpg"))
+		assertEquals(listOf("sub"), refined("sub/"))
+	}
+
+	@Test
 	fun enterGoesIntoAFolderAndToAFilesFolderWithTheFileChosen() {
 		made("Documents/Letters/a.txt", "Documents/report.pdf", "notes.txt")
 

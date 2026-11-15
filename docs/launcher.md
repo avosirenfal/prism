@@ -18,8 +18,8 @@ Bind `prism launcher` to a key in your window manager (below). Press the key, an
   it says it is; `www` by a word it asks to be found by; `vsc` finds Visual Studio Code by the first letters of its
   words. With several words, every one must be found somewhere.
 - **Files** come after the applications, under their own heading: what the index holds that fits what is typed, read
-  in the search's own language (docs/search.md), so `report .pdf`, `~/Documents/`, `new:1d` and the rest all work
-  here.
+  in the search's own language (docs/search.md), so `report .pdf`, `~/Documents/ report`, `new:1d` and the rest all work
+  here; a folder alone (`projects/`) finds the folders of that name, to open.
 - **The arrows** move through the results, the list scrolling to keep the one they are on in sight; Page Up and Page
   Down move a page; Tab and Shift+Tab, and Ctrl+J and Ctrl+K, move as Down and Up do.
 - **Enter** starts an application, opens a file with whatever opens its kind, and opens a folder in an explorer's

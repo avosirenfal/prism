@@ -11,7 +11,8 @@ object QueryHelp {
 		"Separate terms with spaces; results match every term. " +
 			"A term without a dot matches the name without its extension, " +
 			"a term starting with a dot matches the extension, " +
-			"and a term with a dot elsewhere matches the whole name."
+			"and a term with a dot elsewhere matches the whole name. " +
+			"A term ending in / is a folder: alone it finds the folder, with other terms it says where to look."
 
 	/** A query, and what it finds, in a few words. */
 	data class Example(
@@ -37,8 +38,10 @@ object QueryHelp {
 			Example("img_*.{jpg,png}", "wildcards: * any text, ? one character, {a,b} either one"),
 			Example("\"tax return\"", "a phrase containing spaces"),
 			Example("-draft", "exclude names containing “draft”"),
-			Example("~/Documents/", "everything inside a folder"),
-			Example("photos/*.jpg", "JPEGs directly inside any folder named photos"),
+			Example("photos/", "folders named photos"),
+			Example("photos/ .jpg", "JPEGs inside folders named photos, at any depth"),
+			Example("photos/*", "everything directly inside folders named photos"),
+			Example("~/Documents/ report", "names containing “report” inside a folder"),
 			Example("dir:photos", "anything inside a folder named photos, at any depth"),
 			Example(
 				"type:image",

@@ -260,10 +260,11 @@ class SaveAliasTest {
 			after(changed, BrowserEvent.Back, BrowserEvent.Refreshed).names(),
 		)
 
-		// An alias there is no longer any of is left out, as in any search: what refines it is all that is asked.
+		// An alias there is no longer any of is left out, as in any search: what refines it is all that is asked,
+		// which alone is a folder term, and finds the folders of that name.
 		val gone = after(refined, Answer.Aliased(Aliases.NONE), BrowserEvent.Refreshed)
 
-		assertEquals(setOf("b.raw", "c.jpg", "e.raw"), gone.names())
+		assertEquals(setOf("2024"), gone.names())
 	}
 
 	@Test
