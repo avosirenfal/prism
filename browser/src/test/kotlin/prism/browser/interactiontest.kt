@@ -73,6 +73,7 @@ import prism.preferences.PreferenceStore
 import prism.preferences.Preferences
 import prism.preferences.QuickItem
 import prism.preferences.Sort
+import prism.preferences.preferences
 
 /**
  * The picker as a user meets it: composed headless around a running [Session] over a real folder, then clicked,

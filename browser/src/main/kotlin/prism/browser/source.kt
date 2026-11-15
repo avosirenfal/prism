@@ -50,6 +50,8 @@ import prism.preferences.PreferenceStore
 import prism.preferences.Preferences
 import prism.preferences.QuickAccess
 import prism.preferences.QuickItem
+import prism.preferences.preferences
+import prism.shared.Guarded
 
 /*
  * The one place the picker meets a real file system: a [Disk] reads a folder into rows, with every row's text worked
@@ -134,7 +136,8 @@ fun interface FolderWatcher {
  * every folder watched; a folder watched by several browsers is watched once.
  */
 object JvmFolderWatcher : FolderWatcher {
-	private val watched = HashMap<WatchKey, MutableList<(Touch) -> Unit>>()
+	/** Who is told of each folder watched: reached by whoever watches or lets go, and by the thread that reads. */
+	private val watched = Guarded(HashMap<WatchKey, MutableList<(Touch) -> Unit>>())
 
 	private val service: WatchService by lazy {
 		FileSystems.getDefault().newWatchService().also { service ->
@@ -155,15 +158,15 @@ object JvmFolderWatcher : FolderWatcher {
 				return AutoCloseable {}
 			}
 
-		synchronized(watched) { watched.getOrPut(key, ::ArrayList).add(changed) }
+		watched.guarded { getOrPut(key, ::ArrayList).add(changed) }
 
 		return AutoCloseable {
-			synchronized(watched) {
-				watched[key]?.let { told ->
+			watched.guarded {
+				this[key]?.let { told ->
 					told.remove(changed)
 					// The last to watch it lets go of the folder itself.
 					if (told.isEmpty()) {
-						watched.remove(key)
+						remove(key)
 						key.cancel()
 					}
 				}
@@ -186,12 +189,12 @@ object JvmFolderWatcher : FolderWatcher {
 								?: Touch.Everything
 						}.fold(Touch.NOTHING, Touch::plus)
 
-				val told = synchronized(watched) { watched[key]?.toList().orEmpty() }
+				val told = watched.guarded { this[key]?.toList().orEmpty() }
 				// A folder that is gone is watched no longer; whoever watched it is told it changed, all of it.
 				val gone = !key.reset()
 
 				if (gone)
-					synchronized(watched) { watched.remove(key) }
+					watched.guarded { remove(key) }
 
 				val said =
 					if (gone)
@@ -665,10 +668,10 @@ tailrec fun Step.settled(services: Services): BrowserState {
 	}
 	effects.filterIsInstance<Effect.Carry>().forEach { services.carried.set(it.carried) }
 	effects.filterIsInstance<Effect.Arrange>().forEach { arrange ->
-		services.preferences.update { it.arranging(arrange.quick) }
+		services.preferences.update { arranging(arrange.quick) }
 	}
 	effects.filterIsInstance<Effect.FoldRecents>().forEach { fold ->
-		services.preferences.update { it.folding(fold.section, fold.collapsed) }
+		services.preferences.update { folding(fold.section, fold.collapsed) }
 	}
 
 	val asking = effects.filterIsInstance<Effect.Asking>()

@@ -26,6 +26,7 @@ import org.jetbrains.skia.Rect
 import org.jetbrains.skia.Surface
 import org.jetbrains.skia.makeFromFileName
 import prism.desktop.freedesktop.ThumbnailCache
+import prism.shared.Guarded
 
 /**
  * Small pictures of files, for the gallery. An image file's is decoded by Skia (the library Compose draws with), scaled
@@ -134,12 +135,12 @@ class Thumbnails(
 	): ImageBitmap? {
 		val key = Key(path, modified, sideFor(side))
 
-		return when (val known = kept.with { known(key, now()) }) {
+		return when (val known = kept.guarded { known(key, now()) }) {
 			is Known.Picture -> known.picture
 			Known.None -> null
 			null ->
 				withContext(decoding) { made(path, modified, bytes, key.side) }
-					.also { kept.with { keep(key, it, now()) } }
+					.also { kept.guarded { keep(key, it, now()) } }
 		}
 	}
 
@@ -247,16 +248,6 @@ class Thumbnails(
 		fun drawable(name: String): Boolean =
 			name.substringAfterLast('.', "").lowercase(Locale.ROOT) in DECODED
 	}
-}
-
-/**
- * What is [held], reached only through [with], by one thread at a time: there is no way to it that is not under its
- * lock.
- */
-private class Guarded<T>(
-	private val held: T,
-) {
-	fun <R> with(body: T.() -> R): R = synchronized(this) { held.body() }
 }
 
 /** The pictures the gallery draws its tiles with: one store for the whole process, unless one is provided. */

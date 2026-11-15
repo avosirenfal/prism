@@ -32,6 +32,7 @@ import prism.preferences.MemoryPreferences
 import prism.preferences.Preferences
 import prism.preferences.QuickAccess
 import prism.preferences.QuickItem
+import prism.preferences.preferences
 
 /**
  * The browser as the explorer has it: nothing to give back, a file accepted opened with its application (or, where
