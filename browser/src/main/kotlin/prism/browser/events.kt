@@ -17,6 +17,7 @@ import prism.preferences.Layout
 import prism.preferences.Listings
 import prism.preferences.MenuSpec
 import prism.preferences.QuickAccess
+import prism.preferences.RecentSection
 import prism.preferences.Sort
 
 /*
@@ -299,6 +300,11 @@ sealed interface BrowserEvent : Input {
 
 	/** The Recents page asked for: from the sidebar. Asked for where it is shown, it is read again. */
 	data object OpenedRecents : BrowserEvent
+
+	/** A section of the Recents page collapsed to its heading, or opened again: its heading clicked. */
+	data class RecentSectionToggled(
+		val section: RecentSection,
+	) : BrowserEvent
 
 	/** The System page shown: the machine's drives, and how full each is. */
 	data object OpenedSystem : BrowserEvent
@@ -668,6 +674,11 @@ sealed interface Answer : Input {
 	/** The sidebar, as the places pinned (which another window may have changed) and the drives now make it. */
 	data class Placed(
 		val sidebar: Sidebar,
+	) : Answer
+
+	/** The sections of the Recents page the user has collapsed, as the preferences now say: here, or in another window. */
+	data class RecentsFolded(
+		val collapsed: Set<RecentSection>,
 	) : Answer
 }
 
@@ -1211,6 +1222,15 @@ sealed interface Effect {
 	data class Alias(
 		val name: String,
 		val query: String,
+	) : Effect
+
+	/**
+	 * [section] of the Recents page kept as [collapsed] or open: a preference, so every window, and the next, has
+	 * it so.
+	 */
+	data class FoldRecents(
+		val section: RecentSection,
+		val collapsed: Boolean,
 	) : Effect
 
 	/** [request] made of the application around the browser. */

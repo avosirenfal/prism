@@ -87,12 +87,24 @@ data class Preferences(
 	 * that one written wrong does not lose the rest.
 	 */
 	val aliases: Map<String, String> = emptyMap(),
+	/** The sections of the Recents page shown as their headings alone, in every window. */
+	val recentsCollapsed: Set<RecentSection> = emptySet(),
 ) {
 	/** The actions and places written here. */
 	val written: ActionsFile get() = ActionsFile(actions, places)
 
 	/** These, with quick access as [quick]: what an older version kept in its place forgotten. */
 	fun arranging(quick: QuickAccess): Preferences = copy(quickAccess = quick, pinned = null)
+
+	/** These, with [section] of the Recents page collapsed, or open. */
+	fun folding(section: RecentSection, collapsed: Boolean): Preferences =
+		copy(
+			recentsCollapsed =
+				if (collapsed)
+					recentsCollapsed + section
+				else
+					recentsCollapsed - section,
+		)
 
 	/** These, with [action]'s chords set to [chords], or put back to its defaults where [chords] is null. */
 	fun binding(action: String, chords: List<String>?): Preferences =

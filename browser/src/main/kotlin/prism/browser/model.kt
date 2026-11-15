@@ -23,6 +23,7 @@ import prism.preferences.MenuSpec
 import prism.preferences.Order
 import prism.preferences.QuickAccess
 import prism.preferences.QuickItem
+import prism.preferences.RecentSection
 import prism.preferences.Role
 import prism.preferences.Sort
 
@@ -239,6 +240,8 @@ data class Arrangement(
 	val filter: TypeFilter = TypeFilter.ALL_FILES,
 	/** Words a row's name must contain to be shown, without case; blank for every row. */
 	val query: String = "",
+	/** The sections of the Recents page shown as their headings alone: none, of any other listing. */
+	val folded: Set<RecentSection> = emptySet(),
 ) {
 	fun admits(row: Row): Boolean = admits(row.category, row.hidden) { row.name }
 
@@ -692,9 +695,12 @@ sealed interface Listing {
 	class Recent(
 		val page: RecentPage,
 	) : Listing {
-		private val arranged = Memo<Arrangement, Rows> { Rows(page.rows.filter(it::admits)) }
+		private val arranged = Memo<Arrangement, RecentPage.Shown> { page.shown(it) }
 
-		fun rows(arrangement: Arrangement): Rows = arranged(arrangement)
+		/** What the page shows as [arrangement] has it: its rows, and the headings they are under. */
+		fun shown(arrangement: Arrangement): RecentPage.Shown = arranged(arrangement)
+
+		fun rows(arrangement: Arrangement): Rows = shown(arrangement).rows
 
 		override fun toString(): String = "Recent($page)"
 	}
@@ -1343,6 +1349,8 @@ data class BrowserState(
 	val arrangingQuick: Boolean = false,
 	/** The application the picker is for, where the desktop could tell which: whose recent folders are its own. */
 	val asker: Asker? = null,
+	/** The sections of the Recents page shown as their headings alone: the user's, every window's. */
+	val recentsCollapsed: Set<RecentSection> = emptySet(),
 	/** What was last read of the marks given, for a copy that changes none of them to be given again. */
 	private val marked: Marked = Marked(),
 ) {
@@ -1440,6 +1448,7 @@ data class BrowserState(
 			entryFilters,
 			typeFilter,
 			query,
+			foldedAt(at, recentsCollapsed),
 		)
 
 	/** The search whose results are shown, where they are. */
@@ -1488,7 +1497,11 @@ data class BrowserState(
 			when (val listing = listing) {
 				is Listing.Shown -> listing.entries.size
 				is Listing.Found -> listing.matches.size
-				is Listing.Recent -> listing.page.rows.size
+				// What a section shown as its heading alone holds is not listed.
+				is Listing.Recent ->
+					listing.page.sections
+						.filterNot { it.kind.section in recentsCollapsed }
+						.sumOf { it.entries.size }
 				Listing.Reading, is Listing.Unreadable -> 0
 			}
 
@@ -1563,6 +1576,16 @@ fun scaleOf(zoom: Zoom, whole: Float): Float =
 		is Zoom.By -> minOf(zoom.factor, whole)
 		Zoom.Whole -> whole.takeIf { it.isFinite() } ?: Zoom.SCALE.last()
 	}
+
+/**
+ * The sections an arrangement folds [at] a place, of those the user has [collapsed]: theirs on the Recents page, and
+ * none anywhere else, so that no other listing is arranged again for what does not arrange it.
+ */
+internal fun foldedAt(at: Location, collapsed: Set<RecentSection>): Set<RecentSection> =
+	if (at == Location.Recents)
+		collapsed
+	else
+		emptySet()
 
 /** The rows [listing] shows when arranged by [arrangement]. */
 fun rowsOf(listing: Listing, arrangement: Arrangement): Rows =

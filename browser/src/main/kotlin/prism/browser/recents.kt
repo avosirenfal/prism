@@ -11,6 +11,7 @@ import java.nio.file.StandardOpenOption
 import java.time.Duration
 import java.time.Instant
 import java.util.concurrent.atomic.AtomicReference
+import prism.preferences.RecentSection
 
 /*
  * What is recent: the folders pickers were lately answered from, for every application together and for each one
@@ -311,9 +312,13 @@ class RecentPage(
 	sealed interface Kind {
 		val title: String
 
+		/** Which section it is, whoever the page is for: what the user collapses, and what is kept of that. */
+		val section: RecentSection
+
 		/** The files the index saw made last. */
 		data object NewFiles : Kind {
 			override val title: String get() = "New files"
+			override val section: RecentSection get() = RecentSection.NewFiles
 		}
 
 		/** The folders the application that asked was last answered from. */
@@ -321,12 +326,64 @@ class RecentPage(
 			val name: String,
 		) : Kind {
 			override val title: String get() = "Recent folders in $name"
+			override val section: RecentSection get() = RecentSection.Application
 		}
 
 		/** The folders any application was last answered from. */
 		data object Folders : Kind {
 			override val title: String get() = "Recent folders"
+			override val section: RecentSection get() = RecentSection.Folders
 		}
+	}
+
+	/**
+	 * A section's heading, as the listing draws it: how many entries the section has to show ([count]), whether
+	 * they are put away under it ([collapsed]), and the row it is drawn over ([before], counting the rows shown
+	 * from the top): its own first row, open; the next section's first, collapsed; and where there is no row after
+	 * it, the count of the rows, which is past the last.
+	 */
+	@Immutable
+	data class Heading(
+		val kind: Kind,
+		val count: Int,
+		val collapsed: Boolean,
+		val before: Int,
+	)
+
+	/**
+	 * What the page shows, arranged: the [rows] of its open sections, in order, and every section's heading
+	 * ([headings]), each where it is drawn among them. A collapsed section's entries are no rows of the listing, so
+	 * nothing that goes by its rows (the cursor, what is chosen, a name typed, their count) knows of them.
+	 */
+	@Immutable
+	class Shown(
+		val rows: Rows,
+		val headings: List<Heading>,
+	) {
+		/** The headings drawn over each row, by the row's place; over nothing, those after the last row. */
+		val over: Map<Int, List<Heading>> = headings.groupBy { it.before }
+	}
+
+	/**
+	 * The page as [arrangement] shows it: of each section, the entries it admits; a section with none is left
+	 * out, heading and all, and one it folds is its heading alone.
+	 */
+	fun shown(arrangement: Arrangement): Shown {
+		val rows = ArrayList<Row>()
+		val headings = ArrayList<Heading>()
+
+		for (section in sections) {
+			val admitted = section.entries.map { it.row }.filter(arrangement::admits)
+			val collapsed = section.kind.section in arrangement.folded
+
+			if (admitted.isNotEmpty()) {
+				headings += Heading(section.kind, admitted.size, collapsed, before = rows.size)
+				if (!collapsed)
+					rows += admitted
+			}
+		}
+
+		return Shown(Rows(rows), headings)
 	}
 
 	/** A row of the page: when it was made (a file) or last used (a folder), and whether that is [stale]. */

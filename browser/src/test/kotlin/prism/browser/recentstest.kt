@@ -34,9 +34,12 @@ import prism.index.Index
 import prism.index.Indexer
 import prism.index.Where
 import prism.preferences.Builtin
+import prism.preferences.MemoryPreferences
+import prism.preferences.PreferenceFile
 import prism.preferences.Preferences
 import prism.preferences.QuickAccess
 import prism.preferences.QuickItem
+import prism.preferences.RecentSection
 
 /**
  * What is recent: the folders pickers were answered from (kept ten for every application and ten for each, the latest
@@ -688,7 +691,17 @@ class RecentsTest {
 				.map { it.kind.title },
 		)
 
+		// One section collapsed, and every one: each its heading alone, saying how many it holds.
+		val one = step(picker, Answer.RecentsFolded(setOf(RecentSection.NewFiles))).state
+		val all = step(picker, Answer.RecentsFolded(RecentSection.entries.toSet())).state
+
 		listOf(
+			"collapse-open-light" to Triple(picker, Palette.Light, 1100 to 760),
+			"collapse-open-dark" to Triple(picker, Palette.Dark, 1100 to 760),
+			"collapse-one-light" to Triple(one, Palette.Light, 1100 to 760),
+			"collapse-one-dark" to Triple(one, Palette.Dark, 1100 to 760),
+			"collapse-all-light" to Triple(all, Palette.Light, 1100 to 760),
+			"collapse-all-dark" to Triple(all, Palette.Dark, 1100 to 760),
 			"picker-light" to Triple(picker, Palette.Light, 1100 to 760),
 			"picker-dark" to Triple(picker, Palette.Dark, 1100 to 760),
 			"picker-chosen" to Triple(chosen, Palette.Light, 1100 to 760),
@@ -703,6 +716,268 @@ class RecentsTest {
 			assertTrue(png.size > 20_000, "$name: ${png.size} bytes")
 			screenshot("recents-$name", png)
 		}
+	}
+
+	// ---- collapsing ---------------------------------------------------------------------------------------------
+
+	private fun BrowserState.headings(): List<String> =
+		(listing as Listing.Recent).shown(arrangement).headings.map {
+			"${it.kind.title}: ${it.count}" +
+				(if (it.collapsed) " collapsed" else "") + " before ${it.before}"
+		}
+
+	private fun recent(path: String): RowId = RowId.Recent(home.resolve(path))
+
+	@Test
+	fun aSectionCollapsedIsItsHeadingAlone_ItsEntriesNoRowsOfTheListing() {
+		val open = drawn(Choosing.Files(), asker)
+
+		assertEquals(17, open.rows.size)
+		assertEquals(17, open.entryCount)
+		assertEquals(
+			listOf(
+				"New files: 10 before 0",
+				"Recent folders in Firefox: 3 before 10",
+				"Recent folders: 4 before 13",
+			),
+			open.headings(),
+		)
+
+		// Its heading pressed: collapsed, and kept so.
+		val collapsing = step(open, BrowserEvent.RecentSectionToggled(RecentSection.NewFiles))
+		val collapsed = collapsing.state
+
+		assertEquals(
+			listOf(Effect.FoldRecents(RecentSection.NewFiles, true)),
+			collapsing.effects,
+		)
+		assertEquals(setOf(RecentSection.NewFiles), collapsed.recentsCollapsed)
+		// Its heading is still there, over the next section's first row, saying how many it holds.
+		assertEquals(
+			listOf(
+				"New files: 10 collapsed before 0",
+				"Recent folders in Firefox: 3 before 0",
+				"Recent folders: 4 before 3",
+			),
+			collapsed.headings(),
+		)
+		// Its entries are no rows: not counted, not chosen with every row, not gone to by the keys.
+		assertEquals(
+			listOf("Downloads", "Screenshots", "Taxes", "Pictures", "Letters", "docs", "2019"),
+			collapsed.rows.list.map { it.name },
+		)
+		assertEquals(7, collapsed.entryCount)
+		assertEquals(
+			7,
+			step(collapsed, BrowserEvent.ChoseAll)
+				.state.choosing.rows.size,
+		)
+		assertEquals(
+			recent("Downloads"),
+			step(collapsed, BrowserEvent.Moved(Move.First, Carry.Choose)).state.cursor?.at,
+		)
+		assertNull(collapsed.rows[recent("Downloads/invoice-4471.pdf")])
+
+		// Pressed again: open again, and kept so.
+		val opening = step(collapsed, BrowserEvent.RecentSectionToggled(RecentSection.NewFiles))
+
+		assertEquals(listOf(Effect.FoldRecents(RecentSection.NewFiles, false)), opening.effects)
+		assertEquals(open.rows.list, opening.state.rows.list)
+		assertEquals(open.headings(), opening.state.headings())
+
+		// Every section collapsed: no rows, and three headings, past the last row there is none of.
+		val all =
+			RecentSection.entries.fold(open) { state, section ->
+				step(state, BrowserEvent.RecentSectionToggled(section)).state
+			}
+
+		assertEquals(0, all.rows.size)
+		assertEquals(0, all.entryCount)
+		assertEquals(
+			listOf(
+				"New files: 10 collapsed before 0",
+				"Recent folders in Firefox: 3 collapsed before 0",
+				"Recent folders: 4 collapsed before 0",
+			),
+			all.headings(),
+		)
+
+		// The last collapsed: its heading after the last row, over no row.
+		assertEquals(
+			listOf(
+				"New files: 10 before 0",
+				"Recent folders in Firefox: 3 before 10",
+				"Recent folders: 4 collapsed before 13",
+			),
+			step(open, BrowserEvent.RecentSectionToggled(RecentSection.Folders)).state.headings(),
+		)
+
+		// What the filters leave nothing of has no heading, collapsed or open; what they leave some of counts those.
+		val narrowed = step(collapsed, BrowserEvent.Searched("s")).state
+
+		assertEquals(
+			listOf(
+				"New files: 5 collapsed before 0",
+				"Recent folders in Firefox: 3 before 0",
+				"Recent folders: 3 before 3",
+			),
+			narrowed.headings(),
+		)
+		assertEquals(
+			listOf("Recent folders in Firefox: 1 before 0"),
+			step(collapsed, BrowserEvent.Searched("taxes")).state.headings(),
+		)
+	}
+
+	@Test
+	fun theCursorAndWhatIsChosenLeaveASectionAsItCollapses() {
+		val open = drawn(Choosing.Files(), asker)
+		val invoice = recent("Downloads/invoice-4471.pdf")
+		val flac = recent("Music/Field recordings/harbour.flac")
+
+		// Two new files chosen, the cursor on the second, and a folder of another section with them.
+		val chosen =
+			listOf(
+				BrowserEvent.Clicked(invoice, Click.Only),
+				BrowserEvent.Clicked(flac, Click.Toggle),
+				BrowserEvent.Clicked(recent("Pictures"), Click.Toggle),
+				BrowserEvent.Clicked(flac, Click.Toggle),
+				BrowserEvent.Clicked(flac, Click.Toggle),
+			).fold(open) { state, event -> step(state, event).state }
+
+		assertEquals(setOf(invoice, flac, recent("Pictures")), chosen.choosing.rows)
+		assertEquals(flac, chosen.cursor?.at)
+
+		val collapsed =
+			step(chosen, BrowserEvent.RecentSectionToggled(RecentSection.NewFiles)).state
+
+		// What was chosen of it is let go; the rest stays. The cursor is on the first row after it.
+		assertEquals(setOf(recent("Pictures")), collapsed.choosing.rows)
+		assertEquals(recent("Downloads"), collapsed.cursor?.at)
+		// And they are not chosen again as it opens.
+		assertEquals(
+			setOf(recent("Pictures")),
+			step(collapsed, BrowserEvent.RecentSectionToggled(RecentSection.NewFiles))
+				.state.choosing.rows,
+		)
+
+		// In the last section, with nothing after it: the cursor goes to the row before.
+		val last =
+			step(open, BrowserEvent.Clicked(recent("Documents/Letters"), Click.Only)).state
+		val folded = step(last, BrowserEvent.RecentSectionToggled(RecentSection.Folders)).state
+
+		assertEquals(recent("Documents/Taxes"), folded.cursor?.at)
+		assertEquals(emptySet<RowId>(), folded.choosing.rows)
+
+		// A cursor elsewhere stays where it is; and with every section collapsed there is nowhere for one to be.
+		val elsewhere = step(open, BrowserEvent.Clicked(recent("Pictures"), Click.Only)).state
+
+		assertEquals(
+			recent("Pictures"),
+			step(
+				elsewhere,
+				BrowserEvent.RecentSectionToggled(RecentSection.NewFiles),
+			).state.cursor?.at,
+		)
+		assertNull(
+			RecentSection.entries
+				.fold(elsewhere) { state, section ->
+					step(state, BrowserEvent.RecentSectionToggled(section)).state
+				}.cursor,
+		)
+	}
+
+	@Test
+	fun whatIsCollapsedIsThePreferences_EveryWindows_AndTheApplicationsSectionWhoeverAsks() {
+		val preferences = MemoryPreferences()
+		val services = Services(Fixtures.Memory, preferences = preferences, clock = { now })
+		val open = drawn(Choosing.OneFile(), asker)
+
+		// Collapsed here, it is written where every window reads it.
+		step(
+			open,
+			BrowserEvent.RecentSectionToggled(RecentSection.Application),
+		).settled(services)
+		assertEquals(
+			setOf(RecentSection.Application),
+			preferences.preferences.value.recentsCollapsed,
+		)
+
+		// And kept in the file, as it was: read back, the same.
+		val file = root.resolve("config/preferences.json")
+
+		PreferenceFile.write(file, preferences.preferences.value)
+		assertEquals(
+			setOf(RecentSection.Application),
+			PreferenceFile.read(file).preferences.recentsCollapsed,
+		)
+		assertTrue("\"application\"" in Files.readString(file))
+
+		// Another window, told what the preferences say: collapsed there too; and told otherwise, open again.
+		val other = step(open, Answer.RecentsFolded(setOf(RecentSection.Application))).state
+
+		assertEquals(
+			listOf(
+				"New files: 10 before 0",
+				"Recent folders in Firefox: 3 collapsed before 10",
+				"Recent folders: 4 before 10",
+			),
+			other.headings(),
+		)
+		assertEquals(
+			open.headings(),
+			step(other, Answer.RecentsFolded(emptySet())).state.headings(),
+		)
+
+		// A picker another application asked for: its own folders are that section, and collapsed with it.
+		val gimps = Asker(gimp, "GIMP")
+
+		val theirs =
+			page(
+				emptyList(),
+				RecentFolders()
+					.used(listOf(Path("/data/brushes")), gimp, ago(minutes = 3))
+					.used(listOf(Path("/data/other")), null, ago(minutes = 9)),
+				gimps,
+			)
+
+		val asked =
+			step(
+				drawn(Choosing.OneFile(), gimps, theirs),
+				Answer.RecentsFolded(setOf(RecentSection.Application)),
+			).state
+
+		assertEquals(
+			listOf("Recent folders in GIMP: 1 collapsed before 0", "Recent folders: 1 before 0"),
+			asked.headings(),
+		)
+		assertEquals(listOf("other"), asked.rows.list.map { it.name })
+
+		// Read while collapsed, a page arrives collapsed: the window knows before the page does.
+		val reading =
+			step(
+				step(open, Answer.RecentsFolded(setOf(RecentSection.NewFiles))).state,
+				BrowserEvent.Refreshed,
+			)
+
+		assertEquals(
+			7,
+			step(reading.state, Answer.RecentsRead(drawnPage(asker))).state.rows.size,
+		)
+
+		// Elsewhere than on the page, what is collapsed arranges nothing: a folder's rows are the same rows.
+		val folder =
+			opened(
+				Choosing.OneFile(),
+				home,
+				home,
+				Fixtures.sidebar,
+			).settled(Fixtures.Memory)
+
+		assertTrue(
+			folder.rows ===
+				step(folder, Answer.RecentsFolded(setOf(RecentSection.NewFiles))).state.rows,
+		)
 	}
 
 	// ---- in the browser ----------------------------------------------------------------------------------------
@@ -977,6 +1252,29 @@ class RecentsTest {
 					it.name
 				},
 			)
+
+			// A heading pressed collapses its section: the rows go, the heading stays and says how many it holds,
+			// and it is kept where every window reads it. Pressed again, they are back.
+			onNodeWithTag("recent-section:Recent folders").performClick()
+			waitUntil(timeoutMillis = 5_000) { session.state.value.rows.size == 1 }
+			waitForIdle()
+			onNodeWithTag("row:used").assertDoesNotExist()
+			onNodeWithTag("recent-section:Recent folders").assertExists()
+			onNodeWithTag("recent-count:Recent folders").assertExists()
+			onNodeWithTag("recent-older").assertDoesNotExist()
+			waitUntil(timeoutMillis = 5_000) {
+				services.preferences.preferences.value.recentsCollapsed ==
+					setOf(RecentSection.Folders)
+			}
+			onNodeWithTag("recent-section:Recent folders").performClick()
+			waitUntil(timeoutMillis = 5_000) { session.state.value.rows.size == 3 }
+			waitForIdle()
+			onNodeWithTag("row:used").assertExists()
+			onNodeWithTag("recent-count:Recent folders").assertDoesNotExist()
+			waitUntil(timeoutMillis = 5_000) {
+				services.preferences.preferences.value.recentsCollapsed
+					.isEmpty()
+			}
 
 			// A row clicked is chosen; the arrows go on from it, across the heading, and Enter goes into a folder.
 			onNodeWithTag("row:new.txt").performClick()

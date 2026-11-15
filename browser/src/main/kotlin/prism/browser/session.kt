@@ -131,6 +131,14 @@ class Session(
 				.collect { inputs.send(Answer.Relisted(it)) }
 		}
 
+		// The sections of the Recents page the user has collapsed, in any window.
+		scope.launch(io) {
+			services.preferences.preferences
+				.map { it.recentsCollapsed }
+				.distinctUntilChanged()
+				.collect { inputs.send(Answer.RecentsFolded(it)) }
+		}
+
 		// The user's actions and places, with prism's own, and the terminal chosen: read again whenever what the
 		// preferences say of them changes.
 		scope.launch(io) {
@@ -267,6 +275,10 @@ class Session(
 							aliases = aliasAdded(it.aliases, effect.name, effect.query) ?: it.aliases,
 						)
 					}
+				}
+			is Effect.FoldRecents ->
+				scope.launch(io) {
+					services.preferences.update { it.folding(effect.section, effect.collapsed) }
 				}
 			is Effect.Ask -> requests(effect.request)
 			is Effect.Finish -> {

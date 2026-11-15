@@ -19,6 +19,7 @@ import prism.preferences.Look
 import prism.preferences.Order
 import prism.preferences.Preferences
 import prism.preferences.QuickAccess
+import prism.preferences.RecentSection
 import prism.preferences.Role
 import prism.preferences.Sort
 
@@ -318,6 +319,7 @@ private fun did(state: BrowserState, event: BrowserEvent): Step =
 					History(state.history.back + state.at, emptyList()),
 					null,
 				)
+		is BrowserEvent.RecentSectionToggled -> state.folding(event.section)
 		BrowserEvent.OpenedSystem ->
 			if (state.system != null)
 				state.reread()
@@ -807,6 +809,7 @@ private fun BrowserState.rearranged(
 	offered: Offered = this.offered,
 	query: String = this.query,
 	listing: Listing = this.listing,
+	collapsed: Set<RecentSection> = this.recentsCollapsed,
 ): BrowserState {
 	val rows =
 		rowsOf(
@@ -816,6 +819,7 @@ private fun BrowserState.rearranged(
 				looks.filters(role, kind, layout),
 				offered.using,
 				query,
+				foldedAt(at, collapsed),
 			),
 		)
 
@@ -825,9 +829,42 @@ private fun BrowserState.rearranged(
 		layout = layout,
 		offered = offered,
 		query = query,
+		recentsCollapsed = collapsed,
 		chose = choosing.within(rows),
 		pointed = cursor.within(rows),
 		naming = renaming?.takeIf { it.row in rows },
+	)
+}
+
+/**
+ * [section] of the Recents page collapsed to its heading, or opened again where it is collapsed, and kept so. Its
+ * entries, collapsed, are no rows of the listing: what was chosen among them is let go, and the cursor, where it was
+ * on one, goes to the nearest row left (the one after them, or, where none is, the one before).
+ */
+private fun BrowserState.folding(section: RecentSection): Step {
+	val collapsing = section !in recentsCollapsed
+	val was = cursor?.at?.let(rows::indexOf)
+
+	val folded =
+		rearranged(
+			collapsed =
+				if (collapsing)
+					recentsCollapsed + section
+				else
+					recentsCollapsed - section,
+		)
+
+	// The rows after the cursor's as they were, then those before it, nearest first: the first still shown.
+	val nearest =
+		was
+			?.takeIf { folded.cursor == null }
+			?.let { at -> (at + 1 until rows.size) + (at - 1 downTo 0) }
+			?.map(rows::idAt)
+			?.firstOrNull { it in folded.rows }
+
+	return Step(
+		nearest?.let { folded.copy(pointed = Cursor(it, it)) } ?: folded,
+		listOf(Effect.FoldRecents(section, collapsing)),
 	)
 }
 
@@ -1200,6 +1237,7 @@ private fun answered(state: BrowserState, answer: Answer): Step =
 				state.copy(looks = state.looks.relisted(state.role, answer.listings)),
 			)
 		is Answer.Aliased -> state.aliased(answer.aliases)
+		is Answer.RecentsFolded -> Step(state.rearranged(collapsed = answer.collapsed))
 		// A read of a folder no longer shown is too late to matter.
 		is Answer.Arrived ->
 			if (answer.folder == state.folder)

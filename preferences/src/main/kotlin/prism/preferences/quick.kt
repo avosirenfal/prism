@@ -33,6 +33,25 @@ enum class Builtin {
 	Trash,
 }
 
+/**
+ * A section of the Recents page, by what it holds: the application's folders are one section, whichever
+ * application a picker is for.
+ */
+@Serializable
+enum class RecentSection {
+	/** The files lately made. */
+	@SerialName("new-files")
+	NewFiles,
+
+	/** The folders the application that asked was lately answered from. */
+	@SerialName("application")
+	Application,
+
+	/** The folders any application was. */
+	@SerialName("folders")
+	Folders,
+}
+
 /** One entry of quick access. */
 @Serializable
 sealed interface QuickItem {

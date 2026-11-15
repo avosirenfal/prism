@@ -90,7 +90,7 @@ enum class Glyph {
 	/** A question mark in a ring: how something is done. */
 	Help,
 
-	/** A clock's face: what is recent, the Recents page. */
+	/** An arrow round a clock's hands, against them: what is recent, the Recents page. */
 	Recents,
 
 	/** An @: a search alias, which is used by its name and one. */
@@ -315,9 +315,19 @@ fun DrawScope.drawGlyph(
 				size = Size(12f * unit, 12f * unit),
 			)
 		}
+		// Round the clock against its hands, from seven o'clock to an arrow's head at nine, and the hands within.
 		Glyph.Recents -> {
-			drawCircle(tint, 8.5f * unit, at(unit, 12f, 12f), style = line(unit))
-			stroked(unit, tint, listOf(12f to 7.5f, 12f to 12f, 15.2f to 14f))
+			drawArc(
+				tint,
+				startAngle = 180f,
+				sweepAngle = 300f,
+				useCenter = false,
+				topLeft = at(unit, 5.5f, 4.5f),
+				size = Size(15f * unit, 15f * unit),
+				style = line(unit),
+			)
+			stroked(unit, tint, listOf(2.6f to 9.4f, 5.5f to 12.3f, 8.4f to 9.4f))
+			stroked(unit, tint, listOf(13f to 8f, 13f to 12.2f, 15.8f to 13.9f))
 		}
 		Glyph.Removable -> {
 			drawRoundRect(

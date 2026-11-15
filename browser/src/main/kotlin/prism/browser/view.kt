@@ -141,6 +141,7 @@ import prism.preferences.DatePart
 import prism.preferences.Held
 import prism.preferences.Kind
 import prism.preferences.Layout
+import prism.preferences.RecentSection
 import prism.preferences.Sort
 import prism.preferences.Width
 import prism.window.WindowLocals
@@ -1056,6 +1057,16 @@ private fun ListingPane(
 	val query = state.arrangement.query
 	// The Recents page, where that is what is shown: its rows under their sections' headings, as a list always.
 	val recent = (state.listing as? Listing.Recent)?.page
+
+	// Its sections' headings, each over the row it is drawn before; those of sections collapsed after the last row,
+	// past the rows.
+	val headings =
+		(state.listing as? Listing.Recent)
+			?.shown(
+				state.arrangement,
+			)?.over
+			.orEmpty()
+
 	val paged = state.at == Location.Recents
 	val gallery = state.layout == Layout.Gallery && !paged
 	// The rows as large as the listing's type makes them, and Ctrl and the wheel zooming from there.
@@ -1107,6 +1118,12 @@ private fun ListingPane(
 			else
 				BrowserEvent.Activated(row),
 		)
+	}
+
+	/** A section of the Recents page collapsed, or opened, by its heading: the keyboard is the listing's after. */
+	fun fold(section: RecentSection) {
+		stops.listing.requestFocus()
+		onEvent(BrowserEvent.RecentSectionToggled(section))
 	}
 
 	// Gone elsewhere, nothing dragged here is over anything of it any more.
@@ -1628,7 +1645,8 @@ private fun ListingPane(
 						)
 					is Listing.Shown, is Listing.Found, is Listing.Recent ->
 						when {
-							rows.isEmpty() -> {
+							// Every section of the Recents page collapsed is no rows, and still something to show.
+							rows.isEmpty() && headings.isEmpty() -> {
 								val none = state.entryCount == 0
 
 								Message(
@@ -1693,9 +1711,11 @@ private fun ListingPane(
 
 												RecentSlot(
 													mark,
+													over = headings[index].orEmpty(),
 													before = recent?.marks?.get(rows.idAt((index - 1).coerceAtLeast(0))),
 													first = index == 0,
 													zoom = zoom,
+													onToggle = ::fold,
 												) {
 													EntryRow(
 														row,
@@ -1721,6 +1741,14 @@ private fun ListingPane(
 																{ RecentAgo(mark!!.at, page.read, ago, zoom) }
 															},
 													)
+												}
+											}
+											// The headings of the sections collapsed after the last row are over no row: in a place of
+											// their own, past every row's, so that a row's place in the list is still its place among
+											// the rows.
+											headings[rows.size]?.let { last ->
+												item(key = "recent-headings", contentType = "headings") {
+													RecentHeadings(last, first = rows.isEmpty(), zoom, ::fold)
 												}
 											}
 										}

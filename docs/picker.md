@@ -185,6 +185,18 @@ dragged, renamed and given a menu as a folder's are (the menu adds "Show in fold
 too); a folder is gone into, and a file is opened, chosen, or asked to be replaced, as the picker is for. The page is
 always a list, in its own order.
 
+Each section's heading has an arrow before its title, and the whole heading is pressed to collapse the section to the
+heading alone, or to open it again. Collapsed, the heading says how many entries the section holds ("New files 10"),
+and those entries are not rows of the listing: the cursor, Select all, a name typed and the status line's count pass
+them by, and a cursor or a selection that was on them leaves (the cursor to the nearest row left). Which sections are
+collapsed is the user's, not a window's: it is kept in the preferences (`recentsCollapsed`, by the kind of section,
+so the application's folders are one section whichever application is asking), written as a heading is pressed and
+taken up by every open window, the picker's and the explorer's alike. In the list, a heading is drawn in the place of
+the row it is over (its section's first row, or, collapsed, the next section's first), and the headings of sections
+collapsed after the last row in one place past the rows, so that the list's places are still the listing's rows, one
+each (`RecentPage.Shown`). There is no key for it: a collapsed heading is no row for the cursor to be on, so a key
+could collapse a section and never open it.
+
 **Which application is asking** is the portal's `app_id` (`AppId`, in `portal/filechooser.kt`). The portal gives none
 for a program it cannot identify, and `prism pick` has none: such a picker is nobody's, shows "Recent folders" alone,
 and is recorded in that list alone. The name in the heading is the desktop entry's (`askerOf`, in `app/chooser.kt`).
@@ -797,7 +809,9 @@ list by one row, not a page, and a row far away is scrolled to directly (never b
   from the file, by several writers at once; where a picker opens; the newest files of an index built for the test,
   and ten shown when the newest ninety-five have been deleted; the page's sections, and what is stale in each; the
   page opened, come back to, its rows opened and saved over; a picker's folder recorded when it is accepted and not
-  when it is cancelled; and the page drawn, in both palettes.
+  when it is cancelled; a section collapsed and opened, the cursor and what is chosen leaving it, what is collapsed
+  kept in the preferences and taken up by another window, a heading pressed in a window; and the page drawn, open
+  and collapsed, in both palettes.
 - **The menus** (`MenuTest`): what each target's menu offers, what each item does and shows as on, and the builder's
   separators.
 - **The disk** (`DiskTest`): renaming never onto something there, and undone by renaming back; a folder made only
