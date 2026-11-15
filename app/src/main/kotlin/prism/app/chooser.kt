@@ -4,17 +4,14 @@ import java.nio.file.Files
 import java.nio.file.LinkOption
 import java.nio.file.Path
 import prism.browser.AppKey
-import prism.browser.Asker
 import prism.browser.Choosing
 import prism.browser.RecentFolders
 import prism.browser.TypeFilter
 import prism.browser.titleOf
-import prism.desktop.Application
 import prism.desktop.FileTypes
 import prism.desktop.MimeType
 import prism.explorer.Answered
 import prism.explorer.Asking
-import prism.portal.AppId
 import prism.portal.Asked
 import prism.portal.ChooserRequest
 import prism.portal.FileFilter
@@ -38,7 +35,7 @@ fun askingOf(
 	types: FileTypes,
 	home: Path,
 	recents: RecentFolders = RecentFolders(),
-	asker: Asker? = null,
+	asker: AppKey? = null,
 ): Asking {
 	val asked = request.asked
 
@@ -57,7 +54,7 @@ fun askingOf(
 			is Asked.SavingMany -> Choosing.Folder()
 		}
 
-	val folder = startOf(asked, asker?.app, recents, home)
+	val folder = startOf(asked, asker, recents, home)
 	val (filters, filter) = filtersOf(asked, types)
 
 	return Asking(
@@ -92,21 +89,6 @@ internal fun startOf(
 	}?.takeIf(there)
 		?: recents.last(app, there)
 		?: home
-
-/**
- * Who [app] is, as the picker's own: the application the desktop has an entry for under that name, called what a
- * person calls it, or, where it has none, by the name the portal gave. Nobody, for nobody.
- */
-internal fun askerOf(app: AppId?, applications: () -> List<Application>): Asker? =
-	AppKey.of(app?.id)?.let { key ->
-		val entry =
-			applications().firstOrNull {
-				it.id.removeSuffix(".desktop").equals(key.id, ignoreCase = true)
-			}
-				?: applications().firstOrNull { it.wmClass.equals(key.id, ignoreCase = true) }
-
-		Asker(key, entry?.name ?: key.id)
-	}
 
 /**
  * The picker's filters for [asked], each beside the portal's filter it was made from, and the one in use at first. A

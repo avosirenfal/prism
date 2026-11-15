@@ -1597,14 +1597,22 @@ private fun ListingPane(
 		// How wide the Recents page's last column is: what says when, in a few words.
 		val ago = character * RECENT_AGO_CHARACTERS + Dims.cell * 2
 
+		// And how far in from their headings its rows are: so much less room for their names, which give it up.
+		val indent = recentIndent(zoom)
+
 		val layout =
 			if (paged)
 				layoutOf(RECENT_COLUMNS, room - ago, dates, character, beforeName)
+					.narrowed(ColumnId.Name, indent)
 			else
 				layoutOf(columns, room, dates, character, beforeName)
 
 		val wide =
-			layout.row + LIST_INSET * 2 + Dims.scrollbarRoom + if (paged) ago else 0.dp
+			layout.row + LIST_INSET * 2 + Dims.scrollbarRoom +
+				if (paged)
+					ago + indent
+				else
+					0.dp
 		val sideways = wide > maxWidth
 
 		Column(Modifier.fillMaxSize()) {
@@ -2325,6 +2333,10 @@ private class ColumnLayout(
 	val row: Dp,
 ) {
 	fun of(column: ColumnId): Dp = widths.getValue(column)
+
+	/** These, with [column] and the rows narrower [by] so much: room given up to what is drawn beside the rows. */
+	fun narrowed(column: ColumnId, by: Dp): ColumnLayout =
+		ColumnLayout(widths + (column to of(column) - by), row - by)
 }
 
 /**

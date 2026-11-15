@@ -21,7 +21,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import prism.browser.Asker
+import prism.browser.AppKey
 import prism.browser.BrowserEvent
 import prism.browser.Choosing
 import prism.browser.Disk
@@ -225,7 +225,7 @@ data class Asking(
 	/** The X11 window of the application that asked, which the picker is a dialog of. */
 	val parent: Long? = null,
 	/** The application that asked, where the desktop could tell which: whose recent folders the picker shows. */
-	val asker: Asker? = null,
+	val asker: AppKey? = null,
 ) {
 	init {
 		require(filters.isNotEmpty()) { "a picker offers at least one filter" }

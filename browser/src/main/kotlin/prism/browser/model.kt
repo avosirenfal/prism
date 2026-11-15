@@ -1348,7 +1348,7 @@ data class BrowserState(
 	/** Whether the window that arranges quick access is open over the browser. */
 	val arrangingQuick: Boolean = false,
 	/** The application the picker is for, where the desktop could tell which: whose recent folders are its own. */
-	val asker: Asker? = null,
+	val asker: AppKey? = null,
 	/** The sections of the Recents page shown as their headings alone: the user's, every window's. */
 	val recentsCollapsed: Set<RecentSection> = emptySet(),
 	/** What was last read of the marks given, for a copy that changes none of them to be given again. */

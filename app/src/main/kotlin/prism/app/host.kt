@@ -29,6 +29,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.supervisorScope
+import prism.browser.AppKey
 import prism.browser.BrowserState
 import prism.browser.Finder
 import prism.browser.JvmDisk
@@ -602,7 +603,7 @@ internal fun serveOnBus(
 								desktop.types,
 								home,
 								explorer.recents.read(),
-								askerOf(request.app) { desktop.applications.all() },
+								AppKey.of(request.app?.id),
 							)
 
 						pickedOf(request, asking, explorer.choose(asking), desktop.types)

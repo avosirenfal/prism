@@ -290,7 +290,7 @@ class Session(
 					val folders = foldersUsed(chosen.paths, state.choosing)
 
 					if (folders.isNotEmpty())
-						scope.launch(io) { services.recents.used(folders, state.asker?.app, clock()) }
+						scope.launch(io) { services.recents.used(folders, state.asker, clock()) }
 				}
 				ending.complete(effect.outcome)
 			}

@@ -1120,7 +1120,7 @@ sealed interface Effect {
 	 * and the newest files that [files] admits; no files at all, where it is null (a picker of folders).
 	 */
 	data class ReadRecents(
-		val asker: Asker?,
+		val asker: AppKey?,
 		val files: TypeFilter?,
 	) : Asking
 

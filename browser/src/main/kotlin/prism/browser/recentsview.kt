@@ -1,5 +1,6 @@
 package prism.browser
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -15,14 +16,23 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.isPrimaryPressed
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
@@ -78,6 +88,8 @@ internal fun RecentSlot(
 		return
 	}
 
+	val indent = recentIndent(zoom)
+
 	Column {
 		if (over.isNotEmpty())
 			RecentHeadings(over, first, zoom, onToggle)
@@ -85,14 +97,36 @@ internal fun RecentSlot(
 			Box(
 				Modifier
 					.fillMaxWidth()
-					.padding(horizontal = Dims.edge + Dims.cell, vertical = Space.xs)
-					.height(1.dp)
+					.padding(
+						start = indent + Dims.edge + Dims.cell,
+						end = Dims.edge + Dims.cell,
+						top = Space.xs,
+						bottom = Space.xs,
+					).height(1.dp)
 					.background(LocalPalette.current.divider)
 					.testTag("recent-older"),
 			)
-		content()
+		// Under its heading, and in from it: the row, with what lights it and marks it chosen, starts where the
+		// heading's title does.
+		Box(Modifier.padding(start = indent)) { content() }
 	}
 }
+
+/** How large a heading's arrow is drawn: about as tall as the heading's capitals. */
+private val FOLD_MARK = 14.dp
+
+/** The room between a heading's arrow and its title: little, so that they read as one thing. */
+private val FOLD_GAP = 6.dp
+
+/** The room around a heading's arrow and title, inside the ground they are lit on: what is pressed, with them. */
+private val FOLD_ROOM = 6.dp
+
+/**
+ * How far in from its heading a section's rows are: as far as the heading's arrow and the room after it, so that
+ * the rows' icons stand under the heading's title.
+ */
+@Composable
+internal fun recentIndent(zoom: Float): Dp = (FOLD_MARK + FOLD_GAP) * zoom
 
 /**
  * Sections' [headings], one under the other: over a row, or, for the sections collapsed after the last row, in a
@@ -124,11 +158,10 @@ internal fun RecentHeadings(
 }
 
 /**
- * A section's heading: the button that folds it (the System page's, for its stores: an arrow down where the section
- * is open, across where it is collapsed), its title, and, collapsed, how many entries it holds. The button is
- * pressed to collapse the section or open it, and so is the title, which is the larger thing to press; the button
- * alone is lit under the pointer, and the title only darkens. The button sits over the rows' icons, and the title
- * where their names start.
+ * A section's heading, at the listing's edge: a small arrow (down where the section is open, across where it is
+ * collapsed), its title close after it, and, collapsed, how many entries it holds. Arrow and title are one thing to
+ * press, to collapse the section or open it: under the pointer they darken together, on a soft ground that holds
+ * the two of them and no more of the row. It is no stop of the keyboard's, which in the listing is the rows'.
  */
 @Composable
 private fun RecentHeading(
@@ -141,83 +174,125 @@ private fun RecentHeading(
 	val type = LocalType.current
 	val hover = remember { MutableInteractionSource() }
 	val hovered by hover.collectIsHoveredAsState()
+	var pressed by remember { mutableStateOf(false) }
 	val toggle by rememberUpdatedState { onToggle(heading.kind.section) }
 	val does =
 		if (heading.collapsed)
 			"Show ${heading.kind.holds}"
 		else
 			"Hide ${heading.kind.holds}"
-	// The rows' icons, which the button is centred over, and what is between an icon and its row's name.
-	val icon = rowIconOf(LocalRows.current, type) * zoom
-	val button = type.control
-	val named = (Space.s + Space.xxs) * zoom
+
+	val ink =
+		if (hovered || pressed)
+			palette.text
+		else
+			palette.textMuted
 
 	Row(
 		Modifier
-			.padding(top = over)
+			.padding(top = over, bottom = Space.xxs)
 			.fillMaxWidth()
-			.padding(start = (Dims.edge + Dims.cell + (icon - button) / 2).coerceAtLeast(0.dp)),
-		verticalAlignment = Alignment.CenterVertically,
+			// The arrow where a row's ground begins: what is around it reaches a little further out.
+			.padding(start = Dims.edge + Dims.cell - FOLD_ROOM),
 	) {
-		ToolButton(
-			if (heading.collapsed)
-				Glyph.Chevron
-			else
-				Glyph.ChevronDown,
-			does,
-			enabled = true,
-			Modifier.testTag("recent-fold:${heading.kind.title}"),
-			onClick = toggle,
-		)
-		Spacer(Modifier.width((icon / 2 + named - button / 2).coerceAtLeast(Space.xs)))
-		Row(
-			Modifier
-				.hoverable(hover)
-				// Pressed as a row is: taken as it goes down, so that it is no press of the space between the rows.
-				.pointerInput(Unit) {
-					awaitEachGesture {
-						val down = awaitFirstDown()
+		Tip(does) {
+			Row(
+				Modifier
+					.background(
+						when {
+							pressed -> palette.pressed
+							hovered -> palette.hover
+							else -> Color.Transparent
+						},
+						RoundedCornerShape(Radius.medium),
+					).hoverable(hover)
+					// Pressed as a row is: taken as it goes down, so that it is no press of the space between the rows.
+					.pointerInput(Unit) {
+						awaitEachGesture {
+							val down = awaitFirstDown()
 
-						if (currentEvent.buttons.isPrimaryPressed) {
-							down.consume()
-							waitForUpOrCancellation()?.let {
-								it.consume()
-								toggle()
+							if (currentEvent.buttons.isPrimaryPressed) {
+								down.consume()
+								pressed = true
+
+								val up = waitForUpOrCancellation()
+
+								pressed = false
+								up?.let {
+									it.consume()
+									toggle()
+								}
 							}
 						}
-					}
-				}.semantics {
-					role = Role.Button
-					onClick(does) {
-						toggle()
+					}.semantics {
+						role = Role.Button
+						onClick(does) {
+							toggle()
 
-						true
-					}
-				}.testTag("recent-section:${heading.kind.title}")
-				.padding(vertical = Space.xs),
-			verticalAlignment = Alignment.CenterVertically,
-		) {
-			Text(
-				heading.kind.title,
-				style =
-					type.heading.times(zoom).let {
-						if (hovered)
-							it.copy(color = palette.text)
-						else
-							it
-					},
-				maxLines = 1,
-			)
-			if (heading.collapsed) {
-				Spacer(Modifier.width(Space.s))
-				Text(
-					heading.count.toString(),
-					style = type.muted.times(zoom),
-					maxLines = 1,
-					modifier = Modifier.testTag("recent-count:${heading.kind.title}"),
+							true
+						}
+					}.testTag("recent-section:${heading.kind.title}")
+					.padding(horizontal = FOLD_ROOM, vertical = Space.xs),
+				verticalAlignment = Alignment.CenterVertically,
+			) {
+				FoldMark(
+					heading.collapsed,
+					ink,
+					FOLD_MARK * zoom,
+					Modifier.testTag("recent-fold:${heading.kind.title}"),
 				)
+				Spacer(Modifier.width(FOLD_GAP * zoom))
+				Text(
+					heading.kind.title,
+					style = type.heading.times(zoom).copy(color = ink),
+					maxLines = 1,
+				)
+				if (heading.collapsed) {
+					Spacer(Modifier.width(Space.s))
+					Text(
+						heading.count.toString(),
+						style = type.muted.times(zoom),
+						maxLines = 1,
+						modifier = Modifier.testTag("recent-count:${heading.kind.title}"),
+					)
+				}
 			}
 		}
+	}
+}
+
+/**
+ * The arrow before a heading's title, [size] square: across where the section is [collapsed], down where it is
+ * open, in [ink], drawn as prism's glyphs are, with a line.
+ */
+@Composable
+private fun FoldMark(
+	collapsed: Boolean,
+	ink: Color,
+	size: Dp,
+	modifier: Modifier = Modifier,
+) {
+	Canvas(modifier.size(size)) {
+		val side = this.size.minDimension
+
+		val points =
+			if (collapsed)
+				listOf(0.32f to 0.14f, 0.68f to 0.5f, 0.32f to 0.86f)
+			else
+				listOf(0.14f to 0.32f, 0.5f to 0.68f, 0.86f to 0.32f)
+
+		drawPath(
+			Path().apply {
+				points.forEachIndexed { index, (x, y) ->
+					if (index == 0)
+						moveTo(x * side, y * side)
+					else
+						lineTo(x * side, y * side)
+				}
+			},
+			ink,
+			style = Stroke(side * 0.13f, cap = StrokeCap.Round, join = StrokeJoin.Round),
+		)
 	}
 }
 

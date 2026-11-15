@@ -25,7 +25,6 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import prism.browser.Actions
 import prism.browser.AppKey
-import prism.browser.Asker
 import prism.browser.BrowserEvent
 import prism.browser.Choosing
 import prism.browser.Disk
@@ -480,7 +479,7 @@ class ExplorerTest {
 				.resolve("a.txt")
 				.writeText("a")
 
-			val asker = Asker(AppKey.of("org.example.App")!!, "Example")
+			val asker = AppKey.of("org.example.App")!!
 
 			val asking =
 				Asking(
@@ -527,7 +526,7 @@ class ExplorerTest {
 				listOf(root.resolve("docs")),
 				explorer.recents
 					.read()
-					.of(asker.app)
+					.of(asker)
 					.folders,
 			)
 		}

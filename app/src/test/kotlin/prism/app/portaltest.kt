@@ -12,11 +12,9 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import prism.browser.AppKey
-import prism.browser.Asker
 import prism.browser.Choosing
 import prism.browser.RecentFolders
 import prism.browser.TypeFilter
-import prism.desktop.Application
 import prism.desktop.FileTypes
 import prism.desktop.MimeType
 import prism.desktop.freedesktop.Xdg
@@ -127,42 +125,11 @@ class PortalTest {
 		assertEquals(own, start(opening(folder = gone), app))
 
 		// And the picker made for the request opens there, for whoever asked.
-		val asker = Asker(app, "Example")
-		val asking = askingOf(request(opening()), types, root, recents, asker)
+		val asking = askingOf(request(opening()), types, root, recents, app)
 
 		assertEquals(own, asking.folder)
-		assertEquals(asker, asking.asker)
+		assertEquals(app, asking.asker)
 		assertEquals(root, askingOf(request(opening()), types, root).folder)
-	}
-
-	@Test
-	fun whoAskedIsCalledWhatItsDesktopEntryCallsIt_AndByItsIdWhereItHasNone() {
-		fun application(id: String, name: String, wmClass: String? = null) =
-			Application(id, name, emptySet(), listOf(id), inTerminal = false, wmClass = wmClass)
-
-		val installed =
-			listOf(
-				application("org.mozilla.firefox.desktop", "Firefox"),
-				application("gimp.desktop", "GNU Image Manipulation Program", wmClass = "Gimp-2.10"),
-			)
-
-		assertEquals(
-			Asker(AppKey.of("org.mozilla.firefox")!!, "Firefox"),
-			askerOf(AppId.of("org.mozilla.firefox")) { installed },
-		)
-		// As a unit's name gives it: in another case, or as its windows' class.
-		assertEquals("Firefox", askerOf(AppId.of("org.mozilla.Firefox")) { installed }?.name)
-		assertEquals(
-			"GNU Image Manipulation Program",
-			askerOf(AppId.of("gimp-2.10")) { installed }?.name,
-		)
-		assertEquals(
-			Asker(AppKey.of("com.example.Unknown")!!, "com.example.Unknown"),
-			askerOf(AppId.of("com.example.Unknown")) { installed },
-		)
-		// The portal says nothing of an application it cannot tell: nobody asked.
-		assertEquals(null, AppId.of(""))
-		assertEquals(null, askerOf(AppId.of("")) { installed })
 	}
 
 	@Test

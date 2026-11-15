@@ -34,13 +34,6 @@ value class AppKey private constructor(
 	}
 }
 
-/** The application a picker is for: what it is known by, and what a person calls it ("Firefox"). */
-@Immutable
-data class Asker(
-	val app: AppKey,
-	val name: String,
-)
-
 /** A file the index saw made, and when it did. */
 @Immutable
 data class NewFile(
@@ -300,10 +293,8 @@ class RecentPage(
 		}
 
 		/** The folders the application that asked was last answered from. */
-		data class InApp(
-			val name: String,
-		) : Kind {
-			override val title: String get() = "Recent folders in $name"
+		data object Application : Kind {
+			override val title: String get() = "Recent folders for this application"
 			override val section: RecentSection get() = RecentSection.Application
 			override val holds: String get() = "folders"
 		}
@@ -433,7 +424,7 @@ class RecentPage(
 		fun of(
 			newest: List<NewFile>,
 			folders: RecentFolders,
-			asker: Asker?,
+			asker: AppKey?,
 			now: Instant,
 			row: (Path) -> Row?,
 		): RecentPage {
@@ -450,7 +441,7 @@ class RecentPage(
 					}.take(NEW_SHOWN)
 					.toList()
 
-			val own = folders.of(asker?.app).entries
+			val own = folders.of(asker).entries
 			val others =
 				folders.all.entries.filterNot { used ->
 					own.any { it.folder == used.folder }
@@ -459,7 +450,7 @@ class RecentPage(
 			return RecentPage(
 				listOfNotNull(
 					Section.of(Kind.NewFiles, files),
-					asker?.let { Section.of(Kind.InApp(it.name), dated(own)) },
+					asker?.let { Section.of(Kind.Application, dated(own)) },
 					Section.of(Kind.Folders, dated(others)),
 				),
 				now,

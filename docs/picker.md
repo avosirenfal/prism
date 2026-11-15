@@ -175,7 +175,7 @@ the folder you came from, so that going down again is Enter.
   file a program wrote and deleted again never takes one of the ten places. Where fewer than ten of the hundred are
   left, twice as many are asked for, until there are ten or the index has no more. Without an index (no daemon), the
   section is not there.
-- **Recent folders in <application>**: the folders this application's pickers were last answered from.
+- **Recent folders for this application**: the folders this application's pickers were last answered from.
 - **Recent folders**: the folders any application's were, without those already listed for this one.
 
 Each row says where it is and when: when the index saw a file made, when a folder was last used ("5 minutes ago",
@@ -185,10 +185,12 @@ dragged, renamed and given a menu as a folder's are (the menu adds "Show in fold
 too); a folder is gone into, and a file is opened, chosen, or asked to be replaced, as the picker is for. The page is
 always a list, in its own order.
 
-Each section's heading has, before its title, the button that folds a store on the System page (an arrow down where
-the section is open, across where it is collapsed; "Hide files", "Show folders"). The button is pressed to collapse
-the section to the heading alone, or to open it again, and so is the title; under the pointer the button alone is
-lit, and the title only darkens. Collapsed, the heading says how many entries the section holds ("New files 10"),
+Each section's heading is at the listing's edge, with a small arrow close before its title (down where the section
+is open, across where it is collapsed), and its rows are in from it, their icons under its title, so that they read
+as the heading's own; a row's ground, lit or chosen, starts in from the heading too, and so does the line before a
+section's older entries. Arrow and title are one thing to press, to collapse the section to the heading alone or to
+open it again: under the pointer they darken together on a soft ground that holds the two and no more of the row,
+and say what a press does ("Hide files", "Show folders"). Collapsed, the heading says how many entries the section holds ("New files 10"),
 and those entries are not rows of the listing: the cursor, Select all, a name typed and the status line's count pass
 them by, and a cursor or a selection that was on them leaves (the cursor to the nearest row left). Which sections are
 collapsed is the user's, not a window's: it is kept in the preferences (`recentsCollapsed`, by the kind of section,
@@ -201,7 +203,8 @@ could collapse a section and never open it.
 
 **Which application is asking** is the portal's `app_id` (`AppId`, in `portal/filechooser.kt`). The portal gives none
 for a program it cannot identify, and `prism pick` has none: such a picker is nobody's, shows "Recent folders" alone,
-and is recorded in that list alone. The name in the heading is the desktop entry's (`askerOf`, in `app/chooser.kt`).
+and is recorded in that list alone. The heading does not name the application: the picker is that application's,
+and its folders are "for this application".
 
 **What is recorded**: when a picker is accepted, the folder of what was chosen (the folder itself for a folder
 picker, each file's folder otherwise) goes to the front of both lists, with the time. A picker cancelled records

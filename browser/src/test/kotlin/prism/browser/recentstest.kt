@@ -297,13 +297,13 @@ class RecentsTest {
 
 	// ---- the page ----------------------------------------------------------------------------------------------
 
-	private val asker = Asker(firefox, "Firefox")
+	private val asker = firefox
 
 	/** The page of [newest] and [folders] for [asker], everything there, each a file unless its name ends in `/`. */
 	private fun page(
 		newest: List<NewFile>,
 		folders: RecentFolders,
-		asker: Asker? = this.asker,
+		asker: AppKey? = this.asker,
 		gone: Set<Path> = emptySet(),
 	): RecentPage {
 		val files = newest.map { it.path }.toSet()
@@ -343,7 +343,7 @@ class RecentsTest {
 		assertEquals(
 			listOf(
 				"New files" to listOf("shot.png", "report.pdf"),
-				"Recent folders in Firefox" to listOf("Downloads"),
+				"Recent folders for this application" to listOf("Downloads"),
 				// Downloads is every application's too, and shown once: as Firefox's.
 				"Recent folders" to listOf("Pictures", "Work"),
 			),
@@ -361,7 +361,7 @@ class RecentsTest {
 
 		// A section with nothing in it is not there; nor is a page of nothing anything.
 		assertEquals(
-			listOf("Recent folders in Firefox" to listOf("Downloads")),
+			listOf("Recent folders for this application" to listOf("Downloads")),
 			page(emptyList(), RecentFolders().used(listOf(downloads), firefox, now)).shown(),
 		)
 		assertEquals(
@@ -391,7 +391,7 @@ class RecentsTest {
 		assertEquals(
 			listOf(
 				"New files" to listOf("new.txt", "week.txt", "old.txt (stale)"),
-				"Recent folders in Firefox" to listOf("c", "b", "a (stale)"),
+				"Recent folders for this application" to listOf("c", "b", "a (stale)"),
 				"Recent folders" to listOf("e", "d (stale)"),
 			),
 			page(newest, folders).shown(),
@@ -426,7 +426,7 @@ class RecentsTest {
 		assertEquals(
 			listOf(
 				"New files" to (1..RecentPage.NEW_SHOWN).map { "file-%02d.txt".format(it * 2) },
-				"Recent folders in Firefox" to listOf("kept"),
+				"Recent folders for this application" to listOf("kept"),
 			),
 			made.shown(),
 		)
@@ -485,7 +485,7 @@ class RecentsTest {
 
 	private fun Services.page(
 		files: TypeFilter? = TypeFilter.ALL_FILES,
-		asker: Asker? = null,
+		asker: AppKey? = null,
 	): RecentPage = (answer(Effect.ReadRecents(asker, files)) as Answer.RecentsRead).page
 
 	private fun RecentPage.newFiles(): List<String> =
@@ -595,7 +595,7 @@ class RecentsTest {
 
 		assertEquals(
 			listOf(
-				"Recent folders in Firefox" to listOf("Downloads"),
+				"Recent folders for this application" to listOf("Downloads"),
 				"Recent folders" to listOf("Pictures"),
 			),
 			read.sections.map { section ->
@@ -610,7 +610,7 @@ class RecentsTest {
 	private val home = Fixtures.home
 
 	/** A page as a person's might be: new files of several folders, an application's folders, and the rest. */
-	private fun drawnPage(asker: Asker?, read: Instant = now): RecentPage {
+	private fun drawnPage(asker: AppKey?, read: Instant = now): RecentPage {
 		val newest =
 			listOf(
 				"Pictures/Screenshots/Screenshot 2026-11-12 09-58-12.png" to ago(minutes = 2),
@@ -646,7 +646,7 @@ class RecentsTest {
 
 	private fun drawn(
 		choosing: Choosing,
-		asker: Asker?,
+		asker: AppKey?,
 		page: RecentPage = drawnPage(asker),
 	): BrowserState {
 		val window =
@@ -684,7 +684,7 @@ class RecentsTest {
 		val empty = drawn(Choosing.OneFile(), asker, RecentPage(emptyList(), now))
 
 		assertEquals(
-			listOf("New files", "Recent folders in Firefox", "Recent folders"),
+			listOf("New files", "Recent folders for this application", "Recent folders"),
 			picker.listing
 				.let { it as Listing.Recent }
 				.page.sections
@@ -744,7 +744,7 @@ class RecentsTest {
 		assertEquals(
 			listOf(
 				"New files: 10 before 0",
-				"Recent folders in Firefox: 3 before 10",
+				"Recent folders for this application: 3 before 10",
 				"Recent folders: 4 before 13",
 			),
 			open.headings(),
@@ -763,7 +763,7 @@ class RecentsTest {
 		assertEquals(
 			listOf(
 				"New files: 10 collapsed before 0",
-				"Recent folders in Firefox: 3 before 0",
+				"Recent folders for this application: 3 before 0",
 				"Recent folders: 4 before 3",
 			),
 			collapsed.headings(),
@@ -803,7 +803,7 @@ class RecentsTest {
 		assertEquals(
 			listOf(
 				"New files: 10 collapsed before 0",
-				"Recent folders in Firefox: 3 collapsed before 0",
+				"Recent folders for this application: 3 collapsed before 0",
 				"Recent folders: 4 collapsed before 0",
 			),
 			all.headings(),
@@ -813,7 +813,7 @@ class RecentsTest {
 		assertEquals(
 			listOf(
 				"New files: 10 before 0",
-				"Recent folders in Firefox: 3 before 10",
+				"Recent folders for this application: 3 before 10",
 				"Recent folders: 4 collapsed before 13",
 			),
 			step(open, BrowserEvent.RecentSectionToggled(RecentSection.Folders)).state.headings(),
@@ -825,13 +825,13 @@ class RecentsTest {
 		assertEquals(
 			listOf(
 				"New files: 5 collapsed before 0",
-				"Recent folders in Firefox: 3 before 0",
+				"Recent folders for this application: 3 before 0",
 				"Recent folders: 3 before 3",
 			),
 			narrowed.headings(),
 		)
 		assertEquals(
-			listOf("Recent folders in Firefox: 1 before 0"),
+			listOf("Recent folders for this application: 1 before 0"),
 			step(collapsed, BrowserEvent.Searched("taxes")).state.headings(),
 		)
 	}
@@ -926,7 +926,7 @@ class RecentsTest {
 		assertEquals(
 			listOf(
 				"New files: 10 before 0",
-				"Recent folders in Firefox: 3 collapsed before 10",
+				"Recent folders for this application: 3 collapsed before 10",
 				"Recent folders: 4 before 10",
 			),
 			other.headings(),
@@ -937,7 +937,6 @@ class RecentsTest {
 		)
 
 		// A picker another application asked for: its own folders are that section, and collapsed with it.
-		val gimps = Asker(gimp, "GIMP")
 
 		val theirs =
 			page(
@@ -945,17 +944,20 @@ class RecentsTest {
 				RecentFolders()
 					.used(listOf(Path("/data/brushes")), gimp, ago(minutes = 3))
 					.used(listOf(Path("/data/other")), null, ago(minutes = 9)),
-				gimps,
+				gimp,
 			)
 
 		val asked =
 			step(
-				drawn(Choosing.OneFile(), gimps, theirs),
+				drawn(Choosing.OneFile(), gimp, theirs),
 				Answer.RecentsFolded(setOf(RecentSection.Application)),
 			).state
 
 		assertEquals(
-			listOf("Recent folders in GIMP: 1 collapsed before 0", "Recent folders: 1 before 0"),
+			listOf(
+				"Recent folders for this application: 1 collapsed before 0",
+				"Recent folders: 1 before 0",
+			),
 			asked.headings(),
 		)
 		assertEquals(listOf("other"), asked.rows.list.map { it.name })
@@ -988,14 +990,20 @@ class RecentsTest {
 	}
 
 	/**
-	 * A heading under the pointer: its button alone is lit, and nothing across the row. Drawn in a window of the
-	 * test's, since only there is there a pointer to rest on it; what it draws is kept where the pictures are.
+	 * A heading under the pointer: its arrow and its title darker, together, and nothing lit across the row. Drawn in
+	 * a window of the test's, since only there is there a pointer to rest on it; what it draws is kept where the
+	 * pictures are. A row is chosen in it, to be seen in from its heading.
 	 */
 	@OptIn(ExperimentalTestApi::class)
 	@Test
-	fun aHeadingsButtonAloneIsLitUnderThePointer() {
+	fun aHeadingUnderThePointerIsDarker_ArrowAndTitleTogether() {
 		val picker = drawn(Choosing.OneFile(), asker)
-		val one = step(picker, Answer.RecentsFolded(setOf(RecentSection.NewFiles))).state
+
+		val one =
+			step(
+				step(picker, Answer.RecentsFolded(setOf(RecentSection.NewFiles))).state,
+				BrowserEvent.Clicked(RowId.Recent(home.resolve("Pictures/Screenshots")), Click.Only),
+			).state
 
 		for ((tone, palette) in listOf("light" to Palette.Light, "dark" to Palette.Dark))
 			runSkikoComposeUiTest(Size(2200f, 1520f), Density(2f)) {
@@ -1005,30 +1013,10 @@ class RecentsTest {
 					}
 				}
 				waitForIdle()
-
-				// On the button: lit, and what it does said.
-				onNodeWithTag("recent-fold:Recent folders in Firefox").performMouseInput {
-					moveTo(center)
-				}
+				onNodeWithTag("recent-section:Recent folders").performMouseInput { moveTo(center) }
 				waitForIdle()
 				screenshot(
-					"recents-heading-hovered-button-$tone",
-					onRoot().captureToImage().toAwtImage().let { image ->
-						java.io
-							.ByteArrayOutputStream()
-							.also {
-								javax.imageio.ImageIO.write(image, "png", it)
-							}.toByteArray()
-					},
-				)
-
-				// On the title: only darker.
-				onNodeWithTag("recent-section:Recent folders in Firefox").performMouseInput {
-					moveTo(center)
-				}
-				waitForIdle()
-				screenshot(
-					"recents-heading-hovered-title-$tone",
+					"recents-heading-hovered-$tone",
 					onRoot().captureToImage().toAwtImage().let { image ->
 						java.io
 							.ByteArrayOutputStream()
@@ -1044,7 +1032,7 @@ class RecentsTest {
 
 	private fun picker(
 		choosing: Choosing = Choosing.OneFile(),
-		asker: Asker? = null,
+		asker: AppKey? = null,
 	): BrowserState =
 		opened(choosing, root, root, sidebarOf(XdgPlaces(), root))
 			.settled(JvmDisk())
@@ -1359,7 +1347,7 @@ class RecentsTest {
 		file("docs/a.txt")
 		file("docs/b.txt")
 
-		fun ended(asker: Asker?, recents: RecentStore, vararg events: BrowserEvent): Outcome =
+		fun ended(asker: AppKey?, recents: RecentStore, vararg events: BrowserEvent): Outcome =
 			runBlocking {
 				val scope =
 					kotlinx.coroutines.CoroutineScope(
