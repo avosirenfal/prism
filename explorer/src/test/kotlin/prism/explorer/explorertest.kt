@@ -38,6 +38,9 @@ import prism.browser.TypeFilter
 import prism.browser.UserAction
 import prism.browser.subjectOf
 import prism.desktop.MimeType
+import prism.launcher.Dmenu
+import prism.launcher.DmenuAnswer
+import prism.launcher.DmenuEvent
 import prism.launcher.Entry
 import prism.launcher.LauncherEvent
 import prism.preferences.ActionsFile
@@ -234,6 +237,86 @@ class ExplorerTest {
 					.single()
 					.session.state.value.folder,
 			)
+		}
+
+	@Test
+	fun aDmenuIsShownInTheLaunchersPlaceAndAnsweredByALineChosenOrByBeingPutAway() =
+		explored { explorer, _, preferences ->
+			suspend fun settled(what: () -> Boolean) {
+				while (!what())
+					delay(10)
+			}
+
+			fun shown() =
+				explorer.windows.value
+					.filterIsInstance<ExplorerWindow.Dmenu>()
+					.singleOrNull()
+
+			val sizes = Dmenu(Dmenu.linesOf("25%\n50%\n75%\n100%"), placeholder = "Window size...")
+
+			coroutineScope {
+				// A line chosen is the answer, and its window is closed.
+				val chosen = async { explorer.dmenu(sizes) }
+
+				settled { shown() != null }
+				assertEquals("Menu", Explorer.titleOf(shown()!!))
+				shown()!!.session.send(DmenuEvent.Typed("75"))
+				shown()!!.session.send(DmenuEvent.Entered)
+				assertEquals(DmenuAnswer.Chose(sizes.lines[2]), chosen.await())
+				assertEquals(emptyList<ExplorerWindow>(), explorer.windows.value)
+
+				// The launcher's settings changed while it is shown, it is as they now say.
+				val escaped = async { explorer.dmenu(sizes) }
+
+				settled { shown() != null }
+				preferences.update {
+					it.copy(launcher = it.launcher.copy(rows = LauncherRows.of(12)))
+				}
+				settled {
+					shown()!!
+						.session.state.value.preferences.rows.number == 12
+				}
+				// Escape, with nothing typed, puts it away: nothing was chosen.
+				shown()!!.session.send(DmenuEvent.Dismissed)
+				assertEquals(DmenuAnswer.Dismissed, escaped.await())
+				assertEquals(emptyList<ExplorerWindow>(), explorer.windows.value)
+
+				// It is shown in the launcher's place: the launcher shown is put away for it.
+				explorer.launch()
+				assertInstanceOf(
+					ExplorerWindow.Launching::class.java,
+					explorer.windows.value.single(),
+				)
+
+				val over = async { explorer.dmenu(sizes) }
+
+				settled { shown() != null }
+				assertEquals(1, explorer.windows.value.size)
+
+				// Another asked for takes its place, and it is answered as put away.
+				val first = shown()!!.id
+				val second = async { explorer.dmenu(sizes.copy(placeholder = "Again")) }
+
+				assertEquals(DmenuAnswer.Dismissed, over.await())
+				settled { shown()?.id?.let { it != first } == true }
+				assertEquals(
+					"Again",
+					shown()!!
+						.session.state.value.asked.placeholder,
+				)
+
+				// The launcher's key, while one is shown, puts it away, and shows no launcher.
+				explorer.launch()
+				assertEquals(DmenuAnswer.Dismissed, second.await())
+				assertEquals(emptyList<ExplorerWindow>(), explorer.windows.value)
+
+				// Whoever asked gone, its window goes with them.
+				val gone = async { explorer.dmenu(sizes) }
+
+				settled { shown() != null }
+				gone.cancelAndJoin()
+				assertEquals(emptyList<ExplorerWindow>(), explorer.windows.value)
+			}
 		}
 
 	@Test

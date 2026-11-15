@@ -213,21 +213,21 @@ object PickCommand : Command(
 		else
 			Ended.Cancelled
 	}
+}
 
-	/**
-	 * [run], with standard output kept for the paths chosen: what the toolkit prints meanwhile (skiko says so on
-	 * standard output when it falls back from OpenGL) goes to standard error instead.
-	 */
-	private fun <T> keepingStdout(run: () -> T): T {
-		val stdout = System.out
+/**
+ * [run], with standard output kept for what a command prints of what was chosen: what the toolkit prints meanwhile
+ * (skiko says so on standard output when it falls back from OpenGL) goes to standard error instead.
+ */
+internal fun <T> keepingStdout(run: () -> T): T {
+	val stdout = System.out
 
-		System.setOut(System.err)
+	System.setOut(System.err)
 
-		return try {
-			run()
-		} finally {
-			System.setOut(stdout)
-		}
+	return try {
+		run()
+	} finally {
+		System.setOut(stdout)
 	}
 }
 

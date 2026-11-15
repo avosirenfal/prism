@@ -33,6 +33,7 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
@@ -56,11 +57,13 @@ import prism.browser.mouseChords
 import prism.browser.toClipboard
 import prism.browser.zoomedByWheel
 import prism.desktop.TerminalOptions
+import prism.launcher.DmenuView
 import prism.launcher.LauncherDims
 import prism.launcher.LauncherView
 import prism.launcher.LocalIconImages
 import prism.launcher.launcherBindings
 import prism.preferences.DateFormat
+import prism.preferences.Preferences
 import prism.preferences.Typography
 import prism.preferences.WindowKind
 import prism.window.Backdrop
@@ -188,59 +191,33 @@ fun ExplorerWindows(explorer: Explorer, palette: Palette, decorated: Boolean) {
 					) {
 						SettingsWindow(explorer, window) { explorer.close(window) }
 					}
-				// The launcher: over every window, in the middle of the screen, with the keyboard for as long as it is
-				// shown, where the platform has such a surface and the user wants it one; and otherwise a window
-				// with no title bar, of a size that cannot be changed, which a window manager that tiles leaves
-				// floating over its tiles. What it is, it is from when it opens.
-				is ExplorerWindow.Launching -> {
-					val size = remember { LauncherDims.sizeOf(preferences.launcher) }
-
-					val role =
-						remember {
-							if (preferences.launcher.overlay)
-								WindowRole.Overlay(
-									LAUNCHER_NAME,
-									// One that closes when the keyboard goes elsewhere must let it go: a click on
-									// another window takes it. One that stays keeps the keyboard until it is put away.
-									keyboard =
-										if (preferences.launcher.closeUnfocused)
-											Keyboard.Shared
-										else
-											Keyboard.Held,
-								)
-							else
-								WindowRole.Normal
-						}
-
-					Window(
-						onCloseRequest = { explorer.close(window) },
-						title = LAUNCHER_TITLE,
-						size = DpSize(size.first, size.second),
-						decorated = false,
-						onFailure = { explorer.failed(window, it) },
-						activation = window.activation,
-						resizable = false,
-						role = role,
-						// Clear behind what it draws, for round corners to show what is behind them, where the user
-						// wants them round; the window says whether it could be, and the launcher is square if not.
-						backdrop =
-							remember {
-								if (preferences.launcher.rounded)
-									Backdrop.Clear
-								else
-									Backdrop.Opaque
-							},
+				is ExplorerWindow.Launching ->
+					LauncherWindow(
+						explorer,
+						window,
+						window.activation,
+						LauncherDims.sizeOf(preferences.launcher),
+						palette,
+						preferences,
 					) {
-						val native = this.window
-
-						LaunchedEffect(Unit) { native.raise() }
-						HostedWindow(native, palette, preferences.typography, preferences.dates) {
-							CompositionLocalProvider(LocalIconImages provides explorer.icons) {
-								LauncherView(window.session, launcherBindings(preferences.launcher))
-							}
-						}
+						LauncherView(window.session, launcherBindings(preferences.launcher))
 					}
-				}
+				// Lines to choose one of, in the launcher's window: of the size its lines ask for, where they do.
+				is ExplorerWindow.Dmenu ->
+					LauncherWindow(
+						explorer,
+						window,
+						window.activation,
+						window.session.state.value.asked.let { asked ->
+							LauncherDims.sizeOf(preferences.launcher).let { (width, height) ->
+								(asked.width?.dp ?: width) to (asked.height?.dp ?: height)
+							}
+						},
+						palette,
+						preferences,
+					) {
+						DmenuView(window.session, launcherBindings(preferences.launcher))
+					}
 				is ExplorerWindow.LauncherSettings ->
 					Dialog(
 						Explorer.titleOf(window),
@@ -286,6 +263,69 @@ fun ExplorerWindows(explorer: Explorer, palette: Palette, decorated: Boolean) {
 					}
 			}
 		}
+}
+
+/**
+ * The launcher's window, [size] across and down, around [content]: over every window, in the middle of the screen,
+ * with the keyboard for as long as it is shown, where the platform has such a surface and the user wants it one; and
+ * otherwise a window with no title bar, of a size that cannot be changed, which a window manager that tiles leaves
+ * floating over its tiles. What it is, it is from when it opens.
+ */
+@Composable
+private fun LauncherWindow(
+	explorer: Explorer,
+	window: ExplorerWindow,
+	activation: String?,
+	size: Pair<Dp, Dp>,
+	palette: Palette,
+	preferences: Preferences,
+	content: @Composable () -> Unit,
+) {
+	val sized = remember { size }
+
+	val role =
+		remember {
+			if (preferences.launcher.overlay)
+				WindowRole.Overlay(
+					LAUNCHER_NAME,
+					// One that closes when the keyboard goes elsewhere must let it go: a click on
+					// another window takes it. One that stays keeps the keyboard until it is put away.
+					keyboard =
+						if (preferences.launcher.closeUnfocused)
+							Keyboard.Shared
+						else
+							Keyboard.Held,
+				)
+			else
+				WindowRole.Normal
+		}
+
+	Window(
+		onCloseRequest = { explorer.close(window) },
+		title = LAUNCHER_TITLE,
+		size = DpSize(sized.first, sized.second),
+		decorated = false,
+		onFailure = { explorer.failed(window, it) },
+		activation = activation,
+		resizable = false,
+		role = role,
+		// Clear behind what it draws, for round corners to show what is behind them, where the user
+		// wants them round; the window says whether it could be, and the launcher is square if not.
+		backdrop =
+			remember {
+				if (preferences.launcher.rounded)
+					Backdrop.Clear
+				else
+					Backdrop.Opaque
+			},
+	) {
+		val native = this.window
+
+		LaunchedEffect(Unit) { native.raise() }
+		HostedWindow(native, palette, preferences.typography, preferences.dates) {
+			CompositionLocalProvider(LocalIconImages provides explorer.icons, content = content)
+		}
+	}
 }
 
 /**

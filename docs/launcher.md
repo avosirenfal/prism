@@ -141,6 +141,51 @@ name, or where what is typed is the application's whole name; always after the a
 What was started is kept in `$XDG_STATE_HOME/prism/launches`, a line an entry. Deleting it forgets the order and
 nothing else.
 
+## dmenu
+
+`prism dmenu` shows the lines on its standard input in the launcher's window, and prints the one you choose. It is
+what dmenu does, and what rofi, fuzzel and Vicinae do in their dmenu modes, so a script written for one of those
+works with this:
+
+```sh
+echo -e "25%\n50%\n75%\n100%" | prism dmenu --placeholder "Window size..." | xargs -I{} niri msg action set-window-width "{}"
+```
+
+![Lines to choose from, in the launcher's window](launcher-dmenu.png)
+
+- **The lines** are listed in the order they were given; blank ones are left out. Typing narrows them as it narrows
+  applications: every word typed must be somewhere in the line, and the best fit is first.
+- **The keys** are the launcher's, as you have bound them: the arrows, Page Up and Page Down, Tab, Ctrl+J and
+  Ctrl+K move; **Enter** (or a click) chooses; **Escape** empties the field, and with the field empty puts it away.
+- **What is printed** is the line chosen, and the status is 0. Put away with nothing chosen (Escape, the launcher's
+  own key, a click on another window, another `prism dmenu`), nothing is printed and the status is 1, as dmenu's is.
+- **Text that fits no line** is itself the answer: Enter prints what was typed. So with no lines at all it asks a
+  question: `prism dmenu -p "Name" < /dev/null`.
+
+Its options are Vicinae's, by the same names, so a `vicinae dmenu` command line works with the program's name
+changed:
+
+| option | what it does |
+|---|---|
+| `-p`, `--placeholder TEXT` | what the field says while it is empty |
+| `-q`, `--query TEXT` | what is typed as it opens |
+| `-s`, `--section-title TITLE` | a heading over the lines; `{count}` in it is how many are shown |
+| `--no-section` | no heading (there is none unless one is asked for) |
+| `-n`, `--navigation-title TITLE` | a title, said along the bottom |
+| `-f`, `--format data\|index` | print the line (`data`, the default), or where it is among the lines that are not blank, from 0 (`index`; text that fits no line is `-1`) |
+| `-W`, `--width PIXELS`, `-H`, `--height PIXELS` | the window's size, where the launcher's own is not wanted |
+| `--no-footer` | no line along the bottom |
+| `--password` | what is typed is shown as dots |
+| `--no-quick-look`, `--no-metadata` | taken, for Vicinae's command lines, and nothing done: prism has no preview |
+
+The window is the launcher's: where it is on the screen, its size, its corners and whether it closes when another
+window is given the keyboard are the launcher's settings (below), and a compositor's rule for the launcher is a rule
+for this. It takes the launcher's place: the launcher shown is put away for it, and the launcher's key puts it away.
+
+Like `prism launcher`, it is asked of the prism already running, which has the window up at once: the short-lived
+process reads the lines, hands them over with its words, waits for the answer however long the choosing takes, and
+prints it. With no prism running it shows the window itself, which takes as long as a Java program takes to start.
+
 ## Settings
 
 "Settings" in the launcher (or Ctrl+P) opens them in a window of their own, made as the explorer's preferences
@@ -322,6 +367,19 @@ The launcher's window is one of the explorer's (`ExplorerWindow.Launching`), so 
 fails, reported and replaced by a window that says what happened, as every window is; a launcher that fails takes
 nothing else with it.
 
+A dmenu is the same window with another state behind it (`dmenu.kt`, `dmenuview.kt`): `Dmenu` is what was asked
+(the lines, each made ready to be looked through as it is read, and how they are shown), `DmenuState` what is typed
+and what was found for it, `step` its reducer, and `DmenuSession` what looks through the lines, off the thread the
+window is drawn on, and holds the answer (`DmenuAnswer`: a line chosen, text typed, or put away). Enter pressed
+before what is typed has been looked for waits for it, so the line chosen is always one that fits. The field, the
+list, the bottom line and the edge are the launcher's own composables. Its window is `ExplorerWindow.Dmenu`, and
+`Explorer.dmenu` shows it and waits for its answer.
+
+The command is in two halves. `DmenuCommand` (`client/dmenu.kt`) declares the options, reads standard input and asks
+the running prism, with the lines carried in the request (`Caller.input`) and no limit on how long the answer may
+take; it is part of the client compiled ahead of time, too, which hands what it read to the Java prism where nobody
+answers. `DmenuServed` (`app/dmenu.kt`) is the prism that is asked: it shows the lines and says what is printed.
+
 ## Tested
 
 - `LauncherStateTest`: what is found for what is typed and in what order, actions, hidden applications, uses, files
@@ -348,13 +406,24 @@ nothing else with it.
 - `ExplorerTest`: the launcher shown, put away by being asked for again, following its settings as they change,
   opening its settings and a folder's window; its settings opened at their keys, their one window turned to them
   where it is open; and a window opened on the System page.
+- `DmenuTest`: the lines read from what was piped; every line shown as it opens, what is typed looked for and what
+  fitted something typed before dropped; Enter answering the line the arrows are on, waiting where what is typed has
+  not been looked for yet, and answering the text where no line fits; Escape, and the window closed; a hundred
+  thousand lines looked through by a session; and the whole of it composed and worked with the keyboard and the
+  mouse, and drawn in both palettes.
+- `DmenuCommandTest` (client), `DmenuServedTest` (app): the options read, short and long; the running prism asked
+  with the words said again and what was on standard input; whoever made the command left to show it where nobody
+  answers; and what is printed for a line, for its place, for text typed, and for nothing chosen.
+- `ExplorerTest`: a dmenu shown and answered by a line, by Escape, by the launcher's key, by another dmenu taking
+  its place, and closed where whoever asked is gone.
 - `tools/daemon/check.sh`: `prism launcher` asked of a running daemon shows a window titled "Prism Launcher", and
   asked again puts it away.
 - `tools/launcher/check-wayland.sh`: the launcher on a real compositor (sway, with no screen; or, with `--here`,
   the session it is run in), looked at by screenshots and typed into as a keyboard would: it is in the overlay layer
   and no window of the compositor's, in the middle of the screen, typed into, Enter starts what was found, the same
   key and Escape put it away, it is drawn over a window that fills the screen, an explorer's window is a window
-  still, and with `overlay` off it is a window. Its corners are read off the screenshots: the pixel at the launcher's
+  still, and with `overlay` off it is a window. Lines are piped to `prism dmenu`: typing narrows them and Enter
+  prints the one left, with status 0; Escape, and the launcher's key, print nothing, with status 1. Its corners are read off the screenshots: the pixel at the launcher's
   very corner is what is behind it (the screen's background, and then the terminal that fills the screen), the pixel
   just inside is the launcher's, and with `rounded` off the corner is the line's colour. A terminal is opened whose
   app id is a desktop entry's name, then another window after it; in the launcher the entry is typed for, the right

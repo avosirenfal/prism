@@ -22,6 +22,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -37,6 +38,7 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.isAltPressed
 import androidx.compose.ui.input.key.isCtrlPressed
@@ -49,13 +51,16 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.times
 import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import prism.browser.ActionMenuLayer
@@ -157,40 +162,18 @@ fun cornersOf(preferences: LauncherPreferences, backdrop: Backdrop): Corners =
 @Composable
 fun LauncherView(session: LauncherSession, bindings: Bindings) {
 	val state by session.state.collectAsState()
-	val focused = LocalWindowInfo.current.isWindowFocused
-	var wasFocused by remember { mutableStateOf(false) }
 
-	// Put away once the keyboard has gone elsewhere and stayed there a moment: a compositor takes the keyboard from
-	// a surface and gives it straight back when a keyboard is plugged in or its layout changes, which is no reason
-	// to go. The wait ends with the keyboard's return, since this is begun again as it changes.
-	LaunchedEffect(focused) {
-		if (focused) {
-			wasFocused = true
-		} else if (wasFocused && state.preferences.closeUnfocused) {
-			delay(UNFOCUSED_MILLIS)
-			session.send(LauncherEvent.Closed)
-		}
-	}
+	PutAwayUnfocused(state.preferences.closeUnfocused) { session.send(LauncherEvent.Closed) }
 
-	// What is typed is the field's own until the session's differs: cleared by Escape, say.
-	var typed by remember { mutableStateOf(TextFieldValue(state.query)) }
-
-	LaunchedEffect(session) {
-		session.state.map { it.query }.distinctUntilChanged().collect { query ->
-			if (query != typed.text)
-				typed = TextFieldValue(query, TextRange(query.length))
-		}
-	}
-
-	// What is behind the window, as it turned out: its corners are round only where they can be seen through.
-	val backdrop = LocalNativeWindow.current?.backdrop ?: Backdrop.Opaque
+	val queries = remember(session) { session.state.map { it.query } }
+	var typed by typedOf(queries, state.query)
 
 	Scaled(state.preferences.scale.times) {
 		LauncherPane(
 			state,
 			bindings,
 			typed,
-			corners = cornersOf(state.preferences, backdrop),
+			corners = cornersHere(state.preferences),
 			onTyped = {
 				val changed = it.text != typed.text
 
@@ -204,14 +187,52 @@ fun LauncherView(session: LauncherSession, bindings: Bindings) {
 }
 
 /**
+ * [onGone] told once the window has had the keyboard and has been without it a moment, where it [closes] then: a
+ * compositor takes the keyboard from a surface and gives it straight back when a keyboard is plugged in or its
+ * layout changes, which is no reason to go. The wait ends with the keyboard's return, since this is begun again as
+ * it changes.
+ */
+@Composable
+internal fun PutAwayUnfocused(closes: Boolean, onGone: () -> Unit) {
+	val focused = LocalWindowInfo.current.isWindowFocused
+	var wasFocused by remember { mutableStateOf(false) }
+
+	LaunchedEffect(focused) {
+		if (focused) {
+			wasFocused = true
+		} else if (wasFocused && closes) {
+			delay(UNFOCUSED_MILLIS)
+			onGone()
+		}
+	}
+}
+
+/**
+ * What is typed into the field, which is the field's own until what its session has typed ([queries]) differs:
+ * cleared by Escape, say. It begins as [first].
+ */
+@Composable
+internal fun typedOf(queries: Flow<String>, first: String): MutableState<TextFieldValue> {
+	val typed = remember { mutableStateOf(TextFieldValue(first, TextRange(first.length))) }
+
+	LaunchedEffect(queries) {
+		queries.distinctUntilChanged().collect { query ->
+			if (query != typed.value.text)
+				typed.value = TextFieldValue(query, TextRange(query.length))
+		}
+	}
+
+	return typed
+}
+
+/** The corners of the window this is drawn in, as [preferences] ask and what is behind the window allows. */
+@Composable
+internal fun cornersHere(preferences: LauncherPreferences): Corners =
+	cornersOf(preferences, LocalNativeWindow.current?.backdrop ?: Backdrop.Opaque)
+
+/**
  * The launcher as [state] has it, what is in its field being [typed], its [corners] square or round: what
  * [LauncherView] draws, and the tests.
- *
- * The line around it is the colour of its edge filling the whole of its shape, with everything else drawn over that
- * a line's width in, clipped to the same shape made that much smaller. So the line is exactly as wide all the way
- * round a corner, nothing of what is inside shows past it, and its outer edge fades into what is behind the window
- * and into nothing else: a line drawn over the content, both clipped at one edge, would let the content show through
- * the line's own fading there, as a pale rim.
  */
 @Composable
 fun LauncherPane(
@@ -222,61 +243,46 @@ fun LauncherPane(
 	onTyped: (TextFieldValue) -> Unit = {},
 	onEvent: (LauncherEvent) -> Unit = {},
 ) {
-	val palette = LocalPalette.current
 	val field = remember { FocusRequester() }
-
-	val (outer, inner) =
-		when (corners) {
-			Corners.Square -> RectangleShape to RectangleShape
-			Corners.Round ->
-				RoundedCornerShape(LauncherDims.corner) to
-					RoundedCornerShape(LauncherDims.corner - LauncherDims.edge)
-		}
-
 	val menu = state.menu
 	// Where the row the arrows are on is, for its menu to be drawn by: not known again until the row they have moved to
 	// says where it is, so a menu is never drawn by the row they were on.
 	var anchor by remember(state.highlighted) { mutableStateOf<Rect?>(null) }
 
 	Box(Modifier.fillMaxSize()) {
-		Column(
-			Modifier
-				.fillMaxSize()
-				.background(palette.border, outer)
-				.padding(LauncherDims.edge)
-				.clip(inner)
-				.background(palette.overlay)
-				.onPreviewKeyEvent { key ->
-					val down = key.type == KeyEventType.KeyDown
-					val plain =
-						!key.isCtrlPressed && !key.isAltPressed && !key.isMetaPressed && !key.isShiftPressed
-					val atEnd = typed.selection.collapsed && typed.selection.end == typed.text.length
+		Frame(
+			corners,
+			onKey = { key ->
+				val down = key.type == KeyEventType.KeyDown
+				val plain =
+					!key.isCtrlPressed && !key.isAltPressed && !key.isMetaPressed && !key.isShiftPressed
+				val atEnd = typed.selection.collapsed && typed.selection.end == typed.text.length
 
-					// A menu open: the left arrow puts it away, and is not the caret's.
-					if (down && menu != null && plain && key.key == Key.DirectionLeft) {
-						onEvent(LauncherEvent.MenuClosed)
+				// A menu open: the left arrow puts it away, and is not the caret's.
+				if (down && menu != null && plain && key.key == Key.DirectionLeft) {
+					onEvent(LauncherEvent.MenuClosed)
 
-						return@onPreviewKeyEvent true
-					}
+					return@Frame true
+				}
 
-					// While how a query is written is shown, the one key that is the launcher's is the one that
-					// leaves it: the rest are for what is not there, and are the page's own to have (its Escape,
-					// its scrolling). The right arrow is the caret's while the caret has somewhere to go.
-					val action =
-						(Chord.of(key)?.let(bindings::action) as? LauncherAction)
-							?.takeIf { down }
-							?.takeIf { !state.help || it == LauncherAction.Dismiss }
-							?.takeUnless {
-								it == LauncherAction.ShowActions &&
-									plain &&
-									key.key == Key.DirectionRight &&
-									!atEnd
-							}
+				// While how a query is written is shown, the one key that is the launcher's is the one that
+				// leaves it: the rest are for what is not there, and are the page's own to have (its Escape,
+				// its scrolling). The right arrow is the caret's while the caret has somewhere to go.
+				val action =
+					(Chord.of(key)?.let(bindings::action) as? LauncherAction)
+						?.takeIf { down }
+						?.takeIf { !state.help || it == LauncherAction.Dismiss }
+						?.takeUnless {
+							it == LauncherAction.ShowActions &&
+								plain &&
+								key.key == Key.DirectionRight &&
+								!atEnd
+						}
 
-					action?.let { onEvent(eventOf(it, state.preferences.rows.number - 1)) }
+				action?.let { onEvent(eventOf(it, state.preferences.rows.number - 1)) }
 
-					action != null
-				}.testTag("launcher"),
+				action != null
+			},
 		) {
 			if (state.help)
 				QueryHelpPanel(
@@ -314,6 +320,45 @@ fun LauncherPane(
 	}
 }
 
+/**
+ * What the launcher's window is filled with, around [content]: its ground, the line around it, its [corners] square
+ * or round; every key pressed in it is [onKey]'s first, which says whether it was its own.
+ *
+ * The line around it is the colour of its edge filling the whole of its shape, with everything else drawn over that
+ * a line's width in, clipped to the same shape made that much smaller. So the line is exactly as wide all the way
+ * round a corner, nothing of what is inside shows past it, and its outer edge fades into what is behind the window
+ * and into nothing else: a line drawn over the content, both clipped at one edge, would let the content show through
+ * the line's own fading there, as a pale rim.
+ */
+@Composable
+internal fun Frame(
+	corners: Corners,
+	onKey: (KeyEvent) -> Boolean,
+	content: @Composable ColumnScope.() -> Unit,
+) {
+	val palette = LocalPalette.current
+
+	val (outer, inner) =
+		when (corners) {
+			Corners.Square -> RectangleShape to RectangleShape
+			Corners.Round ->
+				RoundedCornerShape(LauncherDims.corner) to
+					RoundedCornerShape(LauncherDims.corner - LauncherDims.edge)
+		}
+
+	Column(
+		Modifier
+			.fillMaxSize()
+			.background(palette.border, outer)
+			.padding(LauncherDims.edge)
+			.clip(inner)
+			.background(palette.overlay)
+			.onPreviewKeyEvent(onKey)
+			.testTag("launcher"),
+		content = content,
+	)
+}
+
 /** The field, what was found for what is typed into it, and what the keys do: the launcher, but for its edge. */
 @Composable
 private fun ColumnScope.Found(
@@ -325,7 +370,7 @@ private fun ColumnScope.Found(
 	onAnchor: (Rect) -> Unit,
 	onEvent: (LauncherEvent) -> Unit,
 ) {
-	QueryField(state, typed, field, onTyped)
+	QueryField("Search applications and files…", typed, field, onTyped, state.searching)
 	Divider()
 	Box(Modifier.weight(1f).fillMaxWidth().padding(LauncherDims.around)) {
 		if (state.entries.isEmpty())
@@ -354,13 +399,18 @@ private fun ColumnScope.Found(
 	Footer(state, bindings)
 }
 
-/** The field: a magnifier, what is typed, large, and a spinner while the index is searched. */
+/**
+ * The field: a magnifier, what is typed, large ([placeholder] while nothing is), and a spinner while what is typed
+ * is [searching] for. What is typed is shown as dots where it is [redacted].
+ */
 @Composable
-private fun QueryField(
-	state: LauncherState,
+internal fun QueryField(
+	placeholder: String,
 	typed: TextFieldValue,
 	focus: FocusRequester,
 	onTyped: (TextFieldValue) -> Unit,
+	searching: Boolean,
+	redacted: Boolean = false,
 ) {
 	val palette = LocalPalette.current
 	val type = LocalType.current
@@ -378,10 +428,11 @@ private fun QueryField(
 		Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
 			if (typed.text.isEmpty())
 				Text(
-					"Search applications and files…",
+					placeholder,
 					style = style.copy(color = palette.textFaint),
 					maxLines = 1,
 					overflow = TextOverflow.Ellipsis,
+					modifier = Modifier.testTag("launcher-placeholder"),
 				)
 			BasicTextField(
 				typed,
@@ -390,9 +441,14 @@ private fun QueryField(
 				singleLine = true,
 				textStyle = style,
 				cursorBrush = SolidColor(palette.accent),
+				visualTransformation =
+					if (redacted)
+						PasswordVisualTransformation()
+					else
+						VisualTransformation.None,
 			)
 		}
-		if (state.searching) {
+		if (searching) {
 			Spacer(Modifier.width(Space.m))
 			Spinner(palette.textMuted, 16.dp)
 		}
@@ -517,9 +573,43 @@ private fun Initial(label: String, size: Dp) {
  */
 @Composable
 private fun Footer(state: LauncherState, bindings: Bindings) {
+	val files = state.files as? FilesFound.Found
+
+	// A search that went wrong is said as what goes wrong with something chosen is.
+	val wrong =
+		(state.notice as? LauncherNotice.Failed)?.text
+			?: "File search failed. This is a bug in prism; details are in its log."
+				.takeIf { state.files is FilesFound.Failed }
+
+	FooterBar(
+		wrong
+			?: (state.notice as? LauncherNotice.Done)?.text
+			?: when {
+				state.entries.isEmpty() -> ""
+				files != null && files.total > files.files.size ->
+					"${"%,d".format(state.entries.size)} shown · ${"%,d".format(files.total)} files"
+				state.entries.size == 1 -> "1 result"
+				else -> "${"%,d".format(state.entries.size)} results"
+			},
+		wrong = wrong != null,
+		hintsFor(state.current),
+		bindings,
+	)
+}
+
+/**
+ * The launcher's bottom line: what is [said] at its start (as something that went [wrong], where it did), and at
+ * its end what the keys do ([hints]: each action's first chord in [bindings], with what it does in a word or two).
+ */
+@Composable
+internal fun FooterBar(
+	said: String,
+	wrong: Boolean,
+	hints: List<Pair<LauncherAction, String>>,
+	bindings: Bindings,
+) {
 	val palette = LocalPalette.current
 	val type = LocalType.current
-	val files = state.files as? FilesFound.Found
 
 	Row(
 		Modifier
@@ -529,24 +619,10 @@ private fun Footer(state: LauncherState, bindings: Bindings) {
 			.padding(horizontal = Space.l),
 		verticalAlignment = Alignment.CenterVertically,
 	) {
-		// A search that went wrong is said as what goes wrong with something chosen is.
-		val wrong =
-			(state.notice as? LauncherNotice.Failed)?.text
-				?: "File search failed. This is a bug in prism; details are in its log."
-					.takeIf { state.files is FilesFound.Failed }
-
 		Text(
-			wrong
-				?: (state.notice as? LauncherNotice.Done)?.text
-				?: when {
-					state.entries.isEmpty() -> ""
-					files != null && files.total > files.files.size ->
-						"${"%,d".format(state.entries.size)} shown · ${"%,d".format(files.total)} files"
-					state.entries.size == 1 -> "1 result"
-					else -> "${"%,d".format(state.entries.size)} results"
-				},
+			said,
 			style =
-				if (wrong != null)
+				if (wrong)
 					type.muted.copy(color = palette.dangerText)
 				else
 					type.muted,
@@ -558,7 +634,7 @@ private fun Footer(state: LauncherState, bindings: Bindings) {
 			horizontalArrangement = Arrangement.spacedBy(Space.l),
 			verticalAlignment = Alignment.CenterVertically,
 		) {
-			for ((action, label) in hintsFor(state.current))
+			for ((action, label) in hints)
 				bindings.of(action).firstOrNull()?.let { KeyHint(label, it) }
 		}
 	}

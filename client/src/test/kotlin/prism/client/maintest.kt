@@ -77,10 +77,13 @@ class ClientTest {
 		listening({ Reply.Done(Ran("windows: 1 open", "", 0)) }) { place, asked ->
 			val words = listOf("explore", "--isolated", "/tmp", "-x")
 
-			assertEquals(Ran("windows: 1 open", "", 0), answered(words, place, caller))
+			assertEquals(Done.Here(Ran("windows: 1 open", "", 0)), answered(words, place, caller))
 			assertEquals(listOf(Request(words, caller)), asked.toList())
 			// No words at all are asked too: that is a window on the home folder.
-			assertEquals(Ran("windows: 1 open", "", 0), answered(emptyList(), place, caller))
+			assertEquals(
+				Done.Here(Ran("windows: 1 open", "", 0)),
+				answered(emptyList(), place, caller),
+			)
 		}
 
 	@Test
@@ -89,35 +92,36 @@ class ClientTest {
 		listening({
 			Reply.Unable("explore was asked to run in a separate process")
 		}) { place, asked ->
-			assertNull(answered(listOf("explore", "--isolated"), place, caller))
+			assertEquals(Done.Handed(), answered(listOf("explore", "--isolated"), place, caller))
 			assertEquals(1, asked.size)
 			// Help is not asked for: no prism gives another's.
-			assertNull(answered(listOf("explore", "--help"), place, caller))
-			assertNull(answered(listOf("-h"), place, caller))
+			assertEquals(Done.Handed(), answered(listOf("explore", "--help"), place, caller))
+			assertEquals(Done.Handed(), answered(listOf("-h"), place, caller))
 			assertEquals(1, asked.size)
 			// After two dashes it is a word like any other.
-			assertNull(answered(listOf("explore", "--", "--help"), place, caller))
+			assertEquals(Done.Handed(), answered(listOf("explore", "--", "--help"), place, caller))
 			assertEquals(2, asked.size)
 		}
 		// Nobody listens, or there is nowhere to listen.
-		assertNull(
+		assertEquals(
+			Done.Handed(),
 			answered(listOf("status"), InstancePlace.within(folder.resolve("none")), caller),
 		)
-		assertNull(answered(listOf("status"), null, caller))
+		assertEquals(Done.Handed(), answered(listOf("status"), null, caller))
 	}
 
 	@Test
 	fun searchIsDoneHereAndWithNobodyToAskIsHandedOver() {
 		// Its help is its own, under prism's name.
 		assertTrue(
-			answered(listOf("search", "--help"), null, caller)!!
-				.out
+			(answered(listOf("search", "--help"), null, caller) as Done.Here)
+				.ran.out
 				.startsWith("usage: prism search QUERY... [OPTIONS]"),
 		)
 		// A mistake in its words is said here; a search itself, with no prism to ask, is the Java prism's.
 		assertEquals(
 			"prism search: missing query",
-			answered(listOf("search"), null, caller)!!.err,
+			(answered(listOf("search"), null, caller) as Done.Here).ran.err,
 		)
 	}
 

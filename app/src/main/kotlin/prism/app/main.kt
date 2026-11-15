@@ -20,7 +20,14 @@ val PRISM =
 		listOf(
 			Category(
 				"browsing",
-				listOf(ExploreCommand, LaunchCommand, PickCommand, SnapshotCommand, PortalGroup),
+				listOf(
+					ExploreCommand,
+					LaunchCommand,
+					DmenuServed,
+					PickCommand,
+					SnapshotCommand,
+					PortalGroup,
+				),
 			),
 			Category("searching", listOf(PathSearch)),
 			Category("running", listOf(DaemonCommand, StatusCommand, MatchesCommand)),

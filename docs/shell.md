@@ -205,13 +205,14 @@ Starting Java takes about a fifth of a second before a program has read its firs
 window, the launcher, its status or a search needs none of what that time buys: it is a few words written to a
 socket. So the `prism` on your path, in the flake's package, is not Java. It is a small program compiled ahead of
 time (GraalVM's native-image) from the same Kotlin: the `client` module, which holds what one prism asks another,
-how, and `prism search`.
+how, `prism search`, and the asking half of `prism dmenu`.
 
 What it does with its words:
 
 | words | done by |
 |---|---|
 | `search ...` | the client itself, which asks the prism running, as above |
+| `dmenu ...` | the client itself: it reads the lines on its standard input and asks the prism running, which shows them and answers the one chosen (docs/launcher.md, "dmenu"); with nobody to ask, the Java prism, given the lines it read |
 | anything else, with a prism running | sent to it as typed. It reads them as its own command line, and answers what they printed |
 | anything nobody answered | the Java prism, started with the same words, its input and output the client's own |
 

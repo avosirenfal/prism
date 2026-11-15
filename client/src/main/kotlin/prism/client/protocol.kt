@@ -29,8 +29,9 @@ import prism.cli.Ran
  * process ends, however it ends, so a socket left by a prism that was killed is known to be nobody's, and is taken.
  *
  * What is asked is a command line: its words, the folder they were said in (a path among them is read from there, not
- * from where the listening prism happens to be), and the little of the asker's environment an answer needs (the
- * desktop's token for giving a new window the keyboard). What is answered is what running the words printed and their
+ * from where the listening prism happens to be), the little of the asker's environment an answer needs (the
+ * desktop's token for giving a new window the keyboard), and, for a command that reads it, what was on the asker's
+ * standard input (`prism dmenu`'s lines). What is answered is what running the words printed and their
  * exit status, as the asker then prints and exits with; or that it cannot be done here, and why, and the asker does it
  * itself. So whatever a prism cannot do for another, for any reason, costs only the start it would have cost anyway.
  */
@@ -41,6 +42,11 @@ data class Caller(
 	val folder: Path,
 	/** Of the asker's environment, the variables in [CARRIED] that it has. */
 	val environment: Map<String, String>,
+	/**
+	 * What was on the asker's standard input, for a command that reads it there: whoever answers has no way to it
+	 * but this. None, for a command that reads nothing from it.
+	 */
+	val input: String? = null,
 ) {
 	/** [path] as the asker meant it: under the folder they said it in, where it does not start at the root. */
 	fun resolved(path: Path): Path = folder.resolve(path).normalize()
@@ -112,7 +118,7 @@ object Wire {
 	private const val MARK = 0x5052534D
 
 	/** What this prism writes, and reads: raised whenever what follows it changes. */
-	const val VERSION = 1
+	const val VERSION = 2
 
 	private const val DONE = 1
 	private const val UNABLE = 2
@@ -120,6 +126,9 @@ object Wire {
 	/** The most words, or variables, a request holds; and the longest any text of it or of an answer is, in bytes. */
 	private const val MOST = 1 shl 16
 	private const val LONGEST = 1 shl 24
+
+	/** The longest an asker's standard input is, in bytes, to be handed over: one longer is its own prism's to show. */
+	const val LONGEST_INPUT = 1 shl 28
 
 	/** What reading a request gave: the request, or that its writer is a prism of another [version]. */
 	sealed interface Asked {
@@ -143,6 +152,8 @@ object Wire {
 			text(out, name)
 			text(out, value)
 		}
+		out.writeBoolean(request.caller.input != null)
+		request.caller.input?.let { text(out, it) }
 		out.flush()
 	}
 
@@ -157,7 +168,13 @@ object Wire {
 		val words = List(count(input)) { text(input) }
 		val environment = List(count(input)) { text(input) to text(input) }.toMap()
 
-		return Asked.Read(Request(words, Caller(folder, environment)))
+		val given =
+			if (input.readBoolean())
+				text(input, LONGEST_INPUT)
+			else
+				null
+
+		return Asked.Read(Request(words, Caller(folder, environment, given)))
 	}
 
 	/** [reply] written; in the one shape every version reads the start of, so that being unable can always be said. */
@@ -220,10 +237,10 @@ object Wire {
 		out.write(bytes)
 	}
 
-	private fun text(input: DataInputStream): String {
+	private fun text(input: DataInputStream, longest: Int = LONGEST): String {
 		val length = input.readInt()
 
-		if (length !in 0..LONGEST)
+		if (length !in 0..longest)
 			throw IOException("text too long ($length bytes)")
 
 		return ByteArray(length).also(input::readFully).decodeToString()
@@ -243,7 +260,8 @@ sealed interface Asking {
 
 /**
  * [request] asked of the prism listening at [place], waiting no longer than [patience] for its answer: a prism that
- * listens and does not answer (its windows' thread held up) is, to an asker, nobody.
+ * listens and does not answer (its windows' thread held up) is, to an asker, nobody. What a person answers, and not
+ * the prism (a line chosen from a list), is waited for without end ([Duration.INFINITE]).
  */
 fun ask(
 	place: InstancePlace,
@@ -254,15 +272,15 @@ fun ask(
 		SocketChannel.open(StandardProtocolFamily.UNIX).use { channel ->
 			channel.connect(UnixDomainSocketAddress.of(place.socket))
 
-			// A blocking read has no timeout of its own: closing the channel from elsewhere is what ends one.
+			// A blocking read has no timeout of its own: closing the channel from elsewhere is what ends one. With
+			// no end to the patience, nothing does: what is asked is answered when a person has answered it.
 			val giveUp =
-				CompletableFuture.runAsync(
-					{ channel.close() },
-					CompletableFuture.delayedExecutor(
-						patience.inWholeMilliseconds,
-						TimeUnit.MILLISECONDS,
-					),
-				)
+				patience.takeIf { it.isFinite() }?.let {
+					CompletableFuture.runAsync(
+						{ channel.close() },
+						CompletableFuture.delayedExecutor(it.inWholeMilliseconds, TimeUnit.MILLISECONDS),
+					)
+				}
 
 			try {
 				Wire.write(
@@ -273,7 +291,7 @@ fun ask(
 					Wire.reply(DataInputStream(BufferedInputStream(Channels.newInputStream(channel)))),
 				)
 			} finally {
-				giveUp.cancel(false)
+				giveUp?.cancel(false)
 			}
 		}
 	} catch (nobody: IOException) {

@@ -96,6 +96,9 @@ private fun scoreOf(words: List<String>, said: List<Said>): Int? {
 		each.filterNotNull().sum()
 }
 
+/** How well [words] fit a text that is all there is of something ([said]: a line of a dmenu); null where they do not. */
+internal fun scoreOf(words: List<String>, said: Said): Int? = scoreOf(words, listOf(said))
+
 /** What [application] says of itself. */
 private fun saidBy(application: Application): List<Said> =
 	listOfNotNull(

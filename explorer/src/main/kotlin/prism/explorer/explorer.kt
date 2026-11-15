@@ -48,6 +48,10 @@ import prism.browser.zoomOf
 import prism.desktop.Application
 import prism.desktop.Desktop
 import prism.desktop.MimeType
+import prism.launcher.Dmenu
+import prism.launcher.DmenuAnswer
+import prism.launcher.DmenuEvent
+import prism.launcher.DmenuSession
 import prism.launcher.IconImages
 import prism.launcher.LaunchStore
 import prism.launcher.LauncherEvent
@@ -137,6 +141,18 @@ sealed interface ExplorerWindow {
 	class Launching internal constructor(
 		override val id: WindowId,
 		val session: LauncherSession,
+		internal val scope: CoroutineScope,
+		val activation: String? = null,
+	) : ExplorerWindow
+
+	/**
+	 * The launcher's window with lines to choose one of in place of what the launcher finds (`prism dmenu`): its
+	 * [session], whose work is done in [scope], which ends with the window. It is the launcher's one window: shown,
+	 * the launcher is not, and asked for, whatever of the two is shown is put away for it.
+	 */
+	class Dmenu internal constructor(
+		override val id: WindowId,
+		val session: DmenuSession,
 		internal val scope: CoroutineScope,
 		val activation: String? = null,
 	) : ExplorerWindow
@@ -390,9 +406,7 @@ class Explorer(
 	 * whichever thread it asks from.
 	 */
 	fun launch(activation: String? = null) {
-		open.value.filterIsInstance<ExplorerWindow.Launching>().firstOrNull()?.let {
-			return close(it)
-		}
+		launcherShown()?.let { return close(it) }
 
 		val making = Making()
 		val (id, window) = making
@@ -460,6 +474,47 @@ class Explorer(
 				.map { it.launcher }
 				.distinctUntilChanged()
 				.collect { session.send(LauncherEvent.PreferencesChanged(it)) }
+		}
+	}
+
+	/** The launcher's one window, where it is shown: the launcher, or a dmenu in its place. */
+	private fun launcherShown(): ExplorerWindow? =
+		open.value.firstOrNull { it is ExplorerWindow.Launching || it is ExplorerWindow.Dmenu }
+
+	/**
+	 * [asked] shown in the launcher's window, in place of whatever it showed, until it is answered: by a line chosen,
+	 * by what was typed, or by its being put away, which is also what closing its window any other way comes to (the
+	 * launcher asked for, another dmenu, the window failing).
+	 */
+	suspend fun dmenu(asked: Dmenu, activation: String? = null): DmenuAnswer {
+		launcherShown()?.let(::close)
+
+		val making = Making()
+		val (id, window) = making
+		val session = DmenuSession(asked, window, preferences.preferences.value.launcher)
+		val showing = ExplorerWindow.Dmenu(id, session, window, activation)
+
+		making.opened(showing)
+		window.launch {
+			preferences.preferences
+				.map { it.launcher }
+				.distinctUntilChanged()
+				.collect { session.send(DmenuEvent.PreferencesChanged(it)) }
+		}
+
+		// Waited for in the window's own scope, which ends with the window: one closed with nothing chosen has
+		// no answer of its own, and is not waited for for ever.
+		val ending = window.async { session.answer.await() }
+
+		return try {
+			ending.await()
+		} catch (stopped: CancellationException) {
+			// Cancelled from outside, as it is; otherwise it was the window that went.
+			currentCoroutineContext().ensureActive()
+
+			DmenuAnswer.Dismissed
+		} finally {
+			close(showing)
 		}
 	}
 
@@ -605,6 +660,7 @@ class Explorer(
 			is ExplorerWindow.Browsing -> window.scope.cancel()
 			is ExplorerWindow.Picking -> window.scope.cancel()
 			is ExplorerWindow.Launching -> window.scope.cancel()
+			is ExplorerWindow.Dmenu -> window.scope.cancel()
 			else -> Unit
 		}
 	}
@@ -713,6 +769,7 @@ class Explorer(
 				is ExplorerWindow.OpenWith -> openWithTitleOf(window.choice)
 				is ExplorerWindow.Settings -> "Preferences"
 				is ExplorerWindow.Launching -> "Launcher"
+				is ExplorerWindow.Dmenu -> "Menu"
 				is ExplorerWindow.LauncherSettings -> "Launcher settings"
 				is ExplorerWindow.Failed -> "${window.what} failed"
 			}
@@ -724,6 +781,7 @@ class Explorer(
 					"the window on ${window.session.state.value.folder ?: titleOf(window)}"
 				is ExplorerWindow.Picking -> "the picker “${window.title}”"
 				is ExplorerWindow.Launching -> "the launcher"
+				is ExplorerWindow.Dmenu -> "the launcher's menu"
 				is ExplorerWindow.Failed -> "the window that says ${window.what} failed"
 				else -> "the window “${titleOf(window)}”"
 			}

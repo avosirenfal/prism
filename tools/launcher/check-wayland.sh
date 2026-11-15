@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # The launcher as a surface over every window, tried on a real compositor: a daemon run in it, and the launcher shown,
-# typed into, and put away, as a person would.
+# typed into, and put away, as a person would; and lines piped to `prism dmenu` chosen from in the same surface.
 #
 #   tools/launcher/check-wayland.sh          in a sway of its own, with no screen (sway's headless backend)
 #   tools/launcher/check-wayland.sh --here   in the Wayland session it is run in: yours, on your screen, for a minute
@@ -271,6 +271,39 @@ sleep 0.5
 check "Escape lets go of what was typed first" "windows: 1 open" "$(windows)"
 wtype -k Escape
 eventually "and then puts it away" 10 have_windows "none open"
+
+echo "--- lines piped to prism dmenu are shown in its place, and the one chosen is printed"
+# As a script uses it: the lines on its standard input, and what is chosen for the next command to read.
+(printf '25%%\n50%%\n75%%\n100%%\n' | "$PRISM" dmenu --placeholder "Window size..." > "$work/chosen"
+	echo $? > "$work/chosen.status") &
+eventually "it is shown" 10 have_windows "1 open"
+sleep 1.5
+shot dmenu
+wtype 7
+sleep 1
+shot dmenu-typed
+wtype -k Return
+eventually "Enter puts it away" 10 have_windows "none open"
+eventually "and the command ends" 10 test -s "$work/chosen.status"
+check "having printed the line that what was typed left" "75%" "$(cat "$work/chosen")"
+check "with status 0" "0" "$(cat "$work/chosen.status")"
+(printf 'a\nb\n' | "$PRISM" dmenu > "$work/escaped"
+	echo $? > "$work/escaped.status") &
+eventually "shown again" 10 have_windows "1 open"
+sleep 1.5
+wtype -k Escape
+eventually "Escape puts it away" 10 have_windows "none open"
+eventually "and the command ends" 10 test -s "$work/escaped.status"
+check "having printed nothing" "" "$(cat "$work/escaped")"
+check "with status 1, as dmenu's is" "1" "$(cat "$work/escaped.status")"
+(printf 'a\nb\n' | "$PRISM" dmenu > "$work/toggled"
+	echo $? > "$work/toggled.status") &
+eventually "shown a third time" 10 have_windows "1 open"
+sleep 1
+"$PRISM" launcher
+eventually "the launcher's key puts it away, and shows no launcher" 10 have_windows "none open"
+eventually "and the command ends" 10 test -s "$work/toggled.status"
+check "as one put away" "1" "$(cat "$work/toggled.status")"
 
 echo "--- told to have square corners, it has them"
 mkdir -p "$XDG_CONFIG_HOME/prism"

@@ -55,6 +55,19 @@ class InstanceTest {
 	fun whatIsAskedAndAnsweredIsReadAsItWasWritten() {
 		assertEquals(Wire.Asked.Read(request), Wire.asked(written { Wire.write(it, request) }))
 
+		// With what was on the asker's standard input, where the command reads it: as it was, to the last blank line.
+		val piped = request.copy(caller = request.caller.copy(input = "25%\n50 %\n\nä\n"))
+
+		assertEquals(Wire.Asked.Read(piped), Wire.asked(written { Wire.write(it, piped) }))
+		assertEquals(
+			Wire.Asked.Read(piped.copy(caller = piped.caller.copy(input = ""))),
+			Wire.asked(
+				written {
+					Wire.write(it, piped.copy(caller = piped.caller.copy(input = "")))
+				},
+			),
+		)
+
 		for (reply in listOf(
 			Reply.Done(Ran("chosen\nlines", "a warning", 3)),
 			Reply.Done(Ran("", "", 0)),

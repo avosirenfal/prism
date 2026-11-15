@@ -38,6 +38,7 @@ The rest of this document is each of those parts in turn.
 |---|---|
 | `prism`, `prism FOLDER`, `prism explore FOLDER...` | an explorer window on a folder (your home, with none named), or on a file's folder with the file chosen; opened by the prism already running where there is one |
 | `prism launcher` | the launcher: applications, then files, found as you type (docs/launcher.md); shown by the prism already running where there is one, and put away where it is shown already, so one key bound to it shows and hides it |
+| `prism dmenu` | the lines on standard input, in the launcher's window to choose one of, and the one chosen printed, as dmenu does (docs/launcher.md, "dmenu"); shown by the prism already running where there is one |
 | `prism --isolated`, `prism explore --isolated` | the same, in a process of its own, whether or not a prism is running: it asks nobody, and nobody asks it |
 | `prism daemon` | the daemon, started apart from the terminal; returns once it has said it started |
 | `prism daemon --foreground` | the daemon, run in place, saying what it does on the terminal until stopped: how systemd runs it, and how to watch it |

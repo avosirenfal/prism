@@ -21,13 +21,30 @@ import prism.cli.execute
  *
  * So it does only that: its words are asked of the session's prism, which reads them as its own command line and
  * answers what they printed; and what this program does itself (`search`, which may have a menu to show on this
- * terminal) it does, asking the session's prism for what it needs. Everything else, and everything
+ * terminal; `dmenu`, whose lines are on this program's standard input) it does, asking the session's prism for what
+ * it needs. Everything else, and everything
  * nobody answered, is the Java prism's, started with the same words, its input and output this program's own: to
  * whoever ran it, there is one prism, and this is how fast it starts.
  */
 
-/** This program's words are to be the Java prism's after all: nothing here could do them. */
-internal class HandedOver : RuntimeException(null, null, false, false)
+/**
+ * This program's words are to be the Java prism's after all: nothing here could do them. Where it has read its
+ * standard input already, what it read is [input], which is then the Java prism's to read.
+ */
+internal class HandedOver(
+	val input: String? = null,
+) : RuntimeException(null, null, false, false)
+
+/** What [answered] made of a command line: what it came to, or that it is the Java prism's, with what was read for it. */
+internal sealed interface Done {
+	data class Here(
+		val ran: Ran,
+	) : Done
+
+	data class Handed(
+		val input: String? = null,
+	) : Done
+}
 
 /** The commands this program does itself, as prism's command line names them. */
 internal val OWN =
@@ -39,27 +56,33 @@ internal val OWN =
 				"searching",
 				listOf(SearchCommand(otherwise = { throw HandedOver() })),
 			),
+			Category(
+				"browsing",
+				listOf(DmenuCommand(otherwise = { throw HandedOver(it.caller.input) })),
+			),
 		),
 	)
 
 /**
  * What [words] come to, where they can be done without the Java prism: by this program, for its own commands, or by
- * the prism listening at [place]. Null where they cannot: the Java prism's, then.
+ * the prism listening at [place]. Where they cannot, they are the Java prism's.
  */
-internal fun answered(words: List<String>, place: InstancePlace?, caller: Caller): Ran? {
+internal fun answered(words: List<String>, place: InstancePlace?, caller: Caller): Done {
 	val asksForHelp = words.takeWhile { it != "--" }.any { it == "-h" || it == "--help" }
 
 	return when {
 		OWN.child(words.firstOrNull().orEmpty()) != null ->
 			try {
-				execute(OWN, words)
+				Done.Here(execute(OWN, words))
 			} catch (handed: HandedOver) {
-				null
+				Done.Handed(handed.input)
 			}
 		// Help is the Java prism's to give, which knows every command; no need to ask who would only say so.
-		asksForHelp || place == null -> null
+		asksForHelp || place == null -> Done.Handed()
 		else ->
-			((ask(place, Request(words, caller)) as? Asking.Answered)?.reply as? Reply.Done)?.ran
+			((ask(place, Request(words, caller)) as? Asking.Answered)?.reply as? Reply.Done)
+				?.let { Done.Here(it.ran) }
+				?: Done.Handed()
 	}
 }
 
@@ -95,8 +118,11 @@ private fun program(): Path? =
 			.orElse(null)
 	}
 
-/** [words] run by the Java prism, as though it had been started in this program's place: its exit status. */
-private fun handedOver(words: List<String>): Int {
+/**
+ * [words] run by the Java prism, as though it had been started in this program's place: its exit status. Its
+ * standard input is this program's own, or, where this program has read that already, [input], which it read.
+ */
+private fun handedOver(words: List<String>, input: String?): Int {
 	val java =
 		javaPrism(System.getenv(), program())
 			?: run {
@@ -110,11 +136,23 @@ private fun handedOver(words: List<String>): Int {
 
 	val running =
 		try {
-			ProcessBuilder(listOf(java.toString()) + words).inheritIO().start()
+			ProcessBuilder(listOf(java.toString()) + words)
+				.inheritIO()
+				.apply {
+					if (input != null)
+						redirectInput(ProcessBuilder.Redirect.PIPE)
+				}.start()
 		} catch (failed: IOException) {
 			System.err.println("prism: couldn't start $java (${failed.message ?: failed})")
 
 			return NO_JAVA
+		}
+
+	if (input != null)
+		try {
+			running.outputStream.use { it.write(input.encodeToByteArray()) }
+		} catch (gone: IOException) {
+			// It ended without reading it all: what it says of itself, and its status, are what is left to tell.
 		}
 
 	// Ended itself (a signal sent to this program alone), it ends what it started.
@@ -155,14 +193,18 @@ fun main(args: Array<String>) {
 			exitProcess(FAILED)
 		}
 
-	if (ran == null) {
-		out.flush()
-		exitProcess(handedOver(words))
+	when (ran) {
+		is Done.Handed -> {
+			out.flush()
+			exitProcess(handedOver(words, ran.input))
+		}
+		is Done.Here -> {
+			if (ran.ran.out.isNotEmpty())
+				println(ran.ran.out)
+			if (ran.ran.err.isNotEmpty())
+				System.err.println(ran.ran.err)
+			out.flush()
+			exitProcess(ran.ran.status)
+		}
 	}
-	if (ran.out.isNotEmpty())
-		println(ran.out)
-	if (ran.err.isNotEmpty())
-		System.err.println(ran.err)
-	out.flush()
-	exitProcess(ran.status)
 }
