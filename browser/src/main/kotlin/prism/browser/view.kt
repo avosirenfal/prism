@@ -1050,6 +1050,8 @@ private fun ListingPane(
 	val list = remember(state.at.listed) { LazyListState() }
 	val grid = remember(state.at.listed) { LazyGridState() }
 	val menus = rememberContextMenus<BrowserEvent>()
+	// The state as it is now, for a menu opened from the keyboard, which is asked for again while it is open.
+	val now by rememberUpdatedState(state)
 	val area = remember { InWindow() }
 	val rows = state.rows
 	val cursor = state.cursor?.at
@@ -1239,18 +1241,11 @@ private fun ListingPane(
 	 * The menu of [row], pressed with the right button with [held] held: of the rows chosen if it is one, of it alone
 	 * otherwise.
 	 */
-	fun menuOf(row: Row, held: Set<Held>): Menu<BrowserEvent> {
-		stops.listing.requestFocus()
-
-		val among = row.id in chosen
-
-		if (!among)
-			onEvent(BrowserEvent.Clicked(row.id, Click.Only))
-
-		return contextMenuOf(
+	fun menuOf(row: Row, held: Set<Held>): Menu<BrowserEvent> =
+		contextMenuOf(
 			state,
 			Target.Rows(
-				if (among)
+				if (row.id in chosen)
 					state.chosenRows
 				else
 					listOf(row),
@@ -1259,23 +1254,23 @@ private fun ListingPane(
 			world,
 			held,
 		)
-	}
 
-	fun folderMenu(held: Set<Held>): Menu<BrowserEvent> {
+	/**
+	 * What the right button pressed on [row] does besides opening its menu: the keyboard is the listing's, and the
+	 * row is chosen alone where it was not among those chosen (after which it is, and its menu is of it still).
+	 */
+	fun menuOpening(row: Row) {
 		stops.listing.requestFocus()
 
-		return contextMenuOf(state, Target.Folder, bindings, world, held)
+		if (row.id !in chosen)
+			onEvent(BrowserEvent.Clicked(row.id, Click.Only))
 	}
+
+	fun folderMenu(held: Set<Held>): Menu<BrowserEvent> =
+		contextMenuOf(state, Target.Folder, bindings, world, held)
 
 	/** The menu of what is chosen (or of the folder, where nothing is), opened from the keyboard at the cursor's row. */
 	fun openMenuByKey() {
-		val shown = state.chosenRows
-		val menu =
-			if (shown.isEmpty())
-				contextMenuOf(state, Target.Folder, bindings, world)
-			else
-				contextMenuOf(state, Target.Rows(shown), bindings, world)
-
 		val inside =
 			cursorAt
 				?.let { at ->
@@ -1295,7 +1290,19 @@ private fun ListingPane(
 				} ?: Offset(48f, 24f)
 
 		area.coordinates?.localToWindow(inside)?.let {
-			menus.open(menu, IntOffset(it.x.roundToInt(), it.y.roundToInt()))
+			menus.open(IntOffset(it.x.roundToInt(), it.y.roundToInt())) {
+				val shown = now.chosenRows
+
+				contextMenuOf(
+					now,
+					if (shown.isEmpty())
+						Target.Folder
+					else
+						Target.Rows(shown),
+					bindings,
+					world,
+				)
+			}
 		}
 	}
 
@@ -1615,7 +1622,7 @@ private fun ListingPane(
 					.weight(1f)
 					.fillMaxWidth()
 					.onGloballyPositioned { area.coordinates = it }
-					.contextMenu(menus) { held -> folderMenu(held) }
+					.contextMenu(menus, { stops.listing.requestFocus() }) { held -> folderMenu(held) }
 					// Files dropped between the rows: given to the folder shown, or, in a picker, gone to.
 					.filesDropped(
 						DropSpot.Here,
@@ -1683,7 +1690,10 @@ private fun ListingPane(
 										onPress = { press(row.id, it) },
 										onRelease = { release(row.id) },
 										onEvent = onEvent,
-										modifier = dragging(row).contextMenu(menus) { held -> menuOf(row, held) },
+										modifier =
+											dragging(row).contextMenu(menus, { menuOpening(row) }) { held ->
+												menuOf(row, held)
+											},
 									)
 								}
 							else ->
@@ -1734,7 +1744,10 @@ private fun ListingPane(
 														modifier = dragging(row),
 														// The row's menu over its name, and the space after it in the name's column; the
 														// other columns are the listing's, whose menu is the folder's.
-														nameMenu = Modifier.contextMenu(menus) { held -> menuOf(row, held) },
+														nameMenu =
+															Modifier.contextMenu(menus, { menuOpening(row) }) { held ->
+																menuOf(row, held)
+															},
 														quiet = mark?.stale == true,
 														trailing =
 															recent?.takeIf { mark != null }?.let { page ->
@@ -2248,16 +2261,20 @@ private fun ColumnHeadings(
 			verticalAlignment = Alignment.CenterVertically,
 		) {
 			for (heading in state.columns.shown)
-				HeaderCell(
-					heading,
-					state.kind.labelOf(heading.id),
-					state.look.order.sort,
-					Modifier.width(layout.of(heading.id)),
-					align = heading.aligned,
-					enabled = (state.listing as? Listing.Found)?.orders(heading.id) != false,
-					menu = Modifier.contextMenu(menus) { headingsMenuOf(state, heading.id) },
-					onEvent,
-				)
+				// Each heading is its column's wherever it stands, so that one hidden takes only its own with it
+				// (and its own menu, where that is the one open).
+				key(heading.id) {
+					HeaderCell(
+						heading,
+						state.kind.labelOf(heading.id),
+						state.look.order.sort,
+						Modifier.width(layout.of(heading.id)),
+						align = heading.aligned,
+						enabled = (state.listing as? Listing.Found)?.orders(heading.id) != false,
+						menu = Modifier.contextMenu(menus) { headingsMenuOf(state, heading.id) },
+						onEvent,
+					)
+				}
 		}
 	}
 }
@@ -2433,7 +2450,6 @@ private fun headingsMenuOf(state: BrowserState, column: ColumnId?): Menu<Browser
 					kind.labelOf(setting.id),
 					shown,
 					BrowserEvent.ShowedColumn(setting.id, !shown),
-					alternate = BrowserEvent.ShowedColumn(setting.id, !shown),
 				)
 			}
 		columns.settings.firstOrNull { it.id == column }?.let { setting ->

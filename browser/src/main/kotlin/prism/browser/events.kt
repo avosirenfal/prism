@@ -124,18 +124,18 @@ sealed interface BrowserEvent : Input {
 	/** Every hidden entry shown, or none where every one was (Ctrl+H). */
 	data object ToggledEveryHidden : BrowserEvent
 
-	/** Only one kind of entry shown: a filter chosen from the filter menu. */
-	data class ShowedOnlyKind(
-		val kind: Kind,
-	) : BrowserEvent
-
-	/** A kind of entry added to the kinds shown, or taken away: a filter chosen with Ctrl held. */
+	/** A kind of entry added to the kinds shown, or taken away: its box in the filter menu ticked, or unticked. */
 	data class ToggledKind(
 		val kind: Kind,
 	) : BrowserEvent
 
-	/** Every kind shown again: no kind chosen. */
-	data object ShowedEveryKind : BrowserEvent
+	/** Only one kind of entry shown, whichever were: its box in the filter menu chosen with Ctrl held. */
+	data class ShowedOnlyKind(
+		val kind: Kind,
+	) : BrowserEvent
+
+	/** Every kind shown again, no kind's box ticked: the filter menu's "Clear filters". */
+	data object ClearedFilters : BrowserEvent
 
 	/** The listing ordered as [sort] says: chosen from a menu, where the header's click turns the order round. */
 	data class SortedBy(

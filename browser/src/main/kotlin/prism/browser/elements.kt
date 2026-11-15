@@ -507,7 +507,6 @@ fun CheckBox(
 	val type = LocalType.current
 	val source = remember { MutableInteractionSource() }
 	val felt = source.felt()
-	val shape = RoundedCornerShape(Radius.small)
 
 	Row(
 		modifier
@@ -523,33 +522,53 @@ fun CheckBox(
 		verticalAlignment = Alignment.CenterVertically,
 		horizontalArrangement = Arrangement.spacedBy(Space.s),
 	) {
-		Box(
-			Modifier
-				.ring(felt.ringed, palette.focus, corner = Radius.small)
-				.size(18.dp)
-				.background(
-					when {
-						checked && felt.hovered && enabled -> palette.accentHover
-						checked -> palette.accent
-						felt.hovered && enabled -> palette.hover
-						else -> palette.field
-					},
-					shape,
-				).border(
-					1.dp,
-					if (checked)
-						Color.Transparent
-					else
-						palette.fieldEdge,
-					shape,
-				),
-			contentAlignment = Alignment.Center,
-		) {
-			if (checked)
-				GlyphIcon(Glyph.Check, palette.onAccent, 14.dp)
-		}
+		TickBox(
+			checked,
+			Modifier.ring(felt.ringed, palette.focus, corner = Radius.small),
+			hovered = felt.hovered && enabled,
+		)
 		if (label.isNotEmpty())
 			Text(label, style = type.body)
+	}
+}
+
+/**
+ * The box of a check box alone, ticked or not, [size] across: what says "this is on or off" wherever it is drawn, a
+ * setting's [CheckBox] and a menu's item alike. It takes no press of its own: what it is drawn in does.
+ */
+@Composable
+fun TickBox(
+	checked: Boolean,
+	modifier: Modifier = Modifier,
+	size: Dp = 18.dp,
+	hovered: Boolean = false,
+) {
+	val palette = LocalPalette.current
+	val shape = RoundedCornerShape(Radius.small)
+
+	Box(
+		modifier
+			.size(size)
+			.background(
+				when {
+					checked && hovered -> palette.accentHover
+					checked -> palette.accent
+					hovered -> palette.hover
+					else -> palette.field
+				},
+				shape,
+			).border(
+				1.dp,
+				if (checked)
+					Color.Transparent
+				else
+					palette.fieldEdge,
+				shape,
+			),
+		contentAlignment = Alignment.Center,
+	) {
+		if (checked)
+			GlyphIcon(Glyph.Check, palette.onAccent, size * 0.78f)
 	}
 }
 
@@ -607,14 +626,17 @@ fun Switch(
 	}
 }
 
-/** A dot, filled where it is the one chosen of its kind: what a choice of several, each in a row, is marked by. */
+/**
+ * A ring, [size] across, filled with a dot in it where it is the one chosen of its kind: what a choice of several,
+ * each in a row, is marked by, in a settings page and in a menu alike.
+ */
 @Composable
-fun Radio(chosen: Boolean) {
+fun Radio(chosen: Boolean, size: Dp = 18.dp) {
 	val palette = LocalPalette.current
 
 	Box(
 		Modifier
-			.size(18.dp)
+			.size(size)
 			.background(if (chosen) palette.accent else palette.field, CircleShape)
 			.border(
 				1.dp,
@@ -627,7 +649,7 @@ fun Radio(chosen: Boolean) {
 		contentAlignment = Alignment.Center,
 	) {
 		if (chosen)
-			Box(Modifier.size(7.dp).background(palette.onAccent, CircleShape))
+			Box(Modifier.size(size * 0.39f).background(palette.onAccent, CircleShape))
 	}
 }
 

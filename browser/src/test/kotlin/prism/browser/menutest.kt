@@ -247,27 +247,63 @@ class MenuTest {
 	}
 
 	@Test
-	fun theFilterMenuChoosesOneKindAndWithCtrlMore() {
+	fun theFilterMenuIsABoxForEachKindUnderWhatClearsThem() {
 		val state = picker(hidden = Hidden())
 		val menu = filterMenuOf(state)
 
 		assertEquals(
-			listOf("All types") + Kind.entries.map { it.label } +
+			listOf("Clear filters", "—") + Kind.entries.map { it.label } +
 				listOf("—", "Show hidden files", "Show hidden folders"),
 			menu.labels(),
 		)
-		assertEquals(Mark.Check(true), menu.item("All types").mark)
-		assertEquals(Mark.Check(false), menu.item("Images").mark)
-		assertEquals(BrowserEvent.ShowedOnlyKind(Kind.Images), menu.item("Images").action)
-		assertEquals(BrowserEvent.ToggledKind(Kind.Images), menu.item("Images").alternate)
-		// Hidden files are shown at first, hidden folders not.
+
+		// Nothing ticked: every kind is shown, and there is nothing to clear.
+		val clear = menu.item("Clear filters")
+
+		assertEquals(Mark.Button, clear.mark)
+		assertEquals(BrowserEvent.ClearedFilters, clear.action)
+		assertFalse(clear.enabled)
+		assertEquals(null, clear.alternate)
+		for (kind in Kind.entries)
+			assertEquals(Mark.Check(false), menu.item(kind.label).mark, kind.label)
+
+		// A box ticks or unticks its kind; with Ctrl held, it leaves its kind the only one.
+		assertEquals(BrowserEvent.ToggledKind(Kind.Images), menu.item("Images").action)
+		assertEquals(BrowserEvent.ShowedOnlyKind(Kind.Images), menu.item("Images").alternate)
+		// Hidden files are shown at first, hidden folders not; Ctrl means nothing to either.
 		assertEquals(Mark.Check(true), menu.item("Show hidden files").mark)
 		assertEquals(Mark.Check(false), menu.item("Show hidden folders").mark)
+		assertEquals(null, menu.item("Show hidden files").alternate)
+		assertEquals(null, menu.item("Show hidden folders").alternate)
 
-		val images = filterMenuOf(after(state, BrowserEvent.ShowedOnlyKind(Kind.Images)))
+		val two =
+			filterMenuOf(
+				after(
+					state,
+					BrowserEvent.ToggledKind(Kind.Images),
+					BrowserEvent.ToggledKind(Kind.Videos),
+				),
+			)
 
-		assertEquals(Mark.Check(true), images.item("Images").mark)
-		assertEquals(Mark.Check(false), images.item("All types").mark)
+		assertEquals(
+			listOf(Kind.Images, Kind.Videos),
+			Kind.entries.filter { two.item(it.label).mark == Mark.Check(true) },
+		)
+		assertTrue(two.item("Clear filters").enabled)
+		// Every item is where it was, whichever are on.
+		assertEquals(menu.labels(), two.labels())
+	}
+
+	@Test
+	fun aBoxLeavesItsMenuOpenAndNothingElseDoes() {
+		val filters = filterMenuOf(picker())
+		val sort = contextMenuOf(picker(), Target.Folder).submenu("Sort by")
+
+		assertTrue(filters.item("Images").mark.stays)
+		assertTrue(filters.item("Show hidden folders").mark.stays)
+		assertFalse(filters.item("Clear filters").mark.stays)
+		assertFalse(sort.item("Name").mark.stays)
+		assertFalse(Mark.None.stays)
 	}
 
 	@Test

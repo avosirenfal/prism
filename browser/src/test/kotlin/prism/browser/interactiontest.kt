@@ -652,58 +652,123 @@ class InteractionTest {
 		}
 
 	@Test
-	fun theFilterMenuShowsOnlyTheKindChosenAndWithCtrlMore() =
+	fun theFilterMenuTicksKindsStayingOpenAndClearsThem() =
 		picking(folder = media()) {
 			// Hidden files are shown at first, hidden folders not.
 			row(".secret").assertExists()
 			absent(".stash")
 
+			// Nothing is ticked, so there is nothing to clear.
 			onNodeWithTag("filters").performClick()
-			onNodeWithTag("menu:All types").assertIsSelected()
-			onNodeWithTag("menu:Images").performClick()
+			onNodeWithTag("menu:Clear filters").assertIsNotEnabled()
+			onNodeWithTag("menu:Images").assertIsNotSelected()
 
-			// Only the images, and the menu closed.
+			// A box ticked shows its kind alone, and the menu is still there to tick another in.
+			onNodeWithTag("menu:Images").performClick()
+			onNodeWithTag("menu:Images").assertIsSelected()
 			row("photo.png").assertExists()
 			absent("notes.md", "Documents", "clip.mp4", ".secret")
-			noMenu()
-			onNodeWithTag("filters").assertIsSelected()
-
-			// With Ctrl, the videos as well, and the menu stays open to choose more.
-			onNodeWithTag("filters").performClick()
-			focused().performKeyInput { keyDown(Key.CtrlLeft) }
-			onNodeWithTag("menu:Videos").performMouseInput { click() }
-			focused().performKeyInput { keyUp(Key.CtrlLeft) }
+			onNodeWithTag("menu:Videos").performClick()
 			onNodeWithTag("menu:Videos").assertIsSelected()
 			onNodeWithTag("menu:Images").assertIsSelected()
 			row("photo.png").assertExists()
 			row("clip.mp4").assertExists()
 			absent("notes.md")
 			onNodeWithTag("status").assertTextEquals("2 of 9 items")
+			onNodeWithTag("menu:Clear filters").assertIsEnabled()
 
-			// Every kind again, then the hidden folders, apart from the kinds.
-			onNodeWithTag("menu:All types").performClick()
+			// Unticked, a kind is no longer shown, and the rest are as they were; ticked again, it is back.
+			onNodeWithTag("menu:Images").performClick()
+			onNodeWithTag("menu:Images").assertIsNotSelected()
+			onNodeWithTag("menu:Videos").assertIsSelected()
+			absent("photo.png")
+			onNodeWithTag("menu:Images").performClick()
+			row("photo.png").assertExists()
+
+			// With Ctrl, a third is the only one ticked, whichever were; and the menu is open still.
+			focused().performKeyInput { keyDown(Key.CtrlLeft) }
+			onNodeWithTag("menu:Folders").performMouseInput { click() }
+			focused().performKeyInput { keyUp(Key.CtrlLeft) }
+			onNodeWithTag("menu:Folders").assertIsSelected()
+			onNodeWithTag("menu:Images").assertIsNotSelected()
+			onNodeWithTag("menu:Videos").assertIsNotSelected()
+			row("Documents").assertExists()
+			absent("photo.png", "clip.mp4", "notes.md")
+
+			// With Ctrl on the one ticked, it stays the one.
+			focused().performKeyInput { keyDown(Key.CtrlLeft) }
+			onNodeWithTag("menu:Folders").performMouseInput { click() }
+			focused().performKeyInput { keyUp(Key.CtrlLeft) }
+			onNodeWithTag("menu:Folders").assertIsSelected()
+
+			// Cleared, every kind is shown, the menu is closed, and the button no longer says a filter is on.
+			onNodeWithTag("menu:Clear filters").performClick()
 			noMenu()
 			row("notes.md").assertExists()
+			row("photo.png").assertExists()
+			onNodeWithTag("filters").assertIsNotSelected()
+
+			// What is hidden is shown or not apart from the kinds, each box leaving the menu open; Ctrl means
+			// nothing to them.
 			onNodeWithTag("filters").performClick()
 			onNodeWithTag("menu:Show hidden folders").performClick()
+			onNodeWithTag("menu:Show hidden folders").assertIsSelected()
 			row(".stash").assertExists()
-			onNodeWithTag("filters").performClick()
-			onNodeWithTag("menu:Show hidden files").performClick()
+			focused().performKeyInput { keyDown(Key.CtrlLeft) }
+			onNodeWithTag("menu:Show hidden files").performMouseInput { click() }
+			focused().performKeyInput { keyUp(Key.CtrlLeft) }
+			onNodeWithTag("menu:Show hidden files").assertIsNotSelected()
+			onNodeWithTag("menu:Show hidden folders").assertIsSelected()
 			absent(".secret")
 			row(".stash").assertExists()
+		}
+
+	@Test
+	fun clearingTheFiltersLeavesWhatIsHiddenAsItWasSet() =
+		picking(folder = media()) {
+			onNodeWithTag("filters").performClick()
+			onNodeWithTag("menu:Show hidden folders").performClick()
+			onNodeWithTag("menu:Code").performClick()
+			absent("notes.md")
+			onNodeWithTag("menu:Clear filters").performClick()
+			noMenu()
+			row("notes.md").assertExists()
+			row(".stash").assertExists()
+			row(".secret").assertExists()
 		}
 
 	@Test
 	fun aMenuIsWorkedByTheKeyboard() =
 		picking(folder = media()) {
 			onNodeWithTag("filters").performClick()
-			// Down lights All types, then Folders; Enter chooses it.
-			press(Key.DirectionDown)
+			// There is nothing to clear, so Down lights Folders first; Enter ticks it, and the menu stays.
 			press(Key.DirectionDown)
 			press(Key.Enter)
-			noMenu()
+			onNodeWithTag("menu:Folders").assertIsSelected()
 			row("Documents").assertExists()
 			absent("notes.md")
+
+			// Space ticks as Enter does: the images as well.
+			press(Key.DirectionDown)
+			press(Key.Spacebar)
+			onNodeWithTag("menu:Images").assertIsSelected()
+			onNodeWithTag("menu:Folders").assertIsSelected()
+			row("photo.png").assertExists()
+
+			// With Ctrl, the one lit is the only one ticked.
+			press(Key.DirectionDown)
+			ctrl(Key.Enter)
+			onNodeWithTag("menu:Videos").assertIsSelected()
+			onNodeWithTag("menu:Images").assertIsNotSelected()
+			onNodeWithTag("menu:Folders").assertIsNotSelected()
+			row("clip.mp4").assertExists()
+			absent("Documents", "photo.png")
+
+			// Home lights what clears them, now that there is something to clear: Enter does it, and closes the menu.
+			press(Key.MoveHome)
+			press(Key.Enter)
+			noMenu()
+			row("notes.md").assertExists()
 
 			// Escape closes a menu without closing the picker.
 			onNodeWithTag("filters").performClick()
@@ -749,6 +814,58 @@ class InteractionTest {
 			onNodeWithTag("listing").performKeyInput { keyUp(Key.ShiftLeft) }
 			onNodeWithTag("menu:Refresh").assertExists()
 			onNodeWithTag("menu:Show hidden files").assertExists()
+		}
+
+	@Test
+	fun aBoxInAContextMenuLeavesItOpenAndShowsWhatItWasSetTo() =
+		picking(folder = media()) {
+			// The folder's menu, with Shift held, has what is hidden in it: each a box.
+			onNodeWithTag("listing").performKeyInput { keyDown(Key.ShiftLeft) }
+			rightClickNowhere()
+			onNodeWithTag("listing").performKeyInput { keyUp(Key.ShiftLeft) }
+			onNodeWithTag("menu:Show hidden folders").assertIsNotSelected()
+			onNodeWithTag("menu:Show hidden files").assertIsSelected()
+
+			onNodeWithTag("menu:Show hidden folders").performClick()
+			onNodeWithTag("menu:Show hidden folders").assertIsSelected()
+			row(".stash").assertExists()
+			onNodeWithTag("menu:Show hidden files").performClick()
+			onNodeWithTag("menu:Show hidden files").assertIsNotSelected()
+			absent(".secret")
+			// And back again, in the same visit.
+			onNodeWithTag("menu:Show hidden files").performClick()
+			onNodeWithTag("menu:Show hidden files").assertIsSelected()
+			row(".secret").assertExists()
+
+			// Something done closes it, as it always did.
+			onNodeWithTag("menu:Refresh").performClick()
+			noMenu()
+		}
+
+	@Test
+	fun theHeadingsMenuShowsAndHidesSeveralColumnsInOneVisit() =
+		picking {
+			onNodeWithTag("column:Type").performMouseInput { rightClick() }
+			onNodeWithTag("menu:Size").assertIsSelected()
+			onNodeWithTag("menu:Date modified").assertIsSelected()
+
+			// Two columns hidden, one after the other, the menu open throughout.
+			onNodeWithTag("menu:Size").performClick()
+			onNodeWithTag("menu:Size").assertIsNotSelected()
+			onNodeWithTag("column:Size").assertDoesNotExist()
+			onNodeWithTag("menu:Date modified").performClick()
+			onNodeWithTag("menu:Date modified").assertIsNotSelected()
+			onNodeWithTag("column:Date modified").assertDoesNotExist()
+
+			// And one of them shown again.
+			onNodeWithTag("menu:Size").performClick()
+			onNodeWithTag("menu:Size").assertIsSelected()
+			onNodeWithTag("column:Size").assertExists()
+
+			// The column the menu was opened over, hidden, takes its menu with it: there is nothing it is of.
+			onNodeWithTag("menu:Type").performClick()
+			onNodeWithTag("column:Type").assertDoesNotExist()
+			noMenu()
 		}
 
 	@Test

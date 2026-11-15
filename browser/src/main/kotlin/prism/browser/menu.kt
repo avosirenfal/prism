@@ -11,6 +11,10 @@ import androidx.compose.runtime.Immutable
  * choosing from it is reporting what the user did, as any other control does, and the reducer decides what comes of
  * it. A menu knows nothing of what its actions mean.
  *
+ * An item is one of three things, told apart at a glance by what is drawn before its label ([Mark]): something done
+ * (nothing before it), a box ticked or not, or one of a ring of choices. Which it is says how it is drawn and
+ * whether choosing it closes the menu, so no menu says either for itself.
+ *
  * For example, the menu of a file in the listing:
  *
  * ```kotlin
@@ -28,7 +32,7 @@ import androidx.compose.runtime.Immutable
 data class Menu<out A>(
 	val entries: List<MenuEntry<A>>,
 ) {
-	/** Whether any item shows a mark, so that every item keeps room for one and the labels line up. */
+	/** Whether any item has something before its label, so that every item keeps room for it and the labels line up. */
 	val marked: Boolean get() = entries.any { it is MenuEntry.Item && it.mark != Mark.None }
 
 	fun isEmpty(): Boolean = entries.isEmpty()
@@ -61,8 +65,8 @@ sealed interface MenuEntry<out A> {
 		val label: String,
 		val action: A,
 		/**
-		 * What is done instead when the item is chosen with Ctrl held, the menu then staying open, so that several can
-		 * be chosen in turn: adding to a choice, where choosing plainly replaces it. Null where Ctrl changes nothing.
+		 * What is done instead when the item is chosen with Ctrl held: a box's, which leaves it the only one of its
+		 * boxes ticked, where choosing it plainly ticks or unticks it alone. Null where Ctrl changes nothing.
 		 */
 		val alternate: A? = null,
 		val enabled: Boolean = true,
@@ -83,19 +87,37 @@ sealed interface MenuEntry<out A> {
 	data object Separator : MenuEntry<Nothing>
 }
 
-/** What an item shows beside its label of the state it changes. */
+/**
+ * What an item is, which is what is drawn before its label and what choosing it does to the menu: something done, a
+ * box ticked or not, or one of a ring of choices.
+ */
 @Immutable
 sealed interface Mark {
+	/**
+	 * Whether the menu stays open once the item is chosen. A box does not end a visit to its menu: several are set
+	 * in one, each showing at once what it was set to. Anything else is what the menu was opened for, and closes it.
+	 */
+	val stays: Boolean get() = false
+
+	/** Whether it is on, where it is something that can be: what a reader of the screen is told of it. */
+	val on: Boolean? get() = null
+
+	/** Something done: nothing is drawn before it. */
 	data object None : Mark
 
-	/** One of several that can each be on: a tick when on. */
-	data class Check(
-		val on: Boolean,
-	) : Mark
+	/** Something done, drawn as a button within the menu: the one thing to do, over a menu of things to set. */
+	data object Button : Mark
 
-	/** One of several of which one is on: a dot when on. */
+	/** One of several that can each be on: a box, ticked when on. */
+	data class Check(
+		override val on: Boolean,
+	) : Mark {
+		override val stays: Boolean get() = true
+	}
+
+	/** One of several of which one is on: a ring, with a dot in it when on. */
 	data class Radio(
-		val on: Boolean,
+		override val on: Boolean,
 	) : Mark
 }
 
@@ -110,16 +132,20 @@ fun <A> menu(build: MenuBuilder<A>.() -> Unit): Menu<A> =
 class MenuBuilder<A> internal constructor() {
 	private val entries = mutableListOf<MenuEntry<A>>()
 
+	/** Something to do. */
 	fun item(
 		label: String,
 		action: A,
 		keys: String? = null,
 		enabled: Boolean = true,
-		alternate: A? = null,
 		id: String? = null,
 	) {
-		entries +=
-			MenuEntry.Item(label, action, alternate, enabled, Mark.None, keys, id)
+		entries += MenuEntry.Item(label, action, enabled = enabled, keys = keys, id = id)
+	}
+
+	/** Something to do, drawn as a button: see [Mark.Button]. */
+	fun button(label: String, action: A, enabled: Boolean = true) {
+		entries += MenuEntry.Item(label, action, enabled = enabled, mark = Mark.Button)
 	}
 
 	/** [entry] as it is: one made elsewhere. */
@@ -127,7 +153,10 @@ class MenuBuilder<A> internal constructor() {
 		entries += entry
 	}
 
-	/** An item that is on or off, ticked when on. */
+	/**
+	 * A box that is on or off, ticked when on: [action] is what turns it the other way, and [alternate] what Ctrl
+	 * held does instead, where that is something else. The menu stays open either way.
+	 */
 	fun check(
 		label: String,
 		on: Boolean,
@@ -138,7 +167,7 @@ class MenuBuilder<A> internal constructor() {
 		entries += MenuEntry.Item(label, action, alternate, mark = Mark.Check(on), keys = keys)
 	}
 
-	/** One item of a group of which one is on, dotted when it is. */
+	/** One of a ring of choices of which one is on, dotted when it is. */
 	fun radio(
 		label: String,
 		on: Boolean,

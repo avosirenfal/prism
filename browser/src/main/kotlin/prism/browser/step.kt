@@ -248,7 +248,7 @@ private fun did(state: BrowserState, event: BrowserEvent): Step =
 							kinds + event.kind,
 				)
 			}
-		BrowserEvent.ShowedEveryKind -> state.filtering { copy(kinds = emptySet()) }
+		BrowserEvent.ClearedFilters -> state.filtering { copy(kinds = emptySet()) }
 		// Each layout has its own filters (a gallery may leave out what a list shows), so what is shown is arranged anew.
 		is BrowserEvent.Viewed ->
 			state.rearranged(layout = event.layout).let {

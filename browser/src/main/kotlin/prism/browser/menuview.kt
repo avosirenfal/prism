@@ -21,10 +21,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -70,6 +68,7 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.disabled
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
@@ -97,8 +96,14 @@ import prism.window.WindowLocals
  *
  * A menu is worked by the pointer (hovering an entry lights it and opens its submenu; a click chooses) and by the
  * keyboard, which it takes while it is open: Up and Down light an entry, Right or Enter open a submenu, Left or
- * Escape close one, Enter or Space choose, Escape closes the menu. Choosing an item closes the whole menu, except an
- * item chosen with Ctrl held that has an alternate, which does its alternate and leaves the menu open.
+ * Escape close one, Enter or Space choose, Escape closes the menu. Choosing an item closes the whole menu, except a
+ * box ([Mark.Check]), which is ticked or unticked and leaves it open, showing what it was set to. An item chosen with
+ * Ctrl held does its alternate, where it has one.
+ *
+ * What is drawn before an item's label says which of three things it is, the same in every menu: nothing, before
+ * something done; a square box, ticked or empty, before something on or off; a ring, with a dot in it or empty,
+ * before one of several of which one is chosen. The box and the ring are the ones a settings page draws ([TickBox],
+ * [Radio]). The one thing to do in a menu of things to set is drawn as a button across it ([Mark.Button]).
  */
 
 /** Where a menu opens. */
@@ -316,14 +321,11 @@ private fun <A> MenuPanel(
 	fun choose(index: Int, ctrl: Boolean, byKey: Boolean) {
 		when (val entry = menu.entries[index]) {
 			is MenuEntry.Item ->
-				if (entry.enabled)
-					when (val alternate = entry.alternate.takeIf { ctrl }) {
-						null -> {
-							onClose()
-							onAction(entry.action)
-						}
-						else -> onAction(alternate)
-					}
+				if (entry.enabled) {
+					if (!entry.mark.stays)
+						onClose()
+					onAction(entry.alternate.takeIf { ctrl } ?: entry.action)
+				}
 			is MenuEntry.Submenu -> opening = Opening(index, byKey)
 			MenuEntry.Separator -> Unit
 		}
@@ -384,21 +386,28 @@ private fun <A> MenuPanel(
 					Divider(
 						Modifier.padding(vertical = Space.xs, horizontal = Space.s),
 					)
-				is MenuEntry.Item ->
-					MenuRow(
-						entry.label,
-						entry.keys,
-						entry.mark,
-						menu.marked,
-						entry.enabled,
-						lit = lit == index,
-						submenu = false,
-						onHover = {
-							lit = index
-							opening = null
-						},
-						onChoose = { ctrl -> choose(index, ctrl, byKey = false) },
-					)
+				is MenuEntry.Item -> {
+					val hover = {
+						lit = index
+						opening = null
+					}
+					val chosen = { ctrl: Boolean -> choose(index, ctrl, byKey = false) }
+
+					if (entry.mark == Mark.Button)
+						MenuButtonRow(entry.label, entry.enabled, lit == index, hover, chosen)
+					else
+						MenuRow(
+							entry.label,
+							entry.keys,
+							entry.mark,
+							menu.marked,
+							entry.enabled,
+							lit = lit == index,
+							submenu = false,
+							onHover = hover,
+							onChoose = chosen,
+						)
+				}
 				is MenuEntry.Submenu ->
 					Box(
 						Modifier.onGloballyPositioned { row ->
@@ -466,15 +475,6 @@ private fun MenuRow(
 ) {
 	val palette = LocalPalette.current
 	val type = LocalType.current
-	val source = remember { MutableInteractionSource() }
-	val hovered by source.collectIsHoveredAsState()
-	val hovering by rememberUpdatedState(onHover)
-	val choosing by rememberUpdatedState(onChoose)
-
-	LaunchedEffect(hovered) {
-		if (hovered)
-			hovering()
-	}
 
 	Row(
 		Modifier
@@ -487,44 +487,20 @@ private fun MenuRow(
 					Color.Transparent,
 				RoundedCornerShape(Radius.medium),
 			).alpha(if (enabled) 1f else 0.4f)
-			.hoverable(source)
-			.pointerInput(enabled) {
-				awaitEachGesture {
-					awaitFirstDown()
-
-					val up = waitForUpOrCancellation()
-
-					if (up != null && enabled) {
-						up.consume()
-						choosing(currentEvent.keyboardModifiers.isCtrlPressed)
-					}
-				}
-			}.semantics {
-				selected =
-					(mark as? Mark.Check)?.on ?: (mark as? Mark.Radio)?.on ?: false
-			}.testTag("menu:$label")
+			.worked(enabled, onHover, onChoose)
+			.semantics { selected = mark.on ?: false }
+			.testTag("menu:$label")
 			.padding(horizontal = Space.s + Space.xxs),
 		verticalAlignment = Alignment.CenterVertically,
 	) {
-		// Room for a mark in every row of a menu that has any, so that the labels line up and turning one on or off
-		// moves nothing.
+		// Room before the label in every row of a menu that has anything there, so that the labels line up and
+		// turning one on or off moves nothing.
 		if (marked)
 			Box(Modifier.width(type.icon + Space.s), contentAlignment = Alignment.CenterStart) {
-				when {
-					mark is Mark.Check && mark.on ->
-						GlyphIcon(
-							Glyph.Check,
-							palette.accentText,
-							type.icon * 0.85f,
-						)
-					mark is Mark.Radio && mark.on ->
-						Box(
-							Modifier
-								.padding(
-									start = Space.xs,
-								).size(7.dp)
-								.background(palette.accentText, CircleShape),
-						)
+				when (mark) {
+					Mark.None, Mark.Button -> Unit
+					is Mark.Check -> TickBox(mark.on, size = type.icon)
+					is Mark.Radio -> Radio(mark.on, size = type.icon)
 				}
 			}
 		Text(
@@ -544,6 +520,81 @@ private fun MenuRow(
 		}
 	}
 }
+
+/**
+ * An item that is a button ([Mark.Button]), across the menu: an edge round its label, as a button has anywhere, so
+ * that it reads as the thing to press among things to set. Lit, it is filled as a button the pointer is on is.
+ */
+@Composable
+private fun MenuButtonRow(
+	label: String,
+	enabled: Boolean,
+	lit: Boolean,
+	onHover: () -> Unit,
+	onChoose: (ctrl: Boolean) -> Unit,
+) {
+	val palette = LocalPalette.current
+	val type = LocalType.current
+	val shape = RoundedCornerShape(Radius.medium)
+
+	Box(
+		Modifier
+			.fillMaxWidth()
+			.padding(horizontal = Space.xs, vertical = Space.xs)
+			.alpha(if (enabled) 1f else 0.4f)
+			.height(type.control)
+			.background(
+				if (lit && enabled)
+					palette.chosen
+				else
+					Color.Transparent,
+				shape,
+			).border(1.dp, palette.borderStrong, shape)
+			.worked(enabled, onHover, onChoose)
+			.testTag("menu:$label"),
+		contentAlignment = Alignment.Center,
+	) {
+		Text(label, style = type.button.copy(color = palette.text), maxLines = 1)
+	}
+}
+
+/**
+ * An entry's being worked by the pointer: [onHover] as the pointer comes onto it, and [onChoose], where it is
+ * [enabled], as a press on it is let go, told whether Ctrl was held. One that is not is said not to be.
+ */
+private fun Modifier.worked(
+	enabled: Boolean,
+	onHover: () -> Unit,
+	onChoose: (ctrl: Boolean) -> Unit,
+): Modifier =
+	composed {
+		val source = remember { MutableInteractionSource() }
+		val hovered by source.collectIsHoveredAsState()
+		val hovering by rememberUpdatedState(onHover)
+		val choosing by rememberUpdatedState(onChoose)
+
+		LaunchedEffect(hovered) {
+			if (hovered)
+				hovering()
+		}
+
+		hoverable(source)
+			.pointerInput(enabled) {
+				awaitEachGesture {
+					awaitFirstDown()
+
+					val up = waitForUpOrCancellation()
+
+					if (up != null && enabled) {
+						up.consume()
+						choosing(currentEvent.keyboardModifiers.isCtrlPressed)
+					}
+				}
+			}.semantics {
+				if (!enabled)
+					disabled()
+			}
+	}
 
 /**
  * Where a menu of [size] goes in a window of [window], opened by [anchor] about [from]: where there is room, and
@@ -588,11 +639,17 @@ private fun fitted(start: Int, size: Int, limit: Int, otherwise: Int): Int {
 	return chosen.coerceIn(0, (limit - size).coerceAtLeast(0))
 }
 
-/** A context menu open: what it offers, and the point of the window it opened at. */
-@Immutable
-data class OpenMenu<A>(
-	val menu: Menu<A>,
+/**
+ * A context menu open: what it offers, and the point of the window it opened at. What it offers is asked for each
+ * time it is drawn ([menu]), as a button's menu is, so that a box ticked in it, which leaves it open, shows what it
+ * was set to. [owner] is what it was opened over, where that can go while it is open (a row deleted, a column
+ * hidden by its own heading's menu): it is closed then, since there is nothing left to ask what it offers.
+ */
+@Stable
+class OpenMenu<A>(
+	val menu: () -> Menu<A>?,
 	val at: IntOffset,
+	val owner: Any? = null,
 )
 
 /**
@@ -604,24 +661,42 @@ class ContextMenus<A> {
 	var open: OpenMenu<A>? by mutableStateOf(null)
 		private set
 
-	/** [menu] opened at [at], a point of the window; a menu with nothing in it is not opened. */
-	fun open(menu: Menu<A>, at: IntOffset) {
-		if (!menu.isEmpty())
-			open = OpenMenu(menu, at)
+	/**
+	 * The menu [menu] gives opened at [at], a point of the window, over [owner]: none, where it gives none, or one
+	 * with nothing in it. [menu] only works a menu out, since it is asked again while the menu is open.
+	 */
+	fun open(at: IntOffset, owner: Any? = null, menu: () -> Menu<A>?) {
+		if (menu()?.isEmpty() == false)
+			open = OpenMenu(menu, at, owner)
 	}
 
 	fun close() {
 		open = null
+	}
+
+	/** The menu open over [owner] closed, where that is the one open: [owner] is gone. */
+	fun closeOf(owner: Any) {
+		if (open?.owner === owner)
+			open = null
 	}
 }
 
 @Composable
 fun <A> rememberContextMenus(): ContextMenus<A> = remember { ContextMenus() }
 
-/** The context menu [menus] has open, drawn, giving what is chosen to [onAction]. */
+/**
+ * The context menu [menus] has open, drawn, giving what is chosen to [onAction]; closed, once what it is a menu of
+ * offers nothing any more.
+ */
 @Composable
 fun <A> ContextMenuHost(menus: ContextMenus<A>, onAction: (A) -> Unit) {
-	menus.open?.let { MenuPopup(it.menu, MenuAnchor.At(it.at), onAction, menus::close) }
+	val open = menus.open ?: return
+	val menu = open.menu()?.takeUnless { it.isEmpty() }
+
+	if (menu == null)
+		LaunchedEffect(open) { menus.close() }
+	else
+		MenuPopup(menu, MenuAnchor.At(open.at), onAction, menus::close)
 }
 
 /** Where a layout is in the window, kept as it is placed, for a point in it to be a point of the window. */
@@ -630,17 +705,25 @@ internal class InWindow {
 }
 
 /**
- * The right button pressed here opening, at the pointer, the menu [menu] gives as it is pressed, with the keys held
- * then (none where it gives null). A press something inside has taken for its own menu is left to it, so a row's menu
- * opens over a row and the listing's over the rest of the listing.
+ * The right button pressed here opening, at the pointer, the menu [menu] gives with the keys held as it was pressed
+ * (none where it gives null). [menu] only works a menu out: it is asked again while the menu is open, so that the
+ * menu shows what is so now. What else the press does (the keyboard taken, a row chosen) is [opening]'s, done once,
+ * before the menu is first asked for. A press something inside has taken for its own menu is left to it, so a row's
+ * menu opens over a row and the listing's over the rest of the listing.
  */
 fun <A> Modifier.contextMenu(
 	menus: ContextMenus<A>,
+	opening: () -> Unit = {},
 	menu: (held: Set<Held>) -> Menu<A>?,
 ): Modifier =
 	composed {
 		val placed = remember { InWindow() }
 		val latest by rememberUpdatedState(menu)
+		val began by rememberUpdatedState(opening)
+		// What its menu is open over: this, wherever it is drawn, for as long as it is.
+		val owner = remember { Any() }
+
+		DisposableEffect(menus) { onDispose { menus.closeOf(owner) } }
 
 		onGloballyPositioned { placed.coordinates = it }
 			.pointerInput(menus) {
@@ -656,12 +739,13 @@ fun <A> Modifier.contextMenu(
 							down.consume()
 
 							placed.coordinates?.localToWindow(down.position)?.let { point ->
-								latest(heldOf(event.keyboardModifiers))?.let {
-									menus.open(
-										it,
-										IntOffset(point.x.roundToInt(), point.y.roundToInt()),
-									)
-								}
+								val held = heldOf(event.keyboardModifiers)
+
+								began()
+								menus.open(
+									IntOffset(point.x.roundToInt(), point.y.roundToInt()),
+									owner,
+								) { latest(held) }
 							}
 						}
 					}
@@ -681,8 +765,8 @@ fun heldOf(modifiers: PointerKeyboardModifiers): Set<Held> =
 	}
 
 /**
- * A toolbar button whose menu opens under it: [menu] is worked out each time the view is drawn while it is open, so an
- * item chosen with Ctrl, which leaves it open, shows at once what it changed. It shows as [selected] while what the
+ * A toolbar button whose menu opens under it: [menu] is worked out each time the view is drawn while it is open, so a
+ * box ticked in it, which leaves it open, shows at once what it was set to. It shows as [selected] while what the
  * menu chooses is not as it was at first (a filter on), and while the menu is open.
  */
 @Composable

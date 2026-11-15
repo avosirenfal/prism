@@ -722,24 +722,53 @@ class StepTest {
 	}
 
 	@Test
-	fun aFilterChosenShowsOnlyItsKindAndWithCtrlAddsIt() {
+	fun aKindShownAloneIsTheOnlyOneWhicheverWereShown() {
 		fun shown(state: BrowserState) = state.rows.list.map { it.name }
 
-		val images = after(picker(), BrowserEvent.ShowedOnlyKind(Kind.Images))
+		val two =
+			after(
+				picker(),
+				BrowserEvent.ToggledKind(Kind.Images),
+				BrowserEvent.ToggledKind(Kind.Audio),
+			)
 
+		assertEquals(setOf(Kind.Images, Kind.Audio), two.entryFilters.kinds)
+
+		// One that was not among them: it alone, the two let go.
+		val videos = after(two, BrowserEvent.ShowedOnlyKind(Kind.Videos))
+
+		assertEquals(setOf(Kind.Videos), videos.entryFilters.kinds)
+		assertEquals(listOf("trailer.mp4"), shown(videos))
+		// One that was: it stays, and the other goes.
 		assertEquals(
-			listOf("Holiday in Lisbon.jpg", "screenshot 2.png", "screenshot 10.png"),
-			shown(images),
+			setOf(Kind.Images),
+			after(two, BrowserEvent.ShowedOnlyKind(Kind.Images)).entryFilters.kinds,
 		)
-		// Another chosen plainly replaces it; chosen with Ctrl, it is added.
+		// The only one there is, shown alone, is as it was; and with none shown before, it is the one.
+		assertEquals(videos, after(videos, BrowserEvent.ShowedOnlyKind(Kind.Videos)))
 		assertEquals(
-			listOf("trailer.mp4"),
-			shown(after(images, BrowserEvent.ShowedOnlyKind(Kind.Videos))),
+			setOf(Kind.Images),
+			after(picker(), BrowserEvent.ShowedOnlyKind(Kind.Images)).entryFilters.kinds,
 		)
-		assertEquals(
-			setOf(Kind.Images, Kind.Videos),
-			after(images, BrowserEvent.ToggledKind(Kind.Videos)).entryFilters.kinds,
-		)
+	}
+
+	@Test
+	fun theFiltersClearedShowEveryKindAndLeaveWhatIsHiddenAsItWas() {
+		val hidden = Hidden(files = false, folders = true)
+
+		val state =
+			after(
+				picker(hidden = hidden),
+				BrowserEvent.ToggledKind(Kind.Images),
+				BrowserEvent.ToggledKind(Kind.Videos),
+				BrowserEvent.ClearedFilters,
+			)
+
+		assertEquals(emptySet<Kind>(), state.entryFilters.kinds)
+		assertEquals(hidden, state.entryFilters.hidden)
+		assertEquals(picker(hidden = hidden).rows.list, state.rows.list)
+		// With none to clear, nothing changes.
+		assertEquals(state, after(state, BrowserEvent.ClearedFilters))
 	}
 
 	@Test
@@ -764,12 +793,12 @@ class StepTest {
 			),
 			shown(andVideos),
 		)
-		// Turned off again, a kind leaves the rest; every kind shown again is everything.
+		// Turned off again, a kind leaves the rest; the filters cleared, everything is shown.
 		assertEquals(
 			listOf("trailer.mp4"),
 			shown(after(andVideos, BrowserEvent.ToggledKind(Kind.Images))),
 		)
-		assertEquals(shown(picker()), shown(after(andVideos, BrowserEvent.ShowedEveryKind)))
+		assertEquals(shown(picker()), shown(after(andVideos, BrowserEvent.ClearedFilters)))
 	}
 
 	@Test

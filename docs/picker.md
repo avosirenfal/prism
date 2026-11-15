@@ -216,17 +216,19 @@ the one any application was); otherwise in the home folder.
 
 ## What the listing shows: the filters
 
-![The filter menu, images and videos chosen](picker-filters.png)
+![The filter menu, images and videos ticked](picker-filters.png)
 
-The funnel button beside the arrows, at the top left, opens the **filter menu**: a list of the kinds of entry, then
-"Show hidden files" and "Show hidden folders". The list is a stack of fixed lines with a tick in front of each kind
-shown, so turning one on or off moves nothing.
+The funnel button at the top right, beside the search field, opens the **filter menu**: a "Clear filters" button,
+then a box for each kind of entry, then boxes for "Show hidden files" and "Show hidden folders". Every line keeps its
+place, so ticking one moves nothing.
 
-Click "Images", and only the images are shown, and the menu closes: a plain click shows that one kind alone. Open the
-menu again and click "Videos" with **Ctrl** held, and the videos are shown as well as the images, and the menu stays
-open, so that more can be added the same way (or taken away: Ctrl-clicking a ticked kind unticks it). "All types"
-shows everything again. The button shows as pressed while any kind is chosen, and the status line says how much is
-left out ("2 of 9 items").
+Click "Images", and its box is ticked and only the images are shown; the menu stays open, so click "Videos" and the
+videos are shown as well. A click on a ticked box unticks it. A click with **Ctrl** held leaves that kind the only
+one ticked, whichever were: the quick way from "images and videos" to "audio". With no box ticked every kind is
+shown. "Clear filters" unticks every kind and closes the menu (it can be pressed only while one is ticked, and it
+leaves the two hidden boxes alone: those are how the listing is kept, not a filter of this visit). Escape, or a
+click outside, closes the menu. The funnel shows as pressed while any kind is ticked, and the status line says how
+much is left out ("2 of 9 items").
 
 A kind is a few of the categories the icons are drawn for, together:
 
@@ -299,7 +301,7 @@ it is drawn changed. One at a time stays one at a time at any size.
 
 ## Menus
 
-![The folder's menu, its "Sort by" submenu open, in a real window](picker-menu.png)
+![The folder's menu as Shift opens it, with its boxes, and its "Sort by" submenu's rings](picker-menu.png)
 
 Right-click a file in the listing, and a menu opens at the pointer:
 
@@ -363,14 +365,28 @@ Since the function is pure, what every menu offers is a test of values (`MenuTes
 One component draws any menu (`menuview.kt`): `MenuPopup` opens it at a point of the window (for a context menu), below
 a button, or beside its entry (for a submenu), turned to fit where there is no room. The pointer lights an entry and
 opens a submenu by hovering, and chooses by clicking; the keyboard, which a menu takes while it is open, lights entries
-with Up and Down, opens and leaves submenus with Right and Left, chooses with Enter, and closes with Escape. Choosing an
-item closes the whole menu, except that an item can have an **alternate**: what it does when chosen with Ctrl, leaving
-the menu open. That is how the filter menu's Ctrl-click adds a kind.
+with Up and Down, opens and leaves submenus with Right and Left, chooses with Enter or Space, and closes with Escape.
+
+An item is one of three things, and what is drawn before its label says which, the same in every menu (`Mark`):
+
+| an item that | is drawn with | and chosen |
+|---|---|---|
+| does something ("Rename", "New folder") | nothing before its label | closes the menu |
+| is on or off ("Show hidden files", a kind in the filter menu, a column in the headings' menu) | a square box, ticked or empty | stays open, the box showing what it was set to, so several are set in one visit |
+| is one of several of which one is chosen (the column sorted by, "Ascending") | a ring, with a dot in it or empty | closes the menu |
+
+The box and the ring are the ones a settings page draws. One thing to do over a menu of boxes ("Clear filters") is
+drawn as a button across the menu, so that it is not taken for one more thing to tick. An item can also have an
+**alternate**: what it does instead when chosen with Ctrl held (Ctrl+Enter from the keyboard), which is how the
+filter menu's Ctrl-click leaves one kind the only one ticked.
 
 Context menus are put on anything with `Modifier.contextMenu(menus) { ... }`, which gives the menu to open as the right
 button is pressed there; one `ContextMenuHost` per part of the view draws the menu open, so one is open at a time, and
 something inside (a row) takes its own press before what holds it (the listing) does. `MenuButton` is a toolbar button
-with its menu under it, as the filter menu is.
+with its menu under it, as the filter menu is. Either kind of menu is worked out again each time it is drawn while it
+is open, which is what lets a box ticked in it show its tick; so what `contextMenu` is given only works a menu out,
+and what else a press does (the row under it chosen) is given apart, as `opening`. A context menu whose owner goes
+while it is open (a column hidden from its own heading's menu) closes with it.
 
 ## Changing what is on disk
 
@@ -828,7 +844,8 @@ list by one row, not a page, and a row far away is scrolled to directly (never b
 - **The picker as a user meets it** (`InteractionTest`): composed headless around a running `Session` over a real
   temporary folder, then clicked, double-clicked, Ctrl- and Shift-clicked, typed at and tabbed through with
   Compose's own test input, and what it shows and how it ends checked: the filter menu by pointer, by Ctrl-click and
-  by keyboard; a row's menu renaming it on disk; F6 and Escape; the trash, without asking, by Delete and by the menu,
+  by keyboard, its boxes ticked with the menu staying open and its filters cleared; a box in a context menu, and
+  several columns hidden from the headings' menu in one visit; a row's menu renaming it on disk; F6 and Escape; the trash, without asking, by Delete and by the menu,
   and Ctrl+Z and Ctrl+Shift+Z putting back and trashing again; Shift+Delete asking first, Escape on its notice
   cancelling, and Enter deleting for good; the trash in quick access, an entry put back from it; quick
   access's own window, one of prism's own hidden there and not removable, and moved; the folder's menu sorting

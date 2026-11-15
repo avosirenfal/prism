@@ -484,7 +484,8 @@ asking for the next, so that what is scrolled to is read next. Ordered by it, th
 
 **The filters** (which hidden entries are shown, and which kinds of file) are kept the same way, for each kind of
 listing and each layout: a gallery can leave out hidden files that a list of the same folder shows. The filter menu
-changes the window's own, for what it shows and how.
+(a box for each kind, ticked or not, under "Clear filters": docs/picker.md) changes the window's own, for what it
+shows and how.
 
 **As a window opens**, its looks and filters are the preferences' (`Listings`): for each kind of listing in an explorer
 and in a file picker, and the filters for each layout too. What they do not say for a picker is the explorer's; what

@@ -482,7 +482,6 @@ private fun spaceSlots(
 					"Show hidden files",
 					hidden.files,
 					BrowserEvent.ToggledHiddenFiles,
-					alternate = BrowserEvent.ToggledHiddenFiles,
 				)
 			}
 		slot("builtin.hidden-folders") {
@@ -490,7 +489,6 @@ private fun spaceSlots(
 				"Show hidden folders",
 				hidden.folders,
 				BrowserEvent.ToggledHiddenFolders,
-				alternate = BrowserEvent.ToggledHiddenFolders,
 			)
 		}
 		// A search's results, and a place, are in no one folder: there is nowhere to make one, and no path to copy.
@@ -662,35 +660,39 @@ private fun MenuBuilder<BrowserEvent>.sorts(state: BrowserState) {
 }
 
 /**
- * The filter menu: the kinds of entry, of which a plain click shows that one alone and a click with Ctrl adds it to
- * those shown or takes it away, then whether hidden files and hidden folders are shown. Every item keeps its place
- * whichever are on: they are a list of marks, not a list that grows.
+ * The filter menu. First what undoes it: "Clear filters", which unticks every kind, and can be done while one is
+ * ticked. Then a box for each kind of entry: ticked ones are the kinds shown, and none ticked shows every kind. A
+ * click ticks or unticks a box and leaves the rest; with Ctrl held it leaves that box the only one ticked. Then
+ * whether hidden files and hidden folders are shown, which are not filters of this visit but how the listing is kept
+ * (the listing's own menu has them too), so clearing the filters leaves them as they are.
+ *
+ * Every item keeps its place whichever are on, and the menu stays open as boxes are ticked: several are set in one
+ * visit.
  */
 fun filterMenuOf(state: BrowserState): Menu<BrowserEvent> {
 	val kinds = state.entryFilters.kinds
 	val folders = state.choosing is Choosing.Folder
 
 	return menu {
-		// A folder picker shows only folders: there are no kinds to choose among.
+		// A folder picker shows only folders: there are no kinds to choose among, and so none to clear.
 		if (!folders) {
-			check(
-				"All types",
-				kinds.isEmpty(),
-				BrowserEvent.ShowedEveryKind,
-				alternate = BrowserEvent.ShowedEveryKind,
-			)
+			button(CLEAR_FILTERS, BrowserEvent.ClearedFilters, enabled = kinds.isNotEmpty())
+			separator()
 			for (kind in Kind.entries)
 				check(
 					kind.label,
 					kind in kinds,
-					BrowserEvent.ShowedOnlyKind(kind),
-					alternate = BrowserEvent.ToggledKind(kind),
+					BrowserEvent.ToggledKind(kind),
+					alternate = BrowserEvent.ShowedOnlyKind(kind),
 				)
 			separator()
 		}
 		hiddenChecks(state, folders)
 	}
 }
+
+/** What unticks every kind of the filter menu. */
+const val CLEAR_FILTERS = "Clear filters"
 
 /** Whether hidden files and hidden folders are shown, each its own; a folder picker has no files to show. */
 private fun MenuBuilder<BrowserEvent>.hiddenChecks(
@@ -704,13 +706,11 @@ private fun MenuBuilder<BrowserEvent>.hiddenChecks(
 			"Show hidden files",
 			hidden.files,
 			BrowserEvent.ToggledHiddenFiles,
-			alternate = BrowserEvent.ToggledHiddenFiles,
 		)
 	check(
 		"Show hidden folders",
 		hidden.folders,
 		BrowserEvent.ToggledHiddenFolders,
-		alternate = BrowserEvent.ToggledHiddenFolders,
 	)
 }
 
