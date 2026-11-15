@@ -149,6 +149,7 @@ fun installedOf(id: String, file: Path, entry: KeyFile, xdg: Xdg): Installed? {
 			comment = said["Comment"],
 			keywords = itemsOf(said["Keywords"]),
 			actions = actions,
+			wmClass = keys["StartupWMClass"]?.takeIf { it.isNotEmpty() },
 		),
 		shown = here && keys["NoDisplay"] != "true",
 	)

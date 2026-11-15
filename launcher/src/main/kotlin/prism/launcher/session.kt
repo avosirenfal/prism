@@ -26,6 +26,7 @@ import prism.index.Results
 import prism.index.Searched
 import prism.index.query.Query
 import prism.preferences.LauncherPreferences
+import prism.window.OpenWindows
 
 /*
  * The launcher running: its state as it changes, and what its reducer asks for carried out. Applications are started
@@ -77,6 +78,11 @@ class LauncherServices(
 	val clock: Clock = Clock.systemUTC(),
 	/** What moves a file to the trash: the disk as a browser changes it. None, where nothing here may change it. */
 	val disk: Disk? = null,
+	/**
+	 * What the desktop tells of the windows applications have open, asked as the launcher is shown: what an
+	 * application that is running is marked by, and brought forward through. Nothing, unless told otherwise.
+	 */
+	val windows: () -> OpenWindows = { OpenWindows.Unavailable },
 	/** Where what blocks is done: starting programs, searching, reading what is installed. */
 	val io: CoroutineDispatcher = Dispatchers.IO,
 	/**
@@ -95,10 +101,20 @@ class LauncherSession(
 	private val scope: CoroutineScope,
 	preferences: LauncherPreferences = LauncherPreferences(),
 ) {
+	/** The windows open, as the desktop tells of them now; where it tells of none, nothing here asks for any. */
+	private val windows: OpenWindows = services.windows()
+
 	private val held =
 		MutableStateFlow(
 			LauncherState(
-				installed = Installed.of(services.desktop.applications.all()),
+				installed =
+					Installed.of(
+						services.desktop.applications.all(),
+						when (windows) {
+							OpenWindows.Unavailable -> emptyList()
+							is OpenWindows.Listed -> windows.now()
+						},
+					),
 				launches = services.launches.launches,
 				preferences = preferences,
 				searchable = services.finder != null,
@@ -159,6 +175,12 @@ class LauncherSession(
 				}
 			is LauncherEffect.Trash ->
 				scope.launch(services.io) { send(LauncherEvent.Acted(trashed(effect.path))) }
+			is LauncherEffect.Focus ->
+				when (windows) {
+					// No window was listed, so none was offered to be brought forward.
+					OpenWindows.Unavailable -> Unit
+					is OpenWindows.Listed -> windows.focus(effect.window)
+				}
 			is LauncherEffect.Hide -> {
 				host.hide(effect.application.id)
 				send(

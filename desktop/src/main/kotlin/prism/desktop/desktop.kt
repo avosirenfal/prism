@@ -128,6 +128,8 @@ data class Application(
 	val keywords: List<String> = emptyList(),
 	/** The other things it can be started to do: a new private window, of a browser. */
 	val actions: List<ApplicationAction> = emptyList(),
+	/** What its windows name as their application, where that is not [id] without `.desktop`: `StartupWMClass`. */
+	val wmClass: String? = null,
 ) {
 	/** This application started to do [action] in place of what it does when simply started. */
 	fun doing(action: ApplicationAction): Application =

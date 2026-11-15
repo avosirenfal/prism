@@ -176,6 +176,7 @@ class ApplicationsTest {
 			"Comment[de]=",
 			"Keywords=one;two;",
 			"Keywords[de]=eins;zwei;",
+			"StartupWMClass=Plainly",
 		)
 
 		fun read(vararg environment: Pair<String, String>) =
@@ -208,6 +209,8 @@ class ApplicationsTest {
 		assertEquals(listOf("eins", "zwei"), german.keywords)
 		assertEquals(listOf("one", "two"), read().keywords)
 		assertEquals("Thing", read().generic)
+		// What its windows call their application, where the entry says: what a window is known as its by.
+		assertEquals("Plainly", read().wmClass)
 	}
 
 	@Test

@@ -8,6 +8,7 @@ import prism.index.query.Own
 import prism.index.query.Query
 import prism.index.query.QueryText
 import prism.preferences.LauncherPreferences
+import prism.window.OpenWindow
 
 /*
  * What the launcher does with what happens to it: a pure function from a state and an event to the next state and
@@ -162,6 +163,11 @@ sealed interface LauncherEffect {
 	/** [path] moved to the trash: what came of it is told back as [LauncherEvent.Acted]. */
 	data class Trash(
 		val path: Path,
+	) : LauncherEffect
+
+	/** [window], which an application has open, brought forward and given the keyboard. */
+	data class Focus(
+		val window: OpenWindow,
 	) : LauncherEffect
 
 	/** [application] left out of the launcher from now on: its settings kept so. */
@@ -344,7 +350,7 @@ private fun stepped(state: LauncherState, event: LauncherEvent): LauncherStep =
 			else
 				LauncherStep(state.copy(files = FilesFound.Failed(event.query)))
 		is LauncherEvent.ApplicationsRead ->
-			LauncherStep(state.copy(installed = Installed.of(event.applications)))
+			LauncherStep(state.copy(installed = state.installed.read(event.applications)))
 		is LauncherEvent.PreferencesChanged ->
 			state.copy(preferences = event.preferences).let {
 				// Files newly asked for are looked for; those no longer asked for are let go.
@@ -445,6 +451,8 @@ private fun LauncherState.acted(entry: Entry, action: EntryAction): LauncherStep
 
 	return when (action) {
 		EntryAction.Open -> on.opened(entry)
+		is EntryAction.Focus ->
+			LauncherStep(on, listOf(LauncherEffect.Focus(action.window), LauncherEffect.Close))
 		is EntryAction.Run ->
 			LauncherStep(
 				on,

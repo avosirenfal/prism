@@ -8,6 +8,7 @@ import prism.desktop.Application
 import prism.desktop.ApplicationAction
 import prism.index.query.Own
 import prism.preferences.LauncherPreferences
+import prism.window.OpenWindow
 
 /*
  * The launcher, as one immutable value: what is typed, what is installed, what was found for what is typed, and which
@@ -29,9 +30,10 @@ sealed interface Entry {
 	/** What kind of thing it is, said at its row's end. */
 	val kind: String
 
-	/** An application, started. */
+	/** An application, started; with the [windows] it has open now, where the desktop tells of them and it has any. */
 	data class App(
 		val application: Application,
+		val windows: List<OpenWindow> = emptyList(),
 	) : Entry {
 		override val key: String get() = "app:${application.id}"
 		override val title: String get() = application.name
@@ -166,17 +168,27 @@ sealed interface LauncherNotice {
 	) : LauncherNotice
 }
 
-/** The applications installed that a person chooses from, each made ready to be looked through ([Listed]). */
+/**
+ * The applications installed that a person chooses from, each made ready to be looked through ([Listed]), and with
+ * the windows it has open among [windows]: those the desktop told of as the launcher was shown.
+ */
 data class Installed private constructor(
 	internal val listed: List<Listed>,
+	private val windows: List<OpenWindow>,
 ) {
 	val applications: List<Application> get() = listed.map { it.application }
 
-	companion object {
-		val NONE = Installed(emptyList())
+	/** What is installed read again as [applications], the windows open being those they were. */
+	fun read(applications: List<Application>): Installed = of(applications, windows)
 
-		fun of(applications: List<Application>): Installed =
-			Installed(applications.map(::Listed))
+	companion object {
+		val NONE = Installed(emptyList(), emptyList())
+
+		fun of(
+			applications: List<Application>,
+			windows: List<OpenWindow> = emptyList(),
+		): Installed =
+			Installed(applications.map { Listed(it, windowsOf(it, windows)) }, windows)
 	}
 }
 

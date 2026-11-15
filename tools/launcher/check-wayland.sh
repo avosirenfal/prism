@@ -62,6 +62,7 @@ failed=0
 cleanup() {
 	[ -n "${keyboard:-}" ] && kill "$keyboard" 2> /dev/null
 	[ -n "${terminal:-}" ] && kill "$terminal" 2> /dev/null
+	[ -n "${running:-}" ] && kill "$running" 2> /dev/null
 	pkill -f "$XDG_RUNTIME_DIR" 2> /dev/null
 	[ -f "$work/daemon.pid" ] && kill "$(cat "$work/daemon.pid")" 2> /dev/null
 	[ -n "${sway:-}" ] && kill "$sway" 2> /dev/null
@@ -144,6 +145,14 @@ has_app() {
 		niri) "$NIRI" msg --json windows | jq -e --arg app "$1" '[.[] | select(.app_id == $app)] | length > 0' ;;
 	esac
 }
+# The application whose window is the one in front: the one the keyboard is in, or goes back to after the launcher.
+focused() {
+	case "$compositor" in
+		sway) swaymsg -t get_tree | jq -r '.. | objects | select(.focused? == true) | .app_id' ;;
+		niri) "$NIRI" msg --json focused-window | jq -r '.app_id' ;;
+	esac
+}
+focused_is() { [ "$(focused)" = "$1" ]; }
 # The surfaces in the compositor's layers, by the names they gave: only niri says.
 layers() { "$NIRI" msg --json layers | jq -r '.[] | "\(.namespace) \(.layer) \(.keyboard_interactivity)"'; }
 fullscreen() {
@@ -337,6 +346,43 @@ if [ "$compositor" != another ]; then
 	terminal=""
 	rm "$XDG_CONFIG_HOME/prism/preferences.json"
 	sleep 1
+
+	echo "--- an application that is running is brought forward from its result's menu"
+	# An application of the check's own, running: a terminal whose window says it is that application's (its app id is
+	# the desktop entry's name). Started from the launcher, it would leave a file; brought forward, it leaves none.
+	cat > "$XDG_DATA_HOME/applications/zzterm.desktop" << EOF
+[Desktop Entry]
+Type=Application
+Name=Zzterm
+Exec=touch $work/again
+EOF
+	foot --app-id zzterm > /dev/null 2>&1 &
+	running=$!
+	eventually "the application's window opens" 10 has_app zzterm
+	foot > /dev/null 2>&1 &
+	terminal=$!
+	eventually "and another application's after it" 10 has_app foot
+	eventually "which is the one in front" 10 focused_is foot
+	"$PRISM" launcher
+	eventually "the launcher is shown" 10 have_windows "1 open"
+	sleep 1.5
+	wtype zzterm
+	sleep 1.5
+	# The right arrow shows what can be done to it: Open, then Focus window, which Down and Enter choose.
+	wtype -k Right
+	sleep 0.5
+	shot launcher-actions
+	wtype -k Down
+	sleep 0.3
+	wtype -k Return
+	eventually "the launcher is put away" 10 have_windows "none open"
+	eventually "and the application's window is the one in front" 10 focused_is zzterm
+	check "it was brought forward, and not started again" "" "$(ls "$work/again" 2> /dev/null)"
+	kill "$running" "$terminal"
+	running=""
+	terminal=""
+	rm "$XDG_DATA_HOME/applications/zzterm.desktop"
+	sleep 0.5
 
 	echo "--- an explorer's window is a window still"
 	"$PRISM" "$HOME/Documents"

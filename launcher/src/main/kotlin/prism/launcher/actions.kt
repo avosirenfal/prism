@@ -2,7 +2,9 @@ package prism.launcher
 
 import androidx.compose.runtime.Immutable
 import prism.browser.ActionMenu
+import prism.desktop.Application
 import prism.desktop.ApplicationAction
+import prism.window.OpenWindow
 
 /*
  * What can be done to a result of the launcher's, from its menu (the right arrow on it, or a right click): the first
@@ -22,6 +24,22 @@ sealed interface EntryAction {
 	data object Open : EntryAction {
 		override val label: String get() = "Open"
 		override val key: LauncherAction get() = LauncherAction.Open
+	}
+
+	/**
+	 * A window the application has open brought forward, and given the keyboard. [titled] where it has several, to
+	 * say which this is.
+	 */
+	data class Focus(
+		val window: OpenWindow,
+		val titled: Boolean,
+	) : EntryAction {
+		override val label: String
+			get() =
+				if (titled && window.title.isNotBlank())
+					"Focus window: ${window.title}"
+				else
+					"Focus window"
 	}
 
 	/** Something else an application can be started to do: one of its desktop entry's actions. */
@@ -100,6 +118,7 @@ fun actionsOf(entry: Entry): List<EntryAction> =
 	when (entry) {
 		is Entry.App ->
 			listOf(EntryAction.Open) +
+				entry.windows.map { EntryAction.Focus(it, titled = entry.windows.size > 1) } +
 				entry.application.actions.map(EntryAction::Run) +
 				described(entry.application.source != null) +
 				EntryAction.Hide
@@ -119,6 +138,18 @@ fun actionsOf(entry: Entry): List<EntryAction> =
 			)
 		is Entry.Command, is Entry.Prism -> listOf(EntryAction.Open)
 	}
+
+/**
+ * Those of [windows] that are [application]'s: a window names its application by an id, which is its desktop entry's
+ * name without `.desktop`, or what the entry says its windows are called (`StartupWMClass`); in whatever case.
+ */
+fun windowsOf(application: Application, windows: List<OpenWindow>): List<OpenWindow> {
+	val names =
+		setOfNotNull(application.id.removeSuffix(".desktop"), application.wmClass)
+			.map { it.lowercase() }
+
+	return windows.filter { it.appId.lowercase() in names }
+}
 
 /** What is done with an application's desktop entry, where it [has] one on disk. */
 private fun described(has: Boolean): List<EntryAction> =

@@ -23,6 +23,7 @@ import java.util.concurrent.ConcurrentHashMap
  *   serial of the user's last press of a button or a key, which tells the compositor that the user asked for it.
  * - The pointer's cursor during a drag (cursor-shape), which says what letting go there would do.
  * - Surfaces over every window (layer-shell, waylandoverlay.kt), which SDL has no windows of.
+ * - Other applications' windows, listed and brought forward (wlr-foreign-toplevel-management, waylandtoplevels.kt).
  *
  * So the seat is bound here too, and its pointer and keyboard heard: the compositor tells every pointer and keyboard
  * a client has of what is done in its windows. Each is asked for once the seat says it has one, as a seat must not be
@@ -72,9 +73,13 @@ internal class WaylandSeat private constructor(
 	private val activation: Bound?,
 	private val cursorShapes: Bound?,
 	layerShell: Bound?,
+	toplevelManager: Bound?,
 ) : AutoCloseable {
 	/** The compositor's layers, where it has layer-shell: what an overlay's window is a surface of. */
 	val layers: Layers? = layerShell?.let { Layers(display, it, arena) }
+
+	/** Other applications' windows, where the compositor tells of them: listed, and brought forward on this seat. */
+	val toplevels: Toplevels? = toplevelManager?.let { Toplevels(display, it, seat, arena) }
 
 	@Volatile
 	private var running = true
@@ -623,18 +628,30 @@ internal class WaylandSeat private constructor(
 						activation = bound("xdg_activation_v1", Protocols.activation, 1),
 						cursorShapes = bound("wp_cursor_shape_manager_v1", Protocols.cursorShapeManager, 2),
 						layerShell = bound("zwlr_layer_shell_v1", Protocols.layerShell, 4),
+						toplevelManager =
+							bound(
+								"zwlr_foreign_toplevel_manager_v1",
+								Protocols.foreignToplevelManager,
+								3,
+							),
 					)
 
 				Wl.destroy.invoke(registry)
 				// The pointer and the keyboard are asked for when the seat says it has them: on the queue's thread.
 				Wl.addListener.invokeExact(seat.proxy, made.seatListener, MemorySegment.NULL) as Int
-				Wl.flush.invokeExact(display) as Int
+				// The windows open now are told of as their manager is bound: heard here, before anything asks which
+				// there are, and only then is the rest left to the queue's thread.
+				if (made.toplevels != null)
+					Wl.roundtrip.invokeExact(display, queue) as Int
+				else
+					Wl.flush.invokeExact(display) as Int
 				made.thread.start()
 				Log.say {
 					"wayland: seat bound; drags ${made.dataDevices != null}, " +
 						"activation ${made.activation != null}, " +
 						"cursor shapes ${made.cursorShapes != null}, " +
-						"layer-shell ${made.layers?.version ?: "none"}"
+						"layer-shell ${made.layers?.version ?: "none"}, " +
+						"other windows ${made.toplevels?.now()?.size ?: "not told of"}"
 				}
 
 				made

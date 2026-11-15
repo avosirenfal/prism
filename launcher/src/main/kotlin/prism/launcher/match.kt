@@ -3,6 +3,7 @@ package prism.launcher
 import prism.desktop.Application
 import prism.desktop.ApplicationAction
 import prism.index.query.Own
+import prism.window.OpenWindow
 
 /*
  * How well what is typed fits an application. What is typed is words; every word must be found in something the
@@ -114,8 +115,9 @@ private fun saidBy(application: Application): List<Said> =
  */
 class Listed internal constructor(
 	val application: Application,
+	windows: List<OpenWindow> = emptyList(),
 ) {
-	internal val entry = Entry.App(application)
+	internal val entry = Entry.App(application, windows)
 	internal val said: List<Said> = saidBy(application)
 
 	/** Its name, as what one of its actions is told by. */
@@ -134,10 +136,9 @@ class Listed internal constructor(
 		val name = Said(action.name, 90)
 	}
 
-	override fun equals(other: Any?): Boolean =
-		other is Listed && application == other.application
+	override fun equals(other: Any?): Boolean = other is Listed && entry == other.entry
 
-	override fun hashCode(): Int = application.hashCode()
+	override fun hashCode(): Int = entry.hashCode()
 
 	override fun toString(): String = application.name
 }

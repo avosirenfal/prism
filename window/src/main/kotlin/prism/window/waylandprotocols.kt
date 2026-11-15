@@ -12,12 +12,14 @@ import java.lang.foreign.ValueLayout.JAVA_INT
  * others from each protocol's XML, as tables that libwayland-client reads to send a request and to read an event: an
  * interface's name, its version and its messages; a message's name, its signature (a letter for the type of each
  * argument: `u` a number, `s` a string, `o` an object, `n` a new object) and the interface of each argument that is an
- * object. These are those tables, as the protocols' XML says them, for the three prism speaks beside SDL:
+ * object. These are those tables, as the protocols' XML says them, for the four prism speaks beside SDL:
  *
  * - xdg-activation (staging), for a program prism starts to be brought forward ([Protocols.activation]);
  * - cursor-shape (staging), for the pointer to show what a drag would do ([Protocols.cursorShapeManager]);
  * - wlr-layer-shell (wlroots' own, which niri, sway, Hyprland and KDE have too), for a surface over every window
- *   ([Protocols.layerShell]).
+ *   ([Protocols.layerShell]);
+ * - wlr-foreign-toplevel-management (wlroots' own, which niri, sway and Hyprland have), for other applications'
+ *   windows to be listed and brought forward ([Protocols.foreignToplevelManager]).
  *
  * A message's arguments are given to `wl_proxy_marshal_flags` in its signature's order, and its number is its place
  * among its interface's requests: each interface's requests are listed here in the XML's order, which is what numbers
@@ -203,6 +205,54 @@ internal object Protocols {
 						listOf(layerSurface, surface, output, null, null),
 					),
 					Message("destroy", "3"),
+				),
+		)
+
+	/**
+	 * `zwlr_foreign_toplevel_handle_v1`, at version 3: another application's window, which says its title and its
+	 * application's id, then `done`; and `closed` when it is gone. `activate` asks for it to be brought forward on a
+	 * seat. Its parent (since 3) is another handle, or none: any object, as far as this table says.
+	 */
+	val foreignToplevelHandle: MemorySegment =
+		interfaceOf(
+			"zwlr_foreign_toplevel_handle_v1",
+			3,
+			requests =
+				listOf(
+					Message("set_maximized", ""),
+					Message("unset_maximized", ""),
+					Message("set_minimized", ""),
+					Message("unset_minimized", ""),
+					Message("activate", "o", listOf(seat)),
+					Message("close", ""),
+					Message("set_rectangle", "oiiii", listOf(surface, null, null, null, null)),
+					Message("destroy", ""),
+					Message("set_fullscreen", "2?o", listOf(output)),
+					Message("unset_fullscreen", "2"),
+				),
+			events =
+				listOf(
+					Message("title", "s", listOf(null)),
+					Message("app_id", "s", listOf(null)),
+					Message("output_enter", "o", listOf(output)),
+					Message("output_leave", "o", listOf(output)),
+					Message("state", "a", listOf(null)),
+					Message("done", ""),
+					Message("closed", ""),
+					Message("parent", "3?o", listOf(null)),
+				),
+		)
+
+	/** `zwlr_foreign_toplevel_manager_v1`: what announces every window there is, each by a new [foreignToplevelHandle]. */
+	val foreignToplevelManager: MemorySegment =
+		interfaceOf(
+			"zwlr_foreign_toplevel_manager_v1",
+			3,
+			requests = listOf(Message("stop", "")),
+			events =
+				listOf(
+					Message("toplevel", "n", listOf(foreignToplevelHandle)),
+					Message("finished", ""),
 				),
 		)
 }

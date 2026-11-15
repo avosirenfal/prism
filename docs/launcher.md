@@ -43,7 +43,7 @@ is always what Enter does. Where the launcher has a key that does the same witho
 
 | the result | its actions |
 |---|---|
-| an application | Open; each thing its desktop entry says it can be started to do ("New Window"); Show desktop entry in folder; Copy desktop entry path; Hide from launcher |
+| an application | Open; Focus window, where it is running (below); each thing its desktop entry says it can be started to do ("New Window"); Show desktop entry in folder; Copy desktop entry path; Hide from launcher |
 | a file | Open; Show in folder; Open with…; Copy path; Copy name; Open terminal here; Properties; Move to trash |
 | a folder | the same, without Open with… |
 | one of prism's own | Open |
@@ -57,6 +57,25 @@ launcher" (which says where to show the application again) and "Move to trash".
 
 The right arrow only opens the menu when the caret is at the end of what is typed, so it still moves the caret
 through the text otherwise. The key is "Show actions" in the launcher's keys, and can be bound to another.
+
+**An application that is running** is marked with a dot at the corner of its icon, and its menu has "Focus
+window" right after "Open". "Focus window" brings the window it has open forward and gives it the keyboard; "Open",
+and Enter on the row, start the application as they always do. With several windows open there is one action for
+each, named by the window's title ("Focus window: Mozilla Firefox").
+
+This needs the compositor to tell prism which windows are open, which it does through
+wlr-foreign-toplevel-management. sway, niri, Hyprland and the other compositors built on wlroots or Smithay have it.
+GNOME and KDE do not, and on X11 prism does not ask. There, no application is marked and "Focus window" is not
+offered; nothing else changes.
+
+A window is an application's when the app id it gives is the desktop entry's name without `.desktop` (`foot`, of
+`foot.desktop`), or what the entry says its windows are called (`StartupWMClass`), whatever the case of the letters
+(`windowsOf`, `launcher/actions.kt`). The windows are read once, as the launcher is shown.
+
+Listing the windows and bringing one forward is `OpenWindows` (`window/openwindows.kt`): either
+`OpenWindows.Unavailable`, or `OpenWindows.Listed` with the windows open now and a way to focus one. On Wayland it
+is `Toplevels` (`window/waylandtoplevels.kt`), which speaks the protocol on prism's own connection to the
+compositor, as the layer surface does (docs/window.md). The launcher is given it through `LauncherServices.windows`.
 
 The actions are data: `EntryAction`, and `actionsOf(entry)` which lists them for a result
 (`launcher/actions.kt`). The menu that is open is `LauncherState.menu`, an `EntryMenu` holding the result it is of
@@ -310,12 +329,20 @@ nothing else with it.
   in a file and halved by time, and its keys as the preferences write and read them; prism's own found by the word
   `prism` before everything else and each done where it belongs, and how to search asked for by `?`, shown, left by
   Escape and by its ×, with nothing behind it moved or chosen meanwhile.
+- `LauncherActionsTest`: the actions of each kind of result, the first being what Enter does; the menu opened,
+  moved in, left by Escape and the left arrow with what was typed still there, and put away by typing; each action
+  of an application and of a file done, and what the two that stay say; a window matched to its application by the
+  entry's name and by `StartupWMClass`; "Focus window" offered for an application with a window open, one for each
+  of several, and not offered where no window is told of; and the key that shows the menu bound to another.
 - `LauncherViewTest`: the launcher composed and typed into as a user would, over the tests' desktop and a real index
   of a folder: Enter starts the application, a file is opened with what opens it, a folder in a window, a failure is
   said, forty results scroll under the arrows; prism's own chosen by the keys and by a click; how to search in place
   of the field and the results, the keyboard back in the field when it is left, and a query of its clicked typed
   there; an icon drawn from a PNG and from an SVG; and the launcher drawn, in both palettes, with whatever this
-  machine has installed and its icon theme's pictures.
+  machine has installed and its icon theme's pictures. A result's menu: the right arrow opens it under the row only
+  once the caret is at the end of what is typed, the left arrow and Escape close it and nothing else, a right click
+  opens it on the row clicked, and a click in it does the action; an application with a window open is marked and
+  its window focused from the menu, and with no windows told of there is no mark and no such action.
 - `KeysTest` (explorer): the launcher's settings changed in their window and written only once applied, its keys
   rebound on the explorer's own page, one that types refused, an application switched off; and the pages drawn.
 - `ExplorerTest`: the launcher shown, put away by being asked for again, following its settings as they change,
@@ -329,8 +356,11 @@ nothing else with it.
   key and Escape put it away, it is drawn over a window that fills the screen, an explorer's window is a window
   still, and with `overlay` off it is a window. Its corners are read off the screenshots: the pixel at the launcher's
   very corner is what is behind it (the screen's background, and then the terminal that fills the screen), the pixel
-  just inside is the launcher's, and with `rounded` off the corner is the line's colour. Run on sway 1.9 and on niri
-  26.04, each with prism drawing on the CPU and with OpenGL.
+  just inside is the launcher's, and with `rounded` off the corner is the line's colour. A terminal is opened whose
+  app id is a desktop entry's name, then another window after it; in the launcher the entry is typed for, the right
+  arrow, Down and Enter choose "Focus window", and the compositor then says the first terminal is the window in
+  front, with the entry's command not run. Run on sway 1.9 and on niri 26.04, each with prism drawing on the CPU and
+  with OpenGL.
 - `CornersTest`: corners are round only where they are asked for and the window is clear; and the launcher drawn
   with no display, in both palettes at 1x and 2x: its corners clear, the line unbroken along the arc, and every pixel
   that is partly clear the line's colour and nothing else's (no rim of the inside past the line).

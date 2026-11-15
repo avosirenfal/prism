@@ -57,6 +57,7 @@ import prism.launcher.LauncherSession
 import prism.launcher.MemoryLaunches
 import prism.preferences.PreferenceStore
 import prism.preferences.Role
+import prism.window.openWindows
 
 /*
  * The explorer: the browser as a file manager, in as many windows as the user opens. What it has open is one immutable
@@ -443,6 +444,7 @@ class Explorer(
 					home,
 					terminal = { preferences.preferences.value.terminal },
 					disk = disk,
+					windows = ::openWindows,
 					report = report,
 				),
 				host,

@@ -201,6 +201,39 @@ asked for, by a token (`XDG_ACTIVATION_TOKEN`) a launcher gives the program it s
 for another has the other's token, so `Window` takes one (`activation`), and puts it where SDL looks as it shows the
 window.
 
+## Other applications' windows
+
+A launcher brings forward an application that is running already (docs/launcher.md). For that, prism has to know
+which windows other applications have open, and a compositor tells a program that only where it has a protocol made
+for it. On Wayland that is wlr-foreign-toplevel-management, which sway, niri, Hyprland and other compositors built
+on wlroots or Smithay have, and GNOME and KDE do not.
+
+`openWindows()` (`openwindows.kt`) is what anything in prism asks, from any thread. Its answer is one of two things:
+
+```kotlin
+sealed interface OpenWindows {
+	data object Unavailable : OpenWindows
+
+	abstract class Listed : OpenWindows {
+		abstract fun now(): List<OpenWindow>
+		abstract fun focus(window: OpenWindow)
+	}
+}
+```
+
+`Unavailable` is the answer on X11, on a compositor without the protocol, and with no application running. An
+`OpenWindow` is an id, the app id the window gives, and its title.
+
+On Wayland, `Listed` is `Toplevels` (`waylandtoplevels.kt`). The compositor's manager is bound with prism's seat,
+on prism's own queue (`waylandseat.kt`). It announces each window by a new object, a handle. The handle says the
+window's title and app id, then `done`; the window is listed, or listed anew, at each `done`, and taken off the list
+at `closed`. The windows open when the manager is bound are read with one round trip before the seat's thread
+starts, so the list is whole the first time it is asked for.
+
+`focus` sends the handle's `activate` with prism's seat. There is no token as there is for a program prism starts:
+a compositor gives this protocol to programs it trusts to manage windows. A window is only activated if a window
+with the same app id is still at that handle; its title may have changed since it was listed, as a terminal's does.
+
 ## A window that floats
 
 `Window(resizable = false)` makes a window whose size the user cannot change. To a window manager that tiles (niri,
@@ -423,6 +456,8 @@ the windows' thread now ("The thread", above), where nothing runs beside a layou
 - `RoleTest`, `BackdropTest`: what a window of each role is made as, and whether one that asks to be clear is, on
   each platform, with and without what the platform might have (layer-shell, a compositing manager, pixels with
   alpha); no window is made.
+- `OpenWindowsTest`: with no application running, other applications' windows are `Unavailable`. The protocol itself
+  is tried on real compositors by `tools/launcher/check-wayland.sh` (docs/launcher.md), on sway and on niri.
 - `AwtEventsTest`: what is left for AWT's thread (an `invokeLater`, a Swing timer) runs on the windows' thread, and on
   AWT's own when there is none; a scene whose layout takes several frames' time is told of what it moved on the
   windows' thread, after the layout, not on AWT's in the middle of it (which, with AWT's queue left alone, it is); a

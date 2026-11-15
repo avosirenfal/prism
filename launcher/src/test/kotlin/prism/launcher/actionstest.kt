@@ -9,6 +9,7 @@ import org.junit.jupiter.api.Test
 import prism.browser.Category
 import prism.index.query.Own
 import prism.preferences.LauncherPreferences
+import prism.window.OpenWindow
 
 /**
  * A result's menu: what can be done to each kind of result, and what the reducer makes of opening the menu, moving
@@ -305,6 +306,100 @@ class LauncherActionsTest {
 		assertEquals(
 			listOf(LauncherEffect.Settings, LauncherEffect.Close),
 			settings.state.after(LauncherEvent.Entered).effects,
+		)
+	}
+
+	private val shell = OpenWindow(1, "foot", "~/projects")
+	private val editing = OpenWindow(2, "Foot", "vim notes.md")
+	private val browsing = OpenWindow(3, "org.mozilla.firefox", "Mozilla Firefox")
+
+	/** The launcher with "foot" typed, shown while [windows] were open. */
+	private fun running(vararg windows: OpenWindow): LauncherState =
+		LauncherState(installed = Installed.of(Programs.all, windows.toList()), now = now)
+			.after(LauncherEvent.Typed("foot"))
+			.state
+
+	@Test
+	fun aWindowIsAnApplicationsByItsEntrysNameOrByWhatTheEntrySaysItsWindowsAreCalled() {
+		val windows = listOf(shell, editing, browsing)
+
+		// By the desktop entry's name without its ending, in whatever case the window says it.
+		assertEquals(listOf(shell, editing), windowsOf(Programs.terminal, windows))
+		// Firefox's entry is firefox.desktop and its window says org.mozilla.firefox: not its own by name,
+		assertEquals(emptyList<OpenWindow>(), windowsOf(Programs.firefox, windows))
+		// and its own once the entry says what its windows are called.
+		assertEquals(
+			listOf(browsing),
+			windowsOf(Programs.firefox.copy(wmClass = "org.mozilla.Firefox"), windows),
+		)
+		assertEquals(emptyList<OpenWindow>(), windowsOf(Programs.code, windows))
+		assertEquals(emptyList<OpenWindow>(), windowsOf(Programs.terminal, emptyList()))
+	}
+
+	@Test
+	fun anApplicationThatIsRunningIsBroughtForwardFromItsMenuAndStartedByEnterAsEver() {
+		val one = running(shell, browsing)
+		val foot = one.entries.first() as Entry.App
+
+		assertEquals(Programs.terminal, foot.application)
+		assertEquals(listOf(shell), foot.windows)
+		// Bringing its window forward comes right after what Enter does.
+		assertEquals(
+			listOf(
+				"Open",
+				"Focus window",
+				"Show desktop entry in folder",
+				"Copy desktop entry path",
+				"Hide from launcher",
+			),
+			labels(foot),
+		)
+		// Enter on the row starts it, as it does one that is not running; and that use is kept under the same name.
+		assertEquals(
+			listOf<LauncherEffect>(LauncherEffect.Start(foot)),
+			one.after(LauncherEvent.Entered).effects,
+		)
+		assertEquals(Entry.App(Programs.terminal).key, foot.key)
+		// From the menu, its window is brought forward and the launcher put away: nothing is started.
+		assertEquals(
+			listOf(LauncherEffect.Focus(shell), LauncherEffect.Close),
+			one.on("Foot", "Focus window").after(LauncherEvent.Entered).effects,
+		)
+
+		// With several windows, each is brought forward by its own action, which says which it is.
+		val two = running(shell, editing)
+
+		assertEquals(
+			listOf("Open", "Focus window: ~/projects", "Focus window: vim notes.md"),
+			labels(two.entries.first()).take(3),
+		)
+		assertEquals(
+			listOf(LauncherEffect.Focus(editing), LauncherEffect.Close),
+			two.on("Foot", "Focus window: vim notes.md").after(LauncherEvent.Entered).effects,
+		)
+
+		// What is installed read again, the windows open are those they were.
+		val reread = one.after(LauncherEvent.ApplicationsRead(Programs.all.reversed())).state
+
+		assertEquals(listOf(shell), (reread.entries.first() as Entry.App).windows)
+	}
+
+	@Test
+	fun whereNoWindowIsToldOfNothingIsOfferedToBeBroughtForward() {
+		// The desktop tells of none (it has no way to), or the application has none open: either way, no windows.
+		val none = running()
+		val other = running(browsing)
+
+		for (state in listOf(none, other)) {
+			val foot = state.entries.first()
+
+			assertEquals(Entry.App(Programs.terminal), foot)
+			assertTrue(actionsOf(foot).none { it is EntryAction.Focus })
+		}
+		// One of its other things to do is no window of its own to bring forward.
+		assertTrue(
+			actionsOf(Entry.Action(Programs.firefox, Programs.firefox.actions.first()))
+				.none { it is EntryAction.Focus },
 		)
 	}
 

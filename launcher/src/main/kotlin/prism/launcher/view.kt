@@ -12,9 +12,11 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.Text
@@ -103,6 +105,9 @@ object LauncherDims {
 	val field = 64.dp
 	val row = 46.dp
 	val icon = 28.dp
+
+	/** The dot that marks an application as running, at the corner of its icon. */
+	val running = 7.dp
 	val footer = 42.dp
 
 	/** The room around the list of results, between the field's rule and the footer's. */
@@ -421,12 +426,23 @@ private fun EntryIcon(entry: Entry, size: Dp) {
 
 	Box(Modifier.size(size), contentAlignment = Alignment.Center) {
 		when (entry) {
-			is Entry.App ->
+			is Entry.App -> {
 				AppIcon(
 					listOfNotNull(entry.application.icon),
 					entry.application.name,
 					size,
 				)
+				// Running: a dot at the corner of its icon, as a dock marks it.
+				if (entry.windows.isNotEmpty())
+					Box(
+						Modifier
+							.align(Alignment.BottomEnd)
+							.offset(LauncherDims.running / 2, LauncherDims.running / 2)
+							.size(LauncherDims.running)
+							.background(palette.accent, CircleShape)
+							.testTag("running:${entry.key}"),
+					)
+			}
 			// An action's own picture, and its application's where the icon theme has none for the action.
 			is Entry.Action ->
 				AppIcon(

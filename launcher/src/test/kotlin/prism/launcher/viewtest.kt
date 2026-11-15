@@ -54,6 +54,8 @@ import prism.index.Indexer
 import prism.index.Searched
 import prism.index.query.Own
 import prism.index.query.Query
+import prism.window.OpenWindow
+import prism.window.OpenWindows
 
 /**
  * The launcher drawn and worked as a user works it: typed into, moved through with the arrows, and what is chosen
@@ -78,6 +80,7 @@ class LauncherViewTest {
 			String,
 			Throwable,
 		) -> Unit = { doing, failure -> throw AssertionError(doing, failure) },
+		windows: OpenWindows = OpenWindows.Unavailable,
 		check: ComposeUiTest.(LauncherSession, FakeDesktop, FakeHost, MemoryLaunches) -> Unit,
 	) = runComposeUiTest {
 		val desktop = FakeDesktop(home)
@@ -105,6 +108,7 @@ class LauncherViewTest {
 							launches,
 							home,
 							clock = Clock.fixed(now, ZoneOffset.UTC),
+							windows = { windows },
 							report = report,
 						),
 						host,
@@ -567,6 +571,24 @@ class LauncherViewTest {
 
 		assertTrue(file.menu?.entry is Entry.File)
 
+		// An application that is running: marked by its icon, and its window brought forward from its menu.
+		val running =
+			step(
+				first.copy(
+					installed =
+						Installed.of(
+							applications,
+							listOf(
+								OpenWindow(1, "firefox", "Mozilla Firefox"),
+								OpenWindow(2, "foot", "~"),
+							),
+						),
+				),
+				LauncherEvent.MenuOpened(),
+			).state.let { step(it, LauncherEvent.Moved(1)).state }
+
+		assertTrue(running.menu?.actions?.current is EntryAction.Focus)
+
 		val drawn =
 			mapOf(
 				"first" to first,
@@ -578,6 +600,7 @@ class LauncherViewTest {
 				"actions" to actions,
 				"actions-above" to above,
 				"actions-file" to file,
+				"actions-running" to running,
 			)
 
 		val (width, height) = LauncherDims.sizeOf(first.preferences)
@@ -679,6 +702,57 @@ class LauncherViewTest {
 				listOf("copy /usr/share/applications/firewall.desktop", "close"),
 				host.asked.toList(),
 			)
+		}
+
+	@Test
+	fun anApplicationThatIsRunningIsMarkedAndItsWindowBroughtForwardFromItsMenu() {
+		val window = OpenWindow(7, "foot", "~")
+		val focused = CopyOnWriteArrayList<OpenWindow>()
+
+		val open =
+			object : OpenWindows.Listed() {
+				override fun now() = listOf(window)
+
+				override fun focus(window: OpenWindow) {
+					focused += window
+				}
+			}
+
+		launching(windows = open) { _, desktop, host, _ ->
+			onNodeWithTag("launcher-query").performTextInput("foot")
+			waitForIdle()
+			onNodeWithTag("entry:app:foot.desktop").assertIsSelected()
+			// Marked as running, by its icon.
+			onNodeWithTag("running:app:foot.desktop", useUnmergedTree = true).assertExists()
+
+			press(Key.DirectionRight)
+			waitForIdle()
+			onNodeWithTag("actions:Open").assertIsSelected()
+			onNodeWithTag("actions:Focus window").performClick()
+			until { "close" in host.asked }
+			// Its window was brought forward, and it was not started again.
+			assertEquals(listOf(window), focused.toList())
+			assertEquals(emptyList<Any>(), desktop.started.toList())
+		}
+	}
+
+	@Test
+	fun whereTheDesktopTellsOfNoWindowsNoneIsMarkedAndNoneOfferedToBeBroughtForward() =
+		launching { _, _, _, _ ->
+			fun shown(tag: String) =
+				onAllNodes(hasTestTag(tag), useUnmergedTree = true)
+					.fetchSemanticsNodes()
+					.isNotEmpty()
+
+			onNodeWithTag("launcher-query").performTextInput("foot")
+			waitForIdle()
+			onNodeWithTag("entry:app:foot.desktop").assertIsSelected()
+			assertFalse(shown("running:app:foot.desktop"))
+
+			press(Key.DirectionRight)
+			waitForIdle()
+			onNodeWithTag("actions:Open").assertIsSelected()
+			assertFalse(shown("actions:Focus window"))
 		}
 
 	@Test
