@@ -1,3 +1,5 @@
+import prism.Host
+
 // Compose in windows of SDL3's: native on Wayland, X11, Windows and macOS, drawn by Skia on the GPU through OpenGL
 // where there is one, and on the CPU into the window's own pixels where there is not. Nothing here is prism's; it is
 // meant to be lifted out whole.
@@ -33,6 +35,9 @@ tasks.register<JavaExec>("demo") {
 	classpath = sourceSets.test.get().runtimeClasspath
 	mainClass = providers.gradleProperty("demo.main").orNull ?: "prism.window.DemoKt"
 	jvmArgs("--enable-native-access=ALL-UNNAMED", "-Djava.awt.headless=true")
+	// Cocoa's windows and events are the process's first thread's alone, which SDL's must then be.
+	if (Host.current == Host.MacOS)
+		jvmArgs("-XstartOnFirstThread")
 	providers.gradleProperty("demo.millis").orNull?.let { systemProperty("demo.millis", it) }
 	for (name in listOf(
 		"DISPLAY",
@@ -49,6 +54,8 @@ tasks.test {
 	if (providers.gradleProperty("window.display").isPresent) {
 		systemProperty("window.display", "true")
 		jvmArgs("--enable-native-access=ALL-UNNAMED")
+		if (Host.current == Host.MacOS)
+			jvmArgs("-XstartOnFirstThread")
 		for (name in listOf(
 			"DISPLAY",
 			"XAUTHORITY",

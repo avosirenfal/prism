@@ -1,4 +1,5 @@
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
+import prism.Host
 
 // prism itself: the command line (prism.app), the picker's and the explorer's windows, the index and its watcher. Compose Desktop's
 // application packaging, not Gradle's `application` plugin: Compose ships two different jars of one file name
@@ -48,13 +49,11 @@ tasks.withType<JavaExec>().named { it == "run" }.configureEach {
 // prism's own jar and every jar it runs with, side by side in one folder: what a package that brings its own Java
 // runs prism from (the flake's, nix/package.nix), where an app image with a Java inside it is not wanted. Each is
 // named after its group as well as itself, since two of Compose's have one file name; the natives of platforms other
-// than Linux are left out, a Linux package having no use for them.
+// than the one built on are left out, a package for one platform having no use for another's.
 tasks.register<Sync>("installJars") {
-	val elsewhere = Regex("natives-(windows|macos)")
-
 	from(tasks.jar)
 	from(configurations.runtimeClasspath) {
-		exclude { elsewhere.containsMatchIn(it.name) }
+		exclude { Host.current.elsewhere(it.name) }
 		eachFile {
 			// A jar from a repository is kept by Gradle under its group's name: files-2.1/GROUP/NAME/VERSION/HASH/.
 			val folders = file.invariantSeparatorsPath.split('/')
@@ -77,12 +76,22 @@ compose.desktop {
 		// Native access for SDL, libc and libbpf through FFM; AWT never opens a window (prism's are SDL's), which
 		// headless says, and macOS has SDL's windows on the process's first thread.
 		jvmArgs += listOf("--enable-native-access=ALL-UNNAMED", "-Djava.awt.headless=true")
-		if (System.getProperty("os.name").startsWith("Mac"))
+		if (Host.current == Host.MacOS)
 			jvmArgs += "-XstartOnFirstThread"
 		nativeDistributions {
-			targetFormats(TargetFormat.AppImage)
+			// Each platform's own kind of package, made on that platform: Compose's packaging cannot make another's.
+			targetFormats(
+				when (Host.current) {
+					Host.Linux -> TargetFormat.AppImage
+					Host.MacOS -> TargetFormat.Dmg
+					Host.Windows -> TargetFormat.Msi
+				},
+			)
 			packageName = "prism"
 			packageVersion = "0.1.0"
+			macOS {
+				bundleID = "dev.prism"
+			}
 		}
 	}
 }

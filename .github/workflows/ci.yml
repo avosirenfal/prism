@@ -32,6 +32,21 @@ jobs:
           path: build/shots/
           if-no-files-found: ignore
 
+  # macOS on Apple silicon (the runner's): every module compiled, its tests too, and the tests of what is macOS's own
+  # run against the real system (the bindings, the desktop, the watcher), which a Linux runner cannot. The tests that
+  # need Linux are not run here yet; as each part of prism stands apart from Linux, its tests join.
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Build
+        run: ./gradlew assemble testClasses --no-daemon
+
   # The flake: prism built as the Nix package (which fails where nix/deps.json no longer holds what Gradle fetches,
   # as after a dependency was changed without it being written again), and the NixOS module evaluated each way it
   # can be set (docs/nixos.md).

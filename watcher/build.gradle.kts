@@ -1,5 +1,6 @@
 import prism.CompileBpf
 import prism.EmitBpfSources
+import prism.Host
 import prism.resolvesJavaRuntimeJars
 
 // The watcher: the probe module's BPF program, compiled here from its declarations into this module's resources,
@@ -56,6 +57,9 @@ val compileProbes =
 		outputDirectory = layout.buildDirectory.dir("generated/probe-objects")
 	}
 
-sourceSets.main {
-	resources.srcDir(compileProbes)
-}
+// The probes are compiled only on Linux: they are loaded into Linux's kernel alone, and the clang of another
+// platform (Apple's) has no BPF target. Elsewhere the module is its Kotlin, which nothing there starts.
+if (Host.current == Host.Linux)
+	sourceSets.main {
+		resources.srcDir(compileProbes)
+	}
