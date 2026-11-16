@@ -7,6 +7,8 @@ plugins {
 
 dependencies {
 	api(project(":browser"))
+	// A Mac's launcher window over every other, given the keyboard and giving it back.
+	implementation(project(":macos"))
 
 	@OptIn(org.jetbrains.compose.ExperimentalComposeLibrary::class)
 	testImplementation(compose.uiTest)

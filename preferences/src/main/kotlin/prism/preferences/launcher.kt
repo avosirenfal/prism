@@ -122,6 +122,9 @@ value class LauncherScale private constructor(
 	}
 }
 
+/** The launcher's key on a Mac where none is set: Option and Space, which Spotlight does not have (it has ⌘Space). */
+const val DEFAULT_HOT_KEY = "Option+Space"
+
 /** How the launcher looks, what it finds, and its keys. */
 @Serializable
 data class LauncherPreferences(
@@ -153,6 +156,12 @@ data class LauncherPreferences(
 	val overlay: Boolean = true,
 	/** The applications left out of it, by the desktop's names for them. */
 	val hidden: Set<String> = emptySet(),
+	/**
+	 * On a Mac, the key that shows it from anywhere and puts it away, written as a chord is shown (`Option+Space`, or
+	 * `Cmd+Space` once Spotlight has been given another); none for [DEFAULT_HOT_KEY]. Elsewhere the launcher's key is
+	 * the window manager's to bind, and this is not read.
+	 */
+	val hotKey: String? = null,
 	/**
 	 * Its keys that differ from the defaults: each action's name, and the chords that do it, written as they are
 	 * shown (`Ctrl+Enter`). An action not named here has its default chords; one named with none has none.

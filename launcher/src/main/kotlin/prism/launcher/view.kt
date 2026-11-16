@@ -21,6 +21,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.collectAsState
@@ -85,9 +86,11 @@ import prism.browser.Spinner
 import prism.browser.capsOf
 import prism.browser.glyph
 import prism.browser.times
+import prism.macos.Overlay
 import prism.preferences.LauncherPreferences
 import prism.window.Backdrop
 import prism.window.LocalNativeWindow
+import prism.window.NativeHandle
 
 /*
  * The launcher, drawn as Raycast's and Vicinae's are: a field across the top, large, with nothing around it but the
@@ -164,6 +167,7 @@ fun LauncherView(session: LauncherSession, bindings: Bindings) {
 	val state by session.state.collectAsState()
 
 	PutAwayUnfocused(state.preferences.closeUnfocused) { session.send(LauncherEvent.Closed) }
+	OverMacWindows()
 
 	val queries = remember(session) { session.state.map { it.query } }
 	var typed by typedOf(queries, state.query)
@@ -183,6 +187,23 @@ fun LauncherView(session: LauncherSession, bindings: Bindings) {
 			},
 			onEvent = session::send,
 		)
+	}
+}
+
+/**
+ * On a Mac, the launcher's window over every other (on every Space, beside an application that fills the screen) and
+ * given the keyboard as it is shown; and, as it goes, the application that was in front before brought forward again,
+ * where prism is still in front (where the launcher started something, that is in front instead, and stays).
+ * Nothing, elsewhere: a Wayland compositor's overlay layer and an X11 window kept in front are the window module's.
+ */
+@Composable
+internal fun OverMacWindows() {
+	val cocoa = LocalNativeWindow.current?.handle as? NativeHandle.Cocoa ?: return
+
+	DisposableEffect(cocoa) {
+		val before = Overlay.shown(cocoa.window)
+
+		onDispose { Overlay.gone(before) }
 	}
 }
 

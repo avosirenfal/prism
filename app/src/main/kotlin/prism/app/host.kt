@@ -56,6 +56,7 @@ import prism.desktop.Desktop
 import prism.explorer.Explorer
 import prism.explorer.ExplorerWindows
 import prism.launcher.LaunchFile
+import prism.platform.Os
 import prism.platform.OwnFolders
 import prism.platform.Runtime
 import prism.portal.FileChooser
@@ -759,6 +760,10 @@ internal fun stayed(
 			}
 		}
 	}
+
+	// A Mac has no window manager to bind the launcher's key: the prism that stays holds it.
+	if (Os.current == Os.MacOS)
+		holdLauncherKey(command, instance, closing)
 
 	val serving =
 		bus?.takeIf { names.any }?.let {
