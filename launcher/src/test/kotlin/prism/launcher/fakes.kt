@@ -166,6 +166,10 @@ class FakeHost : LauncherHost {
 		asked += "copy $text"
 	}
 
+	override fun copyFile(path: Path) {
+		asked += "copy file $path"
+	}
+
 	override fun openWith(path: Path) {
 		asked += "open with $path"
 	}

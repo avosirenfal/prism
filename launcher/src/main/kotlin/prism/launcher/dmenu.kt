@@ -388,7 +388,7 @@ internal fun dmenuEventOf(action: LauncherAction, page: Int): DmenuEvent? =
 		LauncherAction.First -> DmenuEvent.MovedTo(last = false)
 		LauncherAction.Last -> DmenuEvent.MovedTo(last = true)
 		LauncherAction.Dismiss -> DmenuEvent.Dismissed
-		LauncherAction.ShowActions, LauncherAction.Reveal, LauncherAction.CopyPath,
+		LauncherAction.ShowActions, LauncherAction.Reveal, LauncherAction.Copy, LauncherAction.CopyPath,
 		LauncherAction.Settings,
 		-> null
 	}

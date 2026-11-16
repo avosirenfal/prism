@@ -286,6 +286,8 @@ fun LauncherPane(
 								key.key == Key.DirectionRight &&
 								!atEnd
 						}
+						// Text marked in the field is what Ctrl+C copies, as in any field: the file, only with none.
+						?.takeUnless { it == LauncherAction.Copy && !typed.selection.collapsed }
 
 				action?.let { onEvent(eventOf(it, state.preferences.rows.number - 1)) }
 

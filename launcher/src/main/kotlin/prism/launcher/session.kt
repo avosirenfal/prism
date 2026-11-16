@@ -59,6 +59,9 @@ interface LauncherHost {
 	/** [text] put on the clipboard. */
 	fun copy(text: String)
 
+	/** The file or folder at [path] put on the clipboard as a file, copied. */
+	fun copyFile(path: Path)
+
 	/** A window to choose what [path] is opened with. */
 	fun openWith(path: Path)
 
@@ -172,6 +175,7 @@ class LauncherSession(
 				}
 			is LauncherEffect.Reveal -> host.reveal(effect.path)
 			is LauncherEffect.Copy -> host.copy(effect.text)
+			is LauncherEffect.CopyFile -> host.copyFile(effect.path)
 			is LauncherEffect.OpenWith -> host.openWith(effect.path)
 			is LauncherEffect.Properties -> host.properties(effect.path)
 			is LauncherEffect.Terminal ->

@@ -589,6 +589,11 @@ class LauncherStateTest {
 			listOf(LauncherEffect.Copy(path.toString()), LauncherEffect.Close),
 			found.state.after(LauncherEvent.CopiedPath).effects,
 		)
+		// The file itself, as an explorer copies one: to be pasted somewhere.
+		assertEquals(
+			listOf(LauncherEffect.CopyFile(path), LauncherEffect.Close),
+			found.state.after(LauncherEvent.Copied).effects,
+		)
 		// An application's is its desktop entry; what prism does is nowhere.
 		assertEquals(
 			listOf(

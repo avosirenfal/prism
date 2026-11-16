@@ -67,6 +67,12 @@ sealed interface EntryAction {
 		override val label: String get() = "Open with…"
 	}
 
+	/** The file or folder itself put on the clipboard, as an explorer copies what is selected: to be pasted. */
+	data object Copy : EntryAction {
+		override val label: String get() = "Copy"
+		override val key: LauncherAction get() = LauncherAction.Copy
+	}
+
 	/** Its path put on the clipboard: a file's; an application's [entry], its desktop entry's. */
 	data class CopyPath(
 		val entry: Boolean,
@@ -136,6 +142,7 @@ fun actionsOf(entry: Entry): List<EntryAction> =
 				EntryAction.Open,
 				EntryAction.Reveal(entry = false),
 				EntryAction.OpenWith.takeUnless { entry.isFolder },
+				EntryAction.Copy,
 				EntryAction.CopyPath(entry = false),
 				EntryAction.CopyName,
 				EntryAction.Terminal,

@@ -68,6 +68,9 @@ sealed interface LauncherEvent {
 	/** The result the arrows are on shown where it is: its folder, in an explorer's window, with it chosen. */
 	data object Revealed : LauncherEvent
 
+	/** The file or folder the arrows are on put on the clipboard, to be pasted; nothing, on any other result. */
+	data object Copied : LauncherEvent
+
 	/** The path of the result the arrows are on (an application's: its desktop entry's) put on the clipboard. */
 	data object CopiedPath : LauncherEvent
 
@@ -148,6 +151,11 @@ sealed interface LauncherEffect {
 	/** [text] put on the clipboard. */
 	data class Copy(
 		val text: String,
+	) : LauncherEffect
+
+	/** The file or folder at [path] put on the clipboard as a file, copied: what a paste in a file manager brings. */
+	data class CopyFile(
+		val path: Path,
 	) : LauncherEffect
 
 	/** A window to choose what [path] is opened with. */
@@ -255,7 +263,8 @@ private fun inMenu(
 		is LauncherEvent.AliasesChanged, is LauncherEvent.Started, is LauncherEvent.Acted,
 		-> stepped(state, event)
 		is LauncherEvent.Typed, is LauncherEvent.Chosen, LauncherEvent.Revealed,
-		LauncherEvent.CopiedPath, LauncherEvent.AskedForSettings, LauncherEvent.HelpClosed,
+		LauncherEvent.Copied, LauncherEvent.CopiedPath, LauncherEvent.AskedForSettings,
+		LauncherEvent.HelpClosed,
 		is LauncherEvent.Tried, LauncherEvent.Closed,
 		-> stepped(closed, event)
 	}
@@ -267,7 +276,8 @@ private val LauncherEvent.isOfTheResults: Boolean
 		when (this) {
 			is LauncherEvent.Typed, is LauncherEvent.Moved, is LauncherEvent.MovedTo,
 			LauncherEvent.Entered, is LauncherEvent.Chosen, LauncherEvent.Revealed,
-			LauncherEvent.CopiedPath, is LauncherEvent.MenuOpened, LauncherEvent.MenuClosed,
+			LauncherEvent.Copied, LauncherEvent.CopiedPath, is LauncherEvent.MenuOpened,
+			LauncherEvent.MenuClosed,
 			is LauncherEvent.MenuChosen,
 			-> true
 			LauncherEvent.AskedForSettings, LauncherEvent.Dismissed, LauncherEvent.HelpClosed,
@@ -314,6 +324,13 @@ private fun stepped(state: LauncherState, event: LauncherEvent): LauncherStep =
 					?.let {
 						listOf(LauncherEffect.Reveal(it), LauncherEffect.Close)
 					}.orEmpty(),
+			)
+		LauncherEvent.Copied ->
+			LauncherStep(
+				state,
+				(state.current as? Entry.File)
+					?.let { listOf(LauncherEffect.CopyFile(it.path), LauncherEffect.Close) }
+					.orEmpty(),
 			)
 		LauncherEvent.CopiedPath ->
 			LauncherStep(
@@ -480,6 +497,7 @@ private fun LauncherState.acted(entry: Entry, action: EntryAction): LauncherStep
 				),
 			)
 		is EntryAction.Reveal -> away(LauncherEffect::Reveal)
+		EntryAction.Copy -> away(LauncherEffect::CopyFile)
 		is EntryAction.CopyPath -> away { LauncherEffect.Copy(it.toString()) }
 		EntryAction.CopyName ->
 			LauncherStep(

@@ -28,6 +28,7 @@ enum class LauncherAction(
 	Open("Open", LauncherGroups.Result, "Enter"),
 	ShowActions("Show actions", LauncherGroups.Result, "Right"),
 	Reveal("Show in folder", LauncherGroups.Result, "Ctrl+Enter"),
+	Copy("Copy", LauncherGroups.Result, "Ctrl+C"),
 	CopyPath("Copy path", LauncherGroups.Result, "Ctrl+Shift+C"),
 	Down("Move down", LauncherGroups.Moving, "Down", "Ctrl+J", "Tab"),
 	Up("Move up", LauncherGroups.Moving, "Up", "Ctrl+K", "Shift+Tab"),
@@ -55,6 +56,7 @@ internal fun eventOf(action: LauncherAction, page: Int): LauncherEvent =
 		LauncherAction.Open -> LauncherEvent.Entered
 		LauncherAction.ShowActions -> LauncherEvent.MenuOpened()
 		LauncherAction.Reveal -> LauncherEvent.Revealed
+		LauncherAction.Copy -> LauncherEvent.Copied
 		LauncherAction.CopyPath -> LauncherEvent.CopiedPath
 		LauncherAction.Down -> LauncherEvent.Moved(1)
 		LauncherAction.Up -> LauncherEvent.Moved(-1)

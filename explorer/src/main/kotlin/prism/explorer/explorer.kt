@@ -25,6 +25,7 @@ import prism.browser.AppKey
 import prism.browser.BrowserEvent
 import prism.browser.Choosing
 import prism.browser.Disk
+import prism.browser.FileClip
 import prism.browser.FileClipboard
 import prism.browser.Finder
 import prism.browser.FolderWatcher
@@ -448,6 +449,9 @@ class Explorer(
 					}
 
 				override fun copy(text: String) = doing { toClipboard(text) }
+
+				override fun copyFile(path: Path) =
+					doing { services.clipboard.put(FileClip(listOf(path), cut = false)) }
 
 				override fun openWith(path: Path) = doing { ask(Request.OpenWith(listOf(path))) }
 

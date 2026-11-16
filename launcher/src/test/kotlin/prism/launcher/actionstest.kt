@@ -73,6 +73,7 @@ class LauncherActionsTest {
 				"Open",
 				"Show in folder",
 				"Open with…",
+				"Copy",
 				"Copy path",
 				"Copy name",
 				"Open terminal here",
@@ -93,8 +94,14 @@ class LauncherActionsTest {
 		)
 		// The keys that do the same without the menu are the launcher's own.
 		assertEquals(
-			listOf(LauncherAction.Open, LauncherAction.Reveal, null, LauncherAction.CopyPath),
-			actionsOf(notes).take(4).map { it.key },
+			listOf(
+				LauncherAction.Open,
+				LauncherAction.Reveal,
+				null,
+				LauncherAction.Copy,
+				LauncherAction.CopyPath,
+			),
+			actionsOf(notes).take(5).map { it.key },
 		)
 	}
 

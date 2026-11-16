@@ -23,7 +23,9 @@ Bind `prism launcher` to a key in your window manager (below). Press the key, an
 - **The arrows** move through the results, the list scrolling to keep the one they are on in sight; Page Up and Page
   Down move a page; Tab and Shift+Tab, and Ctrl+J and Ctrl+K, move as Down and Up do.
 - **Enter** starts an application, opens a file with whatever opens its kind, and opens a folder in an explorer's
-  window. **Ctrl+Enter** shows the result in its folder instead, chosen. **Ctrl+Shift+C** copies its path.
+  window. **Ctrl+Enter** shows the result in its folder instead, chosen. **Ctrl+C** copies the file or folder itself, to be
+  pasted as one copied in the explorer is (text marked in the field is copied instead, where there is any);
+  **Ctrl+Shift+C** copies its path.
 - **The right arrow**, once the caret is at the end of what is typed, shows what else can be done to the result the
   arrows are on (below). A right click on a result does the same.
 - **Escape** empties the field, and with the field empty puts the launcher away. So does pressing your key again, and
@@ -44,7 +46,7 @@ is always what Enter does. Where the launcher has a key that does the same witho
 | the result | its actions |
 |---|---|
 | an application | Open; Focus window, where it is running (below); each thing its desktop entry says it can be started to do ("New Window"); Show desktop entry in folder; Copy desktop entry path; Hide from launcher |
-| a file | Open; Show in folder; Open with…; Copy path; Copy name; Open terminal here; Properties; Move to trash |
+| a file | Open; Show in folder; Open with…; Copy; Copy path; Copy name; Open terminal here; Properties; Move to trash |
 | a folder | the same, without Open with… |
 | one of prism's own | Open |
 
