@@ -2,6 +2,7 @@ package prism.desktop.freedesktop
 
 import java.nio.file.Files
 import java.nio.file.Path
+import prism.platform.XdgHomes
 
 /**
  * Where freedesktop.org's specifications keep things, as the XDG Base Directory specification says, from [environment]
@@ -11,9 +12,6 @@ class Xdg(
 	private val environment: Map<String, String> = System.getenv(),
 	val home: Path = Path.of(System.getProperty("user.home")),
 ) {
-	private fun absolute(name: String): Path? =
-		environment[name]?.takeIf { it.startsWith("/") }?.let { Path.of(it) }
-
 	private fun list(name: String, otherwise: List<String>): List<Path> =
 		(
 			environment[name]
@@ -24,12 +22,14 @@ class Xdg(
 				?: otherwise
 		).map { Path.of(it) }
 
-	val dataHome: Path get() = absolute("XDG_DATA_HOME") ?: home.resolve(".local/share")
-	val configHome: Path get() = absolute("XDG_CONFIG_HOME") ?: home.resolve(".config")
+	private val homes = XdgHomes(environment, home)
+
+	val dataHome: Path get() = homes.data
+	val configHome: Path get() = homes.config
 
 	/** Where what can be made again is kept: thumbnails, among much else. */
-	val cacheHome: Path get() = absolute("XDG_CACHE_HOME") ?: home.resolve(".cache")
-	val runtime: Path? get() = absolute("XDG_RUNTIME_DIR")
+	val cacheHome: Path get() = homes.cache
+	val runtime: Path? get() = homes.runtime
 
 	/** The data folders, the user's first: where MIME types and applications are looked for. */
 	val data: List<Path> get() =

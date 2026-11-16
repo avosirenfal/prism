@@ -28,6 +28,8 @@ import prism.client.Reply
 import prism.client.Request
 import prism.client.Wire
 import prism.client.ask
+import prism.platform.Os
+import prism.platform.OwnFolders
 
 /**
  * One prism for a session's windows: what one prism asks another as it is written and read, who listens where, a
@@ -250,14 +252,25 @@ class InstanceTest {
 
 	@Test
 	fun whereThereIsNoRuntimeFolderThereIsNoPlace() {
-		assertEquals(null, InstancePlace.of(emptyMap()))
-		assertEquals(null, InstancePlace.of(mapOf("XDG_RUNTIME_DIR" to "relative")))
+		fun on(os: Os, environment: Map<String, String>) =
+			InstancePlace.of(OwnFolders.of(os, environment, Path("/home/a")))
+
+		assertEquals(null, on(Os.Linux, emptyMap()))
+		assertEquals(null, on(Os.Linux, mapOf("XDG_RUNTIME_DIR" to "relative")))
 		assertEquals(
 			InstancePlace(
 				Path("/run/user/1000/prism/prism.sock"),
 				Path("/run/user/1000/prism/prism.lock"),
 			),
-			InstancePlace.of(mapOf("XDG_RUNTIME_DIR" to "/run/user/1000")),
+			on(Os.Linux, mapOf("XDG_RUNTIME_DIR" to "/run/user/1000")),
+		)
+		assertEquals(null, on(Os.MacOS, emptyMap()))
+		assertEquals(
+			InstancePlace(
+				Path("/var/folders/x/T/prism/prism.sock"),
+				Path("/var/folders/x/T/prism/prism.lock"),
+			),
+			on(Os.MacOS, mapOf("TMPDIR" to "/var/folders/x/T/")),
 		)
 	}
 }

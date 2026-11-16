@@ -16,6 +16,8 @@ import kotlin.io.path.Path
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 import prism.cli.Ran
+import prism.platform.OwnFolders
+import prism.platform.Runtime
 
 /*
  * One prism for a session's windows. Starting a Java program takes a moment that opening a window does not, so a
@@ -23,9 +25,9 @@ import prism.cli.Ran
  * window opens in the process already running, as a file manager's windows do (Thunar's daemon, by D-Bus; Emacs's
  * server, by a socket as here).
  *
- * The place is a socket in the user's runtime folder, `$XDG_RUNTIME_DIR/prism/prism.sock`, which is the user's alone
- * (mode 0700, as the session makes it), gone at logout, and where sockets of a session are kept (Wayland's own is
- * there). Who listens there is whoever holds the lock beside it (`prism.lock`): a lock the kernel lets go of when its
+ * The place is a socket in the user's runtime folder, `$XDG_RUNTIME_DIR/prism/prism.sock` on Linux, which is the
+ * user's alone (mode 0700, as the session makes it), gone at logout, and where sockets of a session are kept (Wayland's
+ * own is there); on macOS, the user's own temporary folder (`$TMPDIR/prism/prism.sock`, docs/platform.md). Who listens there is whoever holds the lock beside it (`prism.lock`): a lock the kernel lets go of when its
  * process ends, however it ends, so a socket left by a prism that was killed is known to be nobody's, and is taken.
  *
  * What is asked is a command line: its words, the folder they were said in (a path among them is read from there, not
@@ -93,14 +95,11 @@ data class InstancePlace(
 ) {
 	companion object {
 		/**
-		 * The place in the runtime folder [environment] names; none where it names none (a session without one, a
-		 * shell reached some other way), and then every prism is on its own.
+		 * The place in prism's runtime folder ([OwnFolders.runtime]); none where the session has none (a Linux session
+		 * without `XDG_RUNTIME_DIR`, a shell reached some other way), and then every prism is on its own.
 		 */
-		fun of(environment: Map<String, String> = System.getenv()): InstancePlace? =
-			environment["XDG_RUNTIME_DIR"]
-				?.takeIf { it.startsWith("/") }
-				?.let { Path(it, "prism") }
-				?.let(::within)
+		fun of(folders: OwnFolders = OwnFolders.of()): InstancePlace? =
+			(folders.runtime as? Runtime.At)?.folder?.path?.let(::within)
 
 		/** The place kept in [folder]. */
 		fun within(folder: Path): InstancePlace =

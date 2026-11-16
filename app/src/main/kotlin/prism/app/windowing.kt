@@ -77,7 +77,7 @@ internal class Indexing(
 			type = INDEX_FILE,
 			help =
 				"enable search (Ctrl+Shift+F) from an index file, read once and not kept up to date; " +
-					"FILE defaults to \$XDG_CACHE_HOME/prism/index.prism",
+					"FILE defaults to ${defaultIndex.said}",
 		)
 
 	/** Whether [args] ask for an index at all. */

@@ -39,6 +39,7 @@ include(
 	":cli",
 	":client",
 	":linux",
+	":platform",
 	":shared",
 	":ebpf",
 	":ebpf-loader",

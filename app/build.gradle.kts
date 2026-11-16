@@ -35,13 +35,14 @@ val jfr: Boolean = providers.gradleProperty("jfr").map(String::toBoolean).getOrE
 
 tasks.withType<JavaExec>().named { it == "run" }.configureEach {
 	if (jfr)
-		jvmArgumentProviders += CommandLineArgumentProvider {
-			listOf(
-				"-XX:+UnlockDiagnosticVMOptions",
-				"-XX:+DebugNonSafepoints",
-				"-XX:StartFlightRecording=filename=profile.jfr,settings=profile,dumponexit=true",
-			)
-		}
+		jvmArgumentProviders +=
+			CommandLineArgumentProvider {
+				listOf(
+					"-XX:+UnlockDiagnosticVMOptions",
+					"-XX:+DebugNonSafepoints",
+					"-XX:StartFlightRecording=filename=profile.jfr,settings=profile,dumponexit=true",
+				)
+			}
 
 	standardInput = System.`in`
 }

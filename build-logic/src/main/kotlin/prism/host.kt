@@ -15,7 +15,11 @@ enum class Host(
 	;
 
 	/** Whether the jar named [jar] holds the natives of another platform, which a package of this one leaves out. */
-	fun elsewhere(jar: String): Boolean = entries.any { it != this && "natives-${it.family}" in jar }
+	fun elsewhere(jar: String): Boolean =
+		entries.any {
+			it != this &&
+				"natives-${it.family}" in jar
+		}
 
 	companion object {
 		/** The platform this build runs on, by the JVM's name for it. */

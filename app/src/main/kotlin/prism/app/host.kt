@@ -56,6 +56,8 @@ import prism.desktop.Desktop
 import prism.explorer.Explorer
 import prism.explorer.ExplorerWindows
 import prism.launcher.LaunchFile
+import prism.platform.OwnFolders
+import prism.platform.Runtime
 import prism.portal.FileChooser
 import prism.portal.FileManager
 import prism.portal.Owning
@@ -729,13 +731,12 @@ internal fun stayed(
 		instance.says += { "other prisms: open their windows here" }
 	}
 
-	when (val place = InstancePlace.of()) {
-		null ->
-			warn(
-				command,
-				"XDG_RUNTIME_DIR is not set, so other prism commands will open their own windows",
-			)
-		else ->
+	when (val runtime = OwnFolders.of().runtime) {
+		is Runtime.Missing ->
+			warn(command, "${runtime.why}, so other prism commands will open their own windows")
+		is Runtime.At -> {
+			val place = InstancePlace.within(runtime.folder.path)
+
 			when (val claim = Listening.claim(place, instance::answer)) {
 				is Claim.Got -> listening(claim.listening)
 				is Claim.Cannot ->
@@ -756,6 +757,7 @@ internal fun stayed(
 					}
 				}
 			}
+		}
 	}
 
 	val serving =

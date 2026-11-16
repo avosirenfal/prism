@@ -41,6 +41,7 @@ import prism.index.Indexer
 import prism.index.Usage
 import prism.index.UsageFile
 import prism.index.query.QueryText
+import prism.platform.OwnFolders
 import prism.preferences.preferences
 import prism.shared.Loaded
 import prism.shared.Stored
@@ -82,7 +83,7 @@ object DaemonCommand : Command(
 			type = ParamType.PATH,
 			default = defaultIndexFile(),
 			help = "index file",
-			shown = "\$XDG_CACHE_HOME/prism/index.prism",
+			shown = defaultIndex.said,
 		)
 
 	private val memory =
@@ -520,14 +521,11 @@ object DaemonCommand : Command(
 }
 
 /**
- * `$XDG_STATE_HOME/prism` (`~/.local/state/prism`): where what prism keeps of its own doing is, the usage and what a
- * daemon started from a terminal says.
+ * Where what prism keeps of its own doing is, the usage and what a daemon started from a terminal says
+ * ([OwnFolders.state]): `$XDG_STATE_HOME/prism` (`~/.local/state/prism`) on Linux, `~/Library/Application
+ * Support/prism` on macOS.
  */
-internal fun stateFolder(): Path =
-	(
-		System.getenv("XDG_STATE_HOME")?.takeIf { it.startsWith("/") }?.let(::Path)
-			?: Path(System.getProperty("user.home"), ".local", "state")
-	).resolve("prism")
+internal fun stateFolder(): Path = OwnFolders.of().state.path
 
 /**
  * That this process is the one keeping an index's file: a lock on a file beside it, which the kernel lets go of when

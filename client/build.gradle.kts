@@ -8,6 +8,8 @@ plugins {
 
 dependencies {
 	api(project(":cli"))
+	// Where the session's prism listens, on each platform.
+	api(project(":platform"))
 }
 
 // `./gradlew :client:nativeImage`: build/native/prism, the client as a program of its own. Not part of `build`: it

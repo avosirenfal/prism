@@ -4,6 +4,7 @@ import java.nio.file.Path
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
+import prism.platform.OwnFolders
 import prism.shared.Format
 import prism.shared.Loaded
 import prism.shared.OnDisk
@@ -71,16 +72,14 @@ object PreferenceFile {
 	fun open(file: Path = defaultFile()): PreferenceStore = Stored.of(file, PreferenceFormat)
 
 	/**
-	 * `$XDG_CONFIG_HOME/prism/preferences.json` (`~/.config/prism/preferences.json`): where a user's settings for
-	 * a program are kept, on Linux. Another platform's place is that platform's to say, when there is one.
+	 * `preferences.json` in prism's folder for what the user sets ([OwnFolders.config]): `$XDG_CONFIG_HOME/prism` on
+	 * Linux, `~/Library/Application Support/prism` on macOS.
 	 */
-	fun defaultFile(): Path {
-		val config =
-			System.getenv("XDG_CONFIG_HOME")?.takeIf { it.startsWith("/") }?.let { Path.of(it) }
-				?: Path.of(System.getProperty("user.home"), ".config")
-
-		return config.resolve("prism/preferences.json")
-	}
+	fun defaultFile(): Path =
+		OwnFolders
+			.of()
+			.config.path
+			.resolve("preferences.json")
 
 	/** What [file] says, read now: for looking at one that no store here holds. */
 	fun read(file: Path): Loaded<Preferences> = OnDisk(file, PreferenceFormat).read()

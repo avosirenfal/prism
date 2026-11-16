@@ -19,6 +19,8 @@ import prism.index.Indexer
 import prism.index.Searched
 import prism.index.query.QueryText
 import prism.index.search
+import prism.platform.OwnFolder
+import prism.platform.OwnFolders
 
 /**
  * `prism index`: folders indexed into the index's file (or the file read, where there is one), with what it holds,
@@ -43,7 +45,7 @@ object IndexCommand : Command(
 			type = ParamType.PATH,
 			default = defaultIndexFile(),
 			help = "index file",
-			shown = "\$XDG_CACHE_HOME/prism/index.prism",
+			shown = defaultIndex.said,
 		)
 
 	private val fresh =
@@ -172,13 +174,10 @@ object IndexCommand : Command(
 }
 
 /**
- * `$XDG_CACHE_HOME/prism/index.prism`, where the index is kept unless told otherwise: an index can always be made
- * again, which is what a cache is. What every command that reads or writes the index starts from.
+ * `index.prism` in prism's cache (`$XDG_CACHE_HOME/prism` on Linux, `~/Library/Caches/prism` on macOS), where the
+ * index is kept unless told otherwise: an index can always be made again, which is what a cache is. What every
+ * command that reads or writes the index starts from; [said] as its help says it.
  */
-internal fun defaultIndexFile(): Path {
-	val cache =
-		System.getenv("XDG_CACHE_HOME")?.takeIf { it.startsWith("/") }?.let(::Path)
-			?: Path(System.getProperty("user.home"), ".cache")
+internal val defaultIndex: OwnFolder = OwnFolders.of().cache.resolve("index.prism")
 
-	return cache.resolve("prism/index.prism")
-}
+internal fun defaultIndexFile(): Path = defaultIndex.path

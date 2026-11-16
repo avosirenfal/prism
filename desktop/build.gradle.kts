@@ -7,6 +7,8 @@ plugins {
 }
 
 dependencies {
+	// Which platform this is, and so which desktop; and the XDG Base Directory folders freedesktop's is under.
+	api(project(":platform"))
 	// statx(2), for when a file was made, which the JVM does not say on Linux.
 	implementation(project(":linux"))
 	// `mimeapps.list`, changed as it is at that moment, and state shared between threads.

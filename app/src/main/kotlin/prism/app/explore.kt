@@ -14,6 +14,8 @@ import prism.client.InstancePlace
 import prism.client.Reply
 import prism.client.Request
 import prism.client.ask
+import prism.platform.OwnFolders
+import prism.platform.Runtime
 import prism.portal.pathOf
 
 /**
@@ -111,11 +113,13 @@ internal object StatusCommand :
 
 	override fun run(args: Args): Outcome {
 		val place =
-			InstancePlace.of()
-				?: return Outcome(
-					"XDG_RUNTIME_DIR is not set, so a running prism can't be reached.",
+			when (val runtime = OwnFolders.of().runtime) {
+				is Runtime.Missing -> return Outcome(
+					"${runtime.why}, so a running prism can't be reached.",
 					1,
 				)
+				is Runtime.At -> InstancePlace.within(runtime.folder.path)
+			}
 
 		return when (val asked = ask(place, Request(listOf(name), Caller.here()))) {
 			Asking.Nobody -> Outcome("No prism is running.", 1)
