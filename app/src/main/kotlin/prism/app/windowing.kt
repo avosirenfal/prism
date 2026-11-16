@@ -3,6 +3,7 @@ package prism.app
 import java.nio.file.Path
 import kotlin.io.path.Path
 import kotlin.io.path.isDirectory
+import prism.browser.Action
 import prism.browser.BrowserState
 import prism.browser.Finder
 import prism.browser.Search
@@ -76,7 +77,8 @@ internal class Indexing(
 			"--index",
 			type = INDEX_FILE,
 			help =
-				"enable search (Ctrl+Shift+F) from an index file, read once and not kept up to date; " +
+				"enable search (${Action.SearchIndex.defaults.first()}) from an index file, read once and not kept " +
+					"up to date; " +
 					"FILE defaults to ${defaultIndex.said}",
 		)
 

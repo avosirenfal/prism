@@ -349,7 +349,7 @@ private fun <A> MenuPanel(
 			Key.Escape -> onBack()
 			Key.Enter, Key.NumPadEnter, Key.Spacebar ->
 				if (lit >= 0)
-					choose(lit, key.isCtrlPressed, byKey = true)
+					choose(lit, key.isPrimaryPressed, byKey = true)
 			else -> return false
 		}
 
@@ -587,7 +587,7 @@ private fun Modifier.worked(
 
 					if (up != null && enabled) {
 						up.consume()
-						choosing(currentEvent.keyboardModifiers.isCtrlPressed)
+						choosing(currentEvent.keyboardModifiers.isPrimaryPressed)
 					}
 				}
 			}.semantics {

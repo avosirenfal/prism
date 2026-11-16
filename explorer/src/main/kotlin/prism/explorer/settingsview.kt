@@ -77,6 +77,7 @@ import prism.browser.EmptyState
 import prism.browser.Field
 import prism.browser.Glyph
 import prism.browser.GlyphIcon
+import prism.browser.Keyboard
 import prism.browser.Labelled
 import prism.browser.LazyScrollArea
 import prism.browser.ListHeading
@@ -331,7 +332,8 @@ private fun DisplayPage(settings: Settings, onChange: (Settings) -> Unit) {
 		}
 		Section(
 			"Zoom",
-			description = "Default zoom for new windows. Ctrl+scroll changes it in any window.",
+			description =
+				"Default zoom for new windows. ${Keyboard.current.primaryName}+scroll changes it in any window.",
 		) {
 			Card {
 				ZoomRow(

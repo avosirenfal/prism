@@ -60,9 +60,11 @@ import prism.browser.Field
 import prism.browser.Glyph
 import prism.browser.GlyphIcon
 import prism.browser.KeyGroup
+import prism.browser.Keyboard
 import prism.browser.LazyScrollArea
 import prism.browser.LocalPalette
 import prism.browser.LocalType
+import prism.browser.ModifierKey
 import prism.browser.Radius
 import prism.browser.Space
 import prism.browser.ToolButton
@@ -135,7 +137,7 @@ private fun ColumnScope.Bindings(
 			(finding as? Finding.Words)?.text.orEmpty(),
 			{ onChange(rebinding.finding(Finding.Words(it))) },
 			Modifier.weight(1f).testTag("bindings-filter"),
-			hint = "Search actions, groups and keys (Ctrl+F)",
+			hint = "Search actions, groups and keys (${Keyboard.current.primaryName}+F)",
 			leading = Glyph.Search,
 			focus = filter,
 		)
@@ -194,7 +196,9 @@ private fun ColumnScope.Bindings(
 	}
 	rebinding.refused?.let { chord ->
 		Text(
-			"$chord types text, so it needs Ctrl or Alt.",
+			"$chord types text, so it needs ${Keyboard.current.primaryName} or ${Keyboard.current.nameOf(
+				ModifierKey.Alt,
+			)}.",
 			style = type.body.copy(color = palette.dangerText),
 			modifier = Modifier.testTag("bindings-refused"),
 		)

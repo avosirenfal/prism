@@ -70,7 +70,10 @@ object KeyGroups {
 	val Cursor =
 		KeyGroup(
 			"Cursor",
-			"Hold Shift to extend the selection, or Ctrl to move without selecting.",
+			"Hold Shift to extend the selection, or ${Keyboard.current.nameOf(
+				Keyboard.current.aside,
+			)} to move " +
+				"without selecting.",
 		)
 	val Choosing = KeyGroup("Selection")
 	val Files = KeyGroup("Files")
@@ -93,6 +96,9 @@ interface Bindable {
 
 	/** The chords that do it until the user says otherwise. */
 	val defaults: List<Chord>
+
+	/** The chords that do it until the user says otherwise, on [keyboard]: a Mac's own, where it has others. */
+	fun defaultsOn(keyboard: Keyboard): List<Chord> = defaults
 
 	/**
 	 * Whether it moves a cursor, and so claims its key with Shift and Ctrl held too, which say how moving chooses: no
@@ -164,26 +170,33 @@ enum class Action(
 	override val label: String,
 	override val scope: Scope,
 	override val group: KeyGroup,
-	vararg defaults: String,
+	private vararg val written: String,
 ) : Scoped {
 	Back("Back", Scope.Window, KeyGroups.Places, "Alt+Left", "Mouse Back"),
 	Forward("Forward", Scope.Window, KeyGroups.Places, "Alt+Right", "Mouse Forward"),
 	Up("Parent folder", Scope.Window, KeyGroups.Places, "Alt+Up", "Backspace"),
-	EditAddress("Edit location", Scope.Window, KeyGroups.Places, "Ctrl+L", "Alt+D"),
-	GoTo("Go to location", Scope.Window, KeyGroups.Places, "Ctrl+G"),
-	SearchFolder("Search in folder", Scope.Window, KeyGroups.Finding, "Ctrl+F", "F3"),
-	SearchIndex("Search everywhere", Scope.Window, KeyGroups.Finding, "Ctrl+Shift+F"),
+	EditAddress("Edit location", Scope.Window, KeyGroups.Places, "Primary+L", "Alt+D"),
+	GoTo("Go to location", Scope.Window, KeyGroups.Places, "Primary+G"),
+	SearchFolder("Search in folder", Scope.Window, KeyGroups.Finding, "Primary+F", "F3"),
+	SearchIndex("Search everywhere", Scope.Window, KeyGroups.Finding, "Primary+Shift+F"),
 	ShowActions("Show actions", Scope.Search, KeyGroups.Finding, "Right"),
 	PinSearch("Pin search", Scope.Window, KeyGroups.Finding),
-	Refresh("Refresh", Scope.Window, KeyGroups.View, "F5", "Ctrl+R"),
-	ToggleHidden("Show hidden files", Scope.Window, KeyGroups.View, "Ctrl+H"),
-	ViewList("List view", Scope.Window, KeyGroups.View, "Ctrl+1"),
-	ViewGallery("Gallery view", Scope.Window, KeyGroups.View, "Ctrl+2"),
+	Refresh("Refresh", Scope.Window, KeyGroups.View, "F5", "Primary+R"),
+	ToggleHidden("Show hidden files", Scope.Window, KeyGroups.View, "Primary+H"),
+	ViewList("List view", Scope.Window, KeyGroups.View, "Primary+1"),
+	ViewGallery("Gallery view", Scope.Window, KeyGroups.View, "Primary+2"),
 	ToggleThumbnails("Toggle thumbnails", Scope.Window, KeyGroups.View),
 	ToggleSidebar("Toggle sidebar", Scope.Window, KeyGroups.View, "F9"),
-	ZoomIn("Zoom in", Scope.Window, KeyGroups.View, "Ctrl+Equals", "Ctrl+Plus", "Ctrl+Add"),
-	ZoomOut("Zoom out", Scope.Window, KeyGroups.View, "Ctrl+Minus", "Ctrl+Subtract"),
-	ZoomReset("Reset zoom", Scope.Window, KeyGroups.View, "Ctrl+0", "Ctrl+NumPad0"),
+	ZoomIn(
+		"Zoom in",
+		Scope.Window,
+		KeyGroups.View,
+		"Primary+Equals",
+		"Primary+Plus",
+		"Primary+Add",
+	),
+	ZoomOut("Zoom out", Scope.Window, KeyGroups.View, "Primary+Minus", "Primary+Subtract"),
+	ZoomReset("Reset zoom", Scope.Window, KeyGroups.View, "Primary+0", "Primary+NumPad0"),
 	MoveUp("Move up", Scope.Movement, KeyGroups.Cursor, "Up"),
 	MoveDown("Move down", Scope.Movement, KeyGroups.Cursor, "Down"),
 	MoveLeft("Move left", Scope.Movement, KeyGroups.Cursor, "Left"),
@@ -193,7 +206,7 @@ enum class Action(
 	First("Go to first", Scope.Movement, KeyGroups.Cursor, "Home"),
 	Last("Go to last", Scope.Movement, KeyGroups.Cursor, "End"),
 	Toggle("Toggle selection", Scope.Listing, KeyGroups.Choosing, "Space"),
-	SelectAll("Select all", Scope.Listing, KeyGroups.Choosing, "Ctrl+A"),
+	SelectAll("Select all", Scope.Listing, KeyGroups.Choosing, "Primary+A"),
 	Cancel(
 		"Cancel or clear selection",
 		Scope.Leftover,
@@ -202,10 +215,10 @@ enum class Action(
 	),
 	Open("Open", Scope.Listing, KeyGroups.Files, "Enter"),
 	Rename("Rename", Scope.Listing, KeyGroups.Files, "F2"),
-	CopyFiles("Copy", Scope.Listing, KeyGroups.Files, "Ctrl+C"),
-	CutFiles("Cut", Scope.Listing, KeyGroups.Files, "Ctrl+X"),
-	Paste("Paste", Scope.Listing, KeyGroups.Files, "Ctrl+V"),
-	CopyPaths("Copy path", Scope.Listing, KeyGroups.Files, "Ctrl+Shift+C"),
+	CopyFiles("Copy", Scope.Listing, KeyGroups.Files, "Primary+C"),
+	CutFiles("Cut", Scope.Listing, KeyGroups.Files, "Primary+X"),
+	Paste("Paste", Scope.Listing, KeyGroups.Files, "Primary+V"),
+	CopyPaths("Copy path", Scope.Listing, KeyGroups.Files, "Primary+Shift+C"),
 	Trash(
 		"Move to trash",
 		Scope.Listing,
@@ -213,7 +226,7 @@ enum class Action(
 		"Delete",
 	),
 	Erase("Delete permanently", Scope.Listing, KeyGroups.Files, "Shift+Delete"),
-	NewFolder("New folder", Scope.Window, KeyGroups.Files, "Ctrl+Shift+N"),
+	NewFolder("New folder", Scope.Window, KeyGroups.Files, "Primary+Shift+N"),
 	NewFile("New file", Scope.Window, KeyGroups.Files),
 	Properties("Properties", Scope.Listing, KeyGroups.Files, "Alt+Enter"),
 	ContextMenu(
@@ -224,27 +237,53 @@ enum class Action(
 		"ContextMenu",
 	),
 	OpenTerminal("Open terminal here", Scope.Window, KeyGroups.Files, "Shift+F4"),
-	Undo("Undo", Scope.Leftover, KeyGroups.History, "Ctrl+Z"),
-	Redo("Redo", Scope.Leftover, KeyGroups.History, "Ctrl+Shift+Z", "Ctrl+Y"),
-	NewWindow("New window", Scope.Window, KeyGroups.Windows, "Ctrl+N"),
-	Preferences("Preferences", Scope.Window, KeyGroups.Windows, "Ctrl+P"),
+	Undo("Undo", Scope.Leftover, KeyGroups.History, "Primary+Z"),
+	Redo("Redo", Scope.Leftover, KeyGroups.History, "Primary+Shift+Z", "Primary+Y"),
+	NewWindow("New window", Scope.Window, KeyGroups.Windows, "Primary+N"),
+	Preferences("Preferences", Scope.Window, KeyGroups.Windows, "Primary+P"),
 	CloseWindow(
 		"Close window",
 		Scope.Window,
 		KeyGroups.Windows,
-		"Ctrl+W",
+		"Primary+W",
 	),
 	;
 
 	override val key: String get() = name
 
-	override val defaults: List<Chord> =
-		defaults.map {
-			Chord.parse(it)
-				?: error("$name's default “$it” is not a chord")
-		}
+	/** The chords that do it by default on [keyboard]: a Mac's own where it has them ([MAC]), and these otherwise. */
+	override fun defaultsOn(keyboard: Keyboard): List<Chord> {
+		val chosen = MAC[this].takeIf { keyboard == Keyboard.Mac } ?: written.toList()
+
+		return defaultChords(name, chosen, keyboard)
+	}
+
+	override val defaults: List<Chord> by lazy { defaultsOn(Keyboard.current) }
 
 	companion object {
+		/**
+		 * Where a Mac's chords are not the others' with Command for Ctrl: Finder's, for what Finder does too (⌘[ back,
+		 * ⌘↑ the folder above, ⌘⇧. hidden files, ⌘I information, ⌘⌫ the trash), and ⌘, for the preferences, as every
+		 * Mac application has them. ⌘H is the system's (it hides the application), so hidden files cannot be it.
+		 */
+		private val MAC: Map<Action, List<String>> by lazy {
+			mapOf(
+				Back to listOf("Primary+OpenBracket", "Mouse Back"),
+				Forward to listOf("Primary+CloseBracket", "Mouse Forward"),
+				Up to listOf("Primary+Up"),
+				GoTo to listOf("Primary+Shift+G"),
+				ToggleHidden to listOf("Primary+Shift+Period"),
+				ToggleSidebar to listOf("Ctrl+Primary+S"),
+				Open to listOf("Enter", "Primary+Down"),
+				CopyPaths to listOf("Alt+Primary+C"),
+				Trash to listOf("Primary+Backspace", "Delete"),
+				Erase to listOf("Alt+Primary+Backspace", "Shift+Delete"),
+				Properties to listOf("Primary+I"),
+				Redo to listOf("Primary+Shift+Z"),
+				Preferences to listOf("Primary+Comma"),
+			)
+		}
+
 		/** What only an explorer does: a picker has no key for these, since it would do nothing with one. */
 		val EXPLORING: Set<Action> =
 			setOf(NewFile, OpenTerminal, NewWindow, Preferences, Properties)
@@ -253,6 +292,15 @@ enum class Action(
 		val PICKING: List<Action> = entries - EXPLORING
 	}
 }
+
+/**
+ * [written] as chords, in [keyboard]'s names (`Primary` its primary modifier), as [owner]'s defaults: a default that
+ * reads as no chord is a mistake made here, and said at once.
+ */
+fun defaultChords(owner: String, written: List<String>, keyboard: Keyboard): List<Chord> =
+	written.map {
+		Chord.parse(it, keyboard) ?: error("$owner's default “$it” is not a chord")
+	}
 
 /** A mouse button a chord can be made of: those a person presses on purpose, and not the two every click is. */
 enum class MouseButton(
@@ -301,31 +349,57 @@ data class Chord(
 		get() =
 			!ctrl && !alt && !meta && (trigger as? Trigger.Key)?.code in Keys.printing
 
-	/** The chord without Shift and Ctrl: what moving the cursor is matched by. */
-	val bare: Chord get() = copy(ctrl = false, shift = false)
+	/** Whether [modifier] is held. */
+	fun has(modifier: ModifierKey): Boolean =
+		when (modifier) {
+			ModifierKey.Ctrl -> ctrl
+			ModifierKey.Alt -> alt
+			ModifierKey.Shift -> shift
+			ModifierKey.Meta -> meta
+		}
 
-	/** As it is shown, and written in the preferences: `Ctrl+Shift+F`, `Alt+Left`, `Mouse Back`. */
-	override fun toString(): String =
+	/**
+	 * The chord without Shift and what moves the cursor without choosing on [keyboard] (Ctrl, or Option on a Mac):
+	 * what moving the cursor is matched by.
+	 */
+	fun bare(keyboard: Keyboard = Keyboard.current): Chord =
+		without(ModifierKey.Shift, keyboard.aside)
+
+	private fun without(vararg modifiers: ModifierKey): Chord =
+		of(trigger, ModifierKey.entries.filter { has(it) && it !in modifiers }.toSet())
+
+	/**
+	 * As it is shown, and written in the preferences, in [keyboard]'s names: `Ctrl+Shift+F`, `Alt+Left`, `Mouse Back`;
+	 * on a Mac, `Cmd+Shift+F`, `Option+Left`.
+	 */
+	fun said(keyboard: Keyboard = Keyboard.current): String =
 		(
-			listOfNotNull(
-				"Ctrl".takeIf {
-					ctrl
-				},
-				"Alt".takeIf { alt },
-				"Shift".takeIf { shift },
-				"Meta".takeIf { meta },
-			) +
+			ModifierKey.entries.filter(::has).map(keyboard::nameOf) +
 				when (trigger) {
 					is Trigger.Key -> Keys.nameOf(trigger.code)
 					is Trigger.Mouse -> trigger.button.label
 				}
 		).joinToString("+")
 
+	override fun toString(): String = said()
+
 	companion object {
-		/** A chord from how it is written; null for text that is not one. */
-		fun parse(text: String): Chord? {
+		/** [trigger] with [modifiers] held. */
+		fun of(trigger: Trigger, modifiers: Set<ModifierKey>): Chord =
+			Chord(
+				trigger,
+				ctrl = ModifierKey.Ctrl in modifiers,
+				shift = ModifierKey.Shift in modifiers,
+				alt = ModifierKey.Alt in modifiers,
+				meta = ModifierKey.Meta in modifiers,
+			)
+
+		/**
+		 * A chord from how it is written, in any platform's names for its modifiers, `Primary` being [keyboard]'s
+		 * primary one (Ctrl, or Command on a Mac); null for text that is not one.
+		 */
+		fun parse(text: String, keyboard: Keyboard = Keyboard.current): Chord? {
 			val parts = text.split('+').map { it.trim() }
-			val modifiers = parts.dropLast(1).map { it.lowercase() }
 			val last = parts.lastOrNull() ?: return null
 			val trigger =
 				MouseButton.entries
@@ -334,17 +408,9 @@ data class Chord(
 					}?.let(Trigger::Mouse)
 					?: Keys.codeOf(last)?.let(Trigger::Key)
 					?: return null
+			val modifiers = parts.dropLast(1).map { keyboard.modifierNamed(it) ?: return null }
 
-			if (modifiers.any { it !in setOf("ctrl", "shift", "alt", "meta") })
-				return null
-
-			return Chord(
-				trigger,
-				"ctrl" in modifiers,
-				"shift" in modifiers,
-				"alt" in modifiers,
-				"meta" in modifiers,
-			)
+			return of(trigger, modifiers.toSet())
 		}
 
 		/** The chord [event] is: null for a modifier pressed alone, which is no chord yet. */
@@ -447,6 +513,8 @@ object Keys {
 @Immutable
 class Bindings(
 	chords: Map<Bindable, List<Chord>>,
+	/** The keyboard they are pressed on, which says what moving the cursor is matched by (Shift and Ctrl, or Option). */
+	val keyboard: Keyboard = Keyboard.current,
 ) {
 	/**
 	 * Each action's chords, none of them twice, however they were given: a chord is one of an action's places, and a
@@ -502,14 +570,14 @@ class Bindings(
 
 	/** The cursor's move [chord] makes, Shift and Ctrl aside. */
 	fun movement(chord: Chord): Action? =
-		find(chord.bare) { it == Scope.Movement } as? Action
+		find(chord.bare(keyboard)) { it == Scope.Movement } as? Action
 
 	/** What [chord] does where whatever had the keyboard did not use it. */
 	fun leftover(chord: Chord): Action? = find(chord) { it == Scope.Leftover } as? Action
 
 	/** These, with [action]'s chords [chords]. */
 	fun with(action: Bindable, chords: List<Chord>): Bindings =
-		Bindings(this.chords + (action to chords))
+		Bindings(this.chords + (action to chords), keyboard)
 
 	/**
 	 * The actions other than [action] that [chord] would also do: a chord does one thing. A move of the cursor claims its
@@ -528,7 +596,7 @@ class Bindings(
 	fun bound(action: Bindable, index: Int, chord: Chord): Bindings {
 		val given =
 			if (action.moves)
-				chord.bare
+				chord.bare(keyboard)
 			else
 				chord
 
@@ -546,7 +614,7 @@ class Bindings(
 			else
 				mine.plusElement(given)
 
-		return Bindings(freed + (action to placed))
+		return Bindings(freed + (action to placed), keyboard)
 	}
 
 	/** These, without [action]'s chord at [index]. */
@@ -557,7 +625,13 @@ class Bindings(
 	fun reset(action: Bindable): Bindings = with(action, action.defaults)
 
 	/** These, with every action's chords its defaults again. */
-	fun defaults(): Bindings = Bindings(chords.keys.associateWith { it.defaults })
+	fun defaults(): Bindings =
+		Bindings(
+			chords.keys.associateWith {
+				it.defaultsOn(keyboard)
+			},
+			keyboard,
+		)
 
 	/**
 	 * Whether [its], one of [other]'s chords, is [chord] of [action]'s: the same, or, for a move, the same key; and
@@ -570,7 +644,7 @@ class Bindings(
 				its == chord ||
 					(
 						(other.moves || action.moves) &&
-							its.bare == chord.bare
+							its.bare(keyboard) == chord.bare(keyboard)
 					)
 			)
 
@@ -579,7 +653,7 @@ class Bindings(
 	/** What the preferences say of these: each action whose chords are not its defaults. */
 	fun differences(): Map<String, List<String>> =
 		chords.keys
-			.filter { of(it) != it.defaults }
+			.filter { of(it) != it.defaultsOn(keyboard) }
 			.associate { action -> action.key to of(action).map { it.toString() } }
 
 	override fun equals(other: Any?): Boolean = other is Bindings && chords == other.chords

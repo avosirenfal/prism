@@ -53,6 +53,7 @@ import prism.browser.Scaled
 import prism.browser.Space
 import prism.browser.TransientFor
 import prism.browser.Undone
+import prism.browser.isPrimaryPressed
 import prism.browser.mouseChords
 import prism.browser.toClipboard
 import prism.browser.zoomedByWheel
@@ -567,9 +568,12 @@ private fun Dialog(
 	}
 }
 
-/** Ctrl with + or - zooming a window a step, and Ctrl+0 back to its usual size: whether [key] was one of them. */
+/**
+ * Ctrl (Command, on a Mac) with + or - zooming a window a step, and with 0 back to its usual size: whether [key] was
+ * one of them.
+ */
 private fun zoomKey(key: KeyEvent, zoom: Zooming): Boolean {
-	if (key.type != KeyEventType.KeyDown || !key.isCtrlPressed || key.isAltPressed)
+	if (key.type != KeyEventType.KeyDown || !key.isPrimaryPressed || key.isAltPressed)
 		return false
 
 	val scale =

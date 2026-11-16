@@ -85,7 +85,7 @@ fun Modifier.wheelScrolled(
 						}
 
 					if (event.type == PointerEventType.Scroll &&
-						!event.keyboardModifiers.isCtrlPressed &&
+						!event.keyboardModifiers.isPrimaryPressed &&
 						(by != 0f || along != 0f) &&
 						event.changes.none { it.isConsumed }
 					) {

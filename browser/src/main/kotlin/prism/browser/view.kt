@@ -338,10 +338,12 @@ private fun shortcut(
 	bindings: Bindings,
 	act: (Action) -> Boolean,
 ): Boolean {
-	// A chord with Ctrl types its character as well, after it (Ctrl+2 types a "2"), which a text field would take as
-	// typing: it is the chord's, and goes nowhere. Ctrl with Alt is AltGr on many keyboards, which types for real.
+	// A chord with Ctrl (or Command) types its character as well, after it (Ctrl+2 types a "2"), which a text field
+	// would take as typing: it is the chord's, and goes nowhere. Ctrl with Alt is AltGr on many keyboards, which types
+	// for real.
 	if (key.type == KeyEventType.Unknown)
-		return key.isCtrlPressed && !key.isAltPressed && key.utf16CodePoint >= ' '.code
+		return (key.isCtrlPressed || key.isPrimaryPressed) && !key.isAltPressed &&
+			key.utf16CodePoint >= ' '.code
 
 	if (key.type != KeyEventType.KeyDown)
 		return false
@@ -1557,11 +1559,12 @@ private fun ListingPane(
 				list.layoutInfo.visibleItemsInfo.size
 		val page = line * (lines - 1).coerceAtLeast(1)
 
-		// Shift extends what is chosen as the cursor moves, and Ctrl moves it without choosing, whatever key moves it.
+		// Shift extends what is chosen as the cursor moves, and Ctrl (Option, on a Mac) moves it without choosing,
+		// whatever key moves it.
 		val carry =
 			when {
 				chord.shift -> Carry.Extend
-				chord.ctrl || chord.meta -> Carry.Stay
+				chord.has(Keyboard.current.aside) || chord.meta -> Carry.Stay
 				else -> Carry.Choose
 			}
 
@@ -2088,7 +2091,9 @@ fun Modifier.zoomedByWheel(onZoom: (Int) -> Unit): Modifier =
 			while (true) {
 				val event = awaitPointerEvent(PointerEventPass.Initial)
 
-				if (event.type == PointerEventType.Scroll && event.keyboardModifiers.isCtrlPressed) {
+				if (event.type == PointerEventType.Scroll &&
+					event.keyboardModifiers.isPrimaryPressed
+				) {
 					turned += event.changes.fold(0f) { sum, change -> sum + change.scrollDelta.y }
 					event.changes.forEach { it.consume() }
 

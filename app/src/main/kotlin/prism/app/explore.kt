@@ -3,6 +3,7 @@ package prism.app
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.io.path.Path
+import prism.browser.Action
 import prism.cli.Args
 import prism.cli.Command
 import prism.cli.InputError
@@ -46,7 +47,10 @@ internal object ExploreCommand :
 		)
 	private val indexing = Indexing(this)
 	private val theme = themeOption()
-	private val decorated = decoratedFlag("close the window from its menu or with Ctrl+W")
+	private val decorated =
+		decoratedFlag(
+			"close the window from its menu or with ${Action.CloseWindow.defaults.first()}",
+		)
 
 	/** The word that keeps a prism to a process of its own, which a desktop entry's action gives it. */
 	const val ISOLATED = "--isolated"

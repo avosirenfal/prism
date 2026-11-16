@@ -22,6 +22,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.runBlocking
+import prism.browser.Action
 import prism.browser.Search
 import prism.cli.Args
 import prism.cli.Command
@@ -108,7 +109,10 @@ object DaemonCommand : Command(
 	private val noManager = noManagerFlag()
 	private val replace = replaceFlag()
 	private val theme = themeOption()
-	private val decorated = decoratedFlag("close a window from its menu or with Ctrl+W")
+	private val decorated =
+		decoratedFlag(
+			"close a window from its menu or with ${Action.CloseWindow.defaults.first()}",
+		)
 
 	private val seconds =
 		option(

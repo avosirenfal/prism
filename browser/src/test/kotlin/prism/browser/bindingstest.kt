@@ -123,4 +123,52 @@ class BindingsTest {
 					"$action $default",
 				)
 	}
+
+	@Test
+	fun aMacsChordsAreMadeWithCommandAndSaidInItsNames() {
+		fun mac(text: String) =
+			Chord.parse(text, Keyboard.Mac) ?: error("“$text” is not a chord")
+
+		assertEquals(Chord(Trigger.Key(KeyEvent.VK_C), meta = true), mac("Primary+C"))
+		assertEquals(
+			Chord(Trigger.Key(KeyEvent.VK_C), ctrl = true),
+			Chord.parse("Primary+C", Keyboard.Pc),
+		)
+		assertEquals(
+			"Ctrl+Option+Shift+Cmd+F",
+			mac("Command+Shift+Option+Control+F").said(Keyboard.Mac),
+		)
+		assertEquals("Alt+Meta+Left", mac("Option+Cmd+Left").said(Keyboard.Pc))
+		// A file written on one platform reads on the other.
+		assertEquals(mac("Alt+Meta+Left"), Chord.parse("Option+Cmd+Left", Keyboard.Pc))
+
+		val defaults =
+			Bindings(
+				Action.entries.associateWith<Bindable, List<Chord>> { it.defaultsOn(Keyboard.Mac) },
+				Keyboard.Mac,
+			)
+
+		assertEquals(listOf(mac("Cmd+C")), defaults.of(Action.CopyFiles))
+		assertEquals(
+			listOf(mac("Cmd+OpenBracket"), mac("Mouse Back")),
+			defaults.of(Action.Back),
+		)
+		assertEquals(listOf(mac("Cmd+Comma")), defaults.of(Action.Preferences))
+		// Cmd+H is the system's: it hides the application.
+		assertNull(defaults.action(mac("Cmd+H")))
+		// Option moves the cursor without choosing, and Cmd with an arrow is Finder's.
+		assertEquals(Action.MoveDown, defaults.movement(mac("Option+Down")))
+		assertEquals(Action.Up, defaults.window(mac("Cmd+Up")))
+		assertEquals(Action.Open, defaults.listing(mac("Cmd+Down")))
+		for (action in Action.entries)
+			for (default in defaults.of(action)) {
+				assertEquals(default, mac(default.said(Keyboard.Mac)), "$action")
+				assertEquals(
+					emptyList<Action>(),
+					defaults.clashes(action, default),
+					"$action $default",
+				)
+			}
+		assertEquals(emptyMap<String, List<String>>(), defaults.differences())
+	}
 }

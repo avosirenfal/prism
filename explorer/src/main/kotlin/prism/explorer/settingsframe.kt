@@ -45,6 +45,7 @@ import prism.browser.ListRow
 import prism.browser.LocalPalette
 import prism.browser.LocalType
 import prism.browser.Space
+import prism.browser.isPrimaryPressed
 
 /*
  * What every window of settings is: its pages listed down the left, the one chosen beside them, and along the bottom
@@ -122,7 +123,7 @@ internal fun <P> SettingsFrame(
 				when {
 					!finds -> false
 					rebinding == null || !listening ->
-						(key.type == KeyEventType.KeyDown && key.isCtrlPressed && key.key == Key.F).also {
+						(key.type == KeyEventType.KeyDown && key.isPrimaryPressed && key.key == Key.F).also {
 							if (it)
 								filter.requestFocus()
 						}
