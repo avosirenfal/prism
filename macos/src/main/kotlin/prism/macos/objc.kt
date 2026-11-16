@@ -369,7 +369,10 @@ internal object ObjCRuntime {
 					methodTypes.handle.invokeExact(method) as MemorySegment,
 				) as Boolean
 			}
+			// A statement, with nothing after it taken as its value: as the last thing in the block it would be the
+			// block's value, compiled as a call that returns an object, which a handle that returns nothing refuses.
 			free.handle.invokeExact(list)
+			Unit
 		}
 	}
 }

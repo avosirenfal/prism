@@ -296,7 +296,8 @@ class EventStream private constructor(
 				) as MemorySegment
 
 			// The array holds the strings now; and the stream, once made, the array.
-			strings.forEach { cfRelease.handle.invokeExact(it) }
+			for (string in strings)
+				cfRelease.handle.invokeExact(string)
 
 			val stream =
 				create.handle.invokeExact(
