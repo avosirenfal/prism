@@ -86,7 +86,7 @@ internal class Layers(
 	): LayerSurface? {
 		val proxy =
 			Arena.ofConfined().use {
-				GET_LAYER_SURFACE.invokeExact(
+				Wl.marshalLayerSurface(
 					shell.proxy,
 					SHELL_GET_LAYER_SURFACE,
 					Protocols.layerSurface,
@@ -97,7 +97,7 @@ internal class Layers(
 					output ?: MemorySegment.NULL,
 					LAYER_OVERLAY,
 					it.allocateFrom(spec.namespace),
-				) as MemorySegment
+				)
 			}
 
 		val first = Grip.of(spec.shares)
@@ -114,11 +114,11 @@ internal class Layers(
 			)
 
 		surfaces[proxy.address()] = made
-		Wl.addListener.invokeExact(proxy, listener, MemorySegment.NULL) as Int
+		Wl.addListener(proxy, listener, MemorySegment.NULL)
 
-		made.send(Wl.marshalInts, SURFACE_SET_SIZE, width, height)
-		made.send(Wl.marshalInt, SURFACE_SET_ANCHOR, spec.anchor)
-		Wl.marshalDamage.invokeExact(
+		made.send(SURFACE_SET_SIZE, width, height)
+		made.send(SURFACE_SET_ANCHOR, spec.anchor)
+		Wl.marshalDamage(
 			proxy,
 			SURFACE_SET_MARGIN,
 			MemorySegment.NULL,
@@ -128,8 +128,8 @@ internal class Layers(
 			spec.margins.right,
 			spec.margins.bottom,
 			spec.margins.left,
-		) as MemorySegment
-		made.send(Wl.marshalInt, SURFACE_SET_KEYBOARD, first.asks.wire)
+		)
+		made.send(SURFACE_SET_KEYBOARD, first.asks.wire)
 		// Committed with nothing in it: what asks the compositor to say how it is to be.
 		commit(surface)
 
@@ -157,20 +157,20 @@ internal class Layers(
 
 	/** [surface]'s pending state committed, and sent. */
 	fun commit(surface: MemorySegment) {
-		Wl.marshalNone.invokeExact(
+		Wl.marshalNone(
 			surface,
 			Wl.SURFACE_COMMIT,
 			MemorySegment.NULL,
 			Wl.versionOf(surface),
 			0,
 			MemorySegment.NULL,
-		) as MemorySegment
-		Wl.flush.invokeExact(display) as Int
+		)
+		Wl.flush(display)
 	}
 
 	fun forget(surface: LayerSurface) {
 		surfaces.remove(surface.proxy.address())
-		Wl.flush.invokeExact(display) as Int
+		Wl.flush(display)
 	}
 
 	/** `zwlr_layer_surface_v1.configure`: acknowledged at once, and its size told to the surface it is for. */
@@ -184,8 +184,8 @@ internal class Layers(
 	) {
 		val surface = surfaces[proxy.address()] ?: return
 
-		surface.send(Wl.marshalInt, SURFACE_ACK_CONFIGURE, serial)
-		Wl.flush.invokeExact(display) as Int
+		surface.send(SURFACE_ACK_CONFIGURE, serial)
+		Wl.flush(display)
 		surface.configured(width, height)
 	}
 
@@ -210,9 +210,6 @@ internal class Layers(
 
 		/** How long a compositor has to say how a layer surface is to be, before prism does without one. */
 		private const val PATIENCE_MILLIS = 3000L
-
-		/** `get_layer_surface`: the new surface, the `wl_surface`, the output, the layer, the namespace. */
-		private val GET_LAYER_SURFACE = Wl.marshal(ADDRESS, ADDRESS, ADDRESS, JAVA_INT, ADDRESS)
 	}
 }
 
@@ -245,7 +242,7 @@ internal class LayerSurface(
 	fun told(told: Told): Grip.Step =
 		grip.told(told).also { step ->
 			step.toAsk?.let {
-				send(Wl.marshalInt, Layers.SURFACE_SET_KEYBOARD, it.asks.wire)
+				send(Layers.SURFACE_SET_KEYBOARD, it.asks.wire)
 				layers.commit(surface)
 			}
 			grip = step.grip
@@ -258,24 +255,16 @@ internal class LayerSurface(
 	var size: Pair<Int, Int>? by Published(null)
 		private set
 
-	/** A request of this surface's sent: [arguments] as [marshal] takes them. */
-	fun send(marshal: java.lang.invoke.MethodHandle, opcode: Int, vararg arguments: Int) {
-		if (grip == Grip.Gone)
-			return
+	/** A request of this surface's sent, of one [number]; nothing, once the surface is gone. */
+	fun send(opcode: Int, number: Int) {
+		if (grip != Grip.Gone)
+			Wl.marshalInt(proxy, opcode, MemorySegment.NULL, version, 0, number)
+	}
 
-		when (arguments.size) {
-			1 -> marshal.invoke(proxy, opcode, MemorySegment.NULL, version, 0, arguments[0])
-			else ->
-				marshal.invoke(
-					proxy,
-					opcode,
-					MemorySegment.NULL,
-					version,
-					0,
-					arguments[0],
-					arguments[1],
-				)
-		}
+	/** A request of this surface's sent, of two numbers; nothing, once the surface is gone. */
+	fun send(opcode: Int, first: Int, second: Int) {
+		if (grip != Grip.Gone)
+			Wl.marshalInts(proxy, opcode, MemorySegment.NULL, version, 0, first, second)
 	}
 
 	/** The compositor said it is to be [width] by [height]; nothing of either means as large as it likes. */
@@ -304,14 +293,14 @@ internal class LayerSurface(
 			return
 
 		told(Told.Closed)
-		Wl.marshalNone.invokeExact(
+		Wl.marshalNone(
 			proxy,
 			Layers.SURFACE_DESTROY,
 			MemorySegment.NULL,
 			version,
 			Wl.MARSHAL_DESTROY,
 			MemorySegment.NULL,
-		) as MemorySegment
+		)
 		layers.forget(this)
 	}
 }

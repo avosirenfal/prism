@@ -324,6 +324,44 @@ internal fun interface Takes {
 	fun take(self: MemorySegment, selector: MemorySegment, argument: MemorySegment)
 }
 
+internal fun interface PthreadMainNp {
+	operator fun invoke(): Int
+}
+
+/**
+ * AppKit's own thread, the process's first, on which alone a window may be made. Work is done there: at once, where
+ * this is that thread (as prism's windows' thread is, started on the first thread); and otherwise handed to its
+ * queue and waited for, which needs that thread to be running its loop (as it is under `java` started the usual way,
+ * whose first thread does nothing else).
+ */
+object MainThread {
+	private val isMain by Frameworks.system.binding<PthreadMainNp>("pthread_main_np")
+	private val syncOn by Frameworks.system.binding<DispatchSyncF>("dispatch_sync_f")
+
+	/** [work] done on the main thread, and what it made; what it threw is thrown here. */
+	fun <T> sync(work: () -> T): T {
+		if (isMain() != 0)
+			return work()
+
+		val done = java.util.concurrent.CompletableFuture<Result<T>>()
+
+		Arena.ofConfined().use { arena ->
+			// Nothing may be thrown back into the queue: what the work throws is carried here.
+			val function =
+				Library.upcall<DispatchWork>(
+					DispatchWork {
+						done.complete(runCatching(work))
+					},
+					arena,
+				)
+
+			syncOn(Frameworks.system.address("_dispatch_main_q"), MemorySegment.NULL, function)
+		}
+
+		return done.join().getOrThrow()
+	}
+}
+
 /** A panel made for SDL to have as a window: closed by whoever made it, once SDL has let go of it. */
 class Panel internal constructor(
 	private val panel: Id,
@@ -332,9 +370,11 @@ class Panel internal constructor(
 	val window: Long get() = panel.address.address()
 
 	override fun close() {
-		ObjC.pooled {
-			NSWindow.close(panel)
-			NSObject.release(panel)
+		MainThread.sync {
+			ObjC.pooled {
+				NSWindow.close(panel)
+				NSObject.release(panel)
+			}
 		}
 	}
 
@@ -418,7 +458,9 @@ class Panel internal constructor(
 		}
 
 		/** A non-activating panel [width] by [height] points, in the middle of the screen, not yet shown. */
-		fun make(width: Double, height: Double): Panel =
+		fun make(width: Double, height: Double): Panel = MainThread.sync { made(width, height) }
+
+		private fun made(width: Double, height: Double): Panel =
 			ObjC.pooled {
 				Arena.ofConfined().use { arena ->
 					val frame =

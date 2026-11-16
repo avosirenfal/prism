@@ -181,7 +181,7 @@ internal class WaylandSeat private constructor(
 
 	private fun dispatching() {
 		while (running)
-			if ((Wl.dispatchQueue.invokeExact(display, queue) as Int) < 0)
+			if ((Wl.dispatchQueue(display, queue)) < 0)
 				return
 	}
 
@@ -203,20 +203,20 @@ internal class WaylandSeat private constructor(
 		val answer = CompletableFuture<String>()
 
 		val token =
-			Wl.marshalNone.invokeExact(
+			Wl.marshalNone(
 				activation.proxy,
 				ACTIVATION_GET_TOKEN,
 				Protocols.activationToken,
 				activation.version,
 				0,
 				MemorySegment.NULL,
-			) as MemorySegment
+			)
 
 		// Heard before it is committed, which is what has the compositor answer.
 		asked[token.address()] = answer
-		Wl.addListener.invokeExact(token, tokenListener, MemorySegment.NULL) as Int
+		Wl.addListener(token, tokenListener, MemorySegment.NULL)
 		serial?.let {
-			Wl.marshalSerial.invokeExact(
+			Wl.marshalSerial(
 				token,
 				TOKEN_SET_SERIAL,
 				MemorySegment.NULL,
@@ -225,25 +225,23 @@ internal class WaylandSeat private constructor(
 				it,
 				seat,
 			)
-				as MemorySegment
 		}
 		appId?.let { id ->
 			Arena.ofConfined().use { text ->
-				Wl.marshalNone.invokeExact(
+				Wl.marshalNone(
 					token,
 					TOKEN_SET_APP_ID,
 					MemorySegment.NULL,
 					1,
 					0,
 					text.allocateFrom(id),
-				) as MemorySegment
+				)
 			}
 		}
 		surface?.let {
-			Wl.marshalNone.invokeExact(token, TOKEN_SET_SURFACE, MemorySegment.NULL, 1, 0, it)
-				as MemorySegment
+			Wl.marshalNone(token, TOKEN_SET_SURFACE, MemorySegment.NULL, 1, 0, it)
 		}
-		Wl.marshalNone.invokeExact(
+		Wl.marshalNone(
 			token,
 			TOKEN_COMMIT,
 			MemorySegment.NULL,
@@ -251,8 +249,7 @@ internal class WaylandSeat private constructor(
 			0,
 			MemorySegment.NULL,
 		)
-			as MemorySegment
-		Wl.flush.invokeExact(display) as Int
+		Wl.flush(display)
 
 		return answer
 	}
@@ -272,7 +269,7 @@ internal class WaylandSeat private constructor(
 			else
 				shape.otherwise ?: return
 
-		Wl.marshalInts.invokeExact(
+		Wl.marshalInts(
 			device,
 			SHAPE_SET_SHAPE,
 			MemorySegment.NULL,
@@ -280,8 +277,8 @@ internal class WaylandSeat private constructor(
 			0,
 			entered ?: 0,
 			shown.number,
-		) as MemorySegment
-		Wl.flush.invokeExact(display) as Int
+		)
+		Wl.flush(display)
 	}
 
 	// ---- what the compositor says, on this one's thread --------------------------------------------------------------
@@ -297,7 +294,7 @@ internal class WaylandSeat private constructor(
 			pointer = made
 			cursor =
 				cursorShapes?.let { shapes ->
-					Wl.marshalObject.invokeExact(
+					Wl.marshalObject(
 						shapes.proxy,
 						SHAPES_GET_POINTER,
 						Protocols.cursorShapeDevice,
@@ -305,19 +302,19 @@ internal class WaylandSeat private constructor(
 						0,
 						MemorySegment.NULL,
 						made,
-					) as MemorySegment
+					)
 				}
 		} else if (!hasPointer) {
 			pointerIn = 0
 			cursor?.let {
-				Wl.marshalNone.invokeExact(
+				Wl.marshalNone(
 					it,
 					SHAPE_DESTROY,
 					MemorySegment.NULL,
 					cursorShapes?.version ?: 1,
 					Wl.MARSHAL_DESTROY,
 					MemorySegment.NULL,
-				) as MemorySegment
+				)
 			}
 			pointer?.let { Wl.destroy.invoke(it) }
 			cursor = null
@@ -337,15 +334,15 @@ internal class WaylandSeat private constructor(
 	/** The seat's pointer or keyboard asked for, by the request [opcode], and heard by [listener]. */
 	private fun got(opcode: Int, iface: String, listener: MemorySegment): MemorySegment =
 		(
-			Wl.marshalNone.invokeExact(
+			Wl.marshalNone(
 				seat,
 				opcode,
 				Wl.iface(iface),
 				1,
 				0,
 				MemorySegment.NULL,
-			) as MemorySegment
-		).also { Wl.addListener.invokeExact(it, listener, MemorySegment.NULL) as Int }
+			)
+		).also { Wl.addListener(it, listener, MemorySegment.NULL) }
 
 	@Suppress("unused", "UNUSED_PARAMETER")
 	fun pointerEnter(
@@ -413,7 +410,7 @@ internal class WaylandSeat private constructor(
 		fd: Int,
 		size: Int,
 	) {
-		Wl.close.invokeExact(fd) as Int
+		Wl.close(fd)
 	}
 
 	@Suppress("unused", "UNUSED_PARAMETER")
@@ -468,14 +465,14 @@ internal class WaylandSeat private constructor(
 		val answer = asked.remove(token.address())
 		val made = text.reinterpret(Long.MAX_VALUE).getString(0)
 
-		Wl.marshalNone.invokeExact(
+		Wl.marshalNone(
 			token,
 			TOKEN_DESTROY,
 			MemorySegment.NULL,
 			1,
 			Wl.MARSHAL_DESTROY,
 			MemorySegment.NULL,
-		) as MemorySegment
+		)
 		Log.say { "activation: token made" }
 		answer?.complete(made)
 	}
@@ -484,19 +481,19 @@ internal class WaylandSeat private constructor(
 		running = false
 
 		// The thread woken from its wait, by a reply on its queue, to see that it is to stop.
-		val wrapped = Wl.wrapper.invokeExact(display) as MemorySegment
+		val wrapped = Wl.wrapper(display)
 
 		Wl.setQueue.invoke(wrapped, queue)
-		Wl.marshalNone.invokeExact(
+		Wl.marshalNone(
 			wrapped,
 			DISPLAY_SYNC,
 			Wl.iface("wl_callback_interface"),
 			1,
 			0,
 			MemorySegment.NULL,
-		) as MemorySegment
+		)
 		Wl.wrapperDestroy.invoke(wrapped)
-		Wl.flush.invokeExact(display) as Int
+		Wl.flush(display)
 		thread.join(1000)
 		asked.values.forEach { it.cancel(false) }
 	}
@@ -549,26 +546,26 @@ internal class WaylandSeat private constructor(
 			val arena = Arena.ofShared()
 
 			return try {
-				val queue = Wl.createQueue.invokeExact(display) as MemorySegment
-				val wrapped = Wl.wrapper.invokeExact(display) as MemorySegment
+				val queue = Wl.createQueue(display)
+				val wrapped = Wl.wrapper(display)
 
 				Wl.setQueue.invoke(wrapped, queue)
 
 				val registry =
-					Wl.marshalNone.invokeExact(
+					Wl.marshalNone(
 						wrapped,
 						Wl.DISPLAY_GET_REGISTRY,
 						Wl.iface("wl_registry_interface"),
 						Wl.versionOf(wrapped),
 						0,
 						MemorySegment.NULL,
-					) as MemorySegment
+					)
 
 				Wl.wrapperDestroy.invoke(wrapped)
 
 				val globals = Globals()
 
-				Wl.addListener.invokeExact(
+				Wl.addListener(
 					registry,
 					listenerOf(
 						arena,
@@ -585,8 +582,8 @@ internal class WaylandSeat private constructor(
 						"removed" to FunctionDescriptor.ofVoid(ADDRESS, ADDRESS, JAVA_INT),
 					),
 					MemorySegment.NULL,
-				) as Int
-				Wl.roundtrip.invokeExact(display, queue) as Int
+				)
+				Wl.roundtrip(display, queue)
 
 				/** [name] bound at its version or [highest], whichever is lower; null where the compositor has none. */
 				fun bound(name: String, iface: MemorySegment, highest: Int): Bound? =
@@ -594,7 +591,7 @@ internal class WaylandSeat private constructor(
 						val at = version.coerceAtMost(highest)
 
 						Bound(
-							Wl.marshalBind.invokeExact(
+							Wl.marshalBind(
 								registry,
 								Wl.REGISTRY_BIND,
 								iface,
@@ -604,7 +601,7 @@ internal class WaylandSeat private constructor(
 								arena.allocateFrom(name),
 								at,
 								MemorySegment.NULL,
-							) as MemorySegment,
+							),
 							at,
 						)
 					}
@@ -637,13 +634,13 @@ internal class WaylandSeat private constructor(
 
 				Wl.destroy.invoke(registry)
 				// The pointer and the keyboard are asked for when the seat says it has them: on the queue's thread.
-				Wl.addListener.invokeExact(seat.proxy, made.seatListener, MemorySegment.NULL) as Int
+				Wl.addListener(seat.proxy, made.seatListener, MemorySegment.NULL)
 				// The windows open now are told of as their manager is bound: heard here, before anything asks which
 				// there are, and only then is the rest left to the queue's thread.
 				if (made.toplevels != null)
-					Wl.roundtrip.invokeExact(display, queue) as Int
+					Wl.roundtrip(display, queue)
 				else
-					Wl.flush.invokeExact(display) as Int
+					Wl.flush(display)
 				made.thread.start()
 				Log.say {
 					"wayland: seat bound; drags ${made.dataDevices != null}, " +

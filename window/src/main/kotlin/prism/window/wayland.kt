@@ -16,6 +16,8 @@ import org.jetbrains.skia.ColorAlphaType
 import org.jetbrains.skia.ColorType
 import org.jetbrains.skia.ImageInfo
 import org.jetbrains.skia.Surface
+import prism.ffi.Library
+import prism.ffi.Variadic
 
 /*
  * A window's pixels on Wayland, drawn by the CPU, with nothing copied: Skia draws into shared memory, which is handed
@@ -23,131 +25,302 @@ import org.jetbrains.skia.Surface
  * on the screen through a GPU renderer, which needs EGL, and copies them into a texture first), so this speaks to the
  * compositor itself, through libwayland-client, on SDL's own connection: its globals bound on an event queue of its
  * own, so that nothing of SDL's is read or answered here, and its buffers attached to the surface SDL made.
+ *
+ * libwayland-client's functions, each declared once as the interface that is its signature (the ffi module), so that a
+ * call is checked against what the linker was told of it. `wl_proxy_marshal_flags` is variadic, and is one function to
+ * C; here it is an interface for each shape of arguments a request sends, after the five every request has: the
+ * object, the request's number, what it makes (its interface, or none), the object's version, and its flags.
  */
+
+internal fun interface WlOfProxy {
+	operator fun invoke(proxy: MemorySegment): MemorySegment
+}
+
+internal fun interface WlEnd {
+	operator fun invoke(proxy: MemorySegment)
+}
+
+internal fun interface WlSetQueue {
+	operator fun invoke(proxy: MemorySegment, queue: MemorySegment)
+}
+
+internal fun interface WlVersion {
+	operator fun invoke(proxy: MemorySegment): Int
+}
+
+internal fun interface WlAddListener {
+	operator fun invoke(
+		proxy: MemorySegment,
+		listener: MemorySegment,
+		data: MemorySegment,
+	): Int
+}
+
+/** `wl_display_roundtrip_queue`, `wl_display_dispatch_queue_pending`, `wl_display_dispatch_queue`. */
+internal fun interface WlOnQueue {
+	operator fun invoke(display: MemorySegment, queue: MemorySegment): Int
+}
+
+internal fun interface WlFlush {
+	operator fun invoke(display: MemorySegment): Int
+}
+
+/** A request of no arguments, or of a new object alone. */
+internal fun interface MarshalNone {
+	@Variadic(from = 5)
+	operator fun invoke(
+		proxy: MemorySegment,
+		opcode: Int,
+		made: MemorySegment,
+		version: Int,
+		flags: Int,
+		argument: MemorySegment,
+	): MemorySegment
+}
+
+/** A request of one number (`wl_data_source.set_actions`). */
+internal fun interface MarshalInt {
+	@Variadic(from = 5)
+	operator fun invoke(
+		proxy: MemorySegment,
+		opcode: Int,
+		made: MemorySegment,
+		version: Int,
+		flags: Int,
+		number: Int,
+	): MemorySegment
+}
+
+/** A request of a new object and another object (`wl_data_device_manager.get_data_device`). */
+internal fun interface MarshalObject {
+	@Variadic(from = 5)
+	operator fun invoke(
+		proxy: MemorySegment,
+		opcode: Int,
+		made: MemorySegment,
+		version: Int,
+		flags: Int,
+		new: MemorySegment,
+		other: MemorySegment,
+	): MemorySegment
+}
+
+/** `wl_data_device.start_drag`: the source, the surface it starts on, its icon, the press's serial. */
+internal fun interface MarshalStartDrag {
+	@Variadic(from = 5)
+	operator fun invoke(
+		proxy: MemorySegment,
+		opcode: Int,
+		made: MemorySegment,
+		version: Int,
+		flags: Int,
+		source: MemorySegment,
+		origin: MemorySegment,
+		icon: MemorySegment,
+		serial: Int,
+	): MemorySegment
+}
+
+/** A request of a number and an object (`xdg_activation_token_v1.set_serial`: the serial, the seat). */
+internal fun interface MarshalSerial {
+	@Variadic(from = 5)
+	operator fun invoke(
+		proxy: MemorySegment,
+		opcode: Int,
+		made: MemorySegment,
+		version: Int,
+		flags: Int,
+		serial: Int,
+		other: MemorySegment,
+	): MemorySegment
+}
+
+/** A request of two numbers (`wp_cursor_shape_device_v1.set_shape`: the serial, the shape). */
+internal fun interface MarshalInts {
+	@Variadic(from = 5)
+	operator fun invoke(
+		proxy: MemorySegment,
+		opcode: Int,
+		made: MemorySegment,
+		version: Int,
+		flags: Int,
+		first: Int,
+		second: Int,
+	): MemorySegment
+}
+
+/** `wl_registry.bind`: name, interface name, version, new id. */
+internal fun interface MarshalBind {
+	@Variadic(from = 5)
+	operator fun invoke(
+		proxy: MemorySegment,
+		opcode: Int,
+		made: MemorySegment,
+		version: Int,
+		flags: Int,
+		name: Int,
+		interfaceName: MemorySegment,
+		bound: Int,
+		new: MemorySegment,
+	): MemorySegment
+}
+
+/** `wl_shm.create_pool`: new id, fd, size. */
+internal fun interface MarshalPool {
+	@Variadic(from = 5)
+	operator fun invoke(
+		proxy: MemorySegment,
+		opcode: Int,
+		made: MemorySegment,
+		version: Int,
+		flags: Int,
+		new: MemorySegment,
+		fd: Int,
+		size: Int,
+	): MemorySegment
+}
+
+/** `wl_shm_pool.create_buffer`: new id, offset, width, height, stride, format. */
+internal fun interface MarshalBuffer {
+	@Variadic(from = 5)
+	operator fun invoke(
+		proxy: MemorySegment,
+		opcode: Int,
+		made: MemorySegment,
+		version: Int,
+		flags: Int,
+		new: MemorySegment,
+		offset: Int,
+		width: Int,
+		height: Int,
+		stride: Int,
+		format: Int,
+	): MemorySegment
+}
+
+/** `wl_surface.attach`: buffer, x, y. */
+internal fun interface MarshalAttach {
+	@Variadic(from = 5)
+	operator fun invoke(
+		proxy: MemorySegment,
+		opcode: Int,
+		made: MemorySegment,
+		version: Int,
+		flags: Int,
+		buffer: MemorySegment,
+		x: Int,
+		y: Int,
+	): MemorySegment
+}
+
+/** `wl_surface.damage` and `damage_buffer`: x, y, width, height. */
+internal fun interface MarshalDamage {
+	@Variadic(from = 5)
+	operator fun invoke(
+		proxy: MemorySegment,
+		opcode: Int,
+		made: MemorySegment,
+		version: Int,
+		flags: Int,
+		x: Int,
+		y: Int,
+		width: Int,
+		height: Int,
+	): MemorySegment
+}
+
+/** `zwlr_layer_shell_v1.get_layer_surface`: new id, surface, output, layer, namespace. */
+internal fun interface MarshalLayerSurface {
+	@Variadic(from = 5)
+	operator fun invoke(
+		proxy: MemorySegment,
+		opcode: Int,
+		made: MemorySegment,
+		version: Int,
+		flags: Int,
+		new: MemorySegment,
+		surface: MemorySegment,
+		output: MemorySegment,
+		layer: Int,
+		namespace: MemorySegment,
+	): MemorySegment
+}
+
+internal fun interface CWrite {
+	operator fun invoke(fd: Int, bytes: MemorySegment, count: Long): Long
+}
+
+internal fun interface CMemfdCreate {
+	operator fun invoke(name: MemorySegment, flags: Int): Int
+}
+
+internal fun interface CFtruncate {
+	operator fun invoke(fd: Int, length: Long): Int
+}
+
+internal fun interface CMmap {
+	operator fun invoke(
+		address: MemorySegment,
+		length: Long,
+		protection: Int,
+		flags: Int,
+		fd: Int,
+		offset: Long,
+	): MemorySegment
+}
+
+internal fun interface CMunmap {
+	operator fun invoke(address: MemorySegment, length: Long): Int
+}
+
+internal fun interface CClose {
+	operator fun invoke(fd: Int): Int
+}
 
 /** libwayland-client's calls, as this needs them. */
 internal object Wl {
-	private val linker = Linker.nativeLinker()
-
 	/** Already loaded by SDL, when it chose Wayland; loaded again here, which finds the same. */
-	private val library: SymbolLookup =
-		SymbolLookup.libraryLookup(
-			"libwayland-client.so.0",
-			Arena.global(),
-		)
-	private val libc: SymbolLookup = linker.defaultLookup()
+	private val library = Library.at("libwayland-client.so.0")
+	private val libc = Library.system
 
-	fun function(
-		name: String,
-		descriptor: FunctionDescriptor,
-		vararg options: Linker.Option,
-	): MethodHandle = linker.downcallHandle(library.findOrThrow(name), descriptor, *options)
+	fun iface(name: String): MemorySegment = library.address(name)
 
-	private fun c(name: String, descriptor: FunctionDescriptor): MethodHandle =
-		linker.downcallHandle(libc.findOrThrow(name), descriptor)
+	val createQueue: WlOfProxy = library.bind("wl_display_create_queue")
+	val destroyQueue: WlEnd = library.bind("wl_event_queue_destroy")
+	val wrapper: WlOfProxy = library.bind("wl_proxy_create_wrapper")
+	val wrapperDestroy: WlEnd = library.bind("wl_proxy_wrapper_destroy")
+	val setQueue: WlSetQueue = library.bind("wl_proxy_set_queue")
+	val version: WlVersion = library.bind("wl_proxy_get_version")
+	val addListener: WlAddListener = library.bind("wl_proxy_add_listener")
+	val destroy: WlEnd = library.bind("wl_proxy_destroy")
+	val roundtrip: WlOnQueue = library.bind("wl_display_roundtrip_queue")
+	val dispatchPending: WlOnQueue = library.bind("wl_display_dispatch_queue_pending")
 
-	fun iface(name: String): MemorySegment = library.findOrThrow(name)
+	/** `wl_display_dispatch_queue`: a queue's events read and dispatched, waiting for one where there is none. */
+	val dispatchQueue: WlOnQueue = library.bind("wl_display_dispatch_queue")
+	val flush: WlFlush = library.bind("wl_display_flush")
 
-	val createQueue =
-		function("wl_display_create_queue", FunctionDescriptor.of(ADDRESS, ADDRESS))
-	val destroyQueue = function("wl_event_queue_destroy", FunctionDescriptor.ofVoid(ADDRESS))
-	val wrapper =
-		function("wl_proxy_create_wrapper", FunctionDescriptor.of(ADDRESS, ADDRESS))
-	val wrapperDestroy =
-		function("wl_proxy_wrapper_destroy", FunctionDescriptor.ofVoid(ADDRESS))
-	val setQueue =
-		function("wl_proxy_set_queue", FunctionDescriptor.ofVoid(ADDRESS, ADDRESS))
-	val version = function("wl_proxy_get_version", FunctionDescriptor.of(JAVA_INT, ADDRESS))
-	val addListener =
-		function(
-			"wl_proxy_add_listener",
-			FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS, ADDRESS),
-		)
-	val destroy = function("wl_proxy_destroy", FunctionDescriptor.ofVoid(ADDRESS))
-	val roundtrip =
-		function(
-			"wl_display_roundtrip_queue",
-			FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS),
-		)
-	val dispatchPending =
-		function(
-			"wl_display_dispatch_queue_pending",
-			FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS),
-		)
-	val flush = function("wl_display_flush", FunctionDescriptor.of(JAVA_INT, ADDRESS))
+	private const val MARSHAL = "wl_proxy_marshal_flags"
 
-	/** `wl_proxy_marshal_flags`, which is variadic: one handle for each shape of arguments this sends. */
-	fun marshal(vararg arguments: java.lang.foreign.MemoryLayout): MethodHandle =
-		function(
-			"wl_proxy_marshal_flags",
-			FunctionDescriptor.of(
-				ADDRESS,
-				ADDRESS,
-				JAVA_INT,
-				ADDRESS,
-				JAVA_INT,
-				JAVA_INT,
-				*arguments,
-			),
-			Linker.Option.firstVariadicArg(5),
-		)
+	val marshalNone: MarshalNone = library.bind(MARSHAL)
+	val marshalInt: MarshalInt = library.bind(MARSHAL)
+	val marshalObject: MarshalObject = library.bind(MARSHAL)
+	val marshalStartDrag: MarshalStartDrag = library.bind(MARSHAL)
+	val marshalSerial: MarshalSerial = library.bind(MARSHAL)
+	val marshalInts: MarshalInts = library.bind(MARSHAL)
+	val marshalBind: MarshalBind = library.bind(MARSHAL)
+	val marshalPool: MarshalPool = library.bind(MARSHAL)
+	val marshalBuffer: MarshalBuffer = library.bind(MARSHAL)
+	val marshalAttach: MarshalAttach = library.bind(MARSHAL)
+	val marshalDamage: MarshalDamage = library.bind(MARSHAL)
+	val marshalLayerSurface: MarshalLayerSurface = library.bind(MARSHAL)
 
-	/** A request of no arguments, or of a new object alone. */
-	val marshalNone = marshal(ADDRESS)
-
-	/** A request of one number (`wl_data_source.set_actions`). */
-	val marshalInt = marshal(JAVA_INT)
-
-	/** A request of a new object and another object (`wl_data_device_manager.get_data_device`). */
-	val marshalObject = marshal(ADDRESS, ADDRESS)
-
-	/** `wl_data_device.start_drag`: the source, the surface it starts on, its icon, the press's serial. */
-	val marshalStartDrag = marshal(ADDRESS, ADDRESS, ADDRESS, JAVA_INT)
-
-	/** A request of a number and an object (`xdg_activation_token_v1.set_serial`: the serial, the seat). */
-	val marshalSerial = marshal(JAVA_INT, ADDRESS)
-
-	/** A request of two numbers (`wp_cursor_shape_device_v1.set_shape`: the serial, the shape). */
-	val marshalInts = marshal(JAVA_INT, JAVA_INT)
-
-	/** `wl_display_dispatch_queue`: [queue]'s events read and dispatched, waiting for one where there is none. */
-	val dispatchQueue =
-		function("wl_display_dispatch_queue", FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS))
-
-	val write = c("write", FunctionDescriptor.of(JAVA_LONG, JAVA_INT, ADDRESS, JAVA_LONG))
-
-	/** `wl_registry.bind`: name, interface name, version, new id. */
-	val marshalBind = marshal(JAVA_INT, ADDRESS, JAVA_INT, ADDRESS)
-
-	/** `wl_shm.create_pool`: new id, fd, size. */
-	val marshalPool = marshal(ADDRESS, JAVA_INT, JAVA_INT)
-
-	/** `wl_shm_pool.create_buffer`: new id, offset, width, height, stride, format. */
-	val marshalBuffer = marshal(ADDRESS, JAVA_INT, JAVA_INT, JAVA_INT, JAVA_INT, JAVA_INT)
-
-	/** `wl_surface.attach`: buffer, x, y. */
-	val marshalAttach = marshal(ADDRESS, JAVA_INT, JAVA_INT)
-
-	/** `wl_surface.damage` and `damage_buffer`: x, y, width, height. */
-	val marshalDamage = marshal(JAVA_INT, JAVA_INT, JAVA_INT, JAVA_INT)
-
-	val memfd = c("memfd_create", FunctionDescriptor.of(JAVA_INT, ADDRESS, JAVA_INT))
-	val truncate = c("ftruncate", FunctionDescriptor.of(JAVA_INT, JAVA_INT, JAVA_LONG))
-	val mmap =
-		c(
-			"mmap",
-			FunctionDescriptor.of(
-				ADDRESS,
-				ADDRESS,
-				JAVA_LONG,
-				JAVA_INT,
-				JAVA_INT,
-				JAVA_INT,
-				JAVA_LONG,
-			),
-		)
-	val munmap = c("munmap", FunctionDescriptor.of(JAVA_INT, ADDRESS, JAVA_LONG))
-	val close = c("close", FunctionDescriptor.of(JAVA_INT, JAVA_INT))
+	val write: CWrite = libc.bind("write")
+	val memfd: CMemfdCreate = libc.bind("memfd_create")
+	val truncate: CFtruncate = libc.bind("ftruncate")
+	val mmap: CMmap = libc.bind("mmap")
+	val munmap: CMunmap = libc.bind("munmap")
+	val close: CClose = libc.bind("close")
 
 	const val MARSHAL_DESTROY = 1
 	const val REGISTRY_BIND = 0
@@ -166,13 +339,13 @@ internal object Wl {
 	const val FORMAT_ARGB8888 = 0
 	const val FORMAT_XRGB8888 = 1
 
-	fun versionOf(proxy: MemorySegment): Int = version.invokeExact(proxy) as Int
+	fun versionOf(proxy: MemorySegment): Int = version(proxy)
 
 	/** [buffer] attached to [surface] (where it is to go, of [scale] pixels a point), all of it damaged, and committed. */
 	fun show(surface: MemorySegment, buffer: ShmBuffer, scale: Int = 1) {
 		val at = versionOf(surface)
 
-		marshalAttach.invokeExact(
+		marshalAttach(
 			surface,
 			SURFACE_ATTACH,
 			MemorySegment.NULL,
@@ -182,9 +355,8 @@ internal object Wl {
 			0,
 			0,
 		)
-			as MemorySegment
 		if (scale != 1 && at >= 3)
-			marshalInt.invokeExact(
+			marshalInt(
 				surface,
 				SURFACE_SET_BUFFER_SCALE,
 				MemorySegment.NULL,
@@ -192,9 +364,8 @@ internal object Wl {
 				0,
 				scale,
 			)
-				as MemorySegment
 		if (at >= 4)
-			marshalDamage.invokeExact(
+			marshalDamage(
 				surface,
 				SURFACE_DAMAGE_BUFFER,
 				MemorySegment.NULL,
@@ -204,9 +375,9 @@ internal object Wl {
 				0,
 				buffer.width,
 				buffer.height,
-			) as MemorySegment
+			)
 		else
-			marshalDamage.invokeExact(
+			marshalDamage(
 				surface,
 				SURFACE_DAMAGE,
 				MemorySegment.NULL,
@@ -216,8 +387,8 @@ internal object Wl {
 				0,
 				Int.MAX_VALUE,
 				Int.MAX_VALUE,
-			) as MemorySegment
-		marshalNone.invokeExact(
+			)
+		marshalNone(
 			surface,
 			SURFACE_COMMIT,
 			MemorySegment.NULL,
@@ -225,7 +396,6 @@ internal object Wl {
 			0,
 			MemorySegment.NULL,
 		)
-			as MemorySegment
 	}
 }
 
@@ -246,15 +416,15 @@ internal class ShmBuffer private constructor(
 	/** Let go of: Skia's surface, the compositor's buffer, and the memory. */
 	fun free() {
 		surface.close()
-		Wl.marshalNone.invokeExact(
+		Wl.marshalNone(
 			proxy,
 			Wl.BUFFER_DESTROY,
 			MemorySegment.NULL,
 			Wl.versionOf(proxy),
 			Wl.MARSHAL_DESTROY,
 			MemorySegment.NULL,
-		) as MemorySegment
-		Wl.munmap.invokeExact(memory, size) as Int
+		)
+		Wl.munmap(memory, size)
 	}
 
 	companion object {
@@ -273,32 +443,32 @@ internal class ShmBuffer private constructor(
 			val size = stride.toLong() * height
 			val fd =
 				Arena.ofConfined().use {
-					Wl.memfd.invokeExact(it.allocateFrom("prism-buffer"), MFD_CLOEXEC) as Int
+					Wl.memfd(it.allocateFrom("prism-buffer"), MFD_CLOEXEC)
 				}
 
 			if (fd < 0)
 				return null
 
 			try {
-				if (Wl.truncate.invokeExact(fd, size) as Int != 0)
+				if (Wl.truncate(fd, size) != 0)
 					return null
 
 				val memory =
 					(
-						Wl.mmap.invokeExact(
+						Wl.mmap(
 							MemorySegment.NULL,
 							size,
 							PROT_READ or PROT_WRITE,
 							MAP_SHARED,
 							fd,
 							0L,
-						) as MemorySegment
+						)
 					).takeIf { it.address() != MAP_FAILED }
 						?.reinterpret(size)
 						?: return null
 
 				val pool =
-					Wl.marshalPool.invokeExact(
+					Wl.marshalPool(
 						shm,
 						Wl.SHM_CREATE_POOL,
 						Wl.iface("wl_shm_pool_interface"),
@@ -307,10 +477,10 @@ internal class ShmBuffer private constructor(
 						MemorySegment.NULL,
 						fd,
 						size.toInt(),
-					) as MemorySegment
+					)
 
 				val proxy =
-					Wl.marshalBuffer.invokeExact(
+					Wl.marshalBuffer(
 						pool,
 						Wl.POOL_CREATE_BUFFER,
 						Wl.iface("wl_buffer_interface"),
@@ -325,10 +495,10 @@ internal class ShmBuffer private constructor(
 							Wl.FORMAT_XRGB8888
 						else
 							Wl.FORMAT_ARGB8888,
-					) as MemorySegment
+					)
 
 				// The pool is needed no longer once its one buffer is made: the buffer keeps the memory shared.
-				Wl.marshalNone.invokeExact(
+				Wl.marshalNone(
 					pool,
 					Wl.POOL_DESTROY,
 					MemorySegment.NULL,
@@ -336,7 +506,6 @@ internal class ShmBuffer private constructor(
 					Wl.MARSHAL_DESTROY,
 					MemorySegment.NULL,
 				)
-					as MemorySegment
 
 				// XRGB8888 and ARGB8888, as Wayland names them from the most significant bit: B, G, R and A (or a byte
 				// unused) in memory order. With alpha, its colours are premultiplied by it, as Wayland's are.
@@ -357,7 +526,7 @@ internal class ShmBuffer private constructor(
 
 				return ShmBuffer(proxy, memory, size, width, height, skia)
 			} finally {
-				Wl.close.invokeExact(fd) as Int
+				Wl.close(fd)
 			}
 		}
 	}
@@ -416,7 +585,7 @@ internal class WaylandPixels private constructor(
 			return false
 
 		// What the compositor has let go of since, read from this one's own queue.
-		Wl.dispatchPending.invokeExact(display, queue) as Int
+		Wl.dispatchPending(display, queue)
 
 		// Buffers of another size are of no more use: let go of those the compositor does not hold.
 		buffers
@@ -435,7 +604,7 @@ internal class WaylandPixels private constructor(
 
 		buffer.busy = true
 		Wl.show(surface, buffer)
-		Wl.flush.invokeExact(display) as Int
+		Wl.flush(display)
 
 		return true
 	}
@@ -443,14 +612,14 @@ internal class WaylandPixels private constructor(
 	/** A buffer of [width] by [height] pixels, told to say when the compositor lets go of it; null where none can be made. */
 	private fun made(width: Int, height: Int): ShmBuffer? =
 		ShmBuffer.of(shm, width, height, opaque)?.also {
-			Wl.addListener.invokeExact(it.proxy, listener, MemorySegment.NULL) as Int
+			Wl.addListener(it.proxy, listener, MemorySegment.NULL)
 		}
 
 	override fun close() {
 		buffers.forEach(ShmBuffer::free)
 		buffers.clear()
 		Wl.destroy.invoke(shm)
-		Wl.flush.invokeExact(display) as Int
+		Wl.flush(display)
 		Wl.destroyQueue.invoke(queue)
 		arena.close()
 	}
@@ -486,20 +655,20 @@ internal class WaylandPixels private constructor(
 			return try {
 				val display = MemorySegment.ofAddress(handle.display)
 				val surface = MemorySegment.ofAddress(handle.surface)
-				val queue = Wl.createQueue.invokeExact(display) as MemorySegment
-				val wrapped = Wl.wrapper.invokeExact(display) as MemorySegment
+				val queue = Wl.createQueue(display)
+				val wrapped = Wl.wrapper(display)
 
 				Wl.setQueue.invoke(wrapped, queue)
 
 				val registry =
-					Wl.marshalNone.invokeExact(
+					Wl.marshalNone(
 						wrapped,
 						Wl.DISPLAY_GET_REGISTRY,
 						Wl.iface("wl_registry_interface"),
-						Wl.version.invokeExact(wrapped) as Int,
+						Wl.version(wrapped),
 						0,
 						MemorySegment.NULL,
-					) as MemorySegment
+					)
 
 				Wl.wrapperDestroy.invoke(wrapped)
 
@@ -550,13 +719,13 @@ internal class WaylandPixels private constructor(
 						)
 					}
 
-				Wl.addListener.invokeExact(registry, listener, MemorySegment.NULL) as Int
-				Wl.roundtrip.invokeExact(display, queue) as Int
+				Wl.addListener(registry, listener, MemorySegment.NULL)
+				Wl.roundtrip(display, queue)
 
 				val (name, version) = globals.shm ?: return null.also { arena.close() }
 
 				val shm =
-					Wl.marshalBind.invokeExact(
+					Wl.marshalBind(
 						registry,
 						Wl.REGISTRY_BIND,
 						Wl.iface("wl_shm_interface"),
@@ -566,7 +735,7 @@ internal class WaylandPixels private constructor(
 						arena.allocateFrom("wl_shm"),
 						1.coerceAtMost(version),
 						MemorySegment.NULL,
-					) as MemorySegment
+					)
 
 				Wl.destroy.invoke(registry)
 

@@ -63,11 +63,11 @@ internal class Toplevels(
 		)
 
 	init {
-		Wl.addListener.invokeExact(
+		Wl.addListener(
 			manager.proxy,
 			listenerOf(arena, lookup, this, "toplevel" to SAID, "finished" to HAPPENED),
 			MemorySegment.NULL,
-		) as Int
+		)
 	}
 
 	override fun now(): List<OpenWindow> = listed.values.toList()
@@ -79,16 +79,16 @@ internal class Toplevels(
 			val telling =
 				this[window.id]?.takeIf { listed[window.id]?.appId == window.appId } ?: return
 
-			Wl.marshalNone.invokeExact(
+			Wl.marshalNone(
 				telling.handle,
 				HANDLE_ACTIVATE,
 				MemorySegment.NULL,
 				manager.version,
 				0,
 				seat,
-			) as MemorySegment
+			)
 		}
-		Wl.flush.invokeExact(display) as Int
+		Wl.flush(display)
 		Log.say { "toplevels: asked for “${window.appId}” to be brought forward" }
 	}
 
@@ -108,7 +108,7 @@ internal class Toplevels(
 	@Suppress("unused", "UNUSED_PARAMETER")
 	fun toplevel(data: MemorySegment, manager: MemorySegment, handle: MemorySegment) {
 		handles.guarded { this[handle.address()] = Telling(handle) }
-		Wl.addListener.invokeExact(handle, handleListener, MemorySegment.NULL) as Int
+		Wl.addListener(handle, handleListener, MemorySegment.NULL)
 	}
 
 	/** `finished`: the compositor tells of no more windows; those it told of are closed one by one, as ever. */
@@ -154,14 +154,14 @@ internal class Toplevels(
 				return
 
 			listed = listed - handle.address()
-			Wl.marshalNone.invokeExact(
+			Wl.marshalNone(
 				handle,
 				HANDLE_DESTROY,
 				MemorySegment.NULL,
 				manager.version,
 				Wl.MARSHAL_DESTROY,
 				MemorySegment.NULL,
-			) as MemorySegment
+			)
 		}
 	}
 

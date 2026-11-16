@@ -1,6 +1,8 @@
 package prism.macos
 
+import java.time.Duration
 import org.junit.jupiter.api.Assertions.assertInstanceOf
+import org.junit.jupiter.api.Assertions.assertTimeoutPreemptively
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.condition.EnabledOnOs
@@ -36,6 +38,9 @@ class HotKeyTest {
 	@Test
 	fun aPanelIsMadeAndClosed() {
 		// AppKit's classes made at run time, a panel of them made as AppKit makes one, and let go of.
-		Panel.make(640.0, 80.0).use { panel -> assertTrue(panel.window != 0L) }
+		// Made on AppKit's thread, which a test is not on: handed over, and waited for, but not for ever.
+		assertTimeoutPreemptively(Duration.ofSeconds(20)) {
+			Panel.make(640.0, 80.0).use { panel -> assertTrue(panel.window != 0L) }
+		}
 	}
 }

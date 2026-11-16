@@ -135,6 +135,7 @@ import org.lwjgl.sdl.SDLVideo.SDL_SetWindowPosition
 import org.lwjgl.sdl.SDLVideo.SDL_SetWindowSize
 import org.lwjgl.sdl.SDLVideo.SDL_SetWindowTitle
 import org.lwjgl.sdl.SDLVideo.SDL_ShowWindow
+import org.lwjgl.sdl.SDLVideo.SDL_WINDOWPOS_CENTERED
 import org.lwjgl.sdl.SDLVideo.SDL_WINDOW_ALWAYS_ON_TOP
 import org.lwjgl.sdl.SDLVideo.SDL_WINDOW_BORDERLESS
 import org.lwjgl.sdl.SDLVideo.SDL_WINDOW_HIDDEN
@@ -393,6 +394,9 @@ class NativeWindow internal constructor(
 			pointsOf(sdl, size).let { (width, height) -> SDL_SetWindowSize(sdl, width, height) }
 			at?.let { SDL_SetWindowPosition(sdl, it.x, it.y) }
 		}
+		// A panel is in the middle of the screen, placed once its size is what it is to be.
+		if (panel != null)
+			SDL_SetWindowPosition(sdl, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED)
 
 		// Drawn by the CPU: on Wayland into buffers of prism's own, since SDL has none there but through EGL.
 		fun onCpu(): Pixels =
@@ -480,6 +484,18 @@ class NativeWindow internal constructor(
 			properties,
 			SDL_PROP_WINDOW_CREATE_COCOA_WINDOW_POINTER,
 			panel.window,
+		)
+		// Its size said too: SDL places a window it was told no place for from the size it was told, and one told no
+		// size is placed as though it had none, its corner in the middle of the screen.
+		SDL_SetNumberProperty(
+			properties,
+			SDL_PROP_WINDOW_CREATE_WIDTH_NUMBER,
+			size.width.value.toLong(),
+		)
+		SDL_SetNumberProperty(
+			properties,
+			SDL_PROP_WINDOW_CREATE_HEIGHT_NUMBER,
+			size.height.value.toLong(),
 		)
 		SDL_SetBooleanProperty(
 			properties,

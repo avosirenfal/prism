@@ -8,6 +8,7 @@ import java.lang.foreign.SymbolLookup
 import java.lang.foreign.ValueLayout.ADDRESS
 import java.lang.foreign.ValueLayout.JAVA_INT
 import java.lang.foreign.ValueLayout.JAVA_LONG
+import prism.ffi.Library
 
 /*
  * What is behind what a window draws. Most windows are opaque: where they paint nothing, they are black, and nothing
@@ -69,49 +70,61 @@ internal fun backdropOf(may: Boolean, alpha: Boolean): Backdrop =
  * its own, opened and closed for the asking; false where libX11 cannot be had or the display cannot be opened.
  */
 internal object X11Compositing {
-	private val linker = Linker.nativeLinker()
+	/** libX11's functions this asks with, bound once where the library is there. */
+	private class Xlib(
+		library: Library,
+	) {
+		val openDisplay: BackdropXOpenDisplay = library.bind("XOpenDisplay")
+		val defaultScreen: BackdropXDefaultScreen = library.bind("XDefaultScreen")
+		val internAtom: BackdropXInternAtom = library.bind("XInternAtom")
+		val selectionOwner: BackdropXGetSelectionOwner = library.bind("XGetSelectionOwner")
+		val closeDisplay: BackdropXCloseDisplay = library.bind("XCloseDisplay")
+	}
 
-	fun present(): Boolean =
+	private val xlib: Xlib? by lazy {
 		try {
-			Arena.ofConfined().use { arena ->
-				val x = SymbolLookup.libraryLookup("libX11.so.6", arena)
-
-				fun function(name: String, descriptor: FunctionDescriptor) =
-					linker.downcallHandle(x.find(name).orElseThrow(), descriptor)
-
-				val display =
-					function("XOpenDisplay", FunctionDescriptor.of(ADDRESS, ADDRESS))
-						.invokeExact(MemorySegment.NULL) as MemorySegment
-
-				if (display.address() == 0L)
-					return false
-
-				try {
-					val screen =
-						function("XDefaultScreen", FunctionDescriptor.of(JAVA_INT, ADDRESS))
-							.invokeExact(display) as Int
-
-					val atom =
-						function(
-							"XInternAtom",
-							FunctionDescriptor.of(JAVA_LONG, ADDRESS, ADDRESS, JAVA_INT),
-						).invokeExact(display, arena.allocateFrom("_NET_WM_CM_S$screen"), 0) as Long
-
-					val owner =
-						function(
-							"XGetSelectionOwner",
-							FunctionDescriptor.of(JAVA_LONG, ADDRESS, JAVA_LONG),
-						).invokeExact(display, atom) as Long
-
-					owner != 0L
-				} finally {
-					function("XCloseDisplay", FunctionDescriptor.of(JAVA_INT, ADDRESS))
-						.invokeExact(display) as Int
-				}
-			}
-		} catch (unavailable: IllegalArgumentException) {
-			false
-		} catch (unavailable: NoSuchElementException) {
-			false
+			Library.open("libX11.so.6")?.let(::Xlib)
+		} catch (lacking: UnsatisfiedLinkError) {
+			null
 		}
+	}
+
+	fun present(): Boolean {
+		val x = xlib ?: return false
+		val display = x.openDisplay(MemorySegment.NULL)
+
+		if (display.address() == 0L)
+			return false
+
+		return try {
+			Arena.ofConfined().use { arena ->
+				val screen = x.defaultScreen(display)
+				val atom = x.internAtom(display, arena.allocateFrom("_NET_WM_CM_S$screen"), 0)
+
+				x.selectionOwner(display, atom) != 0L
+			}
+		} finally {
+			x.closeDisplay(display)
+		}
+	}
+}
+
+internal fun interface BackdropXOpenDisplay {
+	operator fun invoke(name: MemorySegment): MemorySegment
+}
+
+internal fun interface BackdropXDefaultScreen {
+	operator fun invoke(display: MemorySegment): Int
+}
+
+internal fun interface BackdropXInternAtom {
+	operator fun invoke(display: MemorySegment, name: MemorySegment, onlyIfExists: Int): Long
+}
+
+internal fun interface BackdropXGetSelectionOwner {
+	operator fun invoke(display: MemorySegment, selection: Long): Long
+}
+
+internal fun interface BackdropXCloseDisplay {
+	operator fun invoke(display: MemorySegment): Int
 }

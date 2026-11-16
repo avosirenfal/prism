@@ -114,9 +114,10 @@ private val free: Free = Library.system.bind("free")
 What the linker is told is made from that method's own types (`Signature.of`), and the function is called through
 the interface, so the compiler checks every call against the very declaration the linker was given. A struct passed by
 value, a function whose errno is kept, and a C function's `...` are said beside it (`@ByValue`, `@KeepsErrno`,
-`@Variadic`); a callback is an interface likewise (`Library.upcall`). libc's calls (the linux module), libbpf's,
-libX11's and everything of macOS's are bound so. Wayland's (the window module) are still handles called with
-`invokeExact`, and are to follow.
+`@Variadic`); a callback is an interface likewise (`Library.upcall`). Every native function prism calls is bound so:
+libc's (the linux module), libbpf's, libX11's, libwayland-client's and everything of macOS's. Wayland's one variadic
+function, `wl_proxy_marshal_flags`, is an interface for each shape of arguments a request sends. Wayland's listeners
+and SDL's one callback are still made from a method's name and types, which the linker checks as each is made.
 
 macOS's own interfaces are Objective-C, reached through its runtime's C functions (macos module): a class by its name,
 a selector by its name, and a message sent by calling `objc_msgSend` as the method's own C function would be called,

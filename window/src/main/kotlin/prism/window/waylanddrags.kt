@@ -165,44 +165,44 @@ internal class WaylandDrags private constructor(
 		under?.let { ended(it, DragEnd.Cancelled) }
 
 		val source =
-			Wl.marshalNone.invokeExact(
+			Wl.marshalNone(
 				manager.proxy,
 				MANAGER_CREATE_DATA_SOURCE,
 				Wl.iface("wl_data_source_interface"),
 				manager.version,
 				0,
 				MemorySegment.NULL,
-			) as MemorySegment
+			)
 
-		Wl.addListener.invokeExact(source, sourceListener, MemorySegment.NULL) as Int
+		Wl.addListener(source, sourceListener, MemorySegment.NULL)
 		Arena.ofConfined().use { names ->
 			offer.types.keys.forEach { type ->
-				Wl.marshalNone.invokeExact(
+				Wl.marshalNone(
 					source,
 					SOURCE_OFFER,
 					MemorySegment.NULL,
 					manager.version,
 					0,
 					names.allocateFrom(type),
-				) as MemorySegment
+				)
 			}
 		}
 		// Copied or moved, as the target and the keys held choose; a move is the target's to make.
 		if (manager.version >= 3)
-			Wl.marshalInt.invokeExact(
+			Wl.marshalInt(
 				source,
 				SOURCE_SET_ACTIONS,
 				MemorySegment.NULL,
 				manager.version,
 				0,
 				ACTION_COPY or ACTION_MOVE,
-			) as MemorySegment
+			)
 
 		val icon = picture?.let { iconOf(it, window) }
 		val drag = Under(source, offer, icon, onEnd)
 
 		under = drag
-		Wl.marshalStartDrag.invokeExact(
+		Wl.marshalStartDrag(
 			device,
 			DEVICE_START_DRAG,
 			MemorySegment.NULL,
@@ -212,10 +212,10 @@ internal class WaylandDrags private constructor(
 			MemorySegment.ofAddress(surface),
 			icon?.surface ?: MemorySegment.NULL,
 			serial,
-		) as MemorySegment
+		)
 		// Its picture given once it is the drag's: a compositor places a drag's icon by what it is given from then on.
 		icon?.let { Wl.show(it.surface, it.buffer, it.scale) }
-		Wl.flush.invokeExact(seat.display) as Int
+		Wl.flush(seat.display)
 
 		return true
 	}
@@ -252,14 +252,14 @@ internal class WaylandDrags private constructor(
 		}
 
 		val surface =
-			Wl.marshalNone.invokeExact(
+			Wl.marshalNone(
 				compositor.proxy,
 				Wl.COMPOSITOR_CREATE_SURFACE,
 				Wl.iface("wl_surface_interface"),
 				compositor.version,
 				0,
 				MemorySegment.NULL,
-			) as MemorySegment
+			)
 
 		return Icon(surface, buffer, scale)
 	}
@@ -312,11 +312,11 @@ internal class WaylandDrags private constructor(
 					buffer.copyFrom(MemorySegment.ofArray(bytes))
 					while (written < bytes.size) {
 						val wrote =
-							Wl.write.invokeExact(
+							Wl.write(
 								fd,
 								buffer.asSlice(written),
 								bytes.size - written,
-							) as Long
+							)
 
 						if (wrote <= 0)
 							break
@@ -324,7 +324,7 @@ internal class WaylandDrags private constructor(
 					}
 				}
 		} finally {
-			Wl.close.invokeExact(fd) as Int
+			Wl.close(fd)
 		}
 	}
 
@@ -362,26 +362,26 @@ internal class WaylandDrags private constructor(
 		if (!held.swapped(drag, null))
 			return
 		Log.say { "drag: ended, $how" }
-		Wl.marshalNone.invokeExact(
+		Wl.marshalNone(
 			drag.source,
 			SOURCE_DESTROY,
 			MemorySegment.NULL,
 			manager.version,
 			Wl.MARSHAL_DESTROY,
 			MemorySegment.NULL,
-		) as MemorySegment
+		)
 		drag.icon?.let {
-			Wl.marshalNone.invokeExact(
+			Wl.marshalNone(
 				it.surface,
 				Wl.SURFACE_DESTROY,
 				MemorySegment.NULL,
 				Wl.versionOf(it.surface),
 				Wl.MARSHAL_DESTROY,
 				MemorySegment.NULL,
-			) as MemorySegment
+			)
 			it.buffer.free()
 		}
-		Wl.flush.invokeExact(seat.display) as Int
+		Wl.flush(seat.display)
 		Ui.dispatch(kotlin.coroutines.EmptyCoroutineContext) { drag.onEnd(how) }
 	}
 
@@ -419,7 +419,7 @@ internal class WaylandDrags private constructor(
 			val manager = seat.dataDevices ?: return null
 
 			val device =
-				Wl.marshalObject.invokeExact(
+				Wl.marshalObject(
 					manager.proxy,
 					MANAGER_GET_DATA_DEVICE,
 					Wl.iface("wl_data_device_interface"),
@@ -427,9 +427,9 @@ internal class WaylandDrags private constructor(
 					0,
 					MemorySegment.NULL,
 					seat.seat,
-				) as MemorySegment
+				)
 
-			Wl.flush.invokeExact(seat.display) as Int
+			Wl.flush(seat.display)
 
 			return WaylandDrags(seat, manager, device)
 		}

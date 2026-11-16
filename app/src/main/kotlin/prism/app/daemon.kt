@@ -281,8 +281,9 @@ object DaemonCommand : Command(
 					replace = args[replace],
 				)
 
+			// The portal and the file manager's name are a freedesktop desktop's: only Linux has a session bus to serve on.
 			val bus =
-				if (names.any)
+				if (names.any && Os.current == Os.Linux)
 					when (val opening = runBlocking { Connection.session() }) {
 						is Opening.Opened -> opening.connection
 						is Opening.Failed ->

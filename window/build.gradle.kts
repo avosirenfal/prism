@@ -19,6 +19,8 @@ dependencies {
 	api(libs.kotlinx.coroutines.core)
 	// State shared between threads, each kind as the type that says what it guarantees (Guarded, Published).
 	implementation(project(":shared"))
+	// Native functions as typed Kotlin functions: libwayland-client's, libX11's and libc's.
+	implementation(project(":ffi"))
 	// A Mac's panel, made as AppKit makes one, for an overlay there.
 	implementation(project(":macos"))
 	// Compose's own test harness, for what is read of a window's layout without a window.
