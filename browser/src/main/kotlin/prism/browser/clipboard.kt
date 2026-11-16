@@ -36,16 +36,14 @@ object SystemFileClipboard : FileClipboard {
 	private const val URI_LIST = "text/uri-list"
 
 	override fun put(clip: FileClip) {
-		val paths = clip.paths.joinToString("\n").encodeToByteArray()
-
+		// The files first and their paths as text last: a program that takes the first type it knows gets the
+		// files, and one that knows only text (a terminal, an editor) their paths.
 		SystemClipboard.put(
 			ClipOffer(
-				ClipOffer.text(clip.paths.joinToString("\n")).types +
-					mapOf(
-						GNOME to gnomeText(clip).encodeToByteArray(),
-						URI_LIST to uriList(clip.paths).encodeToByteArray(),
-						"text/plain" to paths,
-					),
+				mapOf(
+					URI_LIST to uriList(clip.paths).encodeToByteArray(),
+					GNOME to gnomeText(clip).encodeToByteArray(),
+				) + ClipOffer.text(clip.paths.joinToString("\n")).types,
 			),
 		)
 	}

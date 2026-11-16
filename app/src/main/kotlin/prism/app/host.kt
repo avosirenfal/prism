@@ -29,6 +29,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.supervisorScope
+import kotlinx.coroutines.withTimeoutOrNull
 import prism.browser.AppKey
 import prism.browser.BrowserState
 import prism.browser.Finder
@@ -65,6 +66,7 @@ import prism.portal.serveFileManager
 import prism.preferences.PreferenceStore
 import prism.shared.Guarded
 import prism.window.NoDisplay
+import prism.window.SystemClipboard
 import prism.window.WindowsFailed
 import prism.window.application
 import prism.browser.Request as Wanted
@@ -417,6 +419,11 @@ internal class Windows(
 								combine(tally, explorer.windows) { asked, open ->
 									asked.done > 0 && asked.doing == 0 && open.isEmpty()
 								}.first { it }
+								// What this prism copied is pasted from this prism: it stays, with no window,
+								// until the clipboard is another's, or long enough for it to have been pasted.
+								withTimeoutOrNull(CLIPBOARD_KEPT) {
+									SystemClipboard.offering.first { !it }
+								}
 								exitApplication()
 							}
 					}
@@ -428,6 +435,9 @@ internal class Windows(
 	}
 
 	private companion object {
+		/** How long a prism with no window left stays for what it put on the clipboard to be pasted. */
+		val CLIPBOARD_KEPT = 10.minutes
+
 		/** How many times the windows may fail, every one at once, within [FAILING_WITHIN], before they are given up. */
 		const val FAILING_TOO_OFTEN = 3
 		val FAILING_WITHIN = 2.minutes

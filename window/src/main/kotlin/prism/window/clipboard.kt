@@ -14,6 +14,9 @@ import java.awt.datatransfer.Transferable
 import java.awt.datatransfer.UnsupportedFlavorException
 import java.io.IOException
 import java.nio.ByteBuffer
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import org.lwjgl.PointerBuffer
 import org.lwjgl.sdl.SDLClipboard.SDL_ClearClipboardData
 import org.lwjgl.sdl.SDLClipboard.SDL_GetClipboardData
@@ -51,6 +54,15 @@ const val TEXT = "text/plain"
 object SystemClipboard {
 	/** What is offered now, kept until the clipboard is taken by another program or replaced: SDL reads it as asked. */
 	private var held: Held? = null
+
+	private val ours = MutableStateFlow(false)
+
+	/**
+	 * Whether what is on the clipboard is this process's to give: put there by [put], and not since replaced by
+	 * another program's or cleared. A clipboard's contents are handed over by the program that put them when they
+	 * are pasted, so they are gone with it: a process that is about to end with this true takes them with it.
+	 */
+	val offering: StateFlow<Boolean> = ours.asStateFlow()
 
 	private class Held(
 		val offer: ClipOffer,
@@ -92,7 +104,8 @@ object SystemClipboard {
 					}
 				}
 
-			val cleanup = SDL_ClipboardCleanupCallback.create { _ -> }
+			// Called as what was offered is let go of: replaced, by this process or another, or cleared.
+			val cleanup = SDL_ClipboardCleanupCallback.create { _ -> ours.value = false }
 
 			holding = Held(offer, data, cleanup)
 
@@ -112,6 +125,7 @@ object SystemClipboard {
 				it.cleanup.free()
 			}
 			held = holding.takeIf { done }
+			ours.value = done
 
 			done
 		}
