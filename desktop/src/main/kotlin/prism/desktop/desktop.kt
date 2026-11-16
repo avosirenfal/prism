@@ -2,6 +2,7 @@ package prism.desktop
 
 import java.nio.file.Path
 import java.time.Instant
+import prism.platform.Os
 
 /*
  * The desktop prism runs on, as interfaces. What a platform says (what type a file is, which applications open it,
@@ -50,17 +51,15 @@ interface Desktop {
 }
 
 /**
- * The desktop prism is running on: freedesktop.org's on Linux, which brings forward what it starts by [activation].
- * Another platform's is its own implementation, and until there is one, there is none to give.
+ * The desktop prism is running on: freedesktop.org's on Linux, which brings forward what it starts by [activation];
+ * a Mac's, whose Launch Services brings forward what it opens itself. Windows' is still to write.
  */
 fun currentDesktop(activation: Activation): Desktop =
-	when {
-		System
-			.getProperty(
-				"os.name",
-			).startsWith("Linux") -> prism.desktop.freedesktop.Freedesktop(activation = activation)
-		else -> throw UnsupportedOperationException(
-			"prism has no desktop for ${System.getProperty("os.name")} yet",
+	when (Os.current) {
+		Os.Linux -> prism.desktop.freedesktop.Freedesktop(activation = activation)
+		Os.MacOS -> prism.desktop.macos.MacDesktop()
+		Os.Windows -> throw UnsupportedOperationException(
+			"prism has no desktop for Windows yet",
 		)
 	}
 

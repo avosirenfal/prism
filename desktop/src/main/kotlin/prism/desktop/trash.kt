@@ -10,6 +10,7 @@ import java.nio.file.attribute.BasicFileAttributes
 import java.time.Instant
 import java.time.ZoneId
 import prism.desktop.freedesktop.FreedesktopTrash
+import prism.desktop.macos.SystemTrash
 import prism.platform.Os
 
 /*
@@ -90,11 +91,12 @@ interface Trash {
 	}
 
 	companion object {
-		/** The trash of the user this process runs as, on [os]: freedesktop.org's, on Linux. */
+		/** The trash of the user this process runs as, on [os]: freedesktop.org's on Linux, the system's on macOS. */
 		fun ofUser(os: Os = Os.current): Trash =
 			when (os) {
 				Os.Linux -> FreedesktopTrash.ofUser()
-				Os.MacOS, Os.Windows -> None("prism has no trash for ${os.name} yet")
+				Os.MacOS -> SystemTrash()
+				Os.Windows -> None("prism has no trash for Windows yet")
 			}
 	}
 }

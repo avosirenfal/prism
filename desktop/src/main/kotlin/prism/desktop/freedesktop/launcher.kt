@@ -14,6 +14,7 @@ import prism.desktop.TerminalChoice
 import prism.desktop.TerminalCommand
 import prism.desktop.TerminalOptions
 import prism.desktop.asChildOfPrism
+import prism.desktop.commandIn
 
 /*
  * Starting what prism opens as processes of their own. A process the JVM starts is its child, in its session and its
@@ -91,48 +92,15 @@ class DetachedLauncher(
 		folder: Path,
 		choice: TerminalChoice,
 		command: List<String>?,
-	): TerminalCommand {
-		val terminal =
-			when (choice) {
-				TerminalChoice.Found ->
-					terminals.preferred()
-						?: return TerminalCommand.Failed(
-							"a terminal",
-							"No terminal was found. Choose one in Preferences.",
-						)
-				// The command lines as written, each only filled in; one not written is not used.
-				is TerminalChoice.CommandLines ->
-					return when {
-						command == null ->
-							choice.inFolder?.let { TerminalCommand.Ready(it.filled(folder)) }
-								?: TerminalCommand.Failed(
-									"the terminal",
-									"No command line is set for opening a folder.",
-								)
-						else ->
-							choice.running?.let { TerminalCommand.Ready(it.filled(folder, command)) }
-								?: TerminalCommand.Failed(
-									"the terminal",
-									"No command line is set for running a command.",
-								)
-					}
-				is TerminalChoice.Named ->
-					terminals.named(choice.name)
-						?: return TerminalCommand.Failed(
-							choice.name,
-							if (!terminals.installed(choice.name))
-								"“${choice.name}” isn't installed or isn't on the PATH."
-							else
-								"prism doesn't know how to start “${choice.name}”. Set its command lines in " +
-									"Preferences.",
-						)
-				is TerminalChoice.Unreadable ->
-					return TerminalCommand.Failed("the terminal", choice.why)
-			}
-
-		return terminal.opening(folder, command)?.let(TerminalCommand::Ready)
-			?: TerminalCommand.Failed(terminal.name, "It can't run a command.")
-	}
+	): TerminalCommand =
+		choice.commandIn(
+			folder,
+			command,
+			terminals::preferred,
+			terminals::named,
+			terminals::installed,
+			"on the PATH",
+		)
 
 	/** [command] started in a session of its own, and in a scope of its own where the user's systemd is running. */
 	private fun detached(command: List<String>, label: String?): List<String> {

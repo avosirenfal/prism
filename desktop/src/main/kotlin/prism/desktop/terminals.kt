@@ -368,6 +368,59 @@ data class TerminalOptions(
 	}
 }
 
+/**
+ * The command this choice's terminal is opened with in [folder], running [command] there where one is given; or why it
+ * cannot be. The desktop says which terminal is the user's ([preferred]), which it knows by a name ([named]), and
+ * whether one of a name is installed at all ([installed], which is looked for [where]).
+ */
+fun TerminalChoice.commandIn(
+	folder: Path,
+	command: List<String>?,
+	preferred: () -> Terminal?,
+	named: (String) -> Terminal?,
+	installed: (String) -> Boolean,
+	where: String,
+): TerminalCommand {
+	val terminal =
+		when (this) {
+			TerminalChoice.Found ->
+				preferred()
+					?: return TerminalCommand.Failed(
+						"a terminal",
+						"No terminal was found. Choose one in Preferences.",
+					)
+			// The command lines as written, each only filled in; one not written is not used.
+			is TerminalChoice.CommandLines ->
+				return when {
+					command == null ->
+						inFolder?.let { TerminalCommand.Ready(it.filled(folder)) }
+							?: TerminalCommand.Failed(
+								"the terminal",
+								"No command line is set for opening a folder.",
+							)
+					else ->
+						running?.let { TerminalCommand.Ready(it.filled(folder, command)) }
+							?: TerminalCommand.Failed(
+								"the terminal",
+								"No command line is set for running a command.",
+							)
+				}
+			is TerminalChoice.Named ->
+				named(name)
+					?: return TerminalCommand.Failed(
+						name,
+						if (!installed(name))
+							"“$name” isn't installed or isn't $where."
+						else
+							"prism doesn't know how to start “$name”. Set its command lines in Preferences.",
+					)
+			is TerminalChoice.Unreadable -> return TerminalCommand.Failed("the terminal", why)
+		}
+
+	return terminal.opening(folder, command)?.let(TerminalCommand::Ready)
+		?: TerminalCommand.Failed(terminal.name, "It can't run a command.")
+}
+
 /** The command a terminal is opened with, or why there is none. */
 sealed interface TerminalCommand {
 	data class Ready(

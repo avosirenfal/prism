@@ -67,6 +67,9 @@ class Library private constructor(
 ) {
 	private val symbols: SymbolLookup by lazy(lookup)
 
+	/** The library loaded, if it was not: what makes a framework's Objective-C classes known to the runtime. */
+	fun load(): Library = also { symbols }
+
 	/** The address of [symbol]: a function, or a constant the library exports (`kCFTypeArrayCallBacks`). */
 	fun address(symbol: String): MemorySegment =
 		symbols.find(symbol).orElseThrow { UnsatisfiedLinkError("$name has no $symbol") }
@@ -88,12 +91,13 @@ class Library private constructor(
 
 		/** The framework [name] (`CoreFoundation`), from /System/Library/Frameworks. */
 		fun framework(name: String): Library =
-			Library(name) {
-				SymbolLookup.libraryLookup(
-					"/System/Library/Frameworks/$name.framework/$name",
-					Arena.global(),
-				)
-			}
+			dylib("/System/Library/Frameworks/$name.framework/$name")
+
+		/** The library at [path], loaded for the life of the process the first time a symbol of it is asked for. */
+		fun dylib(path: String): Library =
+			Library(
+				path.substringAfterLast('/'),
+			) { SymbolLookup.libraryLookup(path, Arena.global()) }
 	}
 }
 
