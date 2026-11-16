@@ -1,7 +1,6 @@
 package prism.macos
 
 import java.lang.foreign.Arena
-import java.lang.foreign.FunctionDescriptor
 import java.lang.foreign.MemorySegment
 import java.lang.foreign.ValueLayout.ADDRESS
 import java.lang.foreign.ValueLayout.JAVA_BYTE
@@ -23,6 +22,20 @@ import prism.platform.Mount
  * volume is `nobrowse`, so what is on it is reached once, from `/`, and not again under /System/Volumes/Data.
  */
 
+internal fun interface Getfsstat {
+	operator fun invoke(buffer: MemorySegment, size: Int, flags: Int): Int
+}
+
+internal fun interface Getattrlist {
+	operator fun invoke(
+		path: MemorySegment,
+		list: MemorySegment,
+		buffer: MemorySegment,
+		size: Long,
+		options: Int,
+	): Int
+}
+
 /** The volumes mounted now. */
 object MacMounts {
 	/** `struct statfs` (the 64-bit inode one, which is arm64's only), as `<sys/mount.h>` lays it out: 2168 bytes. */
@@ -40,23 +53,12 @@ object MacMounts {
 	/** `MNT_NOWAIT`: what the kernel has, without asking each file system again (a share that does not answer). */
 	private const val NO_WAIT = 2
 
-	private val getfsstat =
-		Library.system.function(
-			"getfsstat",
-			FunctionDescriptor.of(JAVA_INT, ADDRESS, JAVA_INT, JAVA_INT),
-			true,
-		)
+	private val getfsstat by Frameworks.system.binding<Getfsstat>("getfsstat")
 
 	/** What is mounted now, in the order the kernel lists it; empty where it will not say. */
 	fun current(): List<Mount> =
 		Arena.ofConfined().use { arena ->
-			val count =
-				getfsstat.handle.invokeExact(
-					CallState.segment(),
-					MemorySegment.NULL,
-					0,
-					NO_WAIT,
-				) as Int
+			val count = getfsstat(MemorySegment.NULL, 0, NO_WAIT)
 
 			if (count <= 0)
 				return emptyList()
@@ -65,13 +67,7 @@ object MacMounts {
 			val room = count + 8
 			val buffer = arena.allocate(Statfs.SIZE * room, 8)
 
-			val listed =
-				getfsstat.handle.invokeExact(
-					CallState.segment(),
-					buffer,
-					(Statfs.SIZE * room).toInt(),
-					NO_WAIT,
-				) as Int
+			val listed = getfsstat(buffer, (Statfs.SIZE * room).toInt(), NO_WAIT)
 
 			(0 until listed.coerceAtLeast(0)).map { at ->
 				mountOf(buffer.asSlice(at * Statfs.SIZE, Statfs.SIZE), at + 1L)
@@ -130,19 +126,7 @@ operator fun Mount.contains(flag: MountFlag): Boolean = flag.said in options
  * volume at its mount point for `ATTR_VOL_UUID`, which answers with the attributes' length and then the 16 bytes.
  */
 
-private val getattrlist =
-	Library.system.function(
-		"getattrlist",
-		FunctionDescriptor.of(
-			JAVA_INT,
-			ADDRESS,
-			ADDRESS,
-			ADDRESS,
-			java.lang.foreign.ValueLayout.JAVA_LONG,
-			JAVA_INT,
-		),
-		true,
-	)
+private val getattrlist by Frameworks.system.binding<Getattrlist>("getattrlist")
 
 /** `struct attrlist`: the count of its bitmaps (5), then the common, volume, directory, file and fork attributes. */
 private const val ATTRLIST_SIZE = 24L
@@ -163,14 +147,7 @@ fun volumeUuidOf(at: Path): UUID? =
 		list.set(JAVA_INT, VOLUME_ATTRIBUTES, ATTR_VOL_INFO or ATTR_VOL_UUID)
 
 		val result =
-			getattrlist.handle.invokeExact(
-				CallState.segment(),
-				arena.allocateFrom(at.toString()),
-				list,
-				answer,
-				answer.byteSize(),
-				0,
-			) as Int
+			getattrlist(arena.allocateFrom(at.toString()), list, answer, answer.byteSize(), 0)
 
 		if (result != 0 || answer.get(JAVA_INT, 0L) < 20)
 			null

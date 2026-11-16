@@ -103,6 +103,7 @@ import org.lwjgl.sdl.SDLProperties.SDL_DestroyProperties
 import org.lwjgl.sdl.SDLProperties.SDL_GetPointerProperty
 import org.lwjgl.sdl.SDLProperties.SDL_SetBooleanProperty
 import org.lwjgl.sdl.SDLProperties.SDL_SetNumberProperty
+import org.lwjgl.sdl.SDLProperties.SDL_SetPointerProperty
 import org.lwjgl.sdl.SDLProperties.SDL_SetStringProperty
 import org.lwjgl.sdl.SDLStdinc.SDL_GetEnvironment
 import org.lwjgl.sdl.SDLStdinc.SDL_SetEnvironmentVariable
@@ -119,7 +120,9 @@ import org.lwjgl.sdl.SDLVideo.SDL_GetWindowPixelDensity
 import org.lwjgl.sdl.SDLVideo.SDL_GetWindowProperties
 import org.lwjgl.sdl.SDLVideo.SDL_GetWindowSizeInPixels
 import org.lwjgl.sdl.SDLVideo.SDL_PROP_DISPLAY_WAYLAND_WL_OUTPUT_POINTER
+import org.lwjgl.sdl.SDLVideo.SDL_PROP_WINDOW_CREATE_COCOA_WINDOW_POINTER
 import org.lwjgl.sdl.SDLVideo.SDL_PROP_WINDOW_CREATE_HEIGHT_NUMBER
+import org.lwjgl.sdl.SDLVideo.SDL_PROP_WINDOW_CREATE_HIDDEN_BOOLEAN
 import org.lwjgl.sdl.SDLVideo.SDL_PROP_WINDOW_CREATE_HIGH_PIXEL_DENSITY_BOOLEAN
 import org.lwjgl.sdl.SDLVideo.SDL_PROP_WINDOW_CREATE_OPENGL_BOOLEAN
 import org.lwjgl.sdl.SDLVideo.SDL_PROP_WINDOW_CREATE_TITLE_STRING
@@ -141,6 +144,7 @@ import org.lwjgl.sdl.SDLVideo.SDL_WINDOW_RESIZABLE
 import org.lwjgl.sdl.SDLVideo.SDL_WINDOW_TRANSPARENT
 import org.lwjgl.sdl.SDL_Event
 import org.lwjgl.system.MemoryStack
+import prism.macos.Panel
 
 /** The window something is drawn in: given to everything in it, as [LocalNativeWindow]. */
 val LocalNativeWindow = staticCompositionLocalOf<NativeWindow?> { null }
@@ -180,11 +184,14 @@ class NativeWindow internal constructor(
 	/** The layer surface the window is, where it is an overlay and the compositor has layers; closed before it. */
 	private val layer: LayerSurface?
 
+	/** The Mac's panel this is, where it is one: closed with the window, after SDL has let go of it. */
+	private val panel: Panel?
+
 	/**
 	 * Whether the window is over every other, as an overlay asks to be: false for a window of the usual kind, and for
 	 * an overlay where the platform has none, which is then a window in front as far as the platform keeps one there.
 	 */
-	val overlaid: Boolean get() = layer != null
+	val overlaid: Boolean get() = layer != null || panel != null
 
 	/**
 	 * What is behind what the window draws, as it turned out: clear only where it asked to be and the platform gave its
@@ -306,12 +313,33 @@ class NativeWindow internal constructor(
 				layers?.let { layered(it, asked, title, size, gpu, clear) }
 			}
 
+		// A Mac's overlay is a panel of prism's making, which SDL is given for its window; where none can be made,
+		// a window of SDL's, as an overlay is where a platform has nothing for one.
+		val panelled =
+			(surfacing as? Surfacing.Panel)?.let {
+				panelled(
+					title,
+					size,
+					gpu,
+					clear,
+				)
+			}
+
+		// What a window of the platform's own looks like, where this is one: the overlay's fallback, where an overlay
+		// could not be what its platform has for one.
 		val looks =
 			surfacing as? Surfacing.Toplevel
-				?: surfaceFor(role, video, null, decorated, resizable) as Surfacing.Toplevel
+				?: Surfacing.Toplevel(
+					decorated = false,
+					resizable = false,
+					inFront =
+						video != Video.Wayland,
+				)
 
+		panel = panelled?.second
 		sdl =
 			layered?.first
+				?: panelled?.first
 				?: SDL_CreateWindow(
 					title,
 					size.width.value.toInt(),
@@ -346,6 +374,8 @@ class NativeWindow internal constructor(
 					when {
 						layer != null ->
 							"in the compositor's overlay layer (layer-shell ${layers?.version})"
+						panel != null -> "a non-activating panel"
+						surfacing is Surfacing.Panel -> "as a window in its place: no panel could be made"
 						surfacing is Surfacing.Layer ->
 							"as a window in its place: the compositor would not have it in a layer"
 						video == Video.Wayland ->
@@ -424,6 +454,56 @@ class NativeWindow internal constructor(
 
 		// Text typed arrives as text, from the platform's input method, for as long as the window is open.
 		SDL_StartTextInput(sdl)
+	}
+
+	/**
+	 * A panel made for a window [size] across, and SDL's window of it; null where either could not be made, the panel
+	 * closed again. SDL draws in a window it is given and hears its events, and leaves closing it to its maker.
+	 */
+	private fun panelled(
+		title: String,
+		size: DpSize,
+		gpu: Boolean,
+		clear: Boolean,
+	): Pair<Long, Panel>? {
+		val panel =
+			try {
+				Panel.make(size.width.value.toDouble(), size.height.value.toDouble())
+			} catch (failed: Throwable) {
+				Log.say { "no panel could be made (${failed.message ?: failed}): a window instead" }
+
+				return null
+			}
+		val properties = SDL_CreateProperties()
+
+		SDL_SetPointerProperty(
+			properties,
+			SDL_PROP_WINDOW_CREATE_COCOA_WINDOW_POINTER,
+			panel.window,
+		)
+		SDL_SetBooleanProperty(
+			properties,
+			SDL_PROP_WINDOW_CREATE_HIGH_PIXEL_DENSITY_BOOLEAN,
+			true,
+		)
+		SDL_SetBooleanProperty(properties, SDL_PROP_WINDOW_CREATE_OPENGL_BOOLEAN, gpu)
+		SDL_SetBooleanProperty(properties, SDL_PROP_WINDOW_CREATE_TRANSPARENT_BOOLEAN, clear)
+		SDL_SetBooleanProperty(properties, SDL_PROP_WINDOW_CREATE_HIDDEN_BOOLEAN, true)
+		SDL_SetStringProperty(properties, SDL_PROP_WINDOW_CREATE_TITLE_STRING, title)
+
+		val window = SDL_CreateWindowWithProperties(properties)
+
+		SDL_DestroyProperties(properties)
+		if (window == 0L) {
+			Log.say {
+				"SDL took no panel for a window (${org.lwjgl.sdl.SDLError.SDL_GetError()}): a window instead"
+			}
+			panel.close()
+
+			return null
+		}
+
+		return window to panel
 	}
 
 	/**
@@ -926,6 +1006,8 @@ class NativeWindow internal constructor(
 				fail(failure)
 			}
 		SDL_DestroyWindow(sdl)
+		// SDL lets go of a window it was given and closes nothing of it: its maker does.
+		panel?.close()
 	}
 
 	private companion object {

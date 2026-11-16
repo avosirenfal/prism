@@ -8,3 +8,8 @@ dependencies {
 	// What its calls answer with (an entry's kind, a device, an inode's facts, a mount), which every platform's are.
 	api(project(":platform"))
 }
+
+dependencies {
+	// Native functions as typed Kotlin functions: what each call here is bound with.
+	api(project(":ffi"))
+}

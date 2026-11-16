@@ -363,11 +363,15 @@ its own system-wide, and which needs no permission (watching every key, as an ev
 Accessibility). It is any chord with at least one modifier, written as the bindings are (`Ctrl+Option+K`, `Shift+F1`).
 
 Shown, the launcher is a non-activating panel, as Spotlight's is: it has the keyboard while the application in front
-stays in front, its menu bar and all. SDL makes windows, and a panel is made a panel as it is made, so the launcher's
-window is made one as it is first composed: a class made at run time from NSPanel, with every method of SDL's window
-class, is set as the window's class, and given the non-activating style (as Tauri's windows are made panels). It is at
-the level of a menu that has popped up, on every Space and beside an application that fills the screen, and not
-among the windows ⌘` goes through. The daemon is in no Dock and no ⌘Tab while the launcher is all it shows.
+stays in front, its menu bar and all. A window is a panel, and non-activating, by how it is made (the window server is
+told then, and not when a style is changed after), so prism makes the panel itself, as AppKit makes one, and gives it
+to SDL to be its window, which SDL has a way for (`SDL_PROP_WINDOW_CREATE_COCOA_WINDOW_POINTER`): SDL draws in it and
+hears its events, and prism closes it. Two small classes are made for it at run time, each a subclass with methods
+alone: a panel that takes the keyboard (one with no title bar refuses it, unasked), and a view that takes the click
+that brings the panel forward and passes the right button's press on, as SDL's own view does. It is at the level of a
+menu that has popped up, on every Space and beside an application that fills the screen, and not among the windows ⌘`
+goes through. Where no panel can be made, the launcher is a window, and the log says so (`PRISM_WINDOW_LOG=1`). The
+daemon is in no Dock and no ⌘Tab while the launcher is all it shows.
 
 Its keys are a Mac's: ⌘↩ shows a result in its folder, as Spotlight's does, ⌘⇧C copies its path, and ⌘, opens its
 settings. "Focus window" is each application running, brought forward with every window it has: a Mac tells a

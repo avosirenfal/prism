@@ -7,8 +7,9 @@ import java.lang.foreign.ValueLayout.ADDRESS
 import java.lang.foreign.ValueLayout.JAVA_BOOLEAN
 import java.lang.foreign.ValueLayout.JAVA_INT
 import java.lang.foreign.ValueLayout.JAVA_LONG
+import prism.ffi.KeepsErrno
+import prism.ffi.Library
 import prism.linux.CallState
-import prism.linux.NativeLibrary
 import prism.linux.Sys
 
 /*
@@ -41,105 +42,125 @@ internal value class LinkHandle(
 	val pointer: MemorySegment,
 )
 
+internal fun interface BpfObjectOpenMem {
+	@KeepsErrno
+	operator fun invoke(
+		bytes: MemorySegment,
+		size: Long,
+		options: MemorySegment,
+	): MemorySegment
+}
+
+internal fun interface BpfObjectLoad {
+	@KeepsErrno
+	operator fun invoke(bpfObject: MemorySegment): Int
+}
+
+internal fun interface BpfObjectClose {
+	operator fun invoke(bpfObject: MemorySegment)
+}
+
+internal fun interface BpfObjectFindProgram {
+	operator fun invoke(bpfObject: MemorySegment, name: MemorySegment): MemorySegment
+}
+
+internal fun interface BpfProgramSetAutoload {
+	operator fun invoke(program: MemorySegment, autoload: Boolean): Int
+}
+
+internal fun interface BpfProgramSetLogBuf {
+	operator fun invoke(program: MemorySegment, buffer: MemorySegment, size: Long): Int
+}
+
+internal fun interface BpfProgramAttach {
+	@KeepsErrno
+	operator fun invoke(program: MemorySegment): MemorySegment
+}
+
+internal fun interface BpfLinkDestroy {
+	operator fun invoke(link: MemorySegment): Int
+}
+
+internal fun interface BpfObjectFindMap {
+	operator fun invoke(bpfObject: MemorySegment, name: MemorySegment): MemorySegment
+}
+
+internal fun interface BpfMapFd {
+	operator fun invoke(map: MemorySegment): Int
+}
+
+internal fun interface BpfMapUpdateElem {
+	@KeepsErrno
+	operator fun invoke(fd: Int, key: MemorySegment, value: MemorySegment, flags: Long): Int
+}
+
+internal fun interface BpfMapLookupElem {
+	@KeepsErrno
+	operator fun invoke(fd: Int, key: MemorySegment, value: MemorySegment): Int
+}
+
+internal fun interface BpfMapDeleteElem {
+	@KeepsErrno
+	operator fun invoke(fd: Int, key: MemorySegment): Int
+}
+
+internal fun interface LibbpfNumPossibleCpus {
+	operator fun invoke(): Int
+}
+
+internal fun interface BpfLinkPin {
+	@KeepsErrno
+	operator fun invoke(link: MemorySegment, path: MemorySegment): Int
+}
+
+internal fun interface BpfObjPin {
+	@KeepsErrno
+	operator fun invoke(fd: Int, path: MemorySegment): Int
+}
+
+internal fun interface BpfObjGet {
+	@KeepsErrno
+	operator fun invoke(path: MemorySegment): Int
+}
+
 /** libbpf's functions, bound once. Only made where the library is installed ([LibBpf.installed]). */
 internal class LibBpf private constructor(
-	library: NativeLibrary,
+	library: Library,
 ) {
-	private val openMem =
-		library.capturing(
-			"bpf_object__open_mem",
-			FunctionDescriptor.of(ADDRESS, ADDRESS, JAVA_LONG, ADDRESS),
-		)
-	private val load =
-		library.capturing(
-			"bpf_object__load",
-			FunctionDescriptor.of(JAVA_INT, ADDRESS),
-		)
-	private val close =
-		library.plain(
-			"bpf_object__close",
-			FunctionDescriptor.ofVoid(ADDRESS),
-		)
-	private val findProgram =
-		library.plain(
+	private val openMemCall: BpfObjectOpenMem = library.bind("bpf_object__open_mem")
+	private val loadCall: BpfObjectLoad = library.bind("bpf_object__load")
+	private val closeCall: BpfObjectClose = library.bind("bpf_object__close")
+	private val findProgramCall: BpfObjectFindProgram =
+		library.bind(
 			"bpf_object__find_program_by_name",
-			FunctionDescriptor.of(ADDRESS, ADDRESS, ADDRESS),
 		)
-	private val setAutoload =
-		library.plain(
+	private val setAutoloadCall: BpfProgramSetAutoload =
+		library.bind(
 			"bpf_program__set_autoload",
-			FunctionDescriptor.of(JAVA_INT, ADDRESS, JAVA_BOOLEAN),
 		)
-	private val setLogBuffer =
-		library.plain(
+	private val setLogBufferCall: BpfProgramSetLogBuf =
+		library.bind(
 			"bpf_program__set_log_buf",
-			FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS, JAVA_LONG),
 		)
-	private val attach =
-		library.capturing(
-			"bpf_program__attach",
-			FunctionDescriptor.of(ADDRESS, ADDRESS),
-		)
-	private val destroyLink =
-		library.plain(
-			"bpf_link__destroy",
-			FunctionDescriptor.of(JAVA_INT, ADDRESS),
-		)
-	private val findMap =
-		library.plain(
-			"bpf_object__find_map_by_name",
-			FunctionDescriptor.of(ADDRESS, ADDRESS, ADDRESS),
-		)
-	private val mapFd =
-		library.plain(
-			"bpf_map__fd",
-			FunctionDescriptor.of(JAVA_INT, ADDRESS),
-		)
-	private val update =
-		library.capturing(
-			"bpf_map_update_elem",
-			FunctionDescriptor.of(JAVA_INT, JAVA_INT, ADDRESS, ADDRESS, JAVA_LONG),
-		)
-	private val lookup =
-		library.capturing(
-			"bpf_map_lookup_elem",
-			FunctionDescriptor.of(JAVA_INT, JAVA_INT, ADDRESS, ADDRESS),
-		)
-	private val delete =
-		library.capturing(
-			"bpf_map_delete_elem",
-			FunctionDescriptor.of(JAVA_INT, JAVA_INT, ADDRESS),
-		)
-	private val possibleCpus =
-		library.plain(
+	private val attachCall: BpfProgramAttach = library.bind("bpf_program__attach")
+	private val destroyLinkCall: BpfLinkDestroy = library.bind("bpf_link__destroy")
+	private val findMapCall: BpfObjectFindMap = library.bind("bpf_object__find_map_by_name")
+	private val mapFdCall: BpfMapFd = library.bind("bpf_map__fd")
+	private val updateCall: BpfMapUpdateElem = library.bind("bpf_map_update_elem")
+	private val lookupCall: BpfMapLookupElem = library.bind("bpf_map_lookup_elem")
+	private val deleteCall: BpfMapDeleteElem = library.bind("bpf_map_delete_elem")
+	private val possibleCpusCall: LibbpfNumPossibleCpus =
+		library.bind(
 			"libbpf_num_possible_cpus",
-			FunctionDescriptor.of(JAVA_INT),
 		)
-	private val pinLink =
-		library.capturing(
-			"bpf_link__pin",
-			FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS),
-		)
-	private val pinObject =
-		library.capturing(
-			"bpf_obj_pin",
-			FunctionDescriptor.of(JAVA_INT, JAVA_INT, ADDRESS),
-		)
-	private val getObject =
-		library.capturing(
-			"bpf_obj_get",
-			FunctionDescriptor.of(JAVA_INT, ADDRESS),
-		)
+	private val pinLinkCall: BpfLinkPin = library.bind("bpf_link__pin")
+	private val pinObjectCall: BpfObjPin = library.bind("bpf_obj_pin")
+	private val getObjectCall: BpfObjGet = library.bind("bpf_obj_get")
 
 	/** An object read from [bytes], not yet loaded: its maps are not created and its programs not verified. */
 	fun open(bytes: MemorySegment): Sys<ObjectHandle> {
 		val opened =
-			openMem.invokeExact(
-				CallState.segment(),
-				bytes,
-				bytes.byteSize(),
-				MemorySegment.NULL,
-			) as MemorySegment
+			openMemCall(bytes, bytes.byteSize(), MemorySegment.NULL)
 
 		return if (opened.address() == 0L)
 			Sys.Failed("bpf_object__open_mem", CallState.errno())
@@ -149,22 +170,22 @@ internal class LibBpf private constructor(
 
 	/** Creates the object's maps, relocates and verifies its programs: all of them, or none. */
 	fun load(handle: ObjectHandle): Sys<Unit> {
-		val result = load.invokeExact(CallState.segment(), handle.pointer) as Int
+		val result = loadCall(handle.pointer)
 
 		return CallState.outcome("bpf_object__load", result.toLong()) { }
 	}
 
 	fun close(handle: ObjectHandle) {
-		close.invokeExact(handle.pointer)
+		closeCall(handle.pointer)
 	}
 
 	fun program(handle: ObjectHandle, name: String, arena: Arena): ProgramHandle? =
-		(findProgram.invokeExact(handle.pointer, arena.allocateFrom(name)) as MemorySegment)
+		(findProgramCall(handle.pointer, arena.allocateFrom(name)))
 			.takeIf { it.address() != 0L }
 			?.let(::ProgramHandle)
 
 	fun skip(program: ProgramHandle) {
-		setAutoload.invokeExact(program.pointer, false) as Int
+		setAutoloadCall(program.pointer, false)
 	}
 
 	/**
@@ -172,11 +193,11 @@ internal class LibBpf private constructor(
 	 * loads again with one, so a program that verifies costs nothing for it.
 	 */
 	fun logInto(program: ProgramHandle, buffer: MemorySegment) {
-		setLogBuffer.invokeExact(program.pointer, buffer, buffer.byteSize()) as Int
+		setLogBufferCall(program.pointer, buffer, buffer.byteSize())
 	}
 
 	fun attach(program: ProgramHandle): Sys<LinkHandle> {
-		val link = attach.invokeExact(CallState.segment(), program.pointer) as MemorySegment
+		val link = attachCall(program.pointer)
 
 		return if (link.address() == 0L)
 			Sys.Failed("bpf_program__attach", CallState.errno())
@@ -185,31 +206,31 @@ internal class LibBpf private constructor(
 	}
 
 	fun detach(link: LinkHandle) {
-		destroyLink.invokeExact(link.pointer) as Int
+		destroyLinkCall(link.pointer)
 	}
 
 	fun map(handle: ObjectHandle, name: String, arena: Arena): MapHandle? =
-		(findMap.invokeExact(handle.pointer, arena.allocateFrom(name)) as MemorySegment)
+		(findMapCall(handle.pointer, arena.allocateFrom(name)))
 			.takeIf { it.address() != 0L }
 			?.let(::MapHandle)
 
-	fun descriptor(map: MapHandle): Int = mapFd.invokeExact(map.pointer) as Int
+	fun descriptor(map: MapHandle): Int = mapFdCall(map.pointer)
 
 	fun update(fd: Int, key: MemorySegment, value: MemorySegment): Sys<Unit> {
-		val result = update.invokeExact(CallState.segment(), fd, key, value, ANY) as Int
+		val result = updateCall(fd, key, value, ANY)
 
 		return CallState.outcome("bpf_map_update_elem", result.toLong()) { }
 	}
 
 	/** The value under [key] into [value]; ENOENT where there is none. */
 	fun lookup(fd: Int, key: MemorySegment, value: MemorySegment): Sys<Unit> {
-		val result = lookup.invokeExact(CallState.segment(), fd, key, value) as Int
+		val result = lookupCall(fd, key, value)
 
 		return CallState.outcome("bpf_map_lookup_elem", result.toLong()) { }
 	}
 
 	fun delete(fd: Int, key: MemorySegment): Sys<Unit> {
-		val result = delete.invokeExact(CallState.segment(), fd, key) as Int
+		val result = deleteCall(fd, key)
 
 		return CallState.outcome("bpf_map_delete_elem", result.toLong()) { }
 	}
@@ -221,11 +242,7 @@ internal class LibBpf private constructor(
 	fun pin(link: LinkHandle, path: String): Sys<Unit> =
 		Arena.ofConfined().use { arena ->
 			val result =
-				pinLink.invokeExact(
-					CallState.segment(),
-					link.pointer,
-					arena.allocateFrom(path),
-				) as Int
+				pinLinkCall(link.pointer, arena.allocateFrom(path))
 
 			CallState.outcome("bpf_link__pin", result.toLong()) { }
 		}
@@ -234,11 +251,7 @@ internal class LibBpf private constructor(
 	fun pin(fd: Int, path: String): Sys<Unit> =
 		Arena.ofConfined().use { arena ->
 			val result =
-				pinObject.invokeExact(
-					CallState.segment(),
-					fd,
-					arena.allocateFrom(path),
-				) as Int
+				pinObjectCall(fd, arena.allocateFrom(path))
 
 			CallState.outcome("bpf_obj_pin", result.toLong()) { }
 		}
@@ -247,22 +260,19 @@ internal class LibBpf private constructor(
 	fun pinned(path: String): Sys<Int> =
 		Arena.ofConfined().use { arena ->
 			val result =
-				getObject.invokeExact(
-					CallState.segment(),
-					arena.allocateFrom(path),
-				) as Int
+				getObjectCall(arena.allocateFrom(path))
 
 			CallState.outcome("bpf_obj_get", result.toLong()) { it.toInt() }
 		}
 
 	/** The CPUs the kernel could ever bring up: how many values a per-CPU map holds under each key. */
-	fun possibleCpus(): Int = possibleCpus.invokeExact() as Int
+	fun possibleCpus(): Int = possibleCpusCall()
 
 	companion object {
 		/** `BPF_ANY`: written whether or not the key was there. */
 		private const val ANY = 0L
 
 		/** The system's libbpf, or null where it is not installed. */
-		val installed: LibBpf? by lazy { NativeLibrary.open("libbpf.so.1")?.let(::LibBpf) }
+		val installed: LibBpf? by lazy { Library.open("libbpf.so.1")?.let(::LibBpf) }
 	}
 }

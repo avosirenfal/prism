@@ -76,8 +76,9 @@ how it is meant to work; docs/inprogress.md says where it stands.
 |---|---|---|
 | `cli` | nothing | the command line: typed parameters, a one-pass reader that refuses what it cannot read, help from the same declarations |
 | `platform` | nothing | which platform this is (`Os`), where prism keeps its own files on it (`OwnFolders`), and what every platform's calls answer with: an entry's kind, a device, an inode's facts, a mount |
-| `linux` | platform | libc through the FFM API: openat, getdents64 read in place, statx, mmap, epoll, each with its errno |
-| `macos` | platform | macOS through the FFM API: libSystem (getfsstat, getattrlist), the Objective-C runtime (`objc_msgSend` with each method's signature) for UTType, NSWorkspace, NSBundle and NSFileManager, FSEvents, Carbon's hot keys; every handle made as it is first called, so it loads anywhere |
+| `ffi` | nothing | native functions as typed Kotlin functions: a C function declared once, as an interface whose one method is its signature, from which both what the linker is told and what a call may pass are made |
+| `linux` | platform, ffi | libc through the FFM API: openat, getdents64 read in place, statx, mmap, epoll, each with its errno |
+| `macos` | platform, ffi | macOS through the FFM API: libSystem (getfsstat, getattrlist), the Objective-C runtime (each method declared once as a typed value, and checked against the runtime's own account of it) for UTType, NSWorkspace, NSBundle and NSFileManager, FSEvents, Carbon's hot keys; every handle made as it is first called, so it loads anywhere |
 | `shared` | coroutines | what is shared and how it stays whole: a value kept in a file, read, changed and written as one step and handed to its readers (`Stored`, `OnDisk`, `Format`), and state shared between threads as the type that says what it guarantees: reached only under its lock (`Guarded`), read whole without one (`Published`), or set once (`Once`) |
 | `ebpf` | nothing | the eBPF DSL: programs in typed Kotlin, emitted as C for clang's BPF target, checked against the kernel's BTF |
 | `ebpf-loader` | ebpf, linux | a compiled program loaded and attached through libbpf, its ring buffer read in place |

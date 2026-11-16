@@ -6,103 +6,93 @@ import java.lang.foreign.MemorySegment
 import java.lang.foreign.ValueLayout.ADDRESS
 import java.lang.foreign.ValueLayout.JAVA_INT
 import java.lang.foreign.ValueLayout.JAVA_LONG
-import prism.linux.NativeLibrary
+import prism.ffi.KeepsErrno
+import prism.ffi.Library
+
+internal fun interface XOpenDisplay {
+	operator fun invoke(name: MemorySegment): MemorySegment
+}
+
+internal fun interface XCloseDisplay {
+	operator fun invoke(display: MemorySegment): Int
+}
+
+internal fun interface XFlush {
+	operator fun invoke(display: MemorySegment): Int
+}
+
+internal fun interface XInternAtom {
+	operator fun invoke(display: MemorySegment, name: MemorySegment, onlyIfExists: Int): Long
+}
+
+internal fun interface XChangeProperty {
+	operator fun invoke(
+		display: MemorySegment,
+		window: Long,
+		property: Long,
+		type: Long,
+		format: Int,
+		mode: Int,
+		data: MemorySegment,
+		count: Int,
+	): Int
+}
 
 /** What of libX11 the picker needs (its title bar, and being an application's dialog), through the FFM API. */
 internal class X11(
-	library: NativeLibrary,
+	library: Library,
 ) {
-	private val open = library.plain("XOpenDisplay", FunctionDescriptor.of(ADDRESS, ADDRESS))
-	private val close =
-		library.plain(
-			"XCloseDisplay",
-			FunctionDescriptor.of(JAVA_INT, ADDRESS),
-		)
-	private val flushing = library.plain("XFlush", FunctionDescriptor.of(JAVA_INT, ADDRESS))
-	private val atom =
-		library.plain(
-			"XInternAtom",
-			FunctionDescriptor.of(JAVA_LONG, ADDRESS, ADDRESS, JAVA_INT),
-		)
-	private val change =
-		library.plain(
-			"XChangeProperty",
-			FunctionDescriptor.of(
-				JAVA_INT,
-				ADDRESS,
-				JAVA_LONG,
-				JAVA_LONG,
-				JAVA_LONG,
-				JAVA_INT,
-				JAVA_INT,
-				ADDRESS,
-				JAVA_INT,
-			),
-		)
+	private val openCall: XOpenDisplay = library.bind("XOpenDisplay")
+	private val closeCall: XCloseDisplay = library.bind("XCloseDisplay")
+	private val flushingCall: XFlush = library.bind("XFlush")
+	private val atomCall: XInternAtom = library.bind("XInternAtom")
+	private val changeCall: XChangeProperty = library.bind("XChangeProperty")
 
 	/** A connection of its own to the X display (`$DISPLAY`); null where it cannot be opened. */
 	fun openDisplay(): MemorySegment? =
-		(open.invokeExact(MemorySegment.NULL) as MemorySegment).takeUnless {
+		(openCall(MemorySegment.NULL)).takeUnless {
 			it ==
 				MemorySegment.NULL
 		}
 
 	fun closeDisplay(display: MemorySegment) {
-		close.invokeExact(display) as Int
+		closeCall(display)
 	}
 
 	fun flush(display: MemorySegment) {
-		flushing.invokeExact(display) as Int
+		flushingCall(display)
 	}
 
 	/** [window]'s property [name] set to the UTF-8 text [value], replacing what it was. */
 	fun setText(display: MemorySegment, window: Long, name: String, value: String) {
 		Arena.ofConfined().use { arena ->
-			val property = atom.invokeExact(display, arena.allocateFrom(name), 0) as Long
-			val utf8 = atom.invokeExact(display, arena.allocateFrom("UTF8_STRING"), 0) as Long
+			val property = atomCall(display, arena.allocateFrom(name), 0)
+			val utf8 = atomCall(display, arena.allocateFrom("UTF8_STRING"), 0)
 			val bytes = value.encodeToByteArray()
 			val data =
 				arena.allocate(bytes.size.toLong().coerceAtLeast(1)).also {
 					it.copyFrom(MemorySegment.ofArray(bytes))
 				}
 
-			change.invokeExact(
-				display,
-				window,
-				property,
-				utf8,
-				8,
-				PROP_MODE_REPLACE,
-				data,
-				bytes.size,
-			) as Int
+			changeCall(display, window, property, utf8, 8, PROP_MODE_REPLACE, data, bytes.size)
 		}
 	}
 
 	/** [window]'s property [name] set to the window [value], replacing what it was: `WM_TRANSIENT_FOR`, say. */
 	fun setWindow(display: MemorySegment, window: Long, name: String, value: Long) {
 		Arena.ofConfined().use { arena ->
-			val property = atom.invokeExact(display, arena.allocateFrom(name), 0) as Long
-			val type = atom.invokeExact(display, arena.allocateFrom("WINDOW"), 0) as Long
+			val property = atomCall(display, arena.allocateFrom(name), 0)
+			val type = atomCall(display, arena.allocateFrom("WINDOW"), 0)
 			// Xlib takes 32-bit properties as an array of C longs, whatever their size.
 			val data = arena.allocate(JAVA_LONG).also { it.set(JAVA_LONG, 0, value) }
 
-			change.invokeExact(
-				display,
-				window,
-				property,
-				type,
-				32,
-				PROP_MODE_REPLACE,
-				data,
-				1,
-			) as Int
+			changeCall(display, window, property, type, 32, PROP_MODE_REPLACE, data, 1)
 		}
 	}
 
 	companion object {
 		/** libX11, where it is installed (SDL on X11 needs it, so wherever this is needed it is). */
-		val instance: X11? by lazy { NativeLibrary.open("libX11.so.6")?.let(::X11) }
+		val instance: X11? by lazy { Library.open("libX11.so.6")?.let(::X11) }
 
 		private const val PROP_MODE_REPLACE = 0
 	}

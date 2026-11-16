@@ -21,7 +21,7 @@ class ObjCTest {
 			assertEquals("héllo, wörld", nsString("héllo, wörld").text())
 			assertEquals(Path.of("/Users/a b/c"), fileUrl(Path.of("/Users/a b/c")).filePath())
 			assertNull(Id.NIL.text())
-			assertTrue(nsString("x").isA("NSString"))
+			assertTrue(nsString("x").isA(NSString))
 		}
 	}
 

@@ -38,6 +38,7 @@ rootProject.name = "prism"
 include(
 	":cli",
 	":client",
+	":ffi",
 	":linux",
 	":macos",
 	":platform",

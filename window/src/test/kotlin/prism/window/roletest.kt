@@ -47,9 +47,11 @@ class RoleTest {
 			Surfacing.Toplevel(decorated = false, resizable = false, inFront = false),
 			surface(launcher, Video.Wayland, layerShell = null),
 		)
+		// A Mac: a non-activating panel, as Spotlight's is.
+		assertEquals(Surfacing.Panel, surface(launcher, Video.Cocoa, layerShell = null))
 		// Every other platform, until it has an overlay of its own: a window kept in front, whatever was asked of
 		// its title bar and its size, and whatever layer-shell a compositor that is not there might have had.
-		for (video in Video.entries - Video.Wayland)
+		for (video in Video.entries - Video.Wayland - Video.Cocoa)
 			assertEquals(
 				Surfacing.Toplevel(decorated = false, resizable = false, inFront = true),
 				surface(launcher, video, layerShell = 4),

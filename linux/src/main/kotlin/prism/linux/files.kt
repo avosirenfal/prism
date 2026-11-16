@@ -9,6 +9,8 @@ import java.lang.foreign.ValueLayout.JAVA_INT
 import java.lang.foreign.ValueLayout.JAVA_LONG
 import java.lang.foreign.ValueLayout.JAVA_SHORT
 import java.time.Instant
+import prism.ffi.KeepsErrno
+import prism.ffi.Variadic
 import prism.platform.Dev
 import prism.platform.FileKind
 import prism.platform.Stat
@@ -72,38 +74,47 @@ value class AtFlags(
 	}
 }
 
-private val openatHandle =
-	Libc.capturing(
-		"openat",
-		FunctionDescriptor.of(JAVA_INT, JAVA_INT, ADDRESS, JAVA_INT, JAVA_INT),
-		variadicFrom = 3,
-	)
-private val closeHandle =
-	Libc.capturing(
-		"close",
-		FunctionDescriptor.of(JAVA_INT, JAVA_INT),
-	)
-private val getdentsHandle =
-	Libc.capturing(
-		"getdents64",
-		FunctionDescriptor.of(JAVA_LONG, JAVA_INT, ADDRESS, JAVA_LONG),
-	)
-private val statxHandle =
-	Libc.capturing(
-		"statx",
-		FunctionDescriptor.of(JAVA_INT, JAVA_INT, ADDRESS, JAVA_INT, JAVA_INT, ADDRESS),
-	)
+internal fun interface Openat {
+	@KeepsErrno
+	@Variadic(from = 3)
+	operator fun invoke(dir: Int, path: MemorySegment, flags: Int, mode: Int): Int
+}
+
+internal fun interface Close {
+	@KeepsErrno
+	operator fun invoke(fd: Int): Int
+}
+
+internal fun interface Getdents64 {
+	@KeepsErrno
+	operator fun invoke(fd: Int, buffer: MemorySegment, size: Long): Long
+}
+
+internal fun interface Statx {
+	@KeepsErrno
+	operator fun invoke(
+		dir: Int,
+		path: MemorySegment,
+		flags: Int,
+		mask: Int,
+		into: MemorySegment,
+	): Int
+}
+
+internal fun interface Getuid {
+	operator fun invoke(): Int
+}
+
+private val openatCall: Openat = Libc.bind("openat")
+private val closeCall: Close = Libc.bind("close")
+private val getdentsCall: Getdents64 = Libc.bind("getdents64")
+private val statxCall: Statx = Libc.bind("statx")
+private val getuidCall: Getuid = Libc.bind("getuid")
 
 /** `openat(2)`: [path], a NUL-terminated C string, relative to [dir]. */
 fun openat(dir: Fd, path: MemorySegment, flags: OpenFlags): Sys<Fd> {
 	val result =
-		openatHandle.invokeExact(
-			CallState.segment(),
-			dir.number,
-			path,
-			flags.bits,
-			0,
-		) as Int
+		openatCall(dir.number, path, flags.bits, 0)
 
 	return CallState.outcome("openat", result.toLong()) { Fd(it.toInt()) }
 }
@@ -113,7 +124,7 @@ fun openat(dir: Fd, path: String, flags: OpenFlags): Sys<Fd> =
 	Arena.ofConfined().use { arena -> openat(dir, arena.allocateFrom(path), flags) }
 
 fun close(fd: Fd): Sys<Unit> {
-	val result = closeHandle.invokeExact(CallState.segment(), fd.number) as Int
+	val result = closeCall(fd.number)
 
 	return CallState.outcome("close", result.toLong()) { }
 }
@@ -152,14 +163,7 @@ fun statx(
 	require(scratch.byteSize() >= STATX_SIZE) { "statx writes 256 bytes" }
 
 	val result =
-		statxHandle.invokeExact(
-			CallState.segment(),
-			dir.number,
-			path,
-			flags.bits,
-			STATX_MASK,
-			scratch,
-		) as Int
+		statxCall(dir.number, path, flags.bits, STATX_MASK, scratch)
 
 	return CallState.outcome("statx", result.toLong()) {
 		val mode = scratch.get(JAVA_SHORT, 28).toInt() and 0xFFFF
@@ -205,12 +209,7 @@ class DirentBuffer(
 	/** Fills the buffer with [dir]'s next entries: the bytes written, 0 at the end of the directory. */
 	fun fill(dir: Fd): Sys<Int> {
 		val result =
-			getdentsHandle.invokeExact(
-				CallState.segment(),
-				dir.number,
-				segment,
-				segment.byteSize(),
-			) as Long
+			getdentsCall(dir.number, segment, segment.byteSize())
 
 		return CallState.outcome("getdents64", result) { it.toInt() }
 	}
@@ -280,7 +279,5 @@ class DirentBuffer(
 	}
 }
 
-private val getuidHandle = Libc.plain("getuid", FunctionDescriptor.of(JAVA_INT))
-
 /** `getuid(2)`: the user this process runs as, which cannot fail. */
-fun uid(): Int = getuidHandle.invokeExact() as Int
+fun uid(): Int = getuidCall()

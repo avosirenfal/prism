@@ -1,16 +1,12 @@
 package prism.macos
 
 import java.lang.foreign.Arena
-import java.lang.foreign.FunctionDescriptor
 import java.lang.foreign.MemorySegment
 import java.lang.foreign.ValueLayout.ADDRESS
-import java.lang.foreign.ValueLayout.JAVA_BOOLEAN
-import java.lang.foreign.ValueLayout.JAVA_DOUBLE
 import java.lang.foreign.ValueLayout.JAVA_INT
 import java.lang.foreign.ValueLayout.JAVA_LONG
-import java.lang.invoke.MethodHandles
-import java.lang.invoke.MethodType
 import java.nio.file.Path
+import prism.ffi.Library
 
 /*
  * FSEvents: the kernel's record of what changed in the file system, as a stream of paths, each with what happened to
@@ -54,6 +50,81 @@ data class FsEvent(
 	val id: Long,
 )
 
+/** `FSEventStreamCallback`: the stream, its context, how many events, and their paths, flags and ids. */
+internal fun interface StreamCallback {
+	fun called(
+		stream: MemorySegment,
+		info: MemorySegment,
+		count: Long,
+		paths: MemorySegment,
+		flags: MemorySegment,
+		ids: MemorySegment,
+	)
+}
+
+/** `dispatch_function_t`: work given a context. */
+internal fun interface DispatchWork {
+	fun run(context: MemorySegment)
+}
+
+internal fun interface FsEventStreamCreate {
+	operator fun invoke(
+		allocator: MemorySegment,
+		callback: MemorySegment,
+		context: MemorySegment,
+		paths: MemorySegment,
+		since: Long,
+		latency: Double,
+		flags: Int,
+	): MemorySegment
+}
+
+internal fun interface FsEventStreamSetDispatchQueue {
+	operator fun invoke(stream: MemorySegment, queue: MemorySegment)
+}
+
+internal fun interface FsEventStreamStart {
+	operator fun invoke(stream: MemorySegment): Boolean
+}
+
+/** `FSEventStreamStop`, `FSEventStreamInvalidate`, `FSEventStreamRelease`: each of a stream, returning nothing. */
+internal fun interface FsEventStreamEnd {
+	operator fun invoke(stream: MemorySegment)
+}
+
+internal fun interface FsEventsCurrentId {
+	operator fun invoke(): Long
+}
+
+internal fun interface DispatchQueueCreate {
+	operator fun invoke(label: MemorySegment, attributes: MemorySegment): MemorySegment
+}
+
+internal fun interface DispatchSyncF {
+	operator fun invoke(queue: MemorySegment, context: MemorySegment, work: MemorySegment)
+}
+
+internal fun interface DispatchRelease {
+	operator fun invoke(queue: MemorySegment)
+}
+
+internal fun interface CfArrayCreate {
+	operator fun invoke(
+		allocator: MemorySegment,
+		values: MemorySegment,
+		count: Long,
+		callbacks: MemorySegment,
+	): MemorySegment
+}
+
+internal fun interface CfStringCreateWithCString {
+	operator fun invoke(
+		allocator: MemorySegment,
+		text: MemorySegment,
+		encoding: Int,
+	): MemorySegment
+}
+
 /** A stream of FSEvents over [folders], given to [seen] a batch at a time, until it is closed. */
 class EventStream private constructor(
 	private val stream: MemorySegment,
@@ -65,151 +136,47 @@ class EventStream private constructor(
 	 * runs one thing at a time, is waited for), so the callback is never freed while it runs.
 	 */
 	override fun close() {
-		stop.handle.invokeExact(stream)
-		invalidate.handle.invokeExact(stream)
-		syncOn.handle.invokeExact(queue, MemorySegment.NULL, nothing)
-		release.handle.invokeExact(stream)
-		dispatchRelease.handle.invokeExact(queue)
+		stop(stream)
+		invalidate(stream)
+		syncOn(queue, MemorySegment.NULL, nothing)
+		release(stream)
+		dispatchRelease(queue)
 		arena.close()
-	}
-
-	/** What a stream's callback is given, copied out as it is given. */
-	private class Callback(
-		private val seen: (List<FsEvent>) -> Unit,
-		private val failed: (Throwable) -> Unit,
-	) {
-		@Suppress("unused") // Called by the stream, through the upcall.
-		fun called(
-			stream: MemorySegment,
-			info: MemorySegment,
-			count: Long,
-			paths: MemorySegment,
-			flags: MemorySegment,
-			ids: MemorySegment,
-		) {
-			// Nothing may be thrown back into the stream's thread: it would end the process.
-			try {
-				val named = paths.reinterpret(count * ADDRESS.byteSize())
-				val flagged = flags.reinterpret(count * Int.SIZE_BYTES)
-				val ordered = ids.reinterpret(count * Long.SIZE_BYTES)
-
-				seen(
-					(0 until count).map { at ->
-						FsEvent(
-							Path.of(named.getAtIndex(ADDRESS, at).reinterpret(Long.MAX_VALUE).getString(0)),
-							FsFlag.of(flagged.getAtIndex(JAVA_INT, at)),
-							ordered.getAtIndex(JAVA_LONG, at),
-						)
-					},
-				)
-			} catch (thrown: Throwable) {
-				failed(thrown)
-			}
-		}
 	}
 
 	companion object {
 		private val coreServices = Frameworks.coreServices
 		private val coreFoundation = Frameworks.coreFoundation
 
-		private val create =
-			coreServices.function(
-				"FSEventStreamCreate",
-				FunctionDescriptor.of(
-					ADDRESS,
-					ADDRESS,
-					ADDRESS,
-					ADDRESS,
-					ADDRESS,
-					JAVA_LONG,
-					JAVA_DOUBLE,
-					JAVA_INT,
-				),
-			)
-		private val setQueue =
-			coreServices.function(
-				"FSEventStreamSetDispatchQueue",
-				FunctionDescriptor.ofVoid(ADDRESS, ADDRESS),
-			)
-		private val begin =
-			coreServices.function(
-				"FSEventStreamStart",
-				FunctionDescriptor.of(JAVA_BOOLEAN, ADDRESS),
-			)
-		private val stop =
-			coreServices.function(
-				"FSEventStreamStop",
-				FunctionDescriptor.ofVoid(ADDRESS),
-			)
-		private val invalidate =
-			coreServices.function(
-				"FSEventStreamInvalidate",
-				FunctionDescriptor.ofVoid(ADDRESS),
-			)
-		private val release =
-			coreServices.function(
-				"FSEventStreamRelease",
-				FunctionDescriptor.ofVoid(ADDRESS),
-			)
-		private val currentId =
-			coreServices.function(
-				"FSEventsGetCurrentEventId",
-				FunctionDescriptor.of(JAVA_LONG),
-			)
+		private val create by coreServices.binding<FsEventStreamCreate>("FSEventStreamCreate")
+		private val setQueue by coreServices.binding<FsEventStreamSetDispatchQueue>(
+			"FSEventStreamSetDispatchQueue",
+		)
+		private val begin by coreServices.binding<FsEventStreamStart>("FSEventStreamStart")
+		private val stop by coreServices.binding<FsEventStreamEnd>("FSEventStreamStop")
+		private val invalidate by coreServices.binding<FsEventStreamEnd>(
+			"FSEventStreamInvalidate",
+		)
+		private val release by coreServices.binding<FsEventStreamEnd>("FSEventStreamRelease")
+		private val currentId by coreServices.binding<FsEventsCurrentId>(
+			"FSEventsGetCurrentEventId",
+		)
+		private val queueCreate by Frameworks.system.binding<DispatchQueueCreate>(
+			"dispatch_queue_create",
+		)
+		private val syncOn by Frameworks.system.binding<DispatchSyncF>("dispatch_sync_f")
+		private val dispatchRelease by Frameworks.system.binding<DispatchRelease>(
+			"dispatch_release",
+		)
+		private val arrayCreate by coreFoundation.binding<CfArrayCreate>("CFArrayCreate")
+		private val stringCreate by coreFoundation.binding<CfStringCreateWithCString>(
+			"CFStringCreateWithCString",
+		)
 
-		private val queueCreate =
-			Library.system.function(
-				"dispatch_queue_create",
-				FunctionDescriptor.of(ADDRESS, ADDRESS, ADDRESS),
-			)
-		private val syncOn =
-			Library.system.function(
-				"dispatch_sync_f",
-				FunctionDescriptor.ofVoid(ADDRESS, ADDRESS, ADDRESS),
-			)
-		private val dispatchRelease =
-			Library.system.function(
-				"dispatch_release",
-				FunctionDescriptor.ofVoid(ADDRESS),
-			)
-
-		/** A function that does nothing, as `dispatch_sync_f` is given one: `void (*)(void *)`. */
+		/** A function that does nothing, as `dispatch_sync_f` is given one. */
 		private val nothing: MemorySegment by lazy {
-			Library.linker.upcallStub(
-				MethodHandles
-					.lookup()
-					.findStatic(
-						Nothing::class.java,
-						"run",
-						MethodType.methodType(Void.TYPE, MemorySegment::class.java),
-					),
-				FunctionDescriptor.ofVoid(ADDRESS),
-				Arena.global(),
-			)
+			Library.upcall<DispatchWork>(DispatchWork { }, Arena.global())
 		}
-
-		/** What [nothing] calls. */
-		private object Nothing {
-			@JvmStatic
-			@Suppress("unused", "UNUSED_PARAMETER") // Called through the upcall.
-			fun run(context: MemorySegment) = Unit
-		}
-
-		private val arrayCreate =
-			coreFoundation.function(
-				"CFArrayCreate",
-				FunctionDescriptor.of(ADDRESS, ADDRESS, ADDRESS, JAVA_LONG, ADDRESS),
-			)
-		private val stringCreate =
-			coreFoundation.function(
-				"CFStringCreateWithCString",
-				FunctionDescriptor.of(ADDRESS, ADDRESS, ADDRESS, JAVA_INT),
-			)
-		private val cfRelease =
-			coreFoundation.function(
-				"CFRelease",
-				FunctionDescriptor.ofVoid(ADDRESS),
-			)
 
 		/** `kCFStringEncodingUTF8`. */
 		private const val UTF8 = 0x08000100
@@ -220,19 +187,31 @@ class EventStream private constructor(
 		/** `kFSEventStreamCreateFlagNoDefer` (the first of a burst at once), `WatchRoot` and `FileEvents`. */
 		private const val FLAGS = 0x02 or 0x04 or 0x10
 
-		/** The callback's C type: `void (*)(ConstFSEventStreamRef, void *, size_t, void *, const UInt32 *, const UInt64 *)`. */
-		private val CALLBACK =
-			FunctionDescriptor.ofVoid(
-				ADDRESS,
-				ADDRESS,
-				JAVA_LONG,
-				ADDRESS,
-				ADDRESS,
-				ADDRESS,
-			)
-
 		/** The id of the last event the system has recorded: where a stream started later can begin. */
-		fun currentEventId(): Long = currentId.handle.invokeExact() as Long
+		fun currentEventId(): Long = currentId()
+
+		/** What a stream's callback is given, copied out as it is given, to [seen]; what that throws, to [failed]. */
+		private fun callback(seen: (List<FsEvent>) -> Unit, failed: (Throwable) -> Unit) =
+			StreamCallback { _, _, count, paths, flags, ids ->
+				// Nothing may be thrown back into the stream's thread: it would end the process.
+				try {
+					val named = paths.reinterpret(count * ADDRESS.byteSize())
+					val flagged = flags.reinterpret(count * Int.SIZE_BYTES)
+					val ordered = ids.reinterpret(count * Long.SIZE_BYTES)
+
+					seen(
+						(0 until count).map { at ->
+							FsEvent(
+								Path.of(named.getAtIndex(ADDRESS, at).reinterpret(Long.MAX_VALUE).getString(0)),
+								FsFlag.of(flagged.getAtIndex(JAVA_INT, at)),
+								ordered.getAtIndex(JAVA_LONG, at),
+							)
+						},
+					)
+				} catch (thrown: Throwable) {
+					failed(thrown)
+				}
+			}
 
 		/**
 		 * A stream over [folders] started, its events since [since] given to [seen] a batch at a time, gathered over
@@ -248,35 +227,11 @@ class EventStream private constructor(
 		): EventStream? {
 			// The stream's for as long as it lives: its callback, and what it was made with.
 			val arena = Arena.ofShared()
-
-			val target =
-				MethodHandles
-					.lookup()
-					.findVirtual(
-						Callback::class.java,
-						"called",
-						MethodType.methodType(
-							Void.TYPE,
-							MemorySegment::class.java,
-							MemorySegment::class.java,
-							Long::class.javaPrimitiveType,
-							MemorySegment::class.java,
-							MemorySegment::class.java,
-							MemorySegment::class.java,
-						),
-					).bindTo(Callback(seen, failed))
-
-			val callback = Library.linker.upcallStub(target, CALLBACK, arena)
-
+			val called = Library.upcall<StreamCallback>(callback(seen, failed), arena)
 			val strings =
 				folders.map {
-					stringCreate.handle.invokeExact(
-						MemorySegment.NULL,
-						arena.allocateFrom(it.toString()),
-						UTF8,
-					) as MemorySegment
+					stringCreate(MemorySegment.NULL, arena.allocateFrom(it.toString()), UTF8)
 				}
-
 			val values = arena.allocate(ADDRESS, strings.size.toLong())
 
 			strings.forEachIndexed { at, string ->
@@ -288,29 +243,20 @@ class EventStream private constructor(
 			}
 
 			val paths =
-				arrayCreate.handle.invokeExact(
+				arrayCreate(
 					MemorySegment.NULL,
 					values,
 					strings.size.toLong(),
 					coreFoundation.address("kCFTypeArrayCallBacks"),
-				) as MemorySegment
+				)
 
 			// The array holds the strings now; and the stream, once made, the array.
-			for (string in strings)
-				cfRelease.handle.invokeExact(string)
+			strings.forEach(CoreFoundation.release::invoke)
 
 			val stream =
-				create.handle.invokeExact(
-					MemorySegment.NULL,
-					callback,
-					MemorySegment.NULL,
-					paths,
-					since,
-					latency,
-					FLAGS,
-				) as MemorySegment
+				create(MemorySegment.NULL, called, MemorySegment.NULL, paths, since, latency, FLAGS)
 
-			cfRelease.handle.invokeExact(paths)
+			CoreFoundation.release(paths)
 
 			if (stream.address() == 0L) {
 				arena.close()
@@ -318,17 +264,14 @@ class EventStream private constructor(
 				return null
 			}
 
-			val queue =
-				queueCreate.handle.invokeExact(
-					arena.allocateFrom("dev.prism.fsevents"),
-					MemorySegment.NULL,
-				) as MemorySegment
+			val queue = queueCreate(arena.allocateFrom("dev.prism.fsevents"), MemorySegment.NULL)
 
-			setQueue.handle.invokeExact(stream, queue)
+			setQueue(stream, queue)
 
-			if (!(begin.handle.invokeExact(stream) as Boolean)) {
-				invalidate.handle.invokeExact(stream)
-				release.handle.invokeExact(stream)
+			if (!begin(stream)) {
+				invalidate(stream)
+				release(stream)
+				dispatchRelease(queue)
 				arena.close()
 
 				return null

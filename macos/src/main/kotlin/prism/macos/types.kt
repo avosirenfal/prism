@@ -1,6 +1,7 @@
 package prism.macos
 
 import java.lang.foreign.Arena
+import java.lang.foreign.MemorySegment
 import java.lang.foreign.ValueLayout.ADDRESS
 import java.nio.file.Path
 
@@ -31,25 +32,23 @@ data class UniformType(
 
 /** The uniform types the system knows. */
 object UniformTypes {
-	private val utType get() = ObjC.cls("UTType", Frameworks.uniformTypes)
-
 	/** The type of the type identifier [identifier]; null where the system knows none. */
 	fun ofIdentifier(identifier: String): UniformType? =
-		ObjC.pooled {
-			utType.send("typeWithIdentifier:", nsString(identifier)).orNull()?.let(::read)
-		}
+		ObjC.pooled { UTType.typeWithIdentifier(nsString(identifier)).orNull()?.let(::read) }
 
 	/** The type of the MIME type [mime]; null where the system knows none. */
 	fun ofMime(mime: String): UniformType? =
-		ObjC.pooled { utType.send("typeWithMIMEType:", nsString(mime)).orNull()?.let(::read) }
+		ObjC.pooled {
+			UTType.typeWithMIMEType(nsString(mime)).orNull()?.let(::read)
+		}
 
 	/** The type of files named with [extension]; null where the system knows none (it makes up a dynamic one, which says nothing). */
 	fun ofExtension(extension: String): UniformType? =
 		ObjC.pooled {
-			utType
-				.send("typeWithFilenameExtension:", nsString(extension))
+			UTType
+				.typeWithFilenameExtension(nsString(extension))
 				.orNull()
-				?.takeUnless { it.bool("isDynamic") }
+				?.takeUnless(UTType.isDynamic::invoke)
 				?.let(::read)
 		}
 
@@ -60,11 +59,11 @@ object UniformTypes {
 				val value = arena.allocate(ADDRESS)
 
 				val got =
-					fileUrl(path).bool(
-						"getResourceValue:forKey:error:",
+					NSURL.getResourceValue(
+						fileUrl(path),
 						value,
 						Frameworks.foundation.constant("NSURLContentTypeKey"),
-						java.lang.foreign.MemorySegment.NULL,
+						MemorySegment.NULL,
 					)
 
 				Id(value.get(ADDRESS, 0L)).takeIf { got }?.orNull()?.let(::read)
@@ -74,21 +73,21 @@ object UniformTypes {
 	private fun read(type: Id): UniformType {
 		// Every type it conforms to, unordered as the set has them: nearest first is the one that conforms to most.
 		val supertypes =
-			type
-				.send("supertypes")
+			UTType
+				.supertypes(type)
 				.members()
 				.map {
-					it.send("identifier").text().orEmpty() to
-						it.send("supertypes").integer("count")
+					UTType.identifier(it).text().orEmpty() to
+						NSSet.allObjects(UTType.supertypes(it)).elements().size
 				}.sortedByDescending { it.second }
 				.map { it.first }
 
 		return UniformType(
-			identifier = type.send("identifier").text().orEmpty(),
-			mime = type.send("preferredMIMEType").text(),
-			description = type.send("localizedDescription").text(),
+			identifier = UTType.identifier(type).text().orEmpty(),
+			mime = UTType.preferredMIMEType(type).text(),
+			description = UTType.localizedDescription(type).text(),
 			extensions =
-				type.send("tags")["public.filename-extension"].elements().mapNotNull {
+				UTType.tags(type)["public.filename-extension"].elements().mapNotNull {
 					it.text()
 				},
 			supertypes = supertypes,

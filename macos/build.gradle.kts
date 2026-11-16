@@ -8,4 +8,6 @@ plugins {
 dependencies {
 	// What its calls answer with: a mount, a device.
 	api(project(":platform"))
+	// Native functions as typed Kotlin functions.
+	api(project(":ffi"))
 }

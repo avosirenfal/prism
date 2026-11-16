@@ -1,11 +1,15 @@
 package prism.macos
 
 import org.junit.jupiter.api.Assertions.assertInstanceOf
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.condition.EnabledOnOs
 import org.junit.jupiter.api.condition.OS
 
-/** Carbon's hot keys and Spotlight's key, on a Mac: a key no one has is had and let go, and Spotlight's is asked. */
+/**
+ * Carbon's hot keys, Spotlight's key and the launcher's panel, on a Mac: a key no one has is had and let go,
+ * Spotlight's is asked, and a panel is made.
+ */
 @EnabledOnOs(OS.MAC)
 class HotKeyTest {
 	@Test
@@ -27,6 +31,11 @@ class HotKeyTest {
 	fun spotlightsKeyIsAsked() {
 		// Either answer is right, as the user has Spotlight's key; that it answers is what is tested.
 		spotlightHolds(0x31, setOf(HotKeyModifier.Command))
-		Overlay::class.java
+	}
+
+	@Test
+	fun aPanelIsMadeAndClosed() {
+		// AppKit's classes made at run time, a panel of them made as AppKit makes one, and let go of.
+		Panel.make(640.0, 80.0).use { panel -> assertTrue(panel.window != 0L) }
 	}
 }

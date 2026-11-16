@@ -2,6 +2,7 @@ package prism.linux
 
 import java.lang.foreign.Arena
 import java.lang.foreign.FunctionDescriptor
+import java.lang.foreign.MemorySegment
 import java.lang.foreign.ValueLayout.ADDRESS
 import java.lang.foreign.ValueLayout.JAVA_INT
 import java.lang.foreign.ValueLayout.JAVA_LONG
@@ -9,6 +10,7 @@ import java.nio.file.Path
 import kotlin.io.path.Path
 import kotlin.io.path.exists
 import kotlin.io.path.readLines
+import prism.ffi.KeepsErrno
 import prism.platform.Dev
 import prism.platform.KernelDev
 import prism.platform.Mount
@@ -64,16 +66,30 @@ object Mounts {
 		}
 }
 
-private val mountHandle =
-	Libc.capturing(
-		"mount",
-		FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS, ADDRESS, JAVA_LONG, ADDRESS),
-	)
-private val umountHandle =
-	Libc.capturing(
-		"umount2",
-		FunctionDescriptor.of(JAVA_INT, ADDRESS, JAVA_INT),
-	)
+internal fun interface MountCall {
+	@KeepsErrno
+	operator fun invoke(
+		source: MemorySegment,
+		target: MemorySegment,
+		type: MemorySegment,
+		flags: Long,
+		data: MemorySegment,
+	): Int
+}
+
+internal fun interface Umount2 {
+	@KeepsErrno
+	operator fun invoke(target: MemorySegment, flags: Int): Int
+}
+
+internal fun interface Statfs {
+	@KeepsErrno
+	operator fun invoke(path: MemorySegment, into: MemorySegment): Int
+}
+
+private val mountCall: MountCall = Libc.bind("mount")
+private val umountCall: Umount2 = Libc.bind("umount2")
+private val statfsCall: Statfs = Libc.bind("statfs")
 
 /**
  * `mount(2)`: a file system of [type] mounted at [target], with [options] as that file system reads them
@@ -83,14 +99,13 @@ private val umountHandle =
 fun mount(source: String, target: Path, type: String, options: String = ""): Sys<Unit> =
 	Arena.ofConfined().use { arena ->
 		val result =
-			mountHandle.invokeExact(
-				CallState.segment(),
+			mountCall(
 				arena.allocateFrom(source),
 				arena.allocateFrom(target.toString()),
 				arena.allocateFrom(type),
 				0L,
 				arena.allocateFrom(options),
-			) as Int
+			)
 
 		CallState.outcome("mount", result.toLong()) { }
 	}
@@ -99,22 +114,12 @@ fun mount(source: String, target: Path, type: String, options: String = ""): Sys
 fun unmount(target: Path): Sys<Unit> =
 	Arena.ofConfined().use { arena ->
 		val result =
-			umountHandle.invokeExact(
-				CallState.segment(),
-				arena.allocateFrom(target.toString()),
-				MNT_DETACH,
-			) as Int
+			umountCall(arena.allocateFrom(target.toString()), MNT_DETACH)
 
 		CallState.outcome("umount2", result.toLong()) { }
 	}
 
 private const val MNT_DETACH = 2
-
-private val statfsHandle =
-	Libc.capturing(
-		"statfs",
-		FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS),
-	)
 
 /** As many bytes as `struct statfs` is, and more. */
 private const val STATFS_SIZE = 128L
@@ -133,11 +138,7 @@ fun fsidOf(path: Path): Sys<Long> =
 		val scratch = arena.allocate(STATFS_SIZE, 8)
 
 		val result =
-			statfsHandle.invokeExact(
-				CallState.segment(),
-				arena.allocateFrom(path.toString()),
-				scratch,
-			) as Int
+			statfsCall(arena.allocateFrom(path.toString()), scratch)
 
 		CallState.outcome("statfs", result.toLong()) { scratch.get(JAVA_LONG, STATFS_FSID) }
 	}

@@ -1,14 +1,15 @@
 package prism.macos
 
 import java.lang.foreign.Arena
-import java.lang.foreign.FunctionDescriptor
 import java.lang.foreign.MemoryLayout
 import java.lang.foreign.MemorySegment
 import java.lang.foreign.ValueLayout.ADDRESS
+import java.lang.foreign.ValueLayout.JAVA_BYTE
+import java.lang.foreign.ValueLayout.JAVA_DOUBLE
 import java.lang.foreign.ValueLayout.JAVA_INT
-import java.lang.foreign.ValueLayout.JAVA_LONG
-import java.lang.invoke.MethodHandles
-import java.lang.invoke.MethodType
+import prism.ffi.ByValue
+import prism.ffi.Library
+import prism.ffi.StructType
 
 /*
  * What a launcher is on a Mac, in place of Spotlight: a key that shows it from anywhere, and a window over every
@@ -119,6 +120,51 @@ sealed interface HotKeyRegistered {
 	) : HotKeyRegistered
 }
 
+/** An `EventHotKeyID`, which Carbon is passed by value: a signature (an `OSType`), then a number. */
+object EventHotKeyId : StructType {
+	override val layout: MemoryLayout =
+		MemoryLayout.structLayout(JAVA_INT.withName("signature"), JAVA_INT.withName("id"))
+}
+
+internal fun interface GetApplicationEventTarget {
+	operator fun invoke(): MemorySegment
+}
+
+internal fun interface InstallEventHandler {
+	operator fun invoke(
+		target: MemorySegment,
+		handler: MemorySegment,
+		count: Long,
+		types: MemorySegment,
+		data: MemorySegment,
+		reference: MemorySegment,
+	): Int
+}
+
+internal fun interface RemoveEventHandler {
+	operator fun invoke(handler: MemorySegment): Int
+}
+
+internal fun interface RegisterEventHotKey {
+	operator fun invoke(
+		key: Int,
+		modifiers: Int,
+		@ByValue(EventHotKeyId::class) id: MemorySegment,
+		target: MemorySegment,
+		options: Int,
+		reference: MemorySegment,
+	): Int
+}
+
+internal fun interface UnregisterEventHotKey {
+	operator fun invoke(reference: MemorySegment): Int
+}
+
+/** `EventHandlerProcPtr`: the call it is part of, the event, and the handler's own data; answered with a status. */
+internal fun interface EventHandler {
+	fun handle(call: MemorySegment, event: MemorySegment, data: MemorySegment): Int
+}
+
 /** A key system-wide that is the application's, [pressed] called on the windows' thread each time it is pressed. */
 class HotKey private constructor(
 	private val reference: MemorySegment,
@@ -126,82 +172,27 @@ class HotKey private constructor(
 	private val arena: Arena,
 ) : AutoCloseable {
 	override fun close() {
-		unregister.handle.invokeExact(reference) as Int
-		removeHandler.handle.invokeExact(handler) as Int
+		unregister(reference)
+		removeHandler(handler)
 		arena.close()
 	}
 
-	/** What the handler is: told of the press, and saying it was handled (`noErr`). */
-	private class Pressed(
-		private val pressed: () -> Unit,
-	) {
-		@Suppress("unused", "UNUSED_PARAMETER") // Called by Carbon, through the upcall.
-		fun handle(call: MemorySegment, event: MemorySegment, data: MemorySegment): Int {
-			// Nothing may be thrown back into Carbon's dispatch: it would end the process.
-			try {
-				pressed()
-			} catch (thrown: Throwable) {
-				Thread.getDefaultUncaughtExceptionHandler()?.uncaughtException(
-					Thread.currentThread(),
-					thrown,
-				)
-			}
-
-			return 0
-		}
-	}
-
 	companion object {
-		private val carbon = Library.framework("Carbon")
-
-		/** An `EventHotKeyID`, passed by value: a signature (an `OSType`), then a number. */
-		private val HOT_KEY_ID =
-			MemoryLayout.structLayout(
-				JAVA_INT.withName("signature"),
-				JAVA_INT.withName("id"),
-			)
-
-		private val applicationTarget =
-			carbon.function(
-				"GetApplicationEventTarget",
-				FunctionDescriptor.of(ADDRESS),
-			)
-		private val installHandler =
-			carbon.function(
-				"InstallEventHandler",
-				FunctionDescriptor.of(
-					JAVA_INT,
-					ADDRESS,
-					ADDRESS,
-					JAVA_LONG,
-					ADDRESS,
-					ADDRESS,
-					ADDRESS,
-				),
-			)
-		private val removeHandler =
-			carbon.function(
-				"RemoveEventHandler",
-				FunctionDescriptor.of(JAVA_INT, ADDRESS),
-			)
-		private val register =
-			carbon.function(
-				"RegisterEventHotKey",
-				FunctionDescriptor.of(
-					JAVA_INT,
-					JAVA_INT,
-					JAVA_INT,
-					HOT_KEY_ID,
-					ADDRESS,
-					JAVA_INT,
-					ADDRESS,
-				),
-			)
-		private val unregister =
-			carbon.function(
-				"UnregisterEventHotKey",
-				FunctionDescriptor.of(JAVA_INT, ADDRESS),
-			)
+		private val applicationTarget by Frameworks.carbon.binding<GetApplicationEventTarget>(
+			"GetApplicationEventTarget",
+		)
+		private val installHandler by Frameworks.carbon.binding<InstallEventHandler>(
+			"InstallEventHandler",
+		)
+		private val removeHandler by Frameworks.carbon.binding<RemoveEventHandler>(
+			"RemoveEventHandler",
+		)
+		private val register by Frameworks.carbon.binding<RegisterEventHotKey>(
+			"RegisterEventHotKey",
+		)
+		private val unregister by Frameworks.carbon.binding<UnregisterEventHotKey>(
+			"UnregisterEventHotKey",
+		)
 
 		/** `kEventClassKeyboard` ('keyb') and `kEventHotKeyPressed`. */
 		private const val KEYBOARD = 0x6B657962
@@ -213,8 +204,6 @@ class HotKey private constructor(
 		/** `eventHotKeyExistsErr`: another has the key. */
 		private const val TAKEN = -9878
 
-		private val HANDLER = FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS, ADDRESS)
-
 		/**
 		 * [key] (a Mac's virtual key code) with [modifiers] made the application's, [pressed] called each time it is
 		 * pressed. Called on the windows' thread, whose event loop tells of it.
@@ -225,23 +214,22 @@ class HotKey private constructor(
 			pressed: () -> Unit,
 		): HotKeyRegistered {
 			val arena = Arena.ofShared()
-			val target = applicationTarget.handle.invokeExact() as MemorySegment
+			val target = applicationTarget()
 
-			val upcall =
-				Library.linker.upcallStub(
-					MethodHandles
-						.lookup()
-						.findVirtual(
-							Pressed::class.java,
-							"handle",
-							MethodType.methodType(
-								Int::class.javaPrimitiveType,
-								MemorySegment::class.java,
-								MemorySegment::class.java,
-								MemorySegment::class.java,
-							),
-						).bindTo(Pressed(pressed)),
-					HANDLER,
+			val told =
+				Library.upcall<EventHandler>(
+					EventHandler { _, _, _ ->
+						// Nothing may be thrown back into Carbon's dispatch: it would end the process.
+						try {
+							pressed()
+						} catch (thrown: Throwable) {
+							Thread.getDefaultUncaughtExceptionHandler()?.uncaughtException(
+								Thread.currentThread(),
+								thrown,
+							)
+						}
+						0
+					},
 					arena,
 				)
 
@@ -253,16 +241,7 @@ class HotKey private constructor(
 				}
 			val handler = arena.allocate(ADDRESS)
 			val reference = arena.allocate(ADDRESS)
-
-			val installed =
-				installHandler.handle.invokeExact(
-					target,
-					upcall,
-					1L,
-					spec,
-					MemorySegment.NULL,
-					handler,
-				) as Int
+			val installed = installHandler(target, told, 1L, spec, MemorySegment.NULL, handler)
 
 			if (installed != 0) {
 				arena.close()
@@ -273,23 +252,23 @@ class HotKey private constructor(
 			}
 
 			val id =
-				arena.allocate(HOT_KEY_ID).also {
+				arena.allocate(EventHotKeyId.layout).also {
 					it.set(JAVA_INT, 0, SIGNATURE)
 					it.set(JAVA_INT, 4, 1)
 				}
 
 			val registered =
-				register.handle.invokeExact(
+				register(
 					key,
 					modifiers.fold(0) { bits, it -> bits or it.bit },
 					id,
 					target,
 					0,
 					reference,
-				) as Int
+				)
 
 			if (registered != 0) {
-				removeHandler.handle.invokeExact(handler.get(ADDRESS, 0L)) as Int
+				removeHandler(handler.get(ADDRESS, 0L))
 				arena.close()
 
 				return HotKeyRegistered.Refused(
@@ -308,93 +287,172 @@ class HotKey private constructor(
 }
 
 /*
- * The launcher's window over every other, as Spotlight's is: a non-activating panel, which is given the keyboard
- * without its application being brought forward, so the application in front stays in front (its menu bar, its
- * windows' focus) while the launcher is typed into, and nothing has to be given back as it goes. It is at the level of a
- * menu that has popped up, on every Space and beside an application that fills the screen, and not among the windows
- * ⌘` goes through.
+ * The launcher's window, as Spotlight's is: a non-activating panel, which is given the keyboard without its
+ * application being brought forward, so the application in front stays in front (its menu bar, its windows' focus)
+ * while the launcher is typed into, and nothing has to be given back as it goes. It is at the level of a menu that
+ * has popped up, on every Space and beside an application that fills the screen, and not among the windows ⌘` goes
+ * through.
  *
- * A panel is made a panel as it is made, and SDL makes windows: so SDL's window is made one after, as Tauri's
- * windows are made panels. A class is made at run time whose superclass is NSPanel and which has every method of
- * SDL's window class (which adds no fields to NSWindow's, nor NSPanel to them, so the object is the same size either
- * way), and the window's class is set to it; with the non-activating style, it is a panel. Its own methods say it
- * becomes the key window (it is typed into) and never the main one (it is no document's window).
+ * A window is a panel, and non-activating, from the moment it is made and by how it is made: the window server is
+ * told so then, and not when a style is changed after. So the panel is made here, as AppKit makes one
+ * (`initWithContentRect:styleMask:backing:defer:` with the non-activating style), and handed to SDL to be its window
+ * (`SDL_PROP_WINDOW_CREATE_COCOA_WINDOW_POINTER`), which SDL has for windows an application makes itself: SDL draws
+ * in it and hears its events, and leaves closing it to whoever made it.
+ *
+ * Two classes are made for it, each the runtime's own subclass with nothing but methods: a panel that says it takes
+ * the keyboard (one with no title bar says it does not, unasked) and is never the main window; and a view that takes
+ * the click that also brings the panel forward, and hands the right button's press on (a view of AppKit's keeps it,
+ * for a menu), as SDL's own view does for the windows SDL makes.
  */
 
-/** A launcher's window on a Mac. */
-object Overlay {
-	/** `NSPopUpMenuWindowLevel`. */
-	private const val LEVEL = 101L
-
-	/** `canJoinAllSpaces`, `ignoresCycle` and `fullScreenAuxiliary`. */
-	private const val BEHAVIOUR = (1L shl 0) or (1L shl 6) or (1L shl 8)
-
-	/** `NSWindowStyleMaskNonactivatingPanel`. */
-	private const val NON_ACTIVATING = 1L shl 7
-
-	/** The window [window] (an `NSWindow *`, as SDL gives it) made a non-activating panel over every other, and given the keyboard. */
-	fun shown(window: Long) {
-		ObjC.pooled {
-			val own = Id(MemorySegment.ofAddress(window))
-
-			Panels.make(own)
-			own.perform("setStyleMask:", own.integer("styleMask") or NON_ACTIVATING)
-			own.perform("setFloatingPanel:", true)
-			own.perform("setBecomesKeyOnlyIfNeeded:", false)
-			own.perform("setHidesOnDeactivate:", false)
-			own.perform("setLevel:", LEVEL)
-			own.perform("setCollectionBehavior:", BEHAVIOUR)
-			own.perform("makeKeyAndOrderFront:", Id.NIL)
-		}
-	}
+/** `BOOL (*)(id, SEL)`: a method of no arguments that answers yes or no. */
+internal fun interface AnswersBool {
+	fun answer(self: MemorySegment, selector: MemorySegment): Boolean
 }
 
-/** Windows made panels: the class each window class is made into, made once. */
-private object Panels {
-	private val made = java.util.concurrent.ConcurrentHashMap<Long, MemorySegment>()
+/** `BOOL (*)(id, SEL, id)`: a method of one object that answers yes or no. */
+internal fun interface AnswersBoolOf {
+	fun answer(
+		self: MemorySegment,
+		selector: MemorySegment,
+		argument: MemorySegment,
+	): Boolean
+}
 
-	/** [window]'s class made a panel class of its own methods, where it is not one already. */
-	fun make(window: Id) {
-		val current = ObjCRuntime.classOf(window)
+/** `void (*)(id, SEL, id)`: a method of one object that answers nothing. */
+internal fun interface Takes {
+	fun take(self: MemorySegment, selector: MemorySegment, argument: MemorySegment)
+}
 
-		if (current.address() in made.values.map { it.address() })
-			return
+/** A panel made for SDL to have as a window: closed by whoever made it, once SDL has let go of it. */
+class Panel internal constructor(
+	private val panel: Id,
+) : AutoCloseable {
+	/** The `NSWindow *`, as SDL is given it. */
+	val window: Long get() = panel.address.address()
 
-		val panel = made.getOrPut(current.address()) { panelOf(current) }
-
-		ObjCRuntime.setClass(window, panel)
+	override fun close() {
+		ObjC.pooled {
+			NSWindow.close(panel)
+			NSObject.release(panel)
+		}
 	}
 
-	private fun panelOf(windowClass: MemorySegment): MemorySegment {
-		val name = "PrismPanel_${ObjCRuntime.nameOf(windowClass)}"
+	companion object {
+		/** `NSWindowStyleMaskNonactivatingPanel`, on a window with no title bar (`NSWindowStyleMaskBorderless`, 0). */
+		private const val STYLE = 1L shl 7
 
-		ObjCRuntime.lookUp(name)?.let { return it }
+		/** `NSBackingStoreBuffered`. */
+		private const val BUFFERED = 2L
 
-		val panel = ObjCRuntime.allocate(ObjC.cls("NSPanel", Frameworks.appKit).address, name)
+		/** `NSPopUpMenuWindowLevel`. */
+		private const val LEVEL = 101L
 
-		// Its own first: a method added later of the same name is not added.
-		ObjCRuntime.add(panel, "canBecomeKeyWindow", answering(true))
-		ObjCRuntime.add(panel, "canBecomeMainWindow", answering(false))
-		ObjCRuntime.copyMethods(windowClass, panel)
-		ObjCRuntime.register(panel)
+		/** `canJoinAllSpaces`, `ignoresCycle` and `fullScreenAuxiliary`. */
+		private const val BEHAVIOUR = (1L shl 0) or (1L shl 6) or (1L shl 8)
 
-		return panel
-	}
+		private val yes =
+			Library.upcall<AnswersBool>(
+				AnswersBool { _, _ -> true },
+				Arena.global(),
+			)
+		private val no =
+			Library.upcall<AnswersBool>(
+				AnswersBool {
+					_,
+					_,
+					->
+					false
+				},
+				Arena.global(),
+			)
+		private val yesOf =
+			Library.upcall<AnswersBoolOf>(
+				AnswersBoolOf {
+					_,
+					_,
+					_,
+					->
+					true
+				},
+				Arena.global(),
+			)
 
-	/** A method of no arguments that answers [answer]: `BOOL (*)(id, SEL)`. */
-	private fun answering(answer: Boolean): MemorySegment =
-		Library.linker.upcallStub(
-			java.lang.invoke.MethodHandles
-				.dropArguments(
-					java.lang.invoke.MethodHandles
-						.constant(Boolean::class.javaPrimitiveType, answer),
-					0,
-					MemorySegment::class.java,
-					MemorySegment::class.java,
+		/** The right button's press handed to whatever is next to answer it: SDL's listener, which tells SDL of it. */
+		private val handsOn =
+			Library.upcall<Takes>(
+				Takes { self, _, event ->
+					// Nothing may be thrown back into AppKit's dispatch: it would end the process.
+					try {
+						NSResponder.rightMouseDown(NSResponder.nextResponder(Id(self)), Id(event))
+					} catch (thrown: Throwable) {
+						Thread.getDefaultUncaughtExceptionHandler()?.uncaughtException(
+							Thread.currentThread(),
+							thrown,
+						)
+					}
+				},
+				Arena.global(),
+			)
+
+		private val panelClass by lazy {
+			ObjCRuntime.subclass(
+				"PrismPanel",
+				NSPanel,
+				listOf(
+					Implemented("canBecomeKeyWindow", "B16@0:8", yes),
+					Implemented("canBecomeMainWindow", "B16@0:8", no),
 				),
-			FunctionDescriptor.of(java.lang.foreign.ValueLayout.JAVA_BOOLEAN, ADDRESS, ADDRESS),
-			Arena.global(),
-		)
+			)
+		}
+
+		private val viewClass by lazy {
+			ObjCRuntime.subclass(
+				"PrismPanelView",
+				NSView,
+				listOf(
+					Implemented("acceptsFirstMouse:", "B24@0:8@16", yesOf),
+					Implemented("rightMouseDown:", "v24@0:8@16", handsOn),
+				),
+			)
+		}
+
+		/** A non-activating panel [width] by [height] points, in the middle of the screen, not yet shown. */
+		fun make(width: Double, height: Double): Panel =
+			ObjC.pooled {
+				Arena.ofConfined().use { arena ->
+					val frame =
+						arena.allocate(NS_RECT).also {
+							it.set(JAVA_DOUBLE, 16, width)
+							it.set(JAVA_DOUBLE, 24, height)
+						}
+
+					val panel =
+						NSWindow.initWithContentRect(
+							NSObject.alloc.on(panelClass),
+							frame,
+							STYLE,
+							BUFFERED,
+							false,
+						)
+
+					val view = NSView.initWithFrame(NSObject.alloc.on(viewClass), frame)
+
+					check(!panel.isNil && !view.isNil) { "AppKit made no panel" }
+					// Kept by this until it is closed, and by nothing AppKit does on closing it.
+					NSWindow.setReleasedWhenClosed(panel, false)
+					NSWindow.setContentView(panel, view)
+					NSObject.release(view)
+					NSPanel.setFloatingPanel(panel, true)
+					NSPanel.setBecomesKeyOnlyIfNeeded(panel, false)
+					NSWindow.setHidesOnDeactivate(panel, false)
+					NSWindow.setLevel(panel, LEVEL)
+					NSWindow.setCollectionBehavior(panel, BEHAVIOUR)
+					NSWindow.center(panel)
+					Panel(panel)
+				}
+			}
+	}
 }
 
 /*
@@ -410,37 +468,22 @@ object Dock {
 	/** prism in the Dock, with [icon] (an image's bytes: SVG, PNG) as its icon, where [shown]; out of it where not. */
 	fun shown(shown: Boolean, icon: ByteArray?) {
 		ObjC.pooled {
-			val application =
-				ObjC
-					.cls(
-						"NSApplication",
-						Frameworks.appKit,
-					).send("sharedApplication")
+			val application = NSApplication.sharedApplication()
 
-			application.bool("setActivationPolicy:", if (shown) REGULAR else ACCESSORY)
+			NSApplication.setActivationPolicy(application, if (shown) REGULAR else ACCESSORY)
 			if (shown && icon != null)
-				java.lang.foreign.Arena.ofConfined().use { arena ->
+				Arena.ofConfined().use { arena ->
 					val data =
-						ObjC
-							.cls(
-								"NSData",
-							).send(
-								"dataWithBytes:length:",
-								arena.allocateFrom(java.lang.foreign.ValueLayout.JAVA_BYTE, *icon),
-								icon.size.toLong(),
-							)
+						NSData.dataWithBytes(
+							arena.allocateFrom(JAVA_BYTE, *icon),
+							icon.size.toLong(),
+						)
 
-					val image =
-						ObjC
-							.cls(
-								"NSImage",
-								Frameworks.appKit,
-							).send("alloc")
-							.send("initWithData:", data)
+					val image = NSImage.initWithData(NSObject.alloc.on(NSImage.cls), data)
 
 					if (!image.isNil) {
-						application.perform("setApplicationIconImage:", image)
-						image.perform("release")
+						NSApplication.setApplicationIconImage(application, image)
+						NSObject.release(image)
 					}
 				}
 		}

@@ -88,7 +88,7 @@ whether it is on the same volume, is known only once it is dropped.
 | windows | a title bar unless Display's "Titlebar" is off: asked of the compositor (xdg-decoration), which draws it, has prism draw it (GNOME), or draws none (niri) | the system's title bar, and the menu bar | the system's title bar |
 | in the Dock | | only while a window of the usual kind is open, with prism's icon; the daemon and the launcher are an accessory application | |
 | the launcher's key | the window manager's binding of `prism launcher` | the daemon's own: a Carbon hot key, ⌘Space once Spotlight's is turned off (docs/launcher.md, "On a Mac") | a hot key of the system's (`RegisterHotKey`) |
-| the launcher over every window | a layer surface, or a window kept in front | a non-activating panel, as Spotlight's is: SDL's window made one at run time, at a pop-up menu's level, on every Space and over full-screen applications | a topmost tool window |
+| the launcher over every window | a layer surface, or a window kept in front | a non-activating panel, as Spotlight's is: made by prism as AppKit makes one and given to SDL for its window, at a pop-up menu's level, on every Space and over full-screen applications | a topmost tool window |
 | hidden files | names starting with a dot | those, and the `UF_HIDDEN` flag (`~/Library`), later | the hidden attribute |
 | packaging | AppImage | a signed, notarized DMG (and signing is what keeps Full Disk Access granted across updates) | MSI |
 
@@ -96,21 +96,47 @@ Where a part stands apart from the platform, a port is an implementation behind 
 interfaces (docs/explorer.md, "Across platforms") with the trash among them, the index's `FileSystems`, the daemon's
 `Feed`, the browser's `FolderWatcher`, `OwnFolders`, the `Keyboard`, and drag and drop.
 
-### Reaching macOS
+### Reaching what is native
 
-macOS's own interfaces are Objective-C. prism reaches them as it reaches libc: through FFM, calling the Objective-C
-runtime's C functions (macos module, `objc.kt`). A class is found by its name (`objc_getClass`), a selector by its
-name (`sel_registerName`), and a message is sent by calling `objc_msgSend` as the method's own C function would be
-called, with the receiver and the selector first. On Apple silicon that is how every method is called, whatever it
-returns, so the one function, given each method's signature, reaches them all. Foundation's objects are
-CoreFoundation's (an NSString is a CFString), so CoreFoundation's C functions are used beside them.
+A native function is described twice by the FFM API: to the linker, as a descriptor of layouts, and at each call, by
+the Java types of what is passed and expected back, which are compared only as the call runs. So a call that passes
+a struct where a long was declared, or is compiled as returning a value where the function returns nothing, compiles,
+and fails the first time that line is reached; both happened on the first Mac prism ran on.
 
-What an Objective-C method returns lives until its autorelease pool is drained, so the objects are used inside
-`ObjC.pooled` and only Kotlin's values leave it: a `UniformType`, a `Bundle`, a path, a PNG's bytes. Blocks
-(Objective-C's closures), which FFM cannot make, are not needed. The methods prism calls take none, or take nil for
-one, and what needs a callback has a C function for it: FSEvents and Carbon's hot keys call an FFM upcall, and
-`dispatch_sync_f` is libdispatch's block-free form. So nothing of Swift is built, and the whole of it compiles on
-Linux. What it says of a type, a bundle or a volume is tested on a Mac, against the system itself.
+So a function is declared once (the ffi module), as an interface whose one method is its signature:
+
+```kotlin
+internal fun interface Free { operator fun invoke(pointer: MemorySegment) }
+
+private val free: Free = Library.system.bind("free")
+```
+
+What the linker is told is made from that method's own types (`Signature.of`), and the function is called through
+the interface, so the compiler checks every call against the very declaration the linker was given. A struct passed by
+value, a function whose errno is kept, and a C function's `...` are said beside it (`@ByValue`, `@KeepsErrno`,
+`@Variadic`); a callback is an interface likewise (`Library.upcall`). libc's calls (the linux module), libbpf's,
+libX11's and everything of macOS's are bound so. Wayland's (the window module) are still handles called with
+`invokeExact`, and are to follow.
+
+macOS's own interfaces are Objective-C, reached through its runtime's C functions (macos module): a class by its name,
+a selector by its name, and a message sent by calling `objc_msgSend` as the method's own C function would be called,
+which on Apple silicon is how every method is called. Each method prism sends is declared once too, as a value of its
+class's object (`classes.kt`):
+
+```kotlin
+data object NSFileManager : ObjCClass("NSFileManager") {
+	val trashItemAtURL = message("trashItemAtURL:resultingItemURL:error:", Obj, Ptr, Ptr, Bool)
+}
+```
+
+from which both the signature it is sent with and the Kotlin types of a call are made, so a call that passes the
+wrong thing does not compile, and no message is sent that is not declared. What the compiler cannot know is whether a
+declaration is the method Apple wrote. The runtime can: it keeps every method's own type encoding, and a test on a Mac
+compares each declaration with it (`MessagesTest`), every one, whether or not anything calls it.
+
+What a method answers lives until its autorelease pool is drained, so objects are used inside `ObjC.pooled` and only
+Kotlin's values leave it. No method prism calls takes a block, and what needs a callback has a C function for it
+(FSEvents, Carbon's hot keys, `dispatch_sync_f`), so nothing of Swift is built, and all of it compiles on Linux.
 
 ## macOS, as it stands
 

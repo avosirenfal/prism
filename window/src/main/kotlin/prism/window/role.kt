@@ -13,7 +13,7 @@ import androidx.compose.ui.unit.dp
  * |---|---|
  * | Wayland, where the compositor has layer-shell (niri, sway, Hyprland, KDE, COSMIC) | a surface in the overlay layer |
  * | Wayland without it (GNOME), and X11 | a window that cannot be resized, kept in front where it can be, which a window manager that tiles leaves floating |
- * | macOS, when prism is on it | a panel at a level above the windows' (`NSPanel`, non-activating, as Spotlight's is) |
+ * | macOS | a panel at a level above the windows' (`NSPanel`, non-activating, as Spotlight's is), made by prism and given to SDL |
  * | Windows, when prism is on it | a topmost tool window, in no taskbar |
  *
  * So what is asked for is said here in the platform's absence ([WindowRole.Overlay]: where, with what of the
@@ -99,6 +99,12 @@ internal sealed interface Surfacing {
 		val resizable: Boolean,
 		val inFront: Boolean,
 	) : Surfacing
+
+	/**
+	 * A Mac's non-activating panel, as Spotlight's is: over every window, on every Space, with the keyboard while the
+	 * application in front stays in front. Made by prism and given to SDL for its window (macos/launcher.kt).
+	 */
+	data object Panel : Surfacing
 
 	/** Wayland's layer-shell: a surface in the overlay layer, as [layer] says. */
 	data class Layer(
@@ -187,6 +193,8 @@ internal fun surfaceFor(
 		is WindowRole.Overlay ->
 			if (video == Video.Wayland && layerShell != null)
 				Surfacing.Layer(LayerSpec.of(role, layerShell), role.screen)
+			else if (video == Video.Cocoa)
+				Surfacing.Panel
 			else
 				Surfacing.Toplevel(
 					decorated = false,

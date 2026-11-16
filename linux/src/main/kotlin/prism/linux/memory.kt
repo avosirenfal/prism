@@ -5,6 +5,7 @@ import java.lang.foreign.MemorySegment
 import java.lang.foreign.ValueLayout.ADDRESS
 import java.lang.foreign.ValueLayout.JAVA_INT
 import java.lang.foreign.ValueLayout.JAVA_LONG
+import prism.ffi.KeepsErrno
 
 /** `mmap(2)` protections. */
 @JvmInline
@@ -22,35 +23,36 @@ value class Protection(
 /** `mmap(2)` sharing: the mapping is the file's (a BPF map's) own memory, not a copy. */
 private const val MAP_SHARED = 1
 
-private val mmapHandle =
-	Libc.capturing(
-		"mmap",
-		FunctionDescriptor.of(
-			ADDRESS,
-			ADDRESS,
-			JAVA_LONG,
-			JAVA_INT,
-			JAVA_INT,
-			JAVA_INT,
-			JAVA_LONG,
-		),
-	)
-private val munmapHandle =
-	Libc.capturing(
-		"munmap",
-		FunctionDescriptor.of(JAVA_INT, ADDRESS, JAVA_LONG),
-	)
-private val sysconfHandle =
-	Libc.plain(
-		"sysconf",
-		FunctionDescriptor.of(JAVA_LONG, JAVA_INT),
-	)
+internal fun interface Mmap {
+	@KeepsErrno
+	operator fun invoke(
+		address: MemorySegment,
+		length: Long,
+		protection: Int,
+		flags: Int,
+		fd: Int,
+		offset: Long,
+	): MemorySegment
+}
+
+internal fun interface Munmap {
+	@KeepsErrno
+	operator fun invoke(address: MemorySegment, length: Long): Int
+}
+
+internal fun interface Sysconf {
+	operator fun invoke(name: Int): Long
+}
+
+private val mmapCall: Mmap = Libc.bind("mmap")
+private val munmapCall: Munmap = Libc.bind("munmap")
+private val sysconfCall: Sysconf = Libc.bind("sysconf")
 
 /** `MAP_FAILED`. */
 private const val MAP_FAILED = -1L
 
 /** The size of a page of memory: what a mapping's offsets and lengths are multiples of. */
-val pageSize: Long = sysconfHandle.invokeExact(30) as Long
+val pageSize: Long = sysconfCall(30)
 
 /**
  * A shared memory map of [length] bytes of [fd] from [offset]: the bytes themselves, which the caller unmaps with
@@ -64,16 +66,7 @@ class Mapping internal constructor(
 
 fun map(fd: Fd, length: Long, offset: Long, protection: Protection): Sys<Mapping> {
 	val address =
-		mmapHandle.invokeExact(
-			CallState.segment(),
-			MemorySegment.NULL,
-			length,
-			protection.bits,
-			MAP_SHARED,
-			fd.number,
-			offset,
-		)
-			as MemorySegment
+		mmapCall(MemorySegment.NULL, length, protection.bits, MAP_SHARED, fd.number, offset)
 
 	return if (address.address() == MAP_FAILED)
 		Sys.Failed("mmap", CallState.errno())
@@ -83,11 +76,7 @@ fun map(fd: Fd, length: Long, offset: Long, protection: Protection): Sys<Mapping
 
 fun unmap(mapping: Mapping): Sys<Unit> {
 	val result =
-		munmapHandle.invokeExact(
-			CallState.segment(),
-			mapping.segment,
-			mapping.length,
-		) as Int
+		munmapCall(mapping.segment, mapping.length)
 
 	return CallState.outcome("munmap", result.toLong()) { }
 }

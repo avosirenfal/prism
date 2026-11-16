@@ -6,6 +6,7 @@ import java.lang.foreign.MemorySegment
 import java.lang.foreign.ValueLayout.ADDRESS
 import java.lang.foreign.ValueLayout.JAVA_INT
 import java.lang.foreign.ValueLayout.JAVA_LONG
+import prism.ffi.KeepsErrno
 
 /**
  * `struct epoll_event`: the events, then 64 bits the caller chose. Packed on x86-64 (12 bytes, the data unaligned)
@@ -21,21 +22,24 @@ private const val EPOLLIN = 1
 private const val EPOLL_CTL_ADD = 1
 private const val EPOLL_CLOEXEC = 0x80000
 
-private val createHandle =
-	Libc.capturing(
-		"epoll_create1",
-		FunctionDescriptor.of(JAVA_INT, JAVA_INT),
-	)
-private val ctlHandle =
-	Libc.capturing(
-		"epoll_ctl",
-		FunctionDescriptor.of(JAVA_INT, JAVA_INT, JAVA_INT, JAVA_INT, ADDRESS),
-	)
-private val waitHandle =
-	Libc.capturing(
-		"epoll_wait",
-		FunctionDescriptor.of(JAVA_INT, JAVA_INT, ADDRESS, JAVA_INT, JAVA_INT),
-	)
+internal fun interface EpollCreate1 {
+	@KeepsErrno
+	operator fun invoke(flags: Int): Int
+}
+
+internal fun interface EpollCtl {
+	@KeepsErrno
+	operator fun invoke(epoll: Int, operation: Int, fd: Int, event: MemorySegment): Int
+}
+
+internal fun interface EpollWait {
+	@KeepsErrno
+	operator fun invoke(epoll: Int, events: MemorySegment, most: Int, timeout: Int): Int
+}
+
+private val createCall: EpollCreate1 = Libc.bind("epoll_create1")
+private val ctlCall: EpollCtl = Libc.bind("epoll_ctl")
+private val waitCall: EpollWait = Libc.bind("epoll_wait")
 
 /** How long a wait waits: not at all, a bound, or until something is ready. */
 sealed interface Wait {
@@ -76,13 +80,7 @@ class Epoll private constructor(
 			event.set(unalignedLong, dataOffset, tag)
 
 			val result =
-				ctlHandle.invokeExact(
-					CallState.segment(),
-					fd.number,
-					EPOLL_CTL_ADD,
-					watched.number,
-					event,
-				) as Int
+				ctlCall(fd.number, EPOLL_CTL_ADD, watched.number, event)
 
 			CallState.outcome("epoll_ctl", result.toLong()) { }
 		}
@@ -90,13 +88,7 @@ class Epoll private constructor(
 	/** The tags of the descriptors with input, after waiting as [wait] says; none when it timed out or was interrupted. */
 	fun await(wait: Wait): Sys<List<Long>> {
 		val ready =
-			waitHandle.invokeExact(
-				CallState.segment(),
-				fd.number,
-				events,
-				capacity,
-				wait.millis,
-			) as Int
+			waitCall(fd.number, events, capacity, wait.millis)
 
 		return when {
 			ready >= 0 ->
@@ -120,7 +112,7 @@ class Epoll private constructor(
 	companion object {
 		/** A new instance reporting up to [capacity] ready descriptors a wait; its events live in [arena]. */
 		fun create(arena: Arena, capacity: Int = 16): Sys<Epoll> {
-			val result = createHandle.invokeExact(CallState.segment(), EPOLL_CLOEXEC) as Int
+			val result = createCall(EPOLL_CLOEXEC)
 
 			return CallState.outcome("epoll_create1", result.toLong()) {
 				Epoll(Fd(it.toInt()), arena.allocate(capacity * eventSize, 8), capacity)
