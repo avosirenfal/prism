@@ -19,6 +19,7 @@ import org.junit.jupiter.api.DynamicTest.dynamicTest
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.TestFactory
 import org.junit.jupiter.api.io.TempDir
+import prism.desktop.freedesktop.FreedesktopTrash
 import prism.desktop.freedesktop.XdgPlaces
 import prism.preferences.Kind
 
@@ -144,7 +145,11 @@ class ArchivesTest {
 	/** An explorer on [folder], with what ships read as if only [programs] were installed. */
 	private fun exploring(folder: Path, programs: Set<String>): BrowserState {
 		val services =
-			Services(JvmDisk(trash = Trash(bin)), home = root, temps = Temps(root.resolve("tmp")))
+			Services(
+				JvmDisk(trash = FreedesktopTrash(bin)),
+				home = root,
+				temps = Temps(root.resolve("tmp")),
+			)
 
 		this.services = services
 

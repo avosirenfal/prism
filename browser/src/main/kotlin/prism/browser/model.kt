@@ -7,6 +7,7 @@ import prism.desktop.Place
 import prism.desktop.Storage
 import prism.desktop.StoreKind
 import prism.desktop.TerminalChoice
+import prism.desktop.Trashed
 import prism.index.query.AliasProblem
 import prism.index.query.Aliases
 import prism.preferences.Builtin

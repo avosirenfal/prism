@@ -1,6 +1,5 @@
-package prism.browser
+package prism.desktop.freedesktop
 
-import androidx.compose.runtime.Immutable
 import java.io.IOException
 import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.FileAlreadyExistsException
@@ -22,6 +21,12 @@ import kotlin.io.path.isDirectory
 import kotlin.io.path.listDirectoryEntries
 import kotlin.io.path.name
 import kotlin.io.path.readLines
+import prism.desktop.Trash
+import prism.desktop.TrashEntry
+import prism.desktop.TrashFor
+import prism.desktop.Trashed
+import prism.desktop.erased
+import prism.desktop.map
 import prism.linux.AtFlags
 import prism.linux.Fd
 import prism.linux.Mount
@@ -29,9 +34,10 @@ import prism.linux.Mounts
 import prism.linux.Sys
 import prism.linux.statx
 import prism.linux.uid
+import prism.platform.XdgHomes
 
 /*
- * The user's trashes, as the freedesktop.org trash specification lays them out, so that what prism trashes is in the
+ * The user's trashes on Linux, as the freedesktop.org trash specification lays them out, so that what prism trashes is in the
  * desktop's own trash, and any file manager can put it back. A trash is a folder holding two: `files`, what was
  * trashed, and `info`, a `.trashinfo` record for each, saying where it came from and when.
  *
@@ -44,8 +50,7 @@ import prism.linux.uid
  * shows of itself (/proc, /sys). Where there is no trash, nothing is deleted without the user saying so.
  */
 
-/** A trash: [root], holding `files` and `info`. */
-@Immutable
+/** A trash of freedesktop.org's: [root], holding `files` and `info`. */
 sealed interface Bin {
 	val root: Path
 
@@ -63,28 +68,6 @@ sealed interface Bin {
 		val top: Path,
 	) : Bin
 }
-
-/** Where something is trashed: [In] a bin, or [Nowhere], and why. */
-sealed interface TrashFor {
-	data class In(
-		val bin: Bin,
-	) : TrashFor
-
-	data class Nowhere(
-		val why: String,
-	) : TrashFor
-}
-
-/** An entry of a trash, as its record says: when it was trashed ([deleted], where the record says), and what it is. */
-@Immutable
-data class TrashEntry(
-	val trashed: Trashed,
-	val deleted: Instant?,
-	val folder: Boolean,
-	val size: Long?,
-	/** When it was last modified, before it was trashed. */
-	val modified: Instant? = null,
-)
 
 /** The mounts, as the trash needs to know them: which there are, and which a path is on. */
 interface MountTable {
@@ -134,16 +117,16 @@ interface MountTable {
  * The trashes of the user [uid]: [home], the home trash, and one at the top of each other mount, as [mounts] says
  * there are.
  */
-class Trash(
+class FreedesktopTrash(
 	private val home: Path,
 	private val uid: Int = currentUid(),
 	private val mounts: MountTable = MountTable.System,
-) {
+) : Trash {
 	/**
 	 * Where [path] is trashed: the trash of the mount it is on, made where the specification says to make it as it is
 	 * needed; or nowhere, and why.
 	 */
-	fun binFor(path: Path): TrashFor {
+	fun binFor(path: Path): TrashFor<Bin> {
 		val absolute = path.toAbsolutePath().normalize()
 		// An entry is in its folder, whose mount it is moved within; a mount point itself cannot be moved at all.
 		val folder =
@@ -203,8 +186,10 @@ class Trash(
 		return Trashed(path.toAbsolutePath(), claimed, bin.root)
 	}
 
+	override fun whereFor(path: Path): TrashFor<Path> = binFor(path).map { it.root }
+
 	/** [path] moved into its own trash: [binFor]'s, which fails where it is nowhere. */
-	fun put(path: Path): Trashed =
+	override fun put(path: Path): Trashed =
 		when (val where = binFor(path)) {
 			is TrashFor.In -> put(path, where.bin)
 			is TrashFor.Nowhere -> throw IOException(
@@ -216,7 +201,7 @@ class Trash(
 	 * [entry] put back where it was, never over something there now, and its record removed; answered with where it
 	 * is back.
 	 */
-	fun putBack(entry: Trashed): Path {
+	override fun putBack(entry: Trashed): Path {
 		val kept = entry.bin.resolve("files").resolve(entry.name)
 
 		if (!Files.exists(kept, LinkOption.NOFOLLOW_LINKS))
@@ -233,7 +218,7 @@ class Trash(
 	}
 
 	/** [entry] deleted for good, with its record. */
-	fun erase(entry: Trashed) {
+	override fun erase(entry: Trashed) {
 		erased(entry.bin.resolve("files").resolve(entry.name))
 		Files.deleteIfExists(recordOf(entry))
 	}
@@ -257,7 +242,7 @@ class Trash(
 	}
 
 	/** What every trash holds, as their records say: an entry with no record, or a record with no entry, is left out. */
-	fun entries(zone: ZoneId = ZoneId.systemDefault()): List<TrashEntry> =
+	override fun entries(zone: ZoneId): List<TrashEntry> =
 		bins().flatMap { entriesOf(it, zone) }
 
 	private fun entriesOf(bin: Bin, zone: ZoneId): List<TrashEntry> {
@@ -294,7 +279,7 @@ class Trash(
 	}
 
 	/** The trash at the top of the mount at [top]: the shared one where there is one fit to use, or the user's own. */
-	private fun topOf(top: Path): TrashFor {
+	private fun topOf(top: Path): TrashFor<Bin> {
 		sharedOf(top)?.let { mine ->
 			if (made(mine))
 				return TrashFor.In(Bin.Top(mine, top))
@@ -384,13 +369,8 @@ class Trash(
 
 	companion object {
 		/** The trash of the user this runs as: `$XDG_DATA_HOME/Trash`, which is `~/.local/share/Trash` by default. */
-		fun ofUser(environment: Map<String, String> = System.getenv()): Trash =
-			Trash(
-				(
-					environment["XDG_DATA_HOME"]?.takeIf { it.startsWith("/") }?.let { Path(it) }
-						?: Path(System.getProperty("user.home"), ".local", "share")
-				).resolve("Trash"),
-			)
+		fun ofUser(environment: Map<String, String> = System.getenv()): FreedesktopTrash =
+			FreedesktopTrash(XdgHomes(environment).data.resolve("Trash"))
 
 		/** The user this process runs as, where the platform says (Linux); nobody's otherwise, which owns no trash. */
 		private fun currentUid(): Int =
@@ -548,34 +528,4 @@ class Trash(
 				null
 			}
 	}
-}
-
-/**
- * [path] deleted for good, with all it holds; a link is deleted itself, never what it leads to. Throws at the first
- * entry that cannot be, having deleted what came before it.
- */
-fun erased(path: Path) {
-	if (!Files.isDirectory(path, LinkOption.NOFOLLOW_LINKS)) {
-		Files.delete(path)
-
-		return
-	}
-
-	Files.walkFileTree(
-		path,
-		object : SimpleFileVisitor<Path>() {
-			override fun visitFile(file: Path, attributes: BasicFileAttributes): FileVisitResult {
-				Files.delete(file)
-
-				return FileVisitResult.CONTINUE
-			}
-
-			override fun postVisitDirectory(folder: Path, failed: IOException?): FileVisitResult {
-				failed?.let { throw it }
-				Files.delete(folder)
-
-				return FileVisitResult.CONTINUE
-			}
-		},
-	)
 }

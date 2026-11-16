@@ -23,6 +23,7 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Assumptions.assumeTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
+import prism.desktop.freedesktop.FreedesktopTrash
 import prism.desktop.freedesktop.XdgPlaces
 
 /**
@@ -38,7 +39,9 @@ class PlacesTest {
 	@TempDir
 	lateinit var bin: Path
 
-	private val services by lazy { Services(JvmDisk(trash = Trash(bin)), home = root) }
+	private val services by lazy {
+		Services(JvmDisk(trash = FreedesktopTrash(bin)), home = root)
+	}
 	private val world get() = services.world
 
 	/** What ships, read for this machine: each action as the first of its ways whose programs are installed here. */

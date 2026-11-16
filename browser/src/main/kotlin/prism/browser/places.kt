@@ -22,6 +22,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.longOrNull
+import prism.desktop.Trashed
 import prism.desktop.asChildOfPrism
 import prism.index.Given
 import prism.index.Index

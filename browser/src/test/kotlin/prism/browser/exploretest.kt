@@ -26,6 +26,7 @@ import prism.desktop.Place
 import prism.desktop.Places
 import prism.desktop.Read
 import prism.desktop.TerminalChoice
+import prism.desktop.freedesktop.FreedesktopTrash
 import prism.preferences.Builtin
 import prism.preferences.Held
 import prism.preferences.MemoryPreferences
@@ -124,7 +125,7 @@ class ExploreTest {
 
 	private fun services() =
 		Services(
-			JvmDisk(Trash(bin)),
+			JvmDisk(FreedesktopTrash(bin)),
 			desktop = desktop,
 			clipboard = clipboard,
 			preferences = preferences,

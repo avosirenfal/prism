@@ -15,6 +15,7 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Assumptions.assumeTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
+import prism.desktop.freedesktop.FreedesktopTrash
 import prism.desktop.freedesktop.XdgPlaces
 import prism.window.DragKeys
 
@@ -30,7 +31,7 @@ class DropTest {
 	@TempDir
 	lateinit var bin: Path
 
-	private val disk get() = JvmDisk(Trash(bin))
+	private val disk get() = JvmDisk(FreedesktopTrash(bin))
 
 	private fun made(vararg files: String) =
 		files.forEach { name ->

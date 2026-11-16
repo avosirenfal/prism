@@ -4,6 +4,7 @@ import java.nio.file.Path
 import java.time.Instant
 import kotlin.io.path.Path
 import prism.desktop.Place
+import prism.desktop.Trashed
 import prism.preferences.Builtin
 import prism.preferences.Hidden
 import prism.preferences.QuickAccess

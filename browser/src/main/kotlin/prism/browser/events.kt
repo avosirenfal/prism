@@ -8,6 +8,7 @@ import prism.desktop.Opening
 import prism.desktop.Storage
 import prism.desktop.StoreKind
 import prism.desktop.TerminalChoice
+import prism.desktop.Trashed
 import prism.index.query.Aliases
 import prism.index.query.Query
 import prism.preferences.Align
@@ -1177,14 +1178,6 @@ sealed interface Change {
 data class Moved(
 	val from: Path,
 	val to: Path,
-)
-
-/** An entry of a trash: where it was, the name the trash keeps it under, and the trash ([bin], its folder). */
-@Immutable
-data class Trashed(
-	val original: Path,
-	val name: String,
-	val bin: Path,
 )
 
 /** A file the trash could not take, on a drive with none: and why there is none. */

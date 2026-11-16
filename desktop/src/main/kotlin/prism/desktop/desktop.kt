@@ -21,6 +21,9 @@ interface Desktop {
 	/** Where the pictures applications are known by are found; nowhere, where the desktop has none. */
 	val icons: Icons get() = Icons.NONE
 
+	/** The user's trash: the platform's own, which its file manager shows too. */
+	val trash: Trash get() = Trash.ofUser()
+
 	/** The machine's drives and what is on them, as the System page shows them; none, where the desktop knows none. */
 	val storage: StorageReader get() = StorageReader { Storage(emptyList()) }
 

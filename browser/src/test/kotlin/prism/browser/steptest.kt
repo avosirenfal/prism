@@ -13,6 +13,7 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import prism.browser.Fixtures.home
 import prism.browser.Fixtures.picker
+import prism.desktop.Trashed
 import prism.preferences.Align
 import prism.preferences.ColumnId
 import prism.preferences.Filters

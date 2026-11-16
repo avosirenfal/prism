@@ -12,6 +12,9 @@ import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
+import prism.desktop.Trashed
+import prism.desktop.freedesktop.Bin
+import prism.desktop.freedesktop.FreedesktopTrash
 
 /** What the JVM's disk does to real files when the picker asks it: renaming, making a folder, deleting, the trash. */
 class DiskTest {
@@ -21,7 +24,7 @@ class DiskTest {
 	@TempDir
 	lateinit var bin: Path
 
-	private val disk get() = JvmDisk(trash = Trash(bin))
+	private val disk get() = JvmDisk(trash = FreedesktopTrash(bin))
 
 	@Test
 	fun aRenameNeverGoesOverWhatIsThereAndIsUndoneByRenamingBack() {
@@ -90,7 +93,7 @@ class DiskTest {
 
 		assertTrue(
 			info.startsWith(
-				"[Trash Info]\nPath=${Trash.escaped(notes.toString())}\nDeletionDate=",
+				"[Trash Info]\nPath=${FreedesktopTrash.escaped(notes.toString())}\nDeletionDate=",
 			),
 			info,
 		)
@@ -155,11 +158,14 @@ class DiskTest {
 
 	@Test
 	fun aTrashedPathIsWrittenAsAUrlsPathIs() {
-		assertEquals("/home/a%20b/%C3%A9t%C3%A9%2B1.txt", Trash.escaped("/home/a b/été+1.txt"))
+		assertEquals(
+			"/home/a%20b/%C3%A9t%C3%A9%2B1.txt",
+			FreedesktopTrash.escaped("/home/a b/été+1.txt"),
+		)
 		assertEquals(
 			"[Trash Info]\nPath=/tmp/x\nDeletionDate=2026-11-09T10:20:30\n",
-			Trash.infoOf(
-				Trash.writtenPathOf(Path.of("/tmp/x"), Bin.Home(bin)),
+			FreedesktopTrash.infoOf(
+				FreedesktopTrash.writtenPathOf(Path.of("/tmp/x"), Bin.Home(bin)),
 				LocalDateTime.of(2026, 11, 9, 10, 20, 30, 500),
 			),
 		)

@@ -69,6 +69,7 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Assumptions.assumeTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
+import prism.desktop.freedesktop.FreedesktopTrash
 import prism.desktop.freedesktop.XdgPlaces
 import prism.preferences.Builtin
 import prism.preferences.ColumnId
@@ -142,7 +143,7 @@ class InteractionTest {
 									BrowserState.NO_INDEX,
 								),
 						),
-						Services(JvmDisk(trash = Trash(bin)), finder, preferences = preferences),
+						Services(JvmDisk(trash = FreedesktopTrash(bin)), finder, preferences = preferences),
 						scope,
 						clipboard = { copied += it },
 					)

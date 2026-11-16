@@ -31,6 +31,7 @@ import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
+import prism.desktop.freedesktop.FreedesktopTrash
 import prism.desktop.freedesktop.XdgPlaces
 import prism.preferences.ColumnId
 import prism.preferences.Kind
@@ -395,7 +396,7 @@ class ChangedTest {
 
 			slow.resolve("a.txt").writeText("a")
 
-			val real = JvmDisk(trash = Trash(root.resolve("bin")))
+			val real = JvmDisk(trash = FreedesktopTrash(root.resolve("bin")))
 			val read = java.util.concurrent.CountDownLatch(1)
 
 			val waiting =
@@ -471,7 +472,7 @@ class ChangedTest {
 			repeat(1000) { watched.resolve("file-%04d.txt".format(it)).writeText("$it") }
 			watched.resolve(".history").writeText("")
 
-			val real = JvmDisk(trash = Trash(root.resolve("bin")))
+			val real = JvmDisk(trash = FreedesktopTrash(root.resolve("bin")))
 			val folders = AtomicInteger()
 			val asked = CopyOnWriteArrayList<String>()
 

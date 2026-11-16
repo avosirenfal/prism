@@ -38,7 +38,12 @@ import prism.desktop.Opening
 import prism.desktop.Place
 import prism.desktop.Places
 import prism.desktop.Storage
+import prism.desktop.Trash
+import prism.desktop.TrashEntry
+import prism.desktop.TrashFor
+import prism.desktop.Trashed
 import prism.desktop.currentDesktop
+import prism.desktop.erased
 import prism.index.SearchContext
 import prism.index.Searched
 import prism.index.search
@@ -492,7 +497,7 @@ class JvmDisk(
 			val failed: String? = null,
 		)
 
-		val wheres = paths.map { it to trash.binFor(it) }
+		val wheres = paths.map { it to trash.whereFor(it) }
 		val nowhere =
 			wheres.mapNotNull { (path, where) ->
 				(where as? TrashFor.Nowhere)?.let { Untrashable(path, it.why) }
@@ -500,10 +505,10 @@ class JvmDisk(
 
 		val gone =
 			wheres.fold(Going()) { going, (path, where) ->
-				if (going.failed != null || where !is TrashFor.In)
+				if (going.failed != null || where !is TrashFor.In<*>)
 					going
 				else
-					when (val put = tried { trash.put(path, where.bin) }) {
+					when (val put = tried { trash.put(path) }) {
 						is Tried.Did -> going.copy(moved = going.moved + put.value)
 						is Tried.Failed -> going.copy(failed = put.why)
 					}

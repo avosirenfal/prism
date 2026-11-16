@@ -5,6 +5,7 @@ import java.nio.file.Path
 import java.time.Instant
 import java.time.ZoneId
 import prism.desktop.Launched
+import prism.desktop.Trashed
 import prism.index.query.AliasName
 import prism.index.query.Aliases
 import prism.index.query.Own

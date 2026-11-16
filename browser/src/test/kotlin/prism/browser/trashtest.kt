@@ -14,6 +14,11 @@ import org.junit.jupiter.api.Assertions.assertInstanceOf
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
+import prism.desktop.TrashFor
+import prism.desktop.Trashed
+import prism.desktop.freedesktop.Bin
+import prism.desktop.freedesktop.FreedesktopTrash
+import prism.desktop.freedesktop.MountTable
 import prism.linux.Dev
 import prism.linux.KernelDev
 import prism.linux.Mount
@@ -51,7 +56,7 @@ class TrashTest {
 	private fun mount(id: Long, at: Path, type: String, source: String) =
 		Mount(id, KernelDev(Dev(0, id.toInt())), "/", at, type, source)
 
-	private val trash get() = Trash(homeTrash, uid, mounts)
+	private val trash get() = FreedesktopTrash(homeTrash, uid, mounts)
 
 	private fun made(path: Path, text: String = "text"): Path =
 		path.also {
@@ -71,7 +76,7 @@ class TrashTest {
 				.resolve(
 					"info/notes.md.trashinfo",
 				).readText()
-				.contains("Path=${Trash.escaped(notes.toString())}\n"),
+				.contains("Path=${FreedesktopTrash.escaped(notes.toString())}\n"),
 		)
 	}
 
@@ -195,10 +200,16 @@ class TrashTest {
 
 		assertEquals(
 			drive.resolve("a b/é.txt"),
-			Trash.originalOf(Trash.writtenPathOf(drive.resolve("a b/é.txt"), top), top),
+			FreedesktopTrash.originalOf(
+				FreedesktopTrash.writtenPathOf(drive.resolve("a b/é.txt"), top),
+				top,
+			),
 		)
 		// A relative path that would climb out of its mount is not one this trash's entries can have.
-		assertEquals(null, Trash.originalOf("../etc/passwd", top))
-		assertEquals(Path.of("/etc/hosts"), Trash.originalOf("/etc/hosts", Bin.Home(homeTrash)))
+		assertEquals(null, FreedesktopTrash.originalOf("../etc/passwd", top))
+		assertEquals(
+			Path.of("/etc/hosts"),
+			FreedesktopTrash.originalOf("/etc/hosts", Bin.Home(homeTrash)),
+		)
 	}
 }
