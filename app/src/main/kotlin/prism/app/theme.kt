@@ -1,26 +1,36 @@
 package prism.app
 
+import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeoutOrNull
 import prism.browser.Palette
 import prism.cli.ParamType
+import prism.macos.prefersDark
+import prism.platform.Os
 import prism.portal.ColorScheme
 import prism.portal.sessionColorScheme
 
 /*
  * Which palette the picker is drawn in. By default, the one the desktop's colour scheme asks for, as the portal
  * reports it and each time it changes: dark where the user prefers dark, light otherwise, and light where there is no
- * session bus or no portal to ask. A user who names a palette gets that one throughout.
+ * session bus or no portal to ask. On a Mac, the appearance the user has chosen in System Settings, asked each second
+ * (it is one preference read, and the system says nothing of a change to a process that is not an application of its
+ * own). A user who names a palette gets that one throughout.
  */
 
 /** Which palette: the desktop's, or one named. */
@@ -80,7 +90,7 @@ class Appearance private constructor(
 			val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 			val changes =
 				if (theme == Theme.Auto)
-					sessionColorScheme(environment).shareIn(scope, SharingStarted.Eagerly, replay = 1)
+					desktopColorScheme(environment).shareIn(scope, SharingStarted.Eagerly, replay = 1)
 				else
 					flowOf(ColorScheme.NoPreference)
 
@@ -92,3 +102,26 @@ class Appearance private constructor(
 		}
 	}
 }
+
+/** The desktop's colour scheme, as it changes: the portal's on Linux, the appearance chosen on a Mac. */
+fun desktopColorScheme(
+	environment: Map<String, String> = System.getenv(),
+): Flow<ColorScheme> =
+	when (Os.current) {
+		Os.MacOS -> macColorScheme()
+		Os.Linux, Os.Windows -> sessionColorScheme(environment)
+	}
+
+/** A Mac's appearance, asked every [every]: dark or light, as it is first and each time it changes. */
+fun macColorScheme(every: Duration = 1.seconds): Flow<ColorScheme> =
+	flow {
+		while (true) {
+			emit(
+				if (prefersDark())
+					ColorScheme.PreferDark
+				else
+					ColorScheme.PreferLight,
+			)
+			delay(every)
+		}
+	}.distinctUntilChanged().flowOn(Dispatchers.IO)

@@ -4,6 +4,7 @@ import org.lwjgl.sdl.SDLError.SDL_GetError
 import org.lwjgl.sdl.SDLHints.SDL_HINT_APP_ID
 import org.lwjgl.sdl.SDLHints.SDL_HINT_APP_NAME
 import org.lwjgl.sdl.SDLHints.SDL_HINT_FRAMEBUFFER_ACCELERATION
+import org.lwjgl.sdl.SDLHints.SDL_HINT_MAC_CTRL_CLICK_EMULATE_RIGHT_CLICK
 import org.lwjgl.sdl.SDLHints.SDL_HINT_MOUSE_FOCUS_CLICKTHROUGH
 import org.lwjgl.sdl.SDLHints.SDL_HINT_QUIT_ON_LAST_WINDOW_CLOSE
 import org.lwjgl.sdl.SDLHints.SDL_HINT_VIDEO_ALLOW_SCREENSAVER
@@ -209,8 +210,13 @@ internal class Sdl private constructor(
 		fun start(appId: String, drawing: Drawing): Sdl {
 			SDL_SetHint(SDL_HINT_APP_ID, appId)
 			SDL_SetHint(SDL_HINT_APP_NAME, appId)
-			// A click on a window that is not focused acts as well as focusing it, as on every desktop but macOS.
-			SDL_SetHint(SDL_HINT_MOUSE_FOCUS_CLICKTHROUGH, "1")
+			// A click on a window that is not focused acts as well as focusing it, as on every desktop but macOS, where
+			// the first click only brings the window forward; and Ctrl with a click is a right click there, as a Mac has
+			// it for a mouse of one button.
+			if (Platform.get() == Platform.MACOSX)
+				SDL_SetHint(SDL_HINT_MAC_CTRL_CLICK_EMULATE_RIGHT_CLICK, "1")
+			else
+				SDL_SetHint(SDL_HINT_MOUSE_FOCUS_CLICKTHROUGH, "1")
 			SDL_SetHint(SDL_HINT_VIDEO_ALLOW_SCREENSAVER, "1")
 			// Which windows are open, and whether the application goes on with none, is the application's to say: a
 			// process that opens windows for others (prism's daemon) is not ended by its last one being closed.

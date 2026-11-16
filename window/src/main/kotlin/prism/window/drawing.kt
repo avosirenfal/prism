@@ -28,6 +28,12 @@ import org.lwjgl.sdl.SDLPixels.SDL_PIXELFORMAT_ARGB8888
 import org.lwjgl.sdl.SDLVideo.SDL_CreateWindow
 import org.lwjgl.sdl.SDLVideo.SDL_DestroyWindow
 import org.lwjgl.sdl.SDLVideo.SDL_GL_ALPHA_SIZE
+import org.lwjgl.sdl.SDLVideo.SDL_GL_CONTEXT_FLAGS
+import org.lwjgl.sdl.SDLVideo.SDL_GL_CONTEXT_FORWARD_COMPATIBLE_FLAG
+import org.lwjgl.sdl.SDLVideo.SDL_GL_CONTEXT_MAJOR_VERSION
+import org.lwjgl.sdl.SDLVideo.SDL_GL_CONTEXT_MINOR_VERSION
+import org.lwjgl.sdl.SDLVideo.SDL_GL_CONTEXT_PROFILE_CORE
+import org.lwjgl.sdl.SDLVideo.SDL_GL_CONTEXT_PROFILE_MASK
 import org.lwjgl.sdl.SDLVideo.SDL_GL_CreateContext
 import org.lwjgl.sdl.SDLVideo.SDL_GL_DestroyContext
 import org.lwjgl.sdl.SDLVideo.SDL_GL_GetAttribute
@@ -43,6 +49,7 @@ import org.lwjgl.sdl.SDLVideo.SDL_WINDOW_OPENGL
 import org.lwjgl.sdl.SDLVideo.nSDL_GL_GetProcAddress
 import org.lwjgl.system.MemoryStack
 import org.lwjgl.system.MemoryUtil
+import org.lwjgl.system.Platform
 
 /*
  * How a window's pixels are made: by Skia, on the GPU through OpenGL where there is a GPU, and on the CPU where there
@@ -252,10 +259,20 @@ internal sealed interface Pixels : AutoCloseable {
 			 * OpenGL's attributes, set before a window of OpenGL's is made: a stencil, which Skia clips with, and, for
 			 * a window that is to be clear, an [alpha] channel in its framebuffer. They are SDL's for every window made
 			 * after, so a window that asks for alpha says so as it is made and takes it back once it is.
+			 *
+			 * macOS gives the OpenGL of 2006 (2.1) unless a core profile is asked for, and then its last (4.1), which
+			 * Skia draws with as it does with any other: so on macOS a core profile of 3.2 or later is asked for, as
+			 * Apple says to. Elsewhere the driver's default is what Skia is given, as before.
 			 */
 			fun configure(alpha: Boolean = false) {
 				SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, STENCIL_BITS)
 				SDL_GL_SetAttribute(SDL_GL_ALPHA_SIZE, if (alpha) ALPHA_BITS else 0)
+				if (Platform.get() == Platform.MACOSX) {
+					SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE)
+					SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3)
+					SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 2)
+					SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS, SDL_GL_CONTEXT_FORWARD_COMPATIBLE_FLAG)
+				}
 			}
 
 			/** How many bits of alpha the framebuffer of the context now current has, as OpenGL was configured. */

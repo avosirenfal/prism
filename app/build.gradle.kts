@@ -20,6 +20,8 @@ dependencies {
 	implementation(project(":index"))
 	implementation(project(":daemon"))
 	implementation(project(":portal"))
+	// A Mac's own: its appearance, and the rest of what the app asks of the system there.
+	implementation(project(":macos"))
 
 	testImplementation(testFixtures(project(":dbus")))
 }
