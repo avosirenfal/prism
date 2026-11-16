@@ -191,7 +191,7 @@ class HotKey private constructor(
 					JAVA_INT,
 					JAVA_INT,
 					JAVA_INT,
-					JAVA_LONG,
+					HOT_KEY_ID,
 					ADDRESS,
 					JAVA_INT,
 					ADDRESS,
@@ -308,9 +308,17 @@ class HotKey private constructor(
 }
 
 /*
- * The launcher's window over every other: at the level of a menu that has popped up, on every Space and beside an
- * application that fills the screen, and not among the windows ⌘` goes through; the application brought forward with
- * it, so it has the keyboard, and the application that was in front before brought forward again as it goes.
+ * The launcher's window over every other, as Spotlight's is: a non-activating panel, which is given the keyboard
+ * without its application being brought forward, so the application in front stays in front (its menu bar, its
+ * windows' focus) while the launcher is typed into, and nothing has to be given back as it goes. It is at the level of a
+ * menu that has popped up, on every Space and beside an application that fills the screen, and not among the windows
+ * ⌘` goes through.
+ *
+ * A panel is made a panel as it is made, and SDL makes windows: so SDL's window is made one after, as Tauri's
+ * windows are made panels. A class is made at run time whose superclass is NSPanel and which has every method of
+ * SDL's window class (which adds no fields to NSWindow's, nor NSPanel to them, so the object is the same size either
+ * way), and the window's class is set to it; with the non-activating style, it is a panel. Its own methods say it
+ * becomes the key window (it is typed into) and never the main one (it is no document's window).
  */
 
 /** A launcher's window on a Mac. */
@@ -321,41 +329,120 @@ object Overlay {
 	/** `canJoinAllSpaces`, `ignoresCycle` and `fullScreenAuxiliary`. */
 	private const val BEHAVIOUR = (1L shl 0) or (1L shl 6) or (1L shl 8)
 
-	private val application get() =
-		ObjC
-			.cls(
-				"NSApplication",
-				Frameworks.appKit,
-			).send("sharedApplication")
-	private val workspace get() =
-		ObjC
-			.cls(
-				"NSWorkspace",
-				Frameworks.appKit,
-			).send("sharedWorkspace")
+	/** `NSWindowStyleMaskNonactivatingPanel`. */
+	private const val NON_ACTIVATING = 1L shl 7
 
-	/**
-	 * The window [window] (an `NSWindow *`, as SDL gives it) made an overlay and given the keyboard: what was in front
-	 * before is answered, by its process, to be brought back by [gone].
-	 */
-	fun shown(window: Long): Int? =
+	/** The window [window] (an `NSWindow *`, as SDL gives it) made a non-activating panel over every other, and given the keyboard. */
+	fun shown(window: Long) {
 		ObjC.pooled {
-			val before = workspace.send("frontmostApplication").orNull()?.int("processIdentifier")
 			val own = Id(MemorySegment.ofAddress(window))
 
+			Panels.make(own)
+			own.perform("setStyleMask:", own.integer("styleMask") or NON_ACTIVATING)
+			own.perform("setFloatingPanel:", true)
+			own.perform("setBecomesKeyOnlyIfNeeded:", false)
+			own.perform("setHidesOnDeactivate:", false)
 			own.perform("setLevel:", LEVEL)
 			own.perform("setCollectionBehavior:", BEHAVIOUR)
-			application.perform("activateIgnoringOtherApps:", true)
 			own.perform("makeKeyAndOrderFront:", Id.NIL)
-			before.takeUnless { it == ProcessHandle.current().pid().toInt() }
 		}
+	}
+}
 
-	/**
-	 * The launcher gone: the application in front before it, [before], brought forward again, where prism is still in
-	 * front. Where the launcher started or opened something, that is in front (or is coming), and is left so.
-	 */
-	fun gone(before: Int?) {
-		if (before != null && ObjC.pooled { application.bool("isActive") })
-			Applications.activate(before)
+/** Windows made panels: the class each window class is made into, made once. */
+private object Panels {
+	private val made = java.util.concurrent.ConcurrentHashMap<Long, MemorySegment>()
+
+	/** [window]'s class made a panel class of its own methods, where it is not one already. */
+	fun make(window: Id) {
+		val current = ObjCRuntime.classOf(window)
+
+		if (current.address() in made.values.map { it.address() })
+			return
+
+		val panel = made.getOrPut(current.address()) { panelOf(current) }
+
+		ObjCRuntime.setClass(window, panel)
+	}
+
+	private fun panelOf(windowClass: MemorySegment): MemorySegment {
+		val name = "PrismPanel_${ObjCRuntime.nameOf(windowClass)}"
+
+		ObjCRuntime.lookUp(name)?.let { return it }
+
+		val panel = ObjCRuntime.allocate(ObjC.cls("NSPanel", Frameworks.appKit).address, name)
+
+		// Its own first: a method added later of the same name is not added.
+		ObjCRuntime.add(panel, "canBecomeKeyWindow", answering(true))
+		ObjCRuntime.add(panel, "canBecomeMainWindow", answering(false))
+		ObjCRuntime.copyMethods(windowClass, panel)
+		ObjCRuntime.register(panel)
+
+		return panel
+	}
+
+	/** A method of no arguments that answers [answer]: `BOOL (*)(id, SEL)`. */
+	private fun answering(answer: Boolean): MemorySegment =
+		Library.linker.upcallStub(
+			java.lang.invoke.MethodHandles
+				.dropArguments(
+					java.lang.invoke.MethodHandles
+						.constant(Boolean::class.javaPrimitiveType, answer),
+					0,
+					MemorySegment::class.java,
+					MemorySegment::class.java,
+				),
+			FunctionDescriptor.of(java.lang.foreign.ValueLayout.JAVA_BOOLEAN, ADDRESS, ADDRESS),
+			Arena.global(),
+		)
+}
+
+/*
+ * Whether prism is in the Dock and ⌘Tab: an application of the usual kind while a window of the usual kind is open
+ * (an explorer's, a picker's, the preferences), with prism's own icon there, and an accessory otherwise, as a daemon
+ * and a launcher are: no Dock icon of `java`'s, nothing to switch to.
+ */
+object Dock {
+	/** `NSApplicationActivationPolicyRegular` and `Accessory`. */
+	private const val REGULAR = 0L
+	private const val ACCESSORY = 1L
+
+	/** prism in the Dock, with [icon] (an image's bytes: SVG, PNG) as its icon, where [shown]; out of it where not. */
+	fun shown(shown: Boolean, icon: ByteArray?) {
+		ObjC.pooled {
+			val application =
+				ObjC
+					.cls(
+						"NSApplication",
+						Frameworks.appKit,
+					).send("sharedApplication")
+
+			application.bool("setActivationPolicy:", if (shown) REGULAR else ACCESSORY)
+			if (shown && icon != null)
+				java.lang.foreign.Arena.ofConfined().use { arena ->
+					val data =
+						ObjC
+							.cls(
+								"NSData",
+							).send(
+								"dataWithBytes:length:",
+								arena.allocateFrom(java.lang.foreign.ValueLayout.JAVA_BYTE, *icon),
+								icon.size.toLong(),
+							)
+
+					val image =
+						ObjC
+							.cls(
+								"NSImage",
+								Frameworks.appKit,
+							).send("alloc")
+							.send("initWithData:", data)
+
+					if (!image.isNil) {
+						application.perform("setApplicationIconImage:", image)
+						image.perform("release")
+					}
+				}
+		}
 	}
 }

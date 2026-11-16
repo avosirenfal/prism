@@ -9,9 +9,16 @@ dependencies {
 	api(project(":browser"))
 	// The launcher's window is one of the explorer's, opened and closed as the rest are.
 	api(project(":launcher"))
+	// On a Mac, prism in the Dock while it has a window of the usual kind.
+	implementation(project(":macos"))
 
 	@OptIn(org.jetbrains.compose.ExperimentalComposeLibrary::class)
 	testImplementation(compose.uiTest)
+}
+
+// prism's icon, the one the Linux package installs (nix/prism.svg), kept beside the classes for the Dock to show.
+tasks.processResources {
+	from(rootProject.layout.projectDirectory.file("nix/prism.svg")) { into("prism") }
 }
 
 tasks.test {

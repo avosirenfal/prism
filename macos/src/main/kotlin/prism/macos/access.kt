@@ -41,9 +41,7 @@ fun fullDiskAccess(home: Path = Path.of(System.getProperty("user.home"))): DiskA
 		DiskAccess.Refused
 	} catch (refused: FileSystemException) {
 		// "Operation not permitted": what the system says of a file it keeps from a program, which is EPERM, not EACCES.
-		if (refused.reason?.contains("not permitted") ==
-			true
-		)
+		if (keptByMacOS(refused))
 			DiskAccess.Refused
 		else
 			DiskAccess.Unknown
@@ -55,9 +53,51 @@ fun fullDiskAccess(home: Path = Path.of(System.getProperty("user.home"))): DiskA
 const val FULL_DISK_ACCESS_SETTINGS =
 	"x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles"
 
-/** What is said where prism has no Full Disk Access: what it cannot read, and how to give it. */
+/**
+ * The folders macOS asks the user about, one by one, before a program without Full Disk Access may read them: the
+ * user's own (Desktop, Documents, Downloads, Pictures, Movies, Music, iCloud Drive and the cloud's), other
+ * applications' data (Mail's, Messages', Safari's, every sandboxed application's container), and the volumes under
+ * /Volumes (a drive plugged in, a share). An index read without Full Disk Access leaves these out, so that reading it
+ * asks the user nothing; they are read once it is given.
+ */
+fun protectedFolders(home: Path = Path.of(System.getProperty("user.home"))): List<Path> =
+	listOf(
+		"Desktop",
+		"Documents",
+		"Downloads",
+		"Pictures",
+		"Movies",
+		"Music",
+	).map(home::resolve) +
+		listOf(
+			"Mobile Documents",
+			"CloudStorage",
+			"Mail",
+			"Messages",
+			"Safari",
+			"Containers",
+			"Group Containers",
+			"Calendars",
+			"Application Support/AddressBook",
+			"Application Support/com.apple.TCC",
+		).map { home.resolve("Library").resolve(it) } +
+		Path.of("/Volumes")
+
+/** What is said where prism has no Full Disk Access: what it leaves out, and how to give it. */
 const val FULL_DISK_ACCESS_REFUSED =
-	"macOS keeps some of your folders (Mail's, Safari's, others') from programs without " +
-		"Full Disk Access, so the index leaves them out. To give it: System Settings › " +
-		"Privacy & Security › Full Disk Access, and add prism (or, run from a terminal, the " +
-		"terminal). `open \"$FULL_DISK_ACCESS_SETTINGS\"` opens the page."
+	"prism has no Full Disk Access, so the index leaves out the folders macOS would ask " +
+		"you about one by one (Desktop, Documents, Downloads, Pictures, Movies, Music, " +
+		"iCloud Drive, other applications' data), and reads them as soon as it is given. " +
+		"To give it: System Settings › Privacy & Security › Full Disk Access, and turn " +
+		"prism on (run from a terminal, the terminal; run by Gradle, the program that " +
+		"started Gradle's daemon). `open \"$FULL_DISK_ACCESS_SETTINGS\"` opens the page."
+
+/** What a folder macOS keeps from prism is said to be, in place of "Operation not permitted". */
+const val FOLDER_REFUSED =
+	"macOS keeps this folder from prism. To let prism read it, and every other folder " +
+		"without asking, give it Full Disk Access: System Settings › Privacy & Security › " +
+		"Full Disk Access."
+
+/** Whether [failure] is macOS keeping a file from this program (EPERM, "Operation not permitted"). */
+fun keptByMacOS(failure: Throwable): Boolean =
+	failure is FileSystemException && failure.reason?.contains("not permitted") == true

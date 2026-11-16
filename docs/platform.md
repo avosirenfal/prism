@@ -74,7 +74,7 @@ whether it is on the same volume, is known only once it is dropped.
 | reading folders | getdents64 through FFM | the JVM's reader (`FileSystems.MacOS`); `getattrlistbulk` through FFM for speed, later | the JVM's reader; `FindFirstFileEx` for speed |
 | what is mounted, and what is left out | mountinfo's pseudo file systems (`FileSystems.Linux`) | getfsstat; what Finder does not show (`nobrowse`: the system's own volumes, devfs, and the data volume, whose files are reached from `/` through its firmlinks) | the drives' types |
 | knowing a file system again | udev's UUIDs, the file systems' own ids | each volume's UUID (getattrlist's `ATTR_VOL_UUID`); one under /Volumes comes and goes | the volume's GUID |
-| permission to read | none asked | Full Disk Access, known by reading what only it lets a program read (`fullDiskAccess`); without it, the daemon says what is left out and how to give it | none asked |
+| permission to read | none asked | Full Disk Access, known by reading what only it lets a program read (`fullDiskAccess`); without it, the index leaves out the folders macOS would ask about one by one (`protectedFolders`), so reading it asks nothing, System Settings' page is opened once, and they are read the moment it is given; a folder the explorer cannot read says how to allow it | none asked |
 | running the daemon | a systemd user service | a launchd agent: `prism agent install` | a scheduled task, or a service |
 | the picker for other applications | the portal, over D-Bus | none: the command line | none: the command line |
 | file types, applications, defaults, launching | freedesktop's: shared-mime-info, desktop entries, `mimeapps.list`, `setsid` | uniform type identifiers said as MIME types, the bundles in the applications folders, Launch Services' defaults, `open -a` (`MacDesktop`) | the registry, `ShellExecuteEx` |
@@ -85,9 +85,10 @@ whether it is on the same volume, is known only once it is dropped.
 | the colour scheme | the portal's | the appearance chosen (`AppleInterfaceStyle`, read each second) | the registry's app theme |
 | keys | Ctrl | Cmd (`Keyboard.Mac`): defaults written with `Primary`, and Finder's own where it has them | Ctrl |
 | OpenGL | the driver's default | a core profile of 3.2 or later, which macOS gives as 4.1 | the driver's default |
-| windows | no decorations by default, `--decorated` for the window manager's | the system's title bar, and the menu bar | the system's title bar |
-| the launcher's key | the window manager's binding of `prism launcher` | the daemon's own: a Carbon hot key, Option+Space until another is set (docs/launcher.md, "On a Mac") | a hot key of the system's (`RegisterHotKey`) |
-| the launcher over every window | a layer surface, or a window kept in front | a pop-up menu's level, on every Space and over full-screen applications, giving the keyboard back to the application before it | a topmost tool window |
+| windows | a title bar unless Display's "Titlebar" is off: asked of the compositor (xdg-decoration), which draws it, has prism draw it (GNOME), or draws none (niri) | the system's title bar, and the menu bar | the system's title bar |
+| in the Dock | | only while a window of the usual kind is open, with prism's icon; the daemon and the launcher are an accessory application | |
+| the launcher's key | the window manager's binding of `prism launcher` | the daemon's own: a Carbon hot key, ⌘Space once Spotlight's is turned off (docs/launcher.md, "On a Mac") | a hot key of the system's (`RegisterHotKey`) |
+| the launcher over every window | a layer surface, or a window kept in front | a non-activating panel, as Spotlight's is: SDL's window made one at run time, at a pop-up menu's level, on every Space and over full-screen applications | a topmost tool window |
 | hidden files | names starting with a dot | those, and the `UF_HIDDEN` flag (`~/Library`), later | the hidden attribute |
 | packaging | AppImage | a signed, notarized DMG (and signing is what keeps Full Disk Access granted across updates) | MSI |
 
@@ -133,17 +134,17 @@ What to try on an Apple-silicon Mac, in order, since each needs the one before:
    the window.
 4. **The explorer.** `./gradlew :app:run --args="explore"`: the listing, opening a file (Launch Services), "Open
    with", the trash, the sidebar's places and volumes, the System page, icons, and Cmd's shortcuts.
-5. **The daemon.** `./gradlew :app:run --args="daemon --foreground"` from a terminal that has Full Disk Access
-   (System Settings › Privacy & Security), then `prism status` from another: the index of `/`, kept current by
-   FSEvents, and the line on disk access.
-6. **The launcher.** With the daemon running, Option+Space. To give it ⌘Space, turn off Spotlight's first (System
-   Settings › Keyboard › Keyboard Shortcuts › Spotlight), then set `"hotKey": "Cmd+Space"` under `launcher` in
-   `~/Library/Application Support/prism/preferences.json` and start the daemon again.
+5. **The daemon.** `./gradlew --no-daemon :app:run --args="daemon --foreground"` from a terminal that has Full Disk
+   Access (System Settings › Privacy & Security), then `prism status` from another: the index of `/`, kept current by
+   FSEvents, and the line on disk access. macOS asks the program responsible for a process, which for one run by
+   Gradle's daemon is whatever started that daemon (an IDE, as often as not): `--no-daemon`, or `./gradlew --stop`
+   first, makes it the terminal.
+6. **The launcher.** With the daemon running, ⌘Space, once Spotlight's is turned off (System Settings › Keyboard ›
+   Keyboard Shortcuts… › Spotlight); the daemon says so where it is not.
 7. **The agent.** `prism agent install`, once there is a `prism` to run (an app image from
    `./gradlew :app:createDistributable`, or `--command`).
 
 Not written yet: drags out to other applications (an `NSDraggingSession`, which wants an Objective-C class of
-prism's own made at run time, with `objc_allocateClassPair`); the launcher as a non-activating panel, as Spotlight's
-is, rather than a window that brings prism forward; resuming FSEvents from the last event id a daemon saw;
+prism's own made at run time, with `objc_allocateClassPair`); resuming FSEvents from the last event id a daemon saw;
 `getattrlistbulk` for reading folders; `UF_HIDDEN`; IOKit's and DiskArbitration's drives; the shared thumbnails
 (QuickLook's); a package opened as Finder opens it (an application started, not gone into); signing and the DMG.

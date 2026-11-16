@@ -317,6 +317,18 @@ private fun DisplayPage(settings: Settings, onChange: (Settings) -> Unit) {
 				}
 			}
 		}
+		Section("Windows") {
+			Card {
+				SettingRow(
+					"Titlebar",
+					description = "A bar along the top of each window, to move it by and close it from.",
+				) {
+					Switch(settings.titlebar, Modifier.testTag("titlebar")) {
+						onChange(settings.copy(titlebar = it))
+					}
+				}
+			}
+		}
 		Section("File list") {
 			Card {
 				SettingRow("Row size", description = "Larger rows have larger icons.") {

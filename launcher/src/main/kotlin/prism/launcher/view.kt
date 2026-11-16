@@ -191,19 +191,19 @@ fun LauncherView(session: LauncherSession, bindings: Bindings) {
 }
 
 /**
- * On a Mac, the launcher's window over every other (on every Space, beside an application that fills the screen) and
- * given the keyboard as it is shown; and, as it goes, the application that was in front before brought forward again,
- * where prism is still in front (where the launcher started something, that is in front instead, and stays).
- * Nothing, elsewhere: a Wayland compositor's overlay layer and an X11 window kept in front are the window module's.
+ * On a Mac, the launcher's window made a non-activating panel over every other (on every Space, beside an application
+ * that fills the screen), given the keyboard as it is shown while the application in front stays in front, as
+ * Spotlight's is. Done as it is first composed, before the window is shown. Nothing, elsewhere: a Wayland compositor's
+ * overlay layer and an X11 window kept in front are the window module's.
  */
 @Composable
 internal fun OverMacWindows() {
 	val cocoa = LocalNativeWindow.current?.handle as? NativeHandle.Cocoa ?: return
 
 	DisposableEffect(cocoa) {
-		val before = Overlay.shown(cocoa.window)
+		Overlay.shown(cocoa.window)
 
-		onDispose { Overlay.gone(before) }
+		onDispose {}
 	}
 }
 

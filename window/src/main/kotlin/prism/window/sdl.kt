@@ -4,6 +4,7 @@ import org.lwjgl.sdl.SDLError.SDL_GetError
 import org.lwjgl.sdl.SDLHints.SDL_HINT_APP_ID
 import org.lwjgl.sdl.SDLHints.SDL_HINT_APP_NAME
 import org.lwjgl.sdl.SDLHints.SDL_HINT_FRAMEBUFFER_ACCELERATION
+import org.lwjgl.sdl.SDLHints.SDL_HINT_MAC_BACKGROUND_APP
 import org.lwjgl.sdl.SDLHints.SDL_HINT_MAC_CTRL_CLICK_EMULATE_RIGHT_CLICK
 import org.lwjgl.sdl.SDLHints.SDL_HINT_MOUSE_FOCUS_CLICKTHROUGH
 import org.lwjgl.sdl.SDLHints.SDL_HINT_QUIT_ON_LAST_WINDOW_CLOSE
@@ -218,6 +219,11 @@ internal class Sdl private constructor(
 			else
 				SDL_SetHint(SDL_HINT_MOUSE_FOCUS_CLICKTHROUGH, "1")
 			SDL_SetHint(SDL_HINT_VIDEO_ALLOW_SCREENSAVER, "1")
+			// On a Mac, an application in no Dock and no ⌘Tab until it says otherwise: one that opens windows for
+			// others (a daemon, a launcher) is no application of its own to switch to, and one that has a window of
+			// the usual kind says so as it opens it.
+			if (Platform.get() == Platform.MACOSX)
+				SDL_SetHint(SDL_HINT_MAC_BACKGROUND_APP, "1")
 			// Which windows are open, and whether the application goes on with none, is the application's to say: a
 			// process that opens windows for others (prism's daemon) is not ended by its last one being closed.
 			SDL_SetHint(SDL_HINT_QUIT_ON_LAST_WINDOW_CLOSE, "0")

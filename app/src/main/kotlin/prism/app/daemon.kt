@@ -37,6 +37,8 @@ import prism.dbus.Connection
 import prism.dbus.Opening
 import prism.desktop.asChildOfPrism
 import prism.index.Exclusion
+import prism.index.IgnoreRules
+import prism.index.Ignored
 import prism.index.IndexStore
 import prism.index.Indexer
 import prism.index.Usage
@@ -44,7 +46,9 @@ import prism.index.UsageFile
 import prism.index.query.QueryText
 import prism.macos.DiskAccess
 import prism.macos.FULL_DISK_ACCESS_REFUSED
+import prism.macos.FULL_DISK_ACCESS_SETTINGS
 import prism.macos.fullDiskAccess
+import prism.macos.protectedFolders
 import prism.platform.Os
 import prism.platform.OwnFolders
 import prism.preferences.preferences
@@ -170,7 +174,7 @@ object DaemonCommand : Command(
 							Path("/"),
 						)
 					},
-				indexer = Indexer(rules = exclusionsNow().ignore),
+				indexer = Indexer(rules = daemonRules()),
 				report = Report::whileDoing,
 			)
 
@@ -195,8 +199,6 @@ object DaemonCommand : Command(
 		Runtime.getRuntime().addShutdownHook(Thread(::close))
 
 		say("$STARTED (process ${ProcessHandle.current().pid()})")
-		if (Os.current == Os.MacOS && fullDiskAccess() == DiskAccess.Refused)
-			warn(this, FULL_DISK_ACCESS_REFUSED)
 		say(watchingLine(daemon, settings))
 		say("reading ${settings.roots.joinToString()} (${originOf(daemon.live.origin)})")
 		daemon.live.opened.whenCompleteAsync { _, failed ->
@@ -222,9 +224,12 @@ object DaemonCommand : Command(
 					.map { it.excluding }
 					.distinctUntilChanged()
 					.drop(1)
-					.collect { daemon.ruled(exclusionsNow().ignore) }
+					.collect { daemon.ruled(daemonRules()) }
 			}
 		}
+
+		if (Os.current == Os.MacOS)
+			watchDiskAccess(daemon)
 
 		val windows =
 			if (args[noWindows])
@@ -368,6 +373,56 @@ object DaemonCommand : Command(
 		return "rules: ${rules.count(Exclusion.Ignored)} not indexed, " +
 			"${rules.count(Exclusion.Hidden)} hidden from searches"
 	}
+
+	/**
+	 * What the index leaves out: the user's rules, and on a Mac without Full Disk Access, the folders macOS would ask
+	 * the user about one by one ([protectedFolders]), so that reading the index asks nothing.
+	 */
+	private fun daemonRules(): IgnoreRules {
+		val rules = exclusionsNow().ignore
+
+		return if (Os.current == Os.MacOS && fullDiskAccess() != DiskAccess.Granted)
+			rules.alsoIgnoring(protectedFolders().map(Ignored::At))
+		else
+			rules
+	}
+
+	/**
+	 * On a Mac, Full Disk Access looked at as the daemon runs. Without it, that is said, and System Settings' page for
+	 * it is opened the first time it is found missing (and not again: whether it is noted in prism's state); once it is
+	 * given, the folders left out for want of it are read.
+	 */
+	private fun watchDiskAccess(daemon: Daemon) {
+		val asked = stateFolder().resolve("asked-full-disk-access")
+
+		if (fullDiskAccess() == DiskAccess.Refused) {
+			warn(this, FULL_DISK_ACCESS_REFUSED)
+			if (!Files.exists(asked))
+				try {
+					ProcessBuilder("/usr/bin/open", FULL_DISK_ACCESS_SETTINGS).start()
+					Files.createDirectories(asked.parent)
+					Files.writeString(asked, "")
+				} catch (failed: IOException) {
+					warn(this, "System Settings could not be opened: ${failed.message ?: failed}")
+				}
+		}
+
+		Thread.ofPlatform().name("prism-disk-access").daemon().start {
+			var granted = fullDiskAccess() == DiskAccess.Granted
+
+			while (!granted) {
+				Thread.sleep(ACCESS_LOOKED_AT.inWholeMilliseconds)
+				granted = fullDiskAccess() == DiskAccess.Granted
+				if (granted) {
+					say("Full Disk Access given: reading the folders left out for want of it")
+					daemon.ruled(daemonRules())
+				}
+			}
+		}
+	}
+
+	/** How often a daemon without Full Disk Access looks whether it has been given it. */
+	private val ACCESS_LOOKED_AT = 5.seconds
 
 	/** Whether macOS lets the daemon read everything, as `prism status` says it on a Mac. */
 	private fun accessLine(): String =

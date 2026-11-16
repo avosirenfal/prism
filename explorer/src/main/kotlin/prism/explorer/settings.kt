@@ -284,6 +284,8 @@ data class Settings(
 	/** How large the listing of a new window is drawn, an explorer's and a picker's, and the sidebar's quick access. */
 	val scales: Scales = base.scales,
 	val dates: DateFormat = base.dates,
+	/** Whether windows have a title bar. */
+	val titlebar: Boolean = base.titlebar,
 	val page: Page = Page.Display,
 	val looking: LookKey = LookKey(Role.Explorer, ListingKind.Folder),
 	val filteringIn: Layout = Layout.List,
@@ -415,6 +417,7 @@ data class Settings(
 			typography = kept(Preferences::typography, typography),
 			rows = kept(Preferences::rows, rows),
 			dates = kept(Preferences::dates, dates),
+			titlebar = kept(Preferences::titlebar, titlebar),
 			// The other windows' sizes are each window's own, as Ctrl and the wheel leave them: never this window's.
 			scales =
 				current.scales.copy(

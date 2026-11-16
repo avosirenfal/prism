@@ -159,7 +159,7 @@ object PickCommand : Command(
 						first,
 						services,
 						picking.theme(args),
-						args[decorated],
+						args[decorated] || preferences.preferences.value.titlebar,
 					)
 				}
 		) {

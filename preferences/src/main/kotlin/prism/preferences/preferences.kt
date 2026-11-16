@@ -91,6 +91,13 @@ data class Preferences(
 	val scales: Scales = Scales(),
 	/** How dates are written. */
 	val dates: DateFormat = DateFormat.Written,
+	/**
+	 * Whether a window has a title bar, to move it by and close it from. On a Mac it is the system's. On Linux it is
+	 * asked of the compositor, which says through xdg-decoration who draws it: itself (KDE, sway), the window
+	 * (GNOME, where it is drawn on prism's side), or nobody, where the compositor draws none (niri); on X11, the
+	 * window manager's. Off, a window has none, and is closed with its keys.
+	 */
+	val titlebar: Boolean = true,
 	/** How the launcher looks and what it finds. */
 	val launcher: LauncherPreferences = LauncherPreferences(),
 	/**

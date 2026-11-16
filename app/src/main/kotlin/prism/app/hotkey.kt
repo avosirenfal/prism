@@ -9,15 +9,17 @@ import prism.cli.Command
 import prism.macos.HotKey
 import prism.macos.HotKeyModifier
 import prism.macos.HotKeyRegistered
+import prism.macos.KEYBOARD_SETTINGS
 import prism.macos.MacKeys
+import prism.macos.spotlightHolds
 import prism.preferences.DEFAULT_HOT_KEY
 
 /*
  * The launcher's key on a Mac. Linux leaves a launcher's key to the window manager, which runs `prism launcher`; a
  * Mac has no such binding for a program to be given, so the prism that stays (the daemon) holds the key itself, a
- * Carbon hot key (macos/launcher.kt), and shows the launcher as `prism launcher` would have it shown. Spotlight has
- * ⌘Space, so the key is Option and Space until another is set (`launcher.hotKey` in the preferences); to have ⌘Space,
- * Spotlight's is turned off first (docs/launcher.md, "On a Mac").
+ * Carbon hot key (macos/launcher.kt), and shows the launcher as `prism launcher` would have it shown. It is ⌘Space,
+ * as Spotlight's is, unless the preferences say another (`launcher.hotKey`); Spotlight's own is turned off for it
+ * (docs/launcher.md, "On a Mac"), and the daemon says so where it is not.
  */
 
 /** What a chord of the launcher's key is to Carbon: its key, and its modifiers; or why it cannot be one. */
@@ -96,6 +98,19 @@ internal fun holdLauncherKey(
 			is HotKeyRegistered.Held -> {
 				closing += registered.key
 				instance.says += { "launcher: shown and put away by ${held.second}" }
+
+				// The system's own keys come first: where Spotlight has this one, it is Spotlight's, and the
+				// launcher hears nothing of it until Spotlight's is turned off.
+				val chord = HotKeyChord.of(held.second) as? HotKeyChord.Of
+
+				if (chord != null && spotlightHolds(chord.key, chord.modifiers))
+					warn(
+						command,
+						"Spotlight has ${held.second} too, and keeps it until its own is turned " +
+							"off: System Settings › Keyboard › Keyboard Shortcuts… › Spotlight, and " +
+							"untick “Show Spotlight search”. `open \"$KEYBOARD_SETTINGS\"` opens the " +
+							"page; the launcher has the key from then on.",
+					)
 			}
 			is HotKeyRegistered.Refused ->
 				warn(command, "the launcher's key, ${held.second}, can't be had: ${registered.why}")

@@ -19,6 +19,8 @@ import prism.linux.Sys
 import prism.linux.close
 import prism.linux.openat
 import prism.linux.statx
+import prism.macos.FOLDER_REFUSED
+import prism.macos.keptByMacOS
 import prism.platform.FileKind
 
 /*
@@ -77,6 +79,13 @@ private fun rowOf(folder: Path, name: String, read: EntryRead): Row {
 	)
 }
 
+/** Why a folder could not be read, as [failure] says, and on a Mac, what to do where macOS keeps it from prism. */
+private fun unreadable(failure: Throwable): String =
+	if (keptByMacOS(failure))
+		FOLDER_REFUSED
+	else
+		failure.message ?: failure.toString()
+
 /** What [folder] holds, as rows in no particular order, or why it cannot be read. */
 fun listingOf(folder: Path): Listing.Read =
 	try {
@@ -87,9 +96,9 @@ fun listingOf(folder: Path): Listing.Read =
 				JvmEntries.all(folder),
 		)
 	} catch (failed: IOException) {
-		Listing.Unreadable(failed.message ?: failed.toString())
+		Listing.Unreadable(unreadable(failed))
 	} catch (failed: DirectoryIteratorException) {
-		Listing.Unreadable(failed.cause?.message ?: failed.toString())
+		Listing.Unreadable(unreadable(failed.cause ?: failed))
 	} catch (denied: SecurityException) {
 		Listing.Unreadable(denied.message ?: "Permission denied.")
 	}

@@ -229,3 +229,147 @@ fun Library.constant(symbol: String): Id =
 /** An NSError's `localizedDescription`, for what an out-parameter of one was given; null where none was. */
 fun errorOf(out: MemorySegment): String? =
 	Id(out.get(ADDRESS, 0L)).orNull()?.send("localizedDescription")?.text()
+
+/*
+ * The runtime's functions for classes made while the process runs: a class pair allocated, methods added, registered,
+ * and an object's class set to it.
+ */
+internal object ObjCRuntime {
+	private val runtime = Library.dylib("/usr/lib/libobjc.A.dylib")
+	private val getClass =
+		runtime.function(
+			"object_getClass",
+			FunctionDescriptor.of(ADDRESS, ADDRESS),
+		)
+	private val setClass =
+		runtime.function(
+			"object_setClass",
+			FunctionDescriptor.of(ADDRESS, ADDRESS, ADDRESS),
+		)
+	private val className =
+		runtime.function(
+			"class_getName",
+			FunctionDescriptor.of(ADDRESS, ADDRESS),
+		)
+	private val lookUpClass =
+		runtime.function(
+			"objc_lookUpClass",
+			FunctionDescriptor.of(ADDRESS, ADDRESS),
+		)
+	private val allocatePair =
+		runtime.function(
+			"objc_allocateClassPair",
+			FunctionDescriptor.of(ADDRESS, ADDRESS, ADDRESS, JAVA_LONG),
+		)
+	private val registerPair =
+		runtime.function(
+			"objc_registerClassPair",
+			FunctionDescriptor.ofVoid(ADDRESS),
+		)
+	private val addMethod =
+		runtime.function(
+			"class_addMethod",
+			FunctionDescriptor.of(JAVA_BOOLEAN, ADDRESS, ADDRESS, ADDRESS, ADDRESS),
+		)
+	private val copyMethodList =
+		runtime.function(
+			"class_copyMethodList",
+			FunctionDescriptor.of(ADDRESS, ADDRESS, ADDRESS),
+		)
+	private val methodName =
+		runtime.function(
+			"method_getName",
+			FunctionDescriptor.of(ADDRESS, ADDRESS),
+		)
+	private val methodImplementation =
+		runtime.function(
+			"method_getImplementation",
+			FunctionDescriptor.of(ADDRESS, ADDRESS),
+		)
+	private val methodTypes =
+		runtime.function(
+			"method_getTypeEncoding",
+			FunctionDescriptor.of(ADDRESS, ADDRESS),
+		)
+	private val registerName =
+		runtime.function(
+			"sel_registerName",
+			FunctionDescriptor.of(ADDRESS, ADDRESS),
+		)
+	private val free = Library.system.function("free", FunctionDescriptor.ofVoid(ADDRESS))
+
+	fun classOf(objectId: Id): MemorySegment =
+		getClass.handle.invokeExact(objectId.address) as MemorySegment
+
+	fun setClass(objectId: Id, cls: MemorySegment) {
+		setClass.handle.invokeExact(objectId.address, cls) as MemorySegment
+	}
+
+	fun nameOf(cls: MemorySegment): String =
+		(
+			className.handle.invokeExact(
+				cls,
+			) as MemorySegment
+		).reinterpret(Long.MAX_VALUE).getString(0)
+
+	/** The class named [name], where one is registered. */
+	fun lookUp(name: String): MemorySegment? =
+		Arena.ofConfined().use { arena ->
+			(lookUpClass.handle.invokeExact(arena.allocateFrom(name)) as MemorySegment).takeIf {
+				it.address() !=
+					0L
+			}
+		}
+
+	/** A class named [name] made from [superclass], to be given methods and then registered. */
+	fun allocate(superclass: MemorySegment, name: String): MemorySegment =
+		Arena.ofConfined().use { arena ->
+			allocatePair.handle.invokeExact(
+				superclass,
+				arena.allocateFrom(name),
+				0L,
+			) as MemorySegment
+		}
+
+	fun register(cls: MemorySegment) {
+		registerPair.handle.invokeExact(cls)
+	}
+
+	/** The method [selector] of [cls], [implementation] a `BOOL (*)(id, SEL)`; none where it has one already. */
+	fun add(cls: MemorySegment, selector: String, implementation: MemorySegment) {
+		Arena.ofConfined().use { arena ->
+			val named =
+				registerName.handle.invokeExact(
+					arena.allocateFrom(selector),
+				) as MemorySegment
+
+			addMethod.handle.invokeExact(
+				cls,
+				named,
+				implementation,
+				arena.allocateFrom("B16@0:8"),
+			) as Boolean
+		}
+	}
+
+	/** Every method [from] declares itself added to [to], but those [to] has already. */
+	fun copyMethods(from: MemorySegment, to: MemorySegment) {
+		Arena.ofConfined().use { arena ->
+			val count = arena.allocate(JAVA_INT)
+			val list = copyMethodList.handle.invokeExact(from, count) as MemorySegment
+			val methods = list.reinterpret(count.get(JAVA_INT, 0L) * ADDRESS.byteSize())
+
+			for (at in 0 until count.get(JAVA_INT, 0L).toLong()) {
+				val method = methods.getAtIndex(ADDRESS, at)
+
+				addMethod.handle.invokeExact(
+					to,
+					methodName.handle.invokeExact(method) as MemorySegment,
+					methodImplementation.handle.invokeExact(method) as MemorySegment,
+					methodTypes.handle.invokeExact(method) as MemorySegment,
+				) as Boolean
+			}
+			free.handle.invokeExact(list)
+		}
+	}
+}

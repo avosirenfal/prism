@@ -48,11 +48,16 @@ internal fun Command.themeOption(): Param<Theme> =
 		shown = "auto",
 	)
 
-/** `--decorated`: a title bar from the window manager; without it, the window is closed as [closing] says. */
+/**
+ * `--decorated`: a title bar on every window, whatever the preferences say (`titlebar`, on unless turned off in
+ * Display); without one, a window is closed as [closing] says.
+ */
 internal fun Command.decoratedFlag(closing: String): Param<Boolean> =
 	flag(
 		"--decorated",
-		help = "use the window manager's title bar; without it, $closing",
+		help =
+			"give windows a title bar even where the preferences turn it off; " +
+				"without one, $closing",
 	)
 
 /** A file that is not a folder: what `--index` reads, told apart so from the folder that may follow it. */

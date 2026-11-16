@@ -330,3 +330,66 @@ fun prefersDark(): Boolean =
 				release.handle.invokeExact(style.address)
 		}
 	}
+
+/*
+ * Spotlight's key, as the system keeps it: symbolic hot key 64 ("Show Spotlight search") among
+ * `com.apple.symbolichotkeys`' `AppleSymbolicHotKeys`, whether it is on and which key it is (its parameters: the
+ * character, the key's code, and the modifiers as NSEvent's flags). Where it says nothing, it is on, and ⌘Space.
+ */
+
+/** NSEvent's modifier flags, as the symbolic hot keys write them, by Carbon's. */
+private val EVENT_FLAGS =
+	mapOf(
+		HotKeyModifier.Shift to (1L shl 17),
+		HotKeyModifier.Control to (1L shl 18),
+		HotKeyModifier.Option to (1L shl 19),
+		HotKeyModifier.Command to (1L shl 20),
+	)
+
+/** Whether Spotlight has [key] with [modifiers] for itself: its "Show Spotlight search" is on, and is that key. */
+fun spotlightHolds(key: Int, modifiers: Set<HotKeyModifier>): Boolean =
+	ObjC.pooled {
+		val domain = nsString("com.apple.symbolichotkeys")
+
+		synchronize.handle.invokeExact(domain.address) as Boolean
+
+		val all =
+			Id(
+				copyValue.handle.invokeExact(
+					nsString("AppleSymbolicHotKeys").address,
+					domain.address,
+				) as java.lang.foreign.MemorySegment,
+			)
+
+		try {
+			val spotlight = all.orNull()?.get("64")?.orNull()
+			val on = spotlight?.get("enabled")?.orNull()?.bool("boolValue") ?: true
+
+			val parameters =
+				spotlight
+					?.get(
+						"value",
+					)?.orNull()
+					?.get("parameters")
+					?.orNull()
+					?.elements()
+					?.map {
+						it.integer("longLongValue")
+					}
+
+			val held = parameters?.getOrNull(1) ?: SPACE
+			val flags = parameters?.getOrNull(2) ?: EVENT_FLAGS.getValue(HotKeyModifier.Command)
+
+			on && held == key.toLong() && flags == modifiers.sumOf { EVENT_FLAGS.getValue(it) }
+		} finally {
+			if (!all.isNil)
+				release.handle.invokeExact(all.address)
+		}
+	}
+
+/** `kVK_Space`. */
+private const val SPACE = 0x31L
+
+/** The page of System Settings where Spotlight's key is turned off: the keyboard's, whose Keyboard Shortcuts… has it. */
+const val KEYBOARD_SETTINGS =
+	"x-apple.systempreferences:com.apple.Keyboard-Settings.extension"

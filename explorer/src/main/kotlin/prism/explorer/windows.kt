@@ -63,6 +63,8 @@ import prism.launcher.LauncherDims
 import prism.launcher.LauncherView
 import prism.launcher.LocalIconImages
 import prism.launcher.launcherBindings
+import prism.macos.Dock
+import prism.platform.Os
 import prism.preferences.DateFormat
 import prism.preferences.Preferences
 import prism.preferences.Typography
@@ -80,7 +82,7 @@ import prism.window.WindowRole
 /*
  * Every window the explorer has open, drawn from its list: a browser's in a window of its own, and each of the rest
  * (properties, "open with", the preferences) in a smaller one, closed by its own buttons or Escape as well as by the
- * window manager. A window has the title bar the window manager draws only where [decorated] asks for one.
+ * window manager. A window has a title bar where the preferences ask for one (`titlebar`), or [alwaysDecorated] does.
  */
 
 /**
@@ -95,11 +97,42 @@ const val LAUNCHER_TITLE = "Prism Launcher"
  */
 const val LAUNCHER_NAME = "prism-launcher"
 
+/**
+ * On a Mac, prism in the Dock while a window of the usual kind is open, and out of it while there is none (only the
+ * launcher's, or none at all): a daemon is no application to switch to.
+ */
+@Composable
+private fun InTheDock(windows: List<ExplorerWindow>) {
+	if (Os.current != Os.MacOS)
+		return
+
+	val usual =
+		windows.any {
+			it !is ExplorerWindow.Launching && it !is ExplorerWindow.Dmenu
+		}
+
+	LaunchedEffect(usual) { Dock.shown(usual, PRISM_ICON) }
+}
+
+/** prism's icon, as the Dock shows it: the one the Linux package installs, kept beside the classes. */
+private val PRISM_ICON: ByteArray? by lazy {
+	ExplorerWindow::class.java
+		.getResourceAsStream(
+			"/prism/prism.svg",
+		)?.use { it.readBytes() }
+}
+
 /** Every window [explorer] has open, in [palette]. */
 @Composable
-fun ExplorerWindows(explorer: Explorer, palette: Palette, decorated: Boolean) {
+fun ExplorerWindows(explorer: Explorer, palette: Palette, alwaysDecorated: Boolean) {
 	val windows by explorer.windows.collectAsState()
 	val preferences by explorer.preferences.preferences.collectAsState()
+
+	InTheDock(windows)
+
+	// A title bar where the preferences ask for one, or the command line did (`--decorated`); read as each window
+	// opens.
+	val decorated = alwaysDecorated || preferences.titlebar
 
 	/** How large windows of [kind] are drawn, and what zooming one does: every one of its kind drawn so, from then on. */
 	fun zoomOf(kind: WindowKind): Zooming =
