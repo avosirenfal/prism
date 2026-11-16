@@ -42,6 +42,10 @@ import prism.index.Indexer
 import prism.index.Usage
 import prism.index.UsageFile
 import prism.index.query.QueryText
+import prism.macos.DiskAccess
+import prism.macos.FULL_DISK_ACCESS_REFUSED
+import prism.macos.fullDiskAccess
+import prism.platform.Os
 import prism.platform.OwnFolders
 import prism.preferences.preferences
 import prism.shared.Loaded
@@ -191,6 +195,8 @@ object DaemonCommand : Command(
 		Runtime.getRuntime().addShutdownHook(Thread(::close))
 
 		say("$STARTED (process ${ProcessHandle.current().pid()})")
+		if (Os.current == Os.MacOS && fullDiskAccess() == DiskAccess.Refused)
+			warn(this, FULL_DISK_ACCESS_REFUSED)
 		say(watchingLine(daemon, settings))
 		say("reading ${settings.roots.joinToString()} (${originOf(daemon.live.origin)})")
 		daemon.live.opened.whenCompleteAsync { _, failed ->
@@ -260,6 +266,8 @@ object DaemonCommand : Command(
 			instance.says += { watchingLine(daemon, settings) }
 			instance.says += { keptLine(daemon) }
 			instance.says += { rulesLine() }
+			if (Os.current == Os.MacOS)
+				instance.says += { accessLine() }
 
 			val names =
 				BusNames(
@@ -361,6 +369,14 @@ object DaemonCommand : Command(
 			"${rules.count(Exclusion.Hidden)} hidden from searches"
 	}
 
+	/** Whether macOS lets the daemon read everything, as `prism status` says it on a Mac. */
+	private fun accessLine(): String =
+		when (fullDiskAccess()) {
+			DiskAccess.Granted -> "disk access: Full Disk Access, so every folder can be read"
+			DiskAccess.Refused -> "disk access: no Full Disk Access. $FULL_DISK_ACCESS_REFUSED"
+			DiskAccess.Unknown -> "disk access: macOS does not say if there is Full Disk Access"
+		}
+
 	/** The file systems that are not mounted and whose entries are kept for when they are. */
 	private fun keptLine(daemon: Daemon): String {
 		val kept = daemon.live.kept
@@ -417,24 +433,26 @@ object DaemonCommand : Command(
 
 		val from = if (Files.exists(log)) Files.size(log) else 0L
 
-		// A session of its own, so that closing the terminal closes nothing of the daemon's.
-		val setsid =
+		// A session of its own, so that closing the terminal closes nothing of the daemon's: setsid's on Linux. A Mac has
+		// no setsid, and nohup keeps the hang-up of a terminal that closes from it, which is what would end it.
+		val detacher = if (Os.current == Os.MacOS) "nohup" else "setsid"
+		val detach =
 			System
 				.getenv("PATH")
 				.orEmpty()
 				.split(':')
-				.map { Path(it, "setsid") }
+				.map { Path(it, detacher) }
 				.firstOrNull { Files.isExecutable(it) }
 
-		if (setsid == null)
+		if (detach == null)
 			warn(
 				this,
-				"setsid not found, so the daemon will stop when this terminal closes",
+				"$detacher not found, so the daemon will stop when this terminal closes",
 			)
 
 		val process =
 			ProcessBuilder(
-				listOfNotNull(setsid?.toString()) + launcher + Self.words + "--foreground",
+				listOfNotNull(detach?.toString()) + launcher + Self.words + "--foreground",
 			)
 				// As this process was started, not as its launcher then arranged things for it: the launcher does again.
 				.asChildOfPrism()

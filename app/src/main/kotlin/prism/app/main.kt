@@ -31,7 +31,7 @@ val PRISM =
 				),
 			),
 			Category("searching", listOf(PathSearch)),
-			Category("running", listOf(DaemonCommand, StatusCommand, MatchesCommand)),
+			Category("running", listOf(DaemonCommand, StatusCommand, MatchesCommand, AgentGroup)),
 			Category("indexing", listOf(IndexCommand, ScanCommand)),
 			Category("watching", listOf(ProbeGroup)),
 		),

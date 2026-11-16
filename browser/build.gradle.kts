@@ -27,6 +27,8 @@ dependencies {
 	// The desktop's file types, applications and places, and the user's preferences (pins, bindings).
 	api(project(":desktop"))
 	api(project(":preferences"))
+	// FSEvents, which says what changed in a folder shown on a Mac (the JVM's watcher there only polls).
+	implementation(project(":macos"))
 	// A session's states and outcome are coroutines' flows and deferreds.
 	api(libs.kotlinx.coroutines.core)
 	// The windows the browser is drawn in, and their clipboard and drag and drop: SDL's, native on every platform.

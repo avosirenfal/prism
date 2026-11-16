@@ -196,9 +196,8 @@ private fun ColumnScope.Bindings(
 	}
 	rebinding.refused?.let { chord ->
 		Text(
-			"$chord types text, so it needs ${Keyboard.current.primaryName} or ${Keyboard.current.nameOf(
-				ModifierKey.Alt,
-			)}.",
+			"$chord types text, so it needs ${Keyboard.current.primaryName} or " +
+				"${Keyboard.current.nameOf(ModifierKey.Alt)}.",
 			style = type.body.copy(color = palette.dangerText),
 			modifier = Modifier.testTag("bindings-refused"),
 		)

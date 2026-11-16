@@ -8,4 +8,6 @@ plugins {
 dependencies {
 	api(project(":index"))
 	api(project(":watcher"))
+	// FSEvents, which keeps the index current on a Mac.
+	implementation(project(":macos"))
 }

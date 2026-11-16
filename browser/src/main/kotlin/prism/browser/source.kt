@@ -47,6 +47,9 @@ import prism.desktop.erased
 import prism.index.SearchContext
 import prism.index.Searched
 import prism.index.search
+import prism.macos.EventStream
+import prism.macos.FsFlag
+import prism.platform.Os
 import prism.preferences.Builtin
 import prism.preferences.ColumnId
 import prism.preferences.MemoryPreferences
@@ -133,7 +136,53 @@ fun interface FolderWatcher {
 	companion object {
 		/** Nothing watched: a browser that reads a folder when it is asked to, and not otherwise. */
 		val NONE = FolderWatcher { _, _ -> AutoCloseable {} }
+
+		/** The platform's own: FSEvents on a Mac, where the JVM's watch service only polls; the JVM's elsewhere. */
+		val SYSTEM: FolderWatcher get() =
+			if (Os.current ==
+				Os.MacOS
+			)
+				FsEventsFolderWatcher
+			else
+				JvmFolderWatcher
 	}
+}
+
+/**
+ * Folders watched through FSEvents, on a Mac: a stream for each folder watched, saying the entries made, removed,
+ * renamed or written in it at once (where the JVM's watch service would look every ten seconds). A stream says what
+ * happens under the folder too, which a listing of the folder does not show and is left out; where the stream says
+ * to read the folder again, or the folder itself changed, the whole folder is.
+ */
+object FsEventsFolderWatcher : FolderWatcher {
+	override fun watch(folder: Path, changed: (Touch) -> Unit): AutoCloseable {
+		// FSEvents says a path as it really is (/private/var, of /var): the folder is compared as it really is too.
+		val real =
+			try {
+				folder.toRealPath()
+			} catch (gone: IOException) {
+				return AutoCloseable {}
+			}
+
+		return EventStream.start(listOf(real), latency = LATENCY, failed = {}) { events ->
+			val touch =
+				events.fold(Touch.NOTHING) { touch, event ->
+					when {
+						event.path == real || FsFlag.MustScanSubDirs in event.flags -> Touch.Everything
+						event.path.parent == real ->
+							touch +
+								Touch.Entries(setOf(event.path.fileName.toString()))
+						else -> touch
+					}
+				}
+
+			if (touch != Touch.NOTHING)
+				changed(touch)
+		} ?: AutoCloseable {}
+	}
+
+	/** How long a burst of changes is gathered into one, in seconds: a moment, as the browser waits a moment itself. */
+	private const val LATENCY = 0.05
 }
 
 /**

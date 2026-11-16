@@ -1,5 +1,8 @@
 package prism.daemon
 
+import java.io.IOException
+import java.nio.file.Files
+import java.nio.file.LinkOption
 import java.nio.file.Path
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.CompletionException
@@ -7,16 +10,24 @@ import java.util.concurrent.Executors
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicLong
 import kotlin.io.path.Path
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.days
 import kotlin.time.Duration.Companion.hours
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
+import prism.index.FileId
 import prism.index.IgnoreRules
 import prism.index.Indexer
 import prism.index.Name
 import prism.index.Where
+import prism.macos.EventStream
+import prism.macos.FsEvent
+import prism.macos.FsFlag
+import prism.macos.devOf
+import prism.platform.KernelDev
+import prism.platform.Os
 import prism.shared.Once
 import prism.shared.Published
 import prism.watcher.Done
@@ -46,6 +57,46 @@ fun interface Feed {
 
 		/** No feed at all, and [why]: a daemon that reads its roots again now and then, and is told nothing between. */
 		fun none(why: String) = Feed { Feeding.Off(why) }
+
+		/**
+		 * FSEvents' changes under [roots], on a Mac: each entry made, removed or renamed, said of its folder and its
+		 * name ([changedOf]). Where the stream could not keep up (it says to read a folder again, or that events were
+		 * dropped), what was lost is counted, and the daemon reads its roots again, as for a watcher whose ring was full.
+		 */
+		fun fsEvents(roots: List<Path>) =
+			Feed { seen ->
+				val lost = AtomicLong(0)
+				val stopped = Published<String?>(null)
+
+				val stream =
+					EventStream.start(
+						roots,
+						latency = FSEVENTS_LATENCY,
+						failed = { stopped.set("FSEvents' changes could not be read: $it") },
+					) { batch ->
+						if (batch.any { event -> event.flags.any { it in FSEVENTS_LOST } })
+							lost.incrementAndGet()
+						seen(batch.mapNotNull(::changedOf))
+					}
+
+				stream?.let { Feeding.On(it, lost::get, stopped::now, "FSEvents") }
+					?: Feeding.Off("macOS would not start a stream of FSEvents")
+			}
+
+		/** The feed of the platform this runs on, of changes under [roots]: the kernel's watcher on Linux, FSEvents on a Mac. */
+		fun of(roots: List<Path>): Feed =
+			when (Os.current) {
+				Os.Linux -> KERNEL
+				Os.MacOS -> fsEvents(roots)
+				Os.Windows -> none("prism has no watcher for Windows yet")
+			}
+
+		/** How long FSEvents gathers a burst of changes into one batch, in seconds. */
+		private const val FSEVENTS_LATENCY = 0.2
+
+		/** What FSEvents says when it has lost changes: a folder to read again, or events dropped. */
+		private val FSEVENTS_LOST =
+			setOf(FsFlag.MustScanSubDirs, FsFlag.UserDropped, FsFlag.KernelDropped)
 	}
 }
 
@@ -85,6 +136,35 @@ fun changedOf(observed: Observed): List<Changed> {
 			)
 	}
 }
+
+/**
+ * What a live index makes of an event of FSEvents': the folder it happened in, by the device and inode a stat of the
+ * folder gives (as the index knows its folders), and the entry, by name. Only an entry made, removed or renamed
+ * changes what the index holds; a change of what is in a file does not. None where the folder is gone too: its own
+ * removal is said of the folder above it.
+ */
+fun changedOf(event: FsEvent): Changed? {
+	if (event.flags.none { it in FSEVENTS_ENTRIES })
+		return null
+
+	val folder = event.path.parent ?: return null
+	val name =
+		runCatching { Name.of(event.path.fileName.toString()) }.getOrNull() ?: return null
+
+	return try {
+		val stat = Files.readAttributes(folder, "unix:dev,ino", LinkOption.NOFOLLOW_LINKS)
+
+		Changed(
+			FileId(KernelDev(devOf((stat["dev"] as Long).toInt())), stat["ino"] as Long),
+			name,
+		)
+	} catch (gone: IOException) {
+		null
+	}
+}
+
+/** What FSEvents says of an entry whose being there, or its name, changed. */
+private val FSEVENTS_ENTRIES = setOf(FsFlag.Created, FsFlag.Removed, FsFlag.Renamed)
 
 /** How a daemon goes about its work. */
 data class DaemonSettings(
@@ -348,7 +428,7 @@ class Daemon private constructor(
 		 * A daemon started: its [feed] first, then its index opened (read from its file, or built, in the background),
 		 * and the feed's changes made in it.
 		 */
-		fun start(settings: DaemonSettings, feed: Feed = Feed.KERNEL): Daemon =
+		fun start(settings: DaemonSettings, feed: Feed = Feed.of(settings.roots)): Daemon =
 			start(settings, feed) {}
 
 		internal fun start(

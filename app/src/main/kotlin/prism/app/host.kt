@@ -33,8 +33,8 @@ import kotlinx.coroutines.withTimeoutOrNull
 import prism.browser.AppKey
 import prism.browser.BrowserState
 import prism.browser.Finder
+import prism.browser.FolderWatcher
 import prism.browser.JvmDisk
-import prism.browser.JvmFolderWatcher
 import prism.browser.RecentStore
 import prism.browser.RecentsFiles
 import prism.browser.Search
@@ -383,7 +383,7 @@ internal class Windows(
 							scope,
 							home,
 							hosting.search,
-							JvmFolderWatcher,
+							FolderWatcher.SYSTEM,
 							Report::problem,
 							LaunchFile(stateFolder().resolve("launches"), Report::problem),
 							recentFolders(),

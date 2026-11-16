@@ -77,9 +77,8 @@ internal class Indexing(
 			"--index",
 			type = INDEX_FILE,
 			help =
-				"enable search (${Action.SearchIndex.defaults.first()}) from an index file, read once and not kept " +
-					"up to date; " +
-					"FILE defaults to ${defaultIndex.said}",
+				"enable search (${Action.SearchIndex.defaults.first()}) from an index file, read " +
+					"once and not kept up to date; FILE defaults to ${defaultIndex.said}",
 		)
 
 	/** Whether [args] ask for an index at all. */

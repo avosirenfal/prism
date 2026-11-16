@@ -18,9 +18,9 @@ import prism.browser.BrowserState
 import prism.browser.BrowserTheme
 import prism.browser.Choosing
 import prism.browser.Finder
+import prism.browser.FolderWatcher
 import prism.browser.HostedBrowser
 import prism.browser.JvmDisk
-import prism.browser.JvmFolderWatcher
 import prism.browser.Search
 import prism.browser.Services
 import prism.browser.Session
@@ -148,7 +148,7 @@ object PickCommand : Command(
 				desktop,
 				SystemFileClipboard,
 				preferences,
-				watcher = JvmFolderWatcher,
+				watcher = FolderWatcher.SYSTEM,
 				recents = recentFolders(),
 			)
 
