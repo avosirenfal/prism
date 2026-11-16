@@ -20,7 +20,9 @@ a Java program of its own. A window that fails is closed and says so; the rest, 
 (docs/running.md). On NixOS, the flake's module sets it all up in one line (docs/nixos.md).
 
 It is early: the kernel's watcher has not yet been loaded on a real machine, and a user's service cannot load it at
-all yet, so the daemon reads its folders again every half hour in its place. docs/plan.md says what prism is for and
+all yet, so the daemon reads its folders again every half hour in its place. What macOS needs is written too (FSEvents for the
+watcher, Launch Services and uniform types for the desktop, the system's trash, a launcher held by a key of its own),
+and not yet tried on a Mac: docs/platform.md says where it stands, and what to try first. docs/plan.md says what prism is for and
 how it is meant to work; docs/inprogress.md says where it stands.
 
 ```bash
@@ -54,6 +56,7 @@ how it is meant to work; docs/inprogress.md says where it stands.
 | `explore [ITEM...]`, or no command at all | the file explorer on a folder (your home, unless named), or on a file's folder with the file chosen: opened by the prism already running where there is one, which this hands its words to and is done; where none is, by this one, which is then the session's prism until its last window is closed. Double-click opens with the desktop's application, Ctrl+W closes a window; `--isolated` keeps it to a process of its own; `--index [FILE]`, `--theme`, `--decorated` as `pick` takes them, each of which also asks for a process of its own |
 | `daemon [PATH...]` | the one prism that stays (docs/running.md): the index kept current (the watcher started first, or why it could not be, then the index read or built, every change made as it is seen), every prism's windows, each searching that index, and the portal's file chooser and `org.freedesktop.FileManager1`. Started apart from the terminal, unless `--foreground` runs it in place; `--no-windows`, `--no-file-chooser`, `--no-file-manager`, `--replace`, `--theme`, `--decorated`; `--find QUERY` searches once the roots are read, reading places the rules leave out for the search alone; `--in-memory`, `--for N` |
 | `status` | what the prism already running says of itself: its index, whether changes are watched, its windows |
+| `agent install`, `agent uninstall` | on a Mac, the daemon as a launchd agent: started as you log in, and again should it fail; and taken away (docs/platform.md) |
 | `portal serve` | the daemon without its index: the desktop's file chooser (as the portal's backend) and file manager (`org.freedesktop.FileManager1`), a window for each request, until stopped; what D-Bus starts, once it is installed, where no daemon runs |
 | `portal install`, `portal uninstall` | make prism your file chooser and file manager, or stop it being them: files in your own folders only, each prism's (docs/portal.md) |
 | `portal show [ITEM...]` | show folders and files in the file manager; what opening a folder runs, once installed |
@@ -72,7 +75,9 @@ how it is meant to work; docs/inprogress.md says where it stands.
 | module | depends on | what it is |
 |---|---|---|
 | `cli` | nothing | the command line: typed parameters, a one-pass reader that refuses what it cannot read, help from the same declarations |
-| `linux` | nothing | libc through the FFM API: openat, getdents64 read in place, statx, mmap, epoll, each with its errno |
+| `platform` | nothing | which platform this is (`Os`), where prism keeps its own files on it (`OwnFolders`), and what every platform's calls answer with: an entry's kind, a device, an inode's facts, a mount |
+| `linux` | platform | libc through the FFM API: openat, getdents64 read in place, statx, mmap, epoll, each with its errno |
+| `macos` | platform | macOS through the FFM API: libSystem (getfsstat, getattrlist), the Objective-C runtime (`objc_msgSend` with each method's signature) for UTType, NSWorkspace, NSBundle and NSFileManager, FSEvents, Carbon's hot keys; every handle made as it is first called, so it loads anywhere |
 | `shared` | coroutines | what is shared and how it stays whole: a value kept in a file, read, changed and written as one step and handed to its readers (`Stored`, `OnDisk`, `Format`), and state shared between threads as the type that says what it guarantees: reached only under its lock (`Guarded`), read whole without one (`Published`), or set once (`Once`) |
 | `ebpf` | nothing | the eBPF DSL: programs in typed Kotlin, emitted as C for clang's BPF target, checked against the kernel's BTF |
 | `ebpf-loader` | ebpf, linux | a compiled program loaded and attached through libbpf, its ring buffer read in place |
@@ -83,7 +88,7 @@ how it is meant to work; docs/inprogress.md says where it stands.
 | `dbus` | kotlinx.serialization, coroutines | D-Bus: the bus's socket, its handshake and `Hello` as a connection opens; messages as data; bodies by kotlinx.serialization, their signatures worked out from the Kotlin types; calls, signals as flows, served methods |
 | `portal` | dbus | the desktop portal as prism speaks to it: the appearance settings (the colour scheme, and its changes), the file chooser backend it serves, and `org.freedesktop.FileManager1` |
 | `preferences` | kotlinx.serialization, coroutines | what the user has set (pinned places, key bindings, the terminal) as one immutable value, in a JSON file read once by the one store a process has of it and written whole at each change, which the store hands every window |
-| `desktop` | linux | the desktop as interfaces (file types, applications and defaults, launching, places, a file's facts), and freedesktop.org's implementation: shared-mime-info, desktop entries and their `Exec` lines, `mimeapps.list`, and starting applications detached from prism |
+| `desktop` | linux, macos | the desktop as interfaces (file types, applications and defaults, launching, places, a file's facts), and freedesktop.org's implementation: shared-mime-info, desktop entries and their `Exec` lines, `mimeapps.list`, and starting applications detached from prism |
 | `window` | Compose, SDL3 and OpenGL (LWJGL) | Compose in native windows on every platform (Wayland, X11, Windows, macOS): drawn on the GPU where there is one and on the CPU into the window's own pixels where not, keys, the pointer, the clipboard by MIME type, and drag and drop (docs/window.md) |
 | `browser` | index, desktop, preferences, window, coroutines | browsing, as the picker and the explorer both do: an immutable state, a pure reducer from one state to the next, a session that carries out what it asks for, and a view made of controls of its own, worked by the pointer and the keyboard alike; a filter menu of kinds, a gallery with thumbnails, zoom, context menus (menus as data, one component to draw them) that rename, trash, copy, cut, paste and make files and folders, with undo; every key an action the user can bind again; and Ctrl+Shift+F's search of the index, its results shown as a folder holding them all |
 | `client` | cli | what one prism asks another, and how (the session's prism, at its socket); `prism search`; and a main that is the `prism` a shell starts, compiled ahead of time by GraalVM (`./gradlew :client:nativeImage`), which asks the prism running and hands what nobody answers to the Java prism |
@@ -145,7 +150,7 @@ daemon in your session and makes it your file chooser and file manager: `program
 | docs/explorer.md | the explorer: a double-click followed from the listing to a detached application, then its windows, the preferences every window shares, properties, "Open with", the bindings window, and what other platforms would need |
 | docs/design.md | how prism's windows are built: one row of the preferences followed from its code to the screen, then the tokens (spacing, palette, type), the controls and layouts that space themselves, scrolling by rows, and the rules they keep |
 | docs/window.md | prism's windows: SDL3's, native on Wayland and X11 alike; why not AWT; how a frame is drawn on the GPU or the CPU with nothing copied, how keys, the pointer, the clipboard and drag and drop reach Compose; and what is not done yet |
-| docs/platform.md | what is the same on every platform and what is Linux's; drag and drop followed through every toolkit; what macOS and Windows need, and the command-line picker that is prism's picker there |
+| docs/platform.md | what is the same on every platform and what is each one's; drag and drop followed through every toolkit; how macOS is reached (Objective-C's runtime through FFM), where it stands and what to try on a Mac; what Windows needs; the command-line picker that is prism's picker on both |
 | docs/menus.md | a plan for context menus the user configures: actions declared with conditions and commands as words, run detached, in a terminal or watched; the menu's layout; items made as it opens; an editor that shows what an action would do |
 | docs/text.md | text searches: a declared command given the files a window shows, whose lines of output are shown under their files with the file beside them; how its output is read, the preview, and the editor a line is opened in |
 | docs/inprogress.md | where the work stands, what is not verified, what is next |

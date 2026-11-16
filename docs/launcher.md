@@ -348,6 +348,39 @@ so the bind is all there is to add.
 - Hyprland: `bind = SUPER, space, exec, prism launcher`
 - GNOME, KDE: a custom shortcut whose command is `prism launcher`
 
+### On a Mac
+
+A Mac has no window manager to bind a key to a command, so on a Mac the daemon holds the launcher's key itself: press
+it anywhere, and the launcher is shown, as `prism launcher` would show it; press it again, or Escape, and it is put
+away. The key is Option+Space unless the preferences say another, since Spotlight has ⌘Space. To have ⌘Space, as
+Spotlight does:
+
+1. Turn Spotlight's off: System Settings › Keyboard › Keyboard Shortcuts… › Spotlight, and untick "Show Spotlight
+   search".
+2. Say prism's, under `launcher` in `~/Library/Application Support/prism/preferences.json`:
+
+   ```json
+   "launcher": { "hotKey": "Cmd+Space" }
+   ```
+
+3. Start the daemon again (`prism agent install` does, where it runs as a launch agent). `prism status` says which
+   key it holds; where another application has the key already, the daemon says so as it starts, and holds none.
+
+The key is a Carbon hot key (`RegisterEventHotKey`, macos/launcher.kt), which is how a Mac application has a key of
+its own system-wide, and which needs no permission (watching every key, as an event tap does, would need
+Accessibility). It is any chord with at least one modifier, written as the bindings are (`Ctrl+Option+K`, `Shift+F1`).
+
+Shown, the launcher is at the level of a menu that has popped up, on every Space and beside an application that fills
+the screen, and not among the windows ⌘` goes through; prism is brought forward with it, so it has the keyboard. Put
+away, the application that was in front before is brought forward again, unless what the launcher started or opened is
+in front instead. Spotlight's is a panel that never takes the application's place in front at all; the launcher's is
+a window that does for as long as it is shown, which looks the same but for the menu bar, which says "prism" meanwhile.
+
+Its keys are a Mac's: ⌘↩ shows a result in its folder, as Spotlight's does, ⌘⇧C copies its path, and ⌘, opens its
+settings. "Focus window" is each application running, brought forward with every window it has: a Mac tells a
+program of another's windows only with Screen Recording (their titles) or Accessibility (bringing one forward), which
+prism does not ask for.
+
 ## How it is made
 
 The launcher is a module of its own (`launcher`), made as the browser is:

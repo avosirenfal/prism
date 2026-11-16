@@ -1,8 +1,9 @@
 # Platforms
 
-prism is written and run on Linux. This document says what in it is the same everywhere, what is Linux's, and what
-macOS (on Apple silicon) and Windows would need, with drag and drop, the feature that touches every platform's
-toolkit, worked through first as the example of how prism stays out of the platforms' way.
+prism is written and run on Linux, and has what macOS (on Apple silicon) needs written beside what Linux has, not yet
+tried on a Mac. This document says what in it is the same everywhere, what is each platform's, and what Windows would
+need, with drag and drop, the feature that touches every platform's toolkit, worked through first as the example of
+how prism stays out of the platforms' way; then where macOS stands, and what to try on a Mac first.
 
 ## What prism is on each platform
 
@@ -67,33 +68,82 @@ whether it is on the same volume, is known only once it is dropped.
 
 | part | Linux | macOS | Windows |
 |---|---|---|---|
-| keeping the index current | the eBPF watcher | FSEvents, file by file: its "must scan this folder again" is `LiveIndex.rescan`, and its event ids let a start resume where the last run stopped | the USN journal, or `ReadDirectoryChangesW` |
-| reading folders | getdents64 through FFM | the JVM's reader now; `getattrlistbulk` through FFM for speed | the JVM's reader; `FindFirstFileEx` for speed |
-| what is left out | mountinfo's pseudo file systems | `getfsstat`'s; and APFS shows the same files at `/` and `/System/Volumes/Data`, so one is left out | the drives' types |
-| permission to read | none asked | Full Disk Access for `~/Library` and the like, granted per signed application, and a question for Desktop, Documents and Downloads; what is refused is said, with how to grant it | none asked |
-| running the daemon | a systemd user service | a launchd agent | a scheduled task, or a service |
+| which platform this is, and where prism keeps its own files | `Os`, `OwnFolders` (platform module): the XDG folders | the same: `~/Library/Application Support/prism`, `~/Library/Caches/prism`, the socket in `$TMPDIR` | the same: `%APPDATA%`, `%LOCALAPPDATA%` |
+| keeping the index current | the eBPF watcher | FSEvents (`Feed.fsEvents`): each entry made, removed or renamed, by its folder's device and inode; a folder to read again, or events dropped, counted as lost and the roots read again | the USN journal, or `ReadDirectoryChangesW` |
+| a folder shown kept current | the JVM's watch service (inotify) | FSEvents (`FsEventsFolderWatcher`), since the JVM's only polls there | the JVM's (`ReadDirectoryChangesW`) |
+| reading folders | getdents64 through FFM | the JVM's reader (`FileSystems.MacOS`); `getattrlistbulk` through FFM for speed, later | the JVM's reader; `FindFirstFileEx` for speed |
+| what is mounted, and what is left out | mountinfo's pseudo file systems (`FileSystems.Linux`) | getfsstat; what Finder does not show (`nobrowse`: the system's own volumes, devfs, and the data volume, whose files are reached from `/` through its firmlinks) | the drives' types |
+| knowing a file system again | udev's UUIDs, the file systems' own ids | each volume's UUID (getattrlist's `ATTR_VOL_UUID`); one under /Volumes comes and goes | the volume's GUID |
+| permission to read | none asked | Full Disk Access, known by reading what only it lets a program read (`fullDiskAccess`); without it, the daemon says what is left out and how to give it | none asked |
+| running the daemon | a systemd user service | a launchd agent: `prism agent install` | a scheduled task, or a service |
 | the picker for other applications | the portal, over D-Bus | none: the command line | none: the command line |
-| file types, applications, defaults, launching | freedesktop's: shared-mime-info, desktop entries, `mimeapps.list`, `setsid` | uniform type identifiers, Launch Services, `open -a` | the registry, `ShellExecuteEx` |
-| drives, and how full each is (the System page) | /sys/block, mountinfo, udev's records, statvfs, `zfs list` (`LinuxStorage`) | `getfsstat`, IOKit, and APFS containers' volumes | the volume management API |
+| file types, applications, defaults, launching | freedesktop's: shared-mime-info, desktop entries, `mimeapps.list`, `setsid` | uniform type identifiers said as MIME types, the bundles in the applications folders, Launch Services' defaults, `open -a` (`MacDesktop`) | the registry, `ShellExecuteEx` |
+| icons | the icon theme | NSWorkspace's, drawn to a PNG and kept in prism's cache | the executable's own |
+| drives, and how full each is (the System page) | /sys/block, mountinfo, udev's records, statvfs, `zfs list` (`LinuxStorage`) | the volumes Finder shows, each a store of its own (`VolumeStorage`); drives and APFS containers told apart by IOKit and DiskArbitration, later | the volume management API |
 | bringing forward what is started | Wayland's xdg-activation token, in `XDG_ACTIVATION_TOKEN`; on X11, a startup notification (not yet) | Launch Services, which activates what it opens | `ShellExecuteEx`, from a process the user just pressed something in |
-| the trash | freedesktop's trash, one for each mount (`Trash`) | the system's (`NSFileManager trashItemAtURL`, which says where each item went, for undo) | the Recycle Bin |
-| the colour scheme | the portal's | the system's appearance | the registry's app theme |
-| keys | Ctrl | Cmd, as the defaults' "primary" modifier | Ctrl |
-| windows | no decorations by default, `--decorated` for the window manager's | the system's title bar, made transparent, and the menu bar | the system's title bar |
-| hidden files | names starting with a dot | those, and the `UF_HIDDEN` flag (`~/Library`) | the hidden attribute |
+| the trash | freedesktop's trash, one for each mount (`FreedesktopTrash`) | the system's (`SystemTrash`: NSFileManager's `trashItemAtURL`, where it came from kept on the item as an extended attribute) | the Recycle Bin |
+| the colour scheme | the portal's | the appearance chosen (`AppleInterfaceStyle`, read each second) | the registry's app theme |
+| keys | Ctrl | Cmd (`Keyboard.Mac`): defaults written with `Primary`, and Finder's own where it has them | Ctrl |
+| OpenGL | the driver's default | a core profile of 3.2 or later, which macOS gives as 4.1 | the driver's default |
+| windows | no decorations by default, `--decorated` for the window manager's | the system's title bar, and the menu bar | the system's title bar |
+| the launcher's key | the window manager's binding of `prism launcher` | the daemon's own: a Carbon hot key, Option+Space until another is set (docs/launcher.md, "On a Mac") | a hot key of the system's (`RegisterHotKey`) |
+| the launcher over every window | a layer surface, or a window kept in front | a pop-up menu's level, on every Space and over full-screen applications, giving the keyboard back to the application before it | a topmost tool window |
+| hidden files | names starting with a dot | those, and the `UF_HIDDEN` flag (`~/Library`), later | the hidden attribute |
 | packaging | AppImage | a signed, notarized DMG (and signing is what keeps Full Disk Access granted across updates) | MSI |
 
-Where the code already stands apart from the platform, a port is an implementation: the `Desktop` interfaces
-(docs/explorer.md, "Across platforms"), `Disk`, the `Places`, and drag and drop. Where it does not yet, it has to be
-made to first: the trash is freedesktop's in the browser itself (its mounts read from Linux's mountinfo and statx),
-and wants to move behind `Desktop`; the default
-bindings say Ctrl, and want a "primary" modifier that is Cmd on macOS; and the index's watcher and reader are
-Linux's, behind the daemon.
+Where a part stands apart from the platform, a port is an implementation behind an interface: the `Desktop`
+interfaces (docs/explorer.md, "Across platforms") with the trash among them, the index's `FileSystems`, the daemon's
+`Feed`, the browser's `FolderWatcher`, `OwnFolders`, the `Keyboard`, and drag and drop.
 
-macOS's own interfaces are Objective-C, and some take blocks (callbacks), which FFM reaches poorly. The plan for them is
-a small library of prism's own in Swift, exporting plain C functions (`@_cdecl`) that Kotlin calls through FFM as it
-calls libc now: the Swift side deals with Objective-C's objects and blocks, and Kotlin sees functions.
+### Reaching macOS
 
-In order: the parts above that do not stand apart yet; then a macOS `Desktop` and the explorer over the JVM's reader,
-with the index read but not kept current; then FSEvents, the daemon as a launchd agent, and Full Disk Access; then
-signing and the DMG. The middle two need an Apple-silicon Mac to build and try on.
+macOS's own interfaces are Objective-C. prism reaches them as it reaches libc: through FFM, calling the Objective-C
+runtime's C functions (macos module, `objc.kt`). A class is found by its name (`objc_getClass`), a selector by its
+name (`sel_registerName`), and a message is sent by calling `objc_msgSend` as the method's own C function would be
+called, with the receiver and the selector first. On Apple silicon that is how every method is called, whatever it
+returns, so the one function, given each method's signature, reaches them all. Foundation's objects are
+CoreFoundation's (an NSString is a CFString), so CoreFoundation's C functions are used beside them.
+
+What an Objective-C method returns lives until its autorelease pool is drained, so the objects are used inside
+`ObjC.pooled` and only Kotlin's values leave it: a `UniformType`, a `Bundle`, a path, a PNG's bytes. Blocks
+(Objective-C's closures), which FFM cannot make, are not needed. The methods prism calls take none, or take nil for
+one, and what needs a callback has a C function for it: FSEvents and Carbon's hot keys call an FFM upcall, and
+`dispatch_sync_f` is libdispatch's block-free form. So nothing of Swift is built, and the whole of it compiles on
+Linux. What it says of a type, a bundle or a volume is tested on a Mac, against the system itself.
+
+## macOS, as it stands
+
+Everything above in the macOS column is written, and builds and is tested on Linux as far as it can be: the
+`statfs` layout read from bytes, a uniform type said as a MIME type, the Mac's key bindings with no two clashing,
+the launch agent's property list, the launcher's key read as Carbon takes it. The tests that ask macOS itself are
+`@EnabledOnOs(OS.MAC)`, and none has run yet: CI's job on macOS (`.github/workflows/ci.yml`) has not been started
+by a push to this repository, so the first Mac they run on is a person's.
+
+What to try on an Apple-silicon Mac, in order, since each needs the one before:
+
+1. **The build.** `./gradlew assemble testClasses`. The probes are left out on macOS (Apple's clang has no BPF
+   target), and nothing else is Linux's to build.
+2. **The bindings, against the system.** `./gradlew :macos:test :platform:test` and
+   `./gradlew :desktop:test --tests 'prism.desktop.macos.*'`. These say whether the Objective-C runtime is reached
+   rightly (text there and back, uniform types, a bundle, Launch Services' default, an icon), whether getfsstat's
+   layout is right, whether FSEvents says what is made and removed, and whether the trash puts back what it took.
+   A mistake in a method's signature shows here as a wrong answer or a crash, with the method's name in the trace.
+3. **A window.** `./gradlew :window:demo`. This is the core profile and Skia on it. If the window is blank or no
+   window opens, `PRISM_DRAWING=cpu ./gradlew :window:demo` draws on the CPU, which tells the drawing apart from
+   the window.
+4. **The explorer.** `./gradlew :app:run --args="explore"`: the listing, opening a file (Launch Services), "Open
+   with", the trash, the sidebar's places and volumes, the System page, icons, and Cmd's shortcuts.
+5. **The daemon.** `./gradlew :app:run --args="daemon --foreground"` from a terminal that has Full Disk Access
+   (System Settings › Privacy & Security), then `prism status` from another: the index of `/`, kept current by
+   FSEvents, and the line on disk access.
+6. **The launcher.** With the daemon running, Option+Space. To give it ⌘Space, turn off Spotlight's first (System
+   Settings › Keyboard › Keyboard Shortcuts › Spotlight), then set `"hotKey": "Cmd+Space"` under `launcher` in
+   `~/Library/Application Support/prism/preferences.json` and start the daemon again.
+7. **The agent.** `prism agent install`, once there is a `prism` to run (an app image from
+   `./gradlew :app:createDistributable`, or `--command`).
+
+Not written yet: drags out to other applications (an `NSDraggingSession`, which wants an Objective-C class of
+prism's own made at run time, with `objc_allocateClassPair`); the launcher as a non-activating panel, as Spotlight's
+is, rather than a window that brings prism forward; resuming FSEvents from the last event id a daemon saw;
+`getattrlistbulk` for reading folders; `UF_HIDDEN`; IOKit's and DiskArbitration's drives; the shared thumbnails
+(QuickLook's); a package opened as Finder opens it (an application started, not gone into); signing and the DMG.

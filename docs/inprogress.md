@@ -37,6 +37,19 @@ About 640 tests, passing in the development container but for one of the archive
 are run only when asked for. The D-Bus ones run against a real dbus-daemon each test starts, and against gdbus,
 dbus-send and busctl.
 
+## macOS
+
+Written beside Linux's, and not yet run on a Mac (docs/platform.md, "macOS, as it stands", says what to try first):
+prism's own folders by platform (`OwnFolders`); the trash, the index's file systems, the daemon's feed and the
+folder watcher behind interfaces, Linux's as before and macOS's beside them; a `Keyboard` whose primary modifier is
+Cmd on a Mac, with Finder's own chords; a macos module reaching libSystem, CoreFoundation, Launch Services, AppKit
+(through Objective-C's runtime and `objc_msgSend`), FSEvents and Carbon through FFM; a Mac's `Desktop`; OpenGL's core
+profile; the appearance; a launchd agent; Full Disk Access said; the launcher held by a hot key and over every window.
+
+The tests that ask macOS are `@EnabledOnOs(OS.MAC)`. CI has a job on macOS's runner, but no run of the workflow has
+been started by a push to this repository since its first, so they have not run there either: Actions may be off,
+or out of minutes, for the repository.
+
 ## Measured
 
 **The index of `/`** in this container: 185,359 entries (its caches, build trees and pseudo file systems left out),

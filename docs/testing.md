@@ -56,6 +56,9 @@ a device, so a test that ran and a test that could not run are never confused.
 | the live index: opening, reading again, changes, changes during a scan made again, places read for searches alone (`LiveIndexTest`) | Linux | never |
 | the daemon, with a feed of the test's own, and once with the kernel's watcher, which runs or says why not; a watcher that fails to start, and an index that cannot be written, each reported and gone on from (`DaemonTest`) | Linux | never (the kernel's watcher is refused in the development container, and the test sees that said) |
 | search over an index the size of a desktop (`SearchBenchmark`) | `-Pindex.benchmark=N` | unless asked for |
+| prism's own folders on each platform, and the platforms by the JVM's names (`FoldersTest`) | the JDK | never |
+| a `struct statfs` read as macOS lays it out, and a volume's UUID (`MountsTest`); a uniform type said as a MIME type, an application's category (`MacDesktopTest`); the launch agent's property list (`AgentTest`); the launcher's key as Carbon takes it (`HotKeyTest`); a Mac's key bindings, none clashing (`BindingsTest`) | the JDK | never |
+| macOS itself: its volumes and the data volume Finder does not show (`MountsTest`); Objective-C reached through its runtime, the uniform types, a bundle, Launch Services' defaults, an icon, the appearance (`ObjCTest`); FSEvents (`FsEventsTest`); a Mac's types, applications, places, volumes and the trash both ways (`MacDesktopTest`) | macOS | elsewhere |
 | D-Bus's wire format and types (`WireTest`, `SerialTest`) | the JDK | never |
 | D-Bus, live (`ConnectionTest`, `AppearanceTest`, `ThemeTest`) | dbus-daemon, which each test starts on a socket of its own | without dbus-daemon |
 | D-Bus against other implementations (in `ConnectionTest`) | gdbus, dbus-send, busctl | each, without that tool |
