@@ -28,9 +28,9 @@ import prism.desktop.Storage
 import prism.desktop.StorageReader
 import prism.desktop.Store
 import prism.desktop.StoreKind
-import prism.linux.Dev
-import prism.linux.Mount
 import prism.linux.Mounts
+import prism.platform.Dev
+import prism.platform.Mount
 
 /*
  * The machine's storage on Linux (prism.desktop's storage.kt says what is shown, and why it is grouped as it is), read

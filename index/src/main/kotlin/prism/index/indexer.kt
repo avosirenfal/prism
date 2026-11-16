@@ -5,15 +5,14 @@ import java.lang.foreign.MemorySegment
 import java.lang.foreign.ValueLayout.JAVA_BYTE
 import java.nio.file.Path
 import prism.linux.AtFlags
-import prism.linux.Dev
 import prism.linux.Fd
-import prism.linux.FileKind
-import prism.linux.KernelDev
-import prism.linux.Mount
-import prism.linux.Mounts
-import prism.linux.Stat
 import prism.linux.Sys
 import prism.linux.statx
+import prism.platform.Dev
+import prism.platform.FileKind
+import prism.platform.KernelDev
+import prism.platform.Mount
+import prism.platform.Stat
 
 /**
  * Reads the disk into [Change]s: a folder indexed, with everything under it the rules let in, or one entry read
@@ -28,8 +27,8 @@ import prism.linux.statx
  */
 class Indexer(
 	val rules: IgnoreRules = IgnoreRules.DEFAULT,
-	val mounts: List<Mount> = Mounts.current(),
-	val backend: Backend = Backend.Getdents,
+	val mounts: List<Mount> = FileSystems.SYSTEM.mounted(),
+	val backend: Backend = FileSystems.SYSTEM.backend,
 	val threads: Int = Runtime.getRuntime().availableProcessors(),
 	private val clock: java.time.Clock = java.time.Clock.systemUTC(),
 	/**
@@ -37,7 +36,10 @@ class Indexer(
 	 * in, a share on another machine): one read only where it is asked for, never because it is under something
 	 * that is.
 	 */
-	private val portable: (Mount) -> Boolean = { Volumes.SYSTEM.of(it)?.portable == true },
+	private val portable: (Mount) -> Boolean = {
+		FileSystems.SYSTEM.volumeOf(it)?.portable ==
+			true
+	},
 	/** The places asked for outright (an index's roots): read whatever is mounted there, and whatever the rules say. */
 	private val asked: Set<Where> = emptySet(),
 ) {
@@ -287,26 +289,8 @@ class Indexer(
 		}
 	}
 
-	/** [where]'s statx, following a link or not, and never mounting an automount point; null where it is not there. */
-	private fun statOf(where: Where, follow: Boolean): Stat? =
-		Arena.ofConfined().use { arena ->
-			val path = arena.allocate(where.bytes.size + 1L)
-
-			MemorySegment.copy(where.bytes, 0, path, JAVA_BYTE, 0, where.bytes.size)
-			path.set(JAVA_BYTE, where.bytes.size.toLong(), 0)
-
-			val flags =
-				if (follow)
-					AtFlags.NO_AUTOMOUNT
-				else
-					AtFlags.NO_AUTOMOUNT or
-						AtFlags.SYMLINK_NO_FOLLOW
-
-			when (val stat = statx(Fd.CWD, path, flags, arena.allocate(256, 8))) {
-				is Sys.Ok -> stat.value
-				is Sys.Failed -> null
-			}
-		}
+	/** [where]'s stat, following a link or not, as the backend says it; null where it is not there. */
+	private fun statOf(where: Where, follow: Boolean): Stat? = backend.stat(where, follow)
 }
 
 /**

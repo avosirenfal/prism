@@ -2,8 +2,8 @@ package prism.index
 
 import java.util.Arrays
 import java.util.TreeMap
-import prism.linux.Dev
-import prism.linux.KernelDev
+import prism.platform.Dev
+import prism.platform.KernelDev
 
 /*
  * An index of a tree that was given, and not read from a disk: what a command listed of an archive, say, or of the

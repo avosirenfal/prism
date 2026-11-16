@@ -17,8 +17,8 @@ import prism.index.query.Segment
 import prism.index.query.Term
 import prism.index.query.Test
 import prism.index.query.TextPattern
-import prism.linux.Dev
-import prism.linux.KernelDev
+import prism.platform.Dev
+import prism.platform.KernelDev
 import prism.shared.Guarded
 
 /*

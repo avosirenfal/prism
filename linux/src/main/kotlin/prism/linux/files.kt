@@ -9,6 +9,9 @@ import java.lang.foreign.ValueLayout.JAVA_INT
 import java.lang.foreign.ValueLayout.JAVA_LONG
 import java.lang.foreign.ValueLayout.JAVA_SHORT
 import java.time.Instant
+import prism.platform.Dev
+import prism.platform.FileKind
+import prism.platform.Stat
 
 /** An open file descriptor. Closing it is the owner's ([close]); nothing here closes one behind its back. */
 @JvmInline
@@ -68,105 +71,6 @@ value class AtFlags(
 		val STATX_DONT_SYNC = AtFlags(0x4000)
 	}
 }
-
-/** What a directory entry or an inode is. */
-enum class FileKind {
-	Directory,
-	Regular,
-	Symlink,
-	Fifo,
-	Socket,
-	CharDevice,
-	BlockDevice,
-	;
-
-	companion object {
-		/** The kind a `d_type` names, or null for `DT_UNKNOWN`: a file system that does not say, which needs a stat. */
-		fun ofDirentType(type: Int): FileKind? =
-			when (type) {
-				4 -> Directory
-				8 -> Regular
-				10 -> Symlink
-				1 -> Fifo
-				12 -> Socket
-				2 -> CharDevice
-				6 -> BlockDevice
-				else -> null
-			}
-
-		/** The kind an `st_mode`'s `S_IFMT` bits name. */
-		fun ofMode(mode: Int): FileKind? =
-			when (mode and 0xF000) {
-				0x4000 -> Directory
-				0x8000 -> Regular
-				0xA000 -> Symlink
-				0x1000 -> Fifo
-				0xC000 -> Socket
-				0x2000 -> CharDevice
-				0x6000 -> BlockDevice
-				else -> null
-			}
-	}
-}
-
-/** A device number, as statx gives it: major and minor. */
-data class Dev(
-	val major: Int,
-	val minor: Int,
-) {
-	override fun toString(): String = "$major:$minor"
-}
-
-/**
- * A file system's device as the kernel names it: its superblock's (`super_block.s_dev`), which is what mountinfo lists
- * and what a BPF program reads. Not the device a stat of a file on it gives ([Dev]): the two are one number everywhere
- * but on btrfs, where each subvolume is a device of its own to a stat and the whole file system is one device to the
- * kernel. A type of its own, so that neither can be given where the other is meant: a folder looked for by the one a
- * stat gave would be found everywhere but on btrfs.
- */
-@JvmInline
-value class KernelDev(
-	val dev: Dev,
-) {
-	/** The kernel's own encoding (`MKDEV`: the minor in the low 20 bits), as a BPF program reads it. */
-	val encoded: Int get() = (dev.major shl 20) or dev.minor
-
-	override fun toString(): String = dev.toString()
-
-	companion object {
-		fun ofEncoded(encoded: Int): KernelDev =
-			KernelDev(
-				Dev(
-					encoded ushr 20,
-					encoded and 0xFFFFF,
-				),
-			)
-	}
-}
-
-/**
- * What identifies a file on a machine: its file system's device, as the kernel names it, and its inode. A watcher
- * names the folder a change is in by it.
- */
-data class FileId(
-	val dev: KernelDev,
-	val ino: Long,
-)
-
-/** An inode as statx described it: what a listing shows of an entry, and what identifies it. */
-data class Stat(
-	val kind: FileKind?,
-	val permissions: Int,
-	val dev: Dev,
-	val ino: Long,
-	val size: Long,
-	val modified: Instant,
-	val links: Int,
-	/** The mount it was reached through (`STATX_MNT_ID`), 0 where the kernel did not say. */
-	val mountId: Long,
-	/** When it was made (`STATX_BTIME`); null where the file system does not keep it. */
-	val born: Instant? = null,
-)
 
 private val openatHandle =
 	Libc.capturing(

@@ -16,6 +16,7 @@ import kotlin.time.toJavaDuration
 import prism.index.Away
 import prism.index.Change
 import prism.index.FileId
+import prism.index.FileSystems
 import prism.index.IgnoreRules
 import prism.index.Ignored
 import prism.index.Index
@@ -29,13 +30,11 @@ import prism.index.SearchContext
 import prism.index.Searched
 import prism.index.Volume
 import prism.index.VolumeId
-import prism.index.Volumes
 import prism.index.Where
 import prism.index.places
 import prism.index.query.Query
 import prism.index.search
-import prism.linux.Mount
-import prism.linux.Mounts
+import prism.platform.Mount
 import prism.shared.Guarded
 import prism.shared.Published
 
@@ -59,9 +58,9 @@ data class LiveSettings(
 	/** How long a place read for a search alone is kept, unasked for, before it is let go. */
 	val keepAdHoc: Duration = 10.minutes,
 	/** What is mounted, each time it is asked. */
-	val mounts: () -> List<Mount> = Mounts::current,
-	/** Which file system a mount is of; null for one nothing says is the same one the next time ([Volumes]). */
-	val volumes: (Mount) -> Volume? = Volumes.SYSTEM::of,
+	val mounts: () -> List<Mount> = FileSystems.SYSTEM::mounted,
+	/** Which file system a mount is of; null for one nothing says is the same one the next time ([FileSystems]). */
+	val volumes: (Mount) -> Volume? = FileSystems.SYSTEM::volumeOf,
 	/** How long the tree of a file system that is not mounted is kept before it is let go. */
 	val keepAway: Duration = 30.days,
 	val clock: () -> Instant = Instant::now,

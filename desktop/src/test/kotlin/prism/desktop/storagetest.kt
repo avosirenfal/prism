@@ -10,7 +10,7 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import prism.desktop.freedesktop.LinuxStorage
-import prism.linux.Dev
+import prism.platform.Dev
 
 /**
  * The machine's storage read from a machine made in a folder: its /sys, /proc and udev records, as a workstation's

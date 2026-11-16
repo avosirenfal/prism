@@ -14,9 +14,9 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import prism.index.query.Depth
 import prism.index.query.query
-import prism.linux.Dev
-import prism.linux.KernelDev
-import prism.linux.Mount
+import prism.platform.Dev
+import prism.platform.KernelDev
+import prism.platform.Mount
 
 /**
  * What keeping the index current rests on: a folder made to agree with the disk one level deep, whatever happened in

@@ -39,6 +39,7 @@ include(
 	":cli",
 	":client",
 	":linux",
+	":macos",
 	":platform",
 	":shared",
 	":ebpf",

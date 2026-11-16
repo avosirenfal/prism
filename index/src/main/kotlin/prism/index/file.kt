@@ -10,8 +10,8 @@ import java.nio.file.NoSuchFileException
 import java.nio.file.Path
 import java.nio.file.StandardOpenOption
 import java.util.zip.CRC32C
-import prism.linux.Dev
-import prism.linux.KernelDev
+import prism.platform.Dev
+import prism.platform.KernelDev
 import prism.shared.Snapshot
 
 /*

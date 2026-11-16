@@ -8,12 +8,12 @@ import prism.ebpfloader.RecordView
 import prism.ebpfloader.Refusal
 import prism.ebpfloader.RingReader
 import prism.ebpfloader.load
-import prism.linux.FileId
-import prism.linux.FileKind
-import prism.linux.KernelDev
 import prism.linux.Sys
 import prism.linux.Wait
 import prism.linux.map
+import prism.platform.FileId
+import prism.platform.FileKind
+import prism.platform.KernelDev
 import prism.probe.Change
 import prism.probe.FsChange
 import prism.probe.FsWatch

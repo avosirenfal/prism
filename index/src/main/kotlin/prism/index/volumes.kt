@@ -9,9 +9,9 @@ import kotlin.io.path.listDirectoryEntries
 import kotlin.io.path.name
 import kotlin.io.path.readLines
 import kotlin.io.path.readText
-import prism.linux.Mount
 import prism.linux.Sys
 import prism.linux.fsidOf
+import prism.platform.Mount
 
 /*
  * Which file system a mount is of, whenever and wherever it is mounted. A file system that is unmounted and mounted

@@ -24,12 +24,12 @@ import prism.index.query.QueryBuilder
 import prism.index.query.RegexOn
 import prism.index.query.Since
 import prism.index.query.query
-import prism.linux.Dev
 import prism.linux.Fd
-import prism.linux.KernelDev
-import prism.linux.Mount
 import prism.linux.orThrow
 import prism.linux.statx
+import prism.platform.Dev
+import prism.platform.KernelDev
+import prism.platform.Mount
 
 /**
  * Every example of the search language (docs/search.md), written in the DSL and run against a tree made here and

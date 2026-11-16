@@ -9,28 +9,9 @@ import java.nio.file.Path
 import kotlin.io.path.Path
 import kotlin.io.path.exists
 import kotlin.io.path.readLines
-
-/**
- * One mounted file system, as `/proc/self/mountinfo` describes it: [id], the mount's own number (what statx's
- * `STATX_MNT_ID` says a file was reached through); [dev], the kernel's device for it; [root], the folder of its file
- * system that is mounted; [at], where it is mounted; [type], its file system's type; [source], what was mounted
- * (`/dev/sda1`, `tmpfs`, `server:/export`); and [options], its file system's own (`subvol=/@home`, of a btrfs).
- */
-data class Mount(
-	val id: Long,
-	val dev: KernelDev,
-	val root: String,
-	val at: Path,
-	val type: String,
-	val source: String,
-	val options: List<String> = emptyList(),
-) {
-	/** The value of the file system's option [name] (`subvol`, of `subvol=/@home`); null where it has none. */
-	fun option(name: String): String? =
-		options.firstNotNullOfOrNull {
-			it.takeIf { it.startsWith("$name=") }?.substringAfter('=')
-		}
-}
+import prism.platform.Dev
+import prism.platform.KernelDev
+import prism.platform.Mount
 
 /** The file systems mounted where this process sees them. */
 object Mounts {

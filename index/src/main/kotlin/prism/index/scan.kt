@@ -7,22 +7,24 @@ import java.lang.foreign.ValueLayout.JAVA_BYTE
 import java.nio.file.Files
 import java.nio.file.LinkOption
 import java.nio.file.Path
+import java.nio.file.attribute.FileTime
 import java.util.concurrent.ForkJoinPool
 import java.util.concurrent.ForkJoinTask
 import java.util.concurrent.RecursiveTask
 import kotlin.time.Duration
 import kotlin.time.measureTimedValue
 import prism.linux.AtFlags
-import prism.linux.Dev
 import prism.linux.DirentBuffer
 import prism.linux.Fd
-import prism.linux.FileKind
 import prism.linux.OpenFlags
-import prism.linux.Stat
 import prism.linux.Sys
 import prism.linux.close
 import prism.linux.openat
 import prism.linux.statx
+import prism.platform.Dev
+import prism.platform.FileKind
+import prism.platform.Os
+import prism.platform.Stat
 
 /*
  * A scan: a directory tree read into an immutable tree of what it holds. How a directory is read is a [Backend]; the
@@ -173,11 +175,14 @@ class Where internal constructor(
 	}
 }
 
-/** How a directory is read. */
+/** How a directory is read, and a path stated. */
 sealed interface Backend {
 	val name: String
 
 	fun list(where: Where): Listing
+
+	/** [where]'s stat, following a link or not, and never mounting an automount point; null where it is not there. */
+	fun stat(where: Where, follow: Boolean): Stat?
 
 	/**
 	 * The JVM's own: a directory stream for the names, and a stat of each entry (`unix:mode,ino`, one `lstat`) for
@@ -222,6 +227,45 @@ sealed interface Backend {
 			}
 		}
 
+		override fun stat(where: Where, follow: Boolean): Stat? {
+			val path = where.path ?: return null
+			val options =
+				if (follow)
+					emptyArray()
+				else
+					arrayOf(LinkOption.NOFOLLOW_LINKS)
+
+			return try {
+				val attributes =
+					Files.readAttributes(
+						path,
+						"unix:mode,dev,ino,size,lastModifiedTime,nlink,creationTime",
+						*options,
+					)
+
+				val mode = attributes["mode"] as Int
+
+				Stat(
+					kind = FileKind.ofMode(mode),
+					permissions = mode and 0xFFF,
+					dev = devOf(attributes["dev"] as Long),
+					ino = attributes["ino"] as Long,
+					size = attributes["size"] as Long,
+					modified = (attributes["lastModifiedTime"] as FileTime).toInstant(),
+					links = attributes["nlink"] as Int,
+					mountId = 0,
+					// The JVM says when a file was made where the platform keeps it (macOS), and its last change where not.
+					born =
+						(attributes["creationTime"] as FileTime).toInstant().takeIf {
+							Os.current ==
+								Os.MacOS
+						},
+				)
+			} catch (failed: IOException) {
+				null
+			}
+		}
+
 		/** What the link at [link] leads to: a stat that follows it; null where it leads nowhere. */
 		private fun targetOf(link: Path): FileKind? =
 			try {
@@ -230,8 +274,14 @@ sealed interface Backend {
 				null
 			}
 
-		/** The JVM's `unix:dev`, which is glibc's encoding of a device number: its `gnu_dev_major` and `gnu_dev_minor`. */
+		/**
+		 * The JVM's `unix:dev`, which is the platform's `dev_t`: on Linux, glibc's encoding (its `gnu_dev_major` and
+		 * `gnu_dev_minor`); on macOS, Darwin's.
+		 */
 		private fun devOf(dev: Long): Dev {
+			if (Os.current == Os.MacOS)
+				return prism.macos.devOf(dev.toInt())
+
 			val major = ((dev ushr 8) and 0xFFF) or ((dev ushr 32) and 0xFFFFF000L)
 			val minor = (dev and 0xFF) or ((dev ushr 12) and 0xFFFFFF00L)
 
@@ -335,6 +385,26 @@ sealed interface Backend {
 			) {
 				is Sys.Ok -> stat.value.kind
 				is Sys.Failed -> null
+			}
+
+		override fun stat(where: Where, follow: Boolean): Stat? =
+			Arena.ofConfined().use { arena ->
+				val path = arena.allocate(where.bytes.size + 1L)
+
+				MemorySegment.copy(where.bytes, 0, path, JAVA_BYTE, 0, where.bytes.size)
+				path.set(JAVA_BYTE, where.bytes.size.toLong(), 0)
+
+				val flags =
+					if (follow)
+						AtFlags.NO_AUTOMOUNT
+					else
+						AtFlags.NO_AUTOMOUNT or
+							AtFlags.SYMLINK_NO_FOLLOW
+
+				when (val stat = statx(Fd.CWD, path, flags, arena.allocate(256, 8))) {
+					is Sys.Ok -> stat.value
+					is Sys.Failed -> null
+				}
 			}
 
 		/**

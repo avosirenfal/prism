@@ -14,12 +14,12 @@ import prism.linux.AtFlags
 import prism.linux.DirentBuffer
 import prism.linux.Errno
 import prism.linux.Fd
-import prism.linux.FileKind
 import prism.linux.OpenFlags
 import prism.linux.Sys
 import prism.linux.close
 import prism.linux.openat
 import prism.linux.statx
+import prism.platform.FileKind
 
 /*
  * A folder's entries read into rows. Everything a row shows of an entry (what it is, its size, when it was last

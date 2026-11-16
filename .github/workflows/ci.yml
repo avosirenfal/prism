@@ -46,6 +46,9 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
       - name: Build
         run: ./gradlew assemble testClasses --no-daemon
+      # What is macOS's own, against the system itself; and what stands apart from any platform.
+      - name: Test macOS's own
+        run: ./gradlew :platform:test :macos:test --no-daemon
 
   # The flake: prism built as the Nix package (which fails where nix/deps.json no longer holds what Gradle fetches,
   # as after a dependency was changed without it being written again), and the NixOS module evaluated each way it

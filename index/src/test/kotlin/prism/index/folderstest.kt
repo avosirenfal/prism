@@ -17,12 +17,12 @@ import prism.index.query.QueryText
 import prism.index.query.Term
 import prism.index.query.Test.Folders
 import prism.index.query.Test.Is
-import prism.linux.Dev
 import prism.linux.Fd
-import prism.linux.KernelDev
-import prism.linux.Mount
 import prism.linux.orThrow
 import prism.linux.statx
+import prism.platform.Dev
+import prism.platform.KernelDev
+import prism.platform.Mount
 
 /**
  * What a query of folder terms finds ([Query.aimed]): the folders themselves where nothing is asked of an entry, and

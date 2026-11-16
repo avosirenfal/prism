@@ -19,9 +19,9 @@ import prism.desktop.Trashed
 import prism.desktop.freedesktop.Bin
 import prism.desktop.freedesktop.FreedesktopTrash
 import prism.desktop.freedesktop.MountTable
-import prism.linux.Dev
-import prism.linux.KernelDev
-import prism.linux.Mount
+import prism.platform.Dev
+import prism.platform.KernelDev
+import prism.platform.Mount
 
 /**
  * The trash of each mount, as the freedesktop.org specification lays them out: the home trash for what is on its mount,

@@ -29,11 +29,11 @@ import prism.desktop.erased
 import prism.desktop.map
 import prism.linux.AtFlags
 import prism.linux.Fd
-import prism.linux.Mount
 import prism.linux.Mounts
 import prism.linux.Sys
 import prism.linux.statx
 import prism.linux.uid
+import prism.platform.Mount
 import prism.platform.XdgHomes
 
 /*

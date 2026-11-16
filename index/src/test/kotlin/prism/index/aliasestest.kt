@@ -20,12 +20,12 @@ import prism.index.query.QueryGrammar
 import prism.index.query.QueryText
 import prism.index.query.Role
 import prism.index.query.Test.All
-import prism.linux.Dev
 import prism.linux.Fd
-import prism.linux.KernelDev
-import prism.linux.Mount
 import prism.linux.orThrow
 import prism.linux.statx
+import prism.platform.Dev
+import prism.platform.KernelDev
+import prism.platform.Mount
 
 /**
  * Aliases (`name@`): what is one as written, what each stands for, and what a query that uses them finds in a tree

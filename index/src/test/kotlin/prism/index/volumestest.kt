@@ -11,9 +11,9 @@ import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
-import prism.linux.Dev
-import prism.linux.KernelDev
-import prism.linux.Mount
+import prism.platform.Dev
+import prism.platform.KernelDev
+import prism.platform.Mount
 
 /**
  * Which file system a mount is of, read from what a system says of its devices; a tree handed out of an index as a

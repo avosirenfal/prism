@@ -13,8 +13,8 @@ import prism.index.query.Group
 import prism.index.query.QueryBuilder
 import prism.index.query.RegexOn
 import prism.index.query.query
-import prism.linux.Dev
-import prism.linux.KernelDev
+import prism.platform.Dev
+import prism.platform.KernelDev
 
 /**
  * How fast the index is at the size of a whole desktop: a made-up tree of `-Pindex.benchmark=N` entries (folders of

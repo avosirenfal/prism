@@ -10,6 +10,9 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertInstanceOf
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
+import prism.platform.Dev
+import prism.platform.FileKind
+import prism.platform.KernelDev
 
 /** The system calls against a real directory: what getdents64 and statx report, and the errnos of what fails. */
 class FilesTest {

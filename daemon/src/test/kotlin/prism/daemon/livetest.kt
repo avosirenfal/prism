@@ -25,9 +25,9 @@ import prism.index.Name
 import prism.index.Where
 import prism.index.query.query
 import prism.linux.Fd
-import prism.linux.KernelDev
 import prism.linux.orThrow
 import prism.linux.statx
+import prism.platform.KernelDev
 
 /**
  * A live index: opened at once and read behind; read again where it is told; changes made as they are said, and made

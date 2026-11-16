@@ -3,3 +3,8 @@
 plugins {
 	id("prism.kotlin-jvm")
 }
+
+dependencies {
+	// What its calls answer with (an entry's kind, a device, an inode's facts, a mount), which every platform's are.
+	api(project(":platform"))
+}

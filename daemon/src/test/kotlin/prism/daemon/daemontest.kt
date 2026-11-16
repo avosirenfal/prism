@@ -20,12 +20,12 @@ import prism.index.IndexFile
 import prism.index.IndexRead
 import prism.index.Indexer
 import prism.index.Name
-import prism.linux.Dev
 import prism.linux.Fd
-import prism.linux.FileKind
-import prism.linux.KernelDev
 import prism.linux.orThrow
 import prism.linux.statx
+import prism.platform.Dev
+import prism.platform.FileKind
+import prism.platform.KernelDev
 import prism.watcher.Done
 import prism.watcher.EntryName
 import prism.watcher.Observed

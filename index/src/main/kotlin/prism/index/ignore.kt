@@ -2,8 +2,7 @@ package prism.index
 
 import java.nio.file.Path
 import kotlin.io.path.Path
-import prism.linux.Mount
-import prism.linux.Mounts
+import prism.platform.Mount
 
 /**
  * A directory the index leaves out, with everything in it, written as a person writes one:
@@ -170,6 +169,17 @@ data class IgnoreRules(
 	}
 }
 
-/** The mount points of file systems [rules] leave out: read once, and looked up as each directory is met. */
-fun mountsLeftOut(rules: IgnoreRules, mounts: List<Mount> = Mounts.current()): Set<Path> =
-	mounts.filter { it.type in rules.fileSystems }.map { it.at }.toSet()
+/**
+ * The mount points of file systems [rules] leave out, and of those the platform keeps from its user ([hidden]): read
+ * once, and looked up as each directory is met.
+ */
+fun mountsLeftOut(
+	rules: IgnoreRules,
+	mounts: List<Mount> = FileSystems.SYSTEM.mounted(),
+	hidden: (Mount) -> Boolean = FileSystems.SYSTEM::hidden,
+): Set<Path> =
+	mounts
+		.filter {
+			it.type in rules.fileSystems || hidden(it)
+		}.map { it.at }
+		.toSet()

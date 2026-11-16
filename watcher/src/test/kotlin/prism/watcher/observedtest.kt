@@ -3,10 +3,10 @@ package prism.watcher
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Test
-import prism.linux.Dev
-import prism.linux.FileId
-import prism.linux.FileKind
-import prism.linux.KernelDev
+import prism.platform.Dev
+import prism.platform.FileId
+import prism.platform.FileKind
+import prism.platform.KernelDev
 import prism.probe.Change
 
 /** What a record of the ring is made into: each kind of change with what it has to say, and nothing else's. */

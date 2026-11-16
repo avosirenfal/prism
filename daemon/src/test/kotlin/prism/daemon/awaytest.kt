@@ -26,12 +26,12 @@ import prism.index.Name
 import prism.index.Volume
 import prism.index.VolumeId
 import prism.index.Where
-import prism.linux.Dev
 import prism.linux.Fd
-import prism.linux.KernelDev
-import prism.linux.Mount
 import prism.linux.orThrow
 import prism.linux.statx
+import prism.platform.Dev
+import prism.platform.KernelDev
+import prism.platform.Mount
 
 /**
  * File systems that come and go under a live index: one unmounted has its tree kept, whatever takes its entries out
