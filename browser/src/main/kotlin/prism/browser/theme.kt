@@ -97,6 +97,13 @@ data class Palette(
 		else
 			Color(0xFFFFE08A)
 
+	/** What is drawn behind each place what is looked for in a file shown is at: not what a search matched in it. */
+	val sought: Color get() =
+		if (isDark)
+			Color(0xFF1F4A66)
+		else
+			Color(0xFFC7E3FB)
+
 	/** What is drawn behind the line of a file that the line found under the cursor is. */
 	val matchLine: Color get() =
 		if (isDark)

@@ -180,6 +180,9 @@ internal class Stops {
 	val name = FocusRequester()
 	val search = FocusRequester()
 	val address = FocusRequester()
+
+	/** What looks in the file shown beside what a text search found. */
+	val find = FocusRequester()
 }
 
 /** The picker for [state]: what it shows, and [onEvent] for what the user does. */
@@ -217,7 +220,11 @@ fun FileBrowser(
 				}?.let(bindings::searching)
 				?.let { current.actions.search(it.id) }
 
-		search?.let { latest(BrowserEvent.SearchedText(it)) }
+		// The search shown already has its field: its key takes the keyboard there, to look for something else.
+		if (search != null && search.id == current.text?.search?.id)
+			stops.search.requestFocus()
+		else
+			search?.let { latest(BrowserEvent.SearchedText(it)) }
 
 		return search != null
 	}
@@ -408,8 +415,17 @@ private fun windowAction(
 			Action.Redo -> BrowserEvent.Redone
 			// An explorer's window ends as a picker does, and whoever opened it closes it.
 			Action.CloseWindow -> BrowserEvent.Cancelled
+			// In a folder, what narrows it. Beside what a text search found, what looks in the file shown: opened, or,
+			// open already, given the keyboard again. What the search itself looks for has the search's own key.
 			Action.SearchFolder -> {
-				stops.search.requestFocus()
+				val text = state.text
+
+				when {
+					text == null -> stops.search.requestFocus()
+					text.previewed == null -> Unit
+					text.find == null -> onEvent(BrowserEvent.PreviewFinding(true))
+					else -> stops.find.requestFocus()
+				}
 
 				return true
 			}

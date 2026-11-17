@@ -120,9 +120,14 @@ class TextViewTest {
 		).performTextInput(text)
 
 	private fun ComposeUiTest.until(session: Session, holds: (Location.Text) -> Boolean) {
-		waitUntil(timeoutMillis = TIMEOUT) {
-			session.state.value.text
-				?.let(holds) == true
+		try {
+			waitUntil(timeoutMillis = TIMEOUT) {
+				session.state.value.text
+					?.let(holds) == true
+			}
+		} catch (late: androidx.compose.ui.test.ComposeTimeoutException) {
+			// What it was, where it never came to what was waited for.
+			throw AssertionError("still ${session.state.value.text}", late)
 		}
 		waitForIdle()
 	}
@@ -207,6 +212,180 @@ class TextViewTest {
 				withKeyDown(Key.AltLeft) { pressKey(Key.DirectionRight) }
 			}
 			until(session) { it.rows.lines == 3 && it.running == null }
+		}
+	}
+
+	/** How wide what is tagged [tag] is drawn, in the window's own units. */
+	private fun ComposeUiTest.widthOf(tag: String): Float =
+		onNodeWithTag(tag).fetchSemanticsNode().size.width / density.density
+
+	private fun ComposeUiTest.searching(session: Session, query: String, lines: Int) {
+		onNode(isFocused()).performKeyInput {
+			withKeyDown(Key.CtrlLeft) { withKeyDown(Key.ShiftLeft) { pressKey(Key.G) } }
+		}
+		until(session) { true }
+		type(query)
+		until(session) { it.running == null && it.rows.lines == lines && it.previewed != null }
+	}
+
+	@Test
+	fun theLineBetweenTheListAndTheFileIsDragged_AndNeitherSideIsMadeTooNarrowToRead() {
+		assumeTrue(
+			listOf("rg", "xargs").all(SystemWorld(work, null)::installed),
+			"needs rg and xargs",
+		)
+		project()
+
+		exploring { session ->
+			searching(session, "class", 3)
+
+			val whole = widthOf("text")
+
+			// Three tenths of the window, until it is dragged.
+			assertEquals(whole * 0.3f, widthOf("text-list"), 1.5f)
+
+			fun dragBy(across: Float) {
+				onNodeWithTag("text-splitter").performMouseInput {
+					moveTo(center)
+					press()
+					// In steps, as a hand moves it.
+					repeat(4) { moveBy(Offset(across / 4f, 0f)) }
+					release()
+				}
+				waitForIdle()
+			}
+
+			val before = widthOf("text-list")
+
+			dragBy(180f)
+			assertEquals(before + 180f / density.density, widthOf("text-list"), 2f)
+			dragBy(-120f)
+			assertEquals(before + 60f / density.density, widthOf("text-list"), 2f)
+			// Dragged as far as it goes either way, each side keeps its least width.
+			dragBy(-2000f)
+			assertEquals(200f, widthOf("text-list"), 1.5f)
+			dragBy(4000f)
+			assertEquals(whole - 200f, widthOf("text-list"), 2.5f)
+			// And it is taken hold of again from where it was left.
+			dragBy(-100f)
+			assertEquals(whole - 200f - 100f / density.density, widthOf("text-list"), 2.5f)
+		}
+	}
+
+	@Test
+	fun controlFLooksInTheFileShown_ApartFromWhatTheSearchLooksFor() {
+		assumeTrue(
+			listOf("rg", "xargs").all(SystemWorld(work, null)::installed),
+			"needs rg and xargs",
+		)
+		project()
+
+		exploring { session ->
+			searching(session, "Uno", 1)
+
+			fun ctrlF() =
+				onNode(isFocused()).performKeyInput { withKeyDown(Key.CtrlLeft) { pressKey(Key.F) } }
+
+			ctrlF()
+			until(session) { it.find != null }
+			focusIsIn("text-find-field")
+			onNode(hasSetTextAction() and hasAnyAncestor(hasTestTag("text-find-field")))
+				.performTextInput("one")
+			// "class One" and "fun one() = 1", without case: of the file, whatever the search looked for in it.
+			until(session) { it.find?.text == "one" }
+			// Neither is at or after the line the file is shown at, its last: the first is gone to.
+			onNode(hasTestTag("text-find-count") and hasText("1 of 2")).assertExists()
+			assertEquals(
+				"Uno",
+				session.state.value.text!!
+					.query,
+			)
+			press(Key.Enter)
+			until(session) { it.find!!.index(it.occurrences) == 1 }
+			onNode(hasTestTag("text-find-count") and hasText("2 of 2")).assertExists()
+			onNode(
+				isFocused(),
+			).performKeyInput { withKeyDown(Key.ShiftLeft) { pressKey(Key.Enter) } }
+			until(session) { it.find!!.index(it.occurrences) == 0 }
+			onNodeWithTag("text-find-next").performMouseInput { click() }
+			until(session) { it.find!!.index(it.occurrences) == 1 }
+
+			// Ctrl+F again, from elsewhere, takes the keyboard back to it; Escape puts it away.
+			onNodeWithTag("text-line:one.kt:5").performMouseInput { click() }
+			waitForIdle()
+			focusIsIn("text-list")
+			ctrlF()
+			waitForIdle()
+			focusIsIn("text-find-field")
+			press(Key.Escape)
+			until(session) { it.find == null }
+			assertEquals(0, onAllNodes(hasTestTag("text-find")).fetchSemanticsNodes().size)
+			// The search is still shown: Escape put away what looked in the file, and no more.
+			assertEquals(
+				"Uno",
+				session.state.value.text!!
+					.query,
+			)
+
+			// The search's own key, while it is shown, takes the keyboard to what it looks for.
+			onNode(isFocused()).performKeyInput {
+				withKeyDown(Key.CtrlLeft) { withKeyDown(Key.ShiftLeft) { pressKey(Key.G) } }
+			}
+			waitForIdle()
+			focusIsIn("text-query")
+			assertEquals(
+				0,
+				session.state.value.history.back
+					.count { it is Location.Text },
+			)
+		}
+	}
+
+	@Test
+	fun theFilesAreNarrowedFromTheListsButton_AndALongLineIsScrolledAcrossUnderItsFile() {
+		assumeTrue(
+			listOf("rg", "xargs").all(SystemWorld(work, null)::installed),
+			"needs rg and xargs",
+		)
+		project()
+		work.resolve("src/wide.kt").writeText("class Wide // " + "and on ".repeat(60) + "\n")
+
+		exploring { session ->
+			searching(session, "class", 4)
+			onNode(hasTestTag("text-count") and hasText("3 files, 4 lines")).assertExists()
+
+			// Its button opens a field, which has the keyboard; a query of the index's language narrows the files.
+			onNodeWithTag("text-filter").performMouseInput { click() }
+			until(session) { it.filter != null }
+			focusIsIn("text-filter-field")
+			onNode(hasSetTextAction() and hasAnyAncestor(hasTestTag("text-filter-field")))
+				.performTextInput("^w*.kt")
+			until(session) { it.rows.files == 1 }
+			onNode(hasTestTag("text-count") and hasText("1 file, 1 line")).assertExists()
+			onNodeWithTag("text-file:wide.kt").assertExists()
+			assertEquals(0, onAllNodes(hasTestTag("text-file:one.kt")).fetchSemanticsNodes().size)
+
+			// The line is longer than the list is wide: the wheel, with Shift, scrolls it across, and its file's row
+			// stays where it is.
+			fun leftOf(tag: String) = onNodeWithTag(tag).fetchSemanticsNode().positionInRoot.x
+
+			val line = leftOf("text-line:wide.kt:1")
+			val file = leftOf("text-file:wide.kt")
+
+			onNodeWithTag("text-rows").performMouseInput {
+				moveTo(center)
+				scroll(3f, androidx.compose.ui.test.ScrollWheel.Horizontal)
+			}
+			waitForIdle()
+			mainClock.advanceTimeBy(1000)
+			waitForIdle()
+			assertTrue(leftOf("text-line:wide.kt:1") < line - 20f, "the line moved across")
+			assertEquals(file, leftOf("text-file:wide.kt"), 1f)
+
+			// Escape in the field puts the filter away, and every file is listed again.
+			onNode(hasSetTextAction() and hasAnyAncestor(hasTestTag("text-filter-field")))
+				.performKeyInput { pressKey(Key.Escape) }
+			until(session) { it.filter == null && it.rows.files == 3 }
 		}
 	}
 

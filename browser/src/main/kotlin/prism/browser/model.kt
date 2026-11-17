@@ -896,6 +896,10 @@ sealed interface Location {
 		val cursor: TextRowId? = null,
 		val previewed: Previewed? = null,
 		val asked: PreviewAsk? = null,
+		/** The files narrowed by a query of their names, while that is open; every file, where null. */
+		val filter: FileFilter? = null,
+		/** What is looked for in the file shown, while that is open. */
+		val find: PreviewFind? = null,
 		private val listed: TextListed = TextListed(),
 	) : Location {
 		/** What is typed, where it narrows what was found and is not what the command looks for. */
@@ -906,7 +910,12 @@ sealed interface Location {
 				""
 
 		/** What its list shows: the files, and the lines under those not folded. */
-		val rows: TextRows get() = listed.of(results.hits, folded, narrowing)
+		val rows: TextRows get() =
+			listed.of(results.hits, folded, narrowing, filter?.takeIf { it.narrows }?.admitted)
+
+		/** Every place what is looked for in the file shown is at. */
+		val occurrences: List<Occurrence> get() =
+			find?.let { (previewed?.preview as? Preview.Shown)?.occurrences(it.text) }.orEmpty()
 
 		/** The line found that the cursor is on, where it is on one. */
 		val line: TextRow.Line? get() = cursor?.let { rows[it] } as? TextRow.Line

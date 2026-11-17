@@ -185,6 +185,44 @@ about a string, say.
 With no preview command, or none that is installed, prism reads the file as text. A file longer than 20,000 lines is
 read about the line wanted. A file with a NUL character near its start is said not to be text.
 
+## Narrowing the files found
+
+Over the list are how many files and lines it lists, a button that folds every file or unfolds them, and a button
+that narrows the files. The second opens a field, and what is typed there is a query in the language a search of the
+index is typed in (docs/search.md), run over the files that were found, by their names and where they are:
+
+| typed | lists the files |
+|---|---|
+| `step` | with `step` in their names |
+| `*.kt$` | whose names end in `.kt` |
+| `dir:linux` | under a folder called `linux` |
+| `ext:md` | of that extension |
+| `proj@ -test` | that the alias `proj` finds, without `test` in their names |
+
+![The files found narrowed to those under one folder](text-filtered.png)
+
+It narrows what is listed, and looks for nothing: the command is not run again. Which files the query finds is
+worked out off the window's thread, in an index made of the files found and no others (`Index.given`, as a place is
+searched), and asked again whenever more are found. Until an answer comes, what was listed stays listed. A query
+that cannot be run says why under the field. Escape in the field, or the button again, puts it away, and every file
+is listed again.
+
+## Looking in the file shown
+
+Ctrl+F looks in the file beside the list, as it does in any text, and is no part of the search: it changes nothing
+of what was found. Every place what is typed is at, without case, is marked in the file, and the one gone to is
+marked in the accent and brought into sight. It starts at the first place at or after the line the file is shown at.
+
+| keys | what |
+|---|---|
+| Enter, or the button with the arrow down | the next place; past the last, the first |
+| Shift+Enter, or the button with the arrow up | the one before |
+| Escape, or the cross | puts it away |
+
+![A word looked for in the file shown, beside what the search found in it](text-find.png)
+
+What it looks in is what is shown, so in a file too long to be read whole it looks in the part that was read.
+
 ## The editor
 
 A line is opened by the first of these there is:
@@ -211,12 +249,17 @@ The preferences' "Actions" page says which editor is in use.
 | Home, End | the list | the first row, the last |
 | Left, Right | the list | a file's lines put away under it, or shown again |
 | Enter | the field, the list | the row under the cursor opened in the editor |
-| Ctrl+F | anywhere | the keyboard to the field |
+| the search's own key (Ctrl+Shift+G) | anywhere | the keyboard to the field, to look for something else |
+| Ctrl+F | anywhere | what looks in the file shown: opened, or given the keyboard again |
 | F5 | anywhere | the command run again |
 | Escape, Alt+Left | anywhere | back to what the window showed; Alt+Right comes back to what was found, which is kept |
 
-A click puts the cursor on a row. A double click opens a line, and folds a file. The line between the list and the
-file is dragged to share the room between them otherwise.
+A click puts the cursor on a row. A double click opens a line, and folds a file.
+
+The list has three tenths of the window, until the line between it and the file is dragged. Dragged as far as it
+goes, either side keeps 200 pixels. Each side scrolls down and across where what it shows is longer or wider than
+its room: across by its bar, by the wheel with Shift held, or by a touchpad. A file's own row stays where it is as
+its lines are scrolled across, so that it is always said whose they are.
 
 **A line's menu** has "Open in editor", "Open containing folder", "Copy line" and "Copy path", and the user's
 actions that say they are for this search's lines:
@@ -248,7 +291,7 @@ was found.
 | `browser/texting.kt` | the reducer's part: opening, typing, moving, folding, opening a line |
 | `browser/textsource.kt` | the command run, and a file read to be shown |
 | `browser/session.kt` | one run at a time, its lines sent in batches, stopped by the next |
-| `browser/textview.kt` | the field, the list and the file, drawn |
+| `browser/textview.kt` | the field, the list and the file, drawn; what narrows the files, and what looks in the file shown |
 | `browser/menus.kt` | the searches in the context menus, and the menus of a line and of a file |
 
 ## Not built yet

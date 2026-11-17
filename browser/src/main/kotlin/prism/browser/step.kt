@@ -198,6 +198,11 @@ private fun did(state: BrowserState, event: BrowserEvent): Step =
 		is BrowserEvent.TextOpened -> state.textOpened(event.row, event.at)
 		BrowserEvent.TextStopped -> state.textStopped()
 		is BrowserEvent.TextRevealed -> state.textRevealed(event.path)
+		is BrowserEvent.TextFiltering -> state.textFiltering(event.open)
+		is BrowserEvent.TextFilterTyped -> state.textFilterTyped(event.text)
+		is BrowserEvent.PreviewFinding -> state.previewFinding(event.open)
+		is BrowserEvent.PreviewFindTyped -> state.previewFindTyped(event.text)
+		is BrowserEvent.PreviewFindStepped -> state.previewFindStepped(event.by)
 		is BrowserEvent.Activated -> state.activated(event.row)
 		// A row given as the answer, from its menu: saving, a file to save over, which is asked first as opening it
 		// asks; otherwise chosen, and accepted.
@@ -1374,6 +1379,7 @@ private fun answered(state: BrowserState, answer: Answer): Step =
 		is Answer.TextFound -> state.textFound(answer.run, answer.hits)
 		is Answer.TextEnded -> state.textEnded(answer.run, answer.ending)
 		is Answer.Previewed -> state.previewed(answer.ask, answer.preview)
+		is Answer.TextFiltered -> state.textFiltered(answer.ask, answer.admitted)
 		// What was read of results, or an order of them, for results no longer shown, is too late too.
 		is Answer.Stated ->
 			when (val listing = state.listing) {
@@ -1448,6 +1454,8 @@ private fun BrowserState.broke(asking: Effect.Asking, fault: Fault): Step {
 		is Effect.ListPlace -> listed(asking.placed, PlaceListing.Failed(fault.said))
 		// Said where the file would have been shown.
 		is Effect.Preview -> previewed(asking.ask, Preview.Unshown(fault.said))
+		// Said under the filter's field.
+		is Effect.FilterText -> textFiltered(asking.ask, Reading.Wrong(fault.said))
 		is Effect.Look ->
 			if (asking.lookup == waiting)
 				Step(copy(waiting = null)).said()
@@ -1514,6 +1522,7 @@ internal fun failingOf(asking: Effect.Asking): String =
 		Effect.ReadStorage -> "Couldn't read this computer's storage"
 		is Effect.Search -> "Couldn't search for “${asking.text}”"
 		is Effect.Preview -> "Couldn't show “${asking.ask.path.fileName ?: asking.ask.path}”"
+		is Effect.FilterText -> "Couldn't filter the files by “${asking.ask.text}”"
 		is Effect.Stat -> "Couldn't read the sizes and dates of the results"
 		is Effect.ReadEntries ->
 			"Couldn't read what changed in “${asking.folder.fileName ?: asking.folder}”"

@@ -109,6 +109,8 @@ class Session(
 		MutableSharedFlow<Effect.FindText>(replay = 1, onBufferOverflow = DROP_OLDEST)
 	private val shows =
 		MutableSharedFlow<Effect.Preview>(replay = 1, onBufferOverflow = DROP_OLDEST)
+	private val filters =
+		MutableSharedFlow<Effect.FilterText>(replay = 1, onBufferOverflow = DROP_OLDEST)
 
 	/** How the picker ended, once it has. */
 	val outcome: Deferred<Outcome> get() = ending
@@ -307,6 +309,15 @@ class Session(
 			}
 		}
 
+		scope.launch(io) {
+			filters.collectLatest { filter ->
+				val answer = answerOf(filter)
+
+				ensureActive()
+				inputs.send(answer)
+			}
+		}
+
 		// One run of a text search's command at a time: the next asked for stops the one under way, and so does
 		// the browser's ending.
 		scope.launch(io) {
@@ -424,6 +435,7 @@ class Session(
 				else
 					scope.launch(io) { inputs.send(answerOf(effect)) }
 			is Effect.Preview -> shows.tryEmit(effect)
+			is Effect.FilterText -> filters.tryEmit(effect)
 			is Effect.FindText -> finds.tryEmit(effect)
 			is Effect.Asking -> scope.launch(io) { inputs.send(answerOf(effect)) }
 			is Effect.Copy -> clipboard(effect.text)
@@ -592,6 +604,7 @@ private fun refusedOf(asking: Effect.Asking, why: String): Answer? =
 		is Effect.Scratch -> Answer.Ran(Job(asking.pending.action.label, emptyList()), why)
 		is Effect.Temp -> Answer.Ran(Job(asking.carried.pending.action.label, emptyList()), why)
 		is Effect.Preview -> Answer.Previewed(asking.ask, Preview.Unshown(why))
+		is Effect.FilterText -> Answer.TextFiltered(asking.ask, Reading.Wrong(why))
 		is Effect.Look, is Effect.Locate, Effect.ReadStorage, is Effect.Search, is Effect.Stat,
 		is Effect.ReadEntries,
 		is Effect.Order, is Effect.ReadClip, is Effect.ReadRecents,

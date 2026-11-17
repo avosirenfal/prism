@@ -13,6 +13,8 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.longOrNull
+import prism.index.given
+import prism.index.search
 
 /*
  * Text searches (docs/text.md): lines found in the files a window shows, by a command, shown in the window in the
@@ -506,6 +508,8 @@ class TextRows(
 	hits: Hits,
 	folded: Set<Path>,
 	narrowing: String = "",
+	/** The files listed, where only some are: those a query of their names found. Every file, where null. */
+	admitted: Set<Path>? = null,
 ) {
 	/** A file listed: its lines listed, each by its place among the file's, and where its own row is. */
 	private class Listed(
@@ -527,6 +531,7 @@ class TextRows(
 
 	private val listed: List<Listed> =
 		hits.groups
+			.filter { admitted == null || it.path in admitted }
 			.mapNotNull { group ->
 				val kept =
 					if (words.isEmpty())
@@ -561,6 +566,18 @@ class TextRows(
 
 	/** How many lines are listed, those under a folded file too. */
 	val lines: Int = listed.sumOf { it.lines }
+
+	/**
+	 * How many characters the longest line listed is shown in ([Hit.excerpt]), those under a folded file too: what the
+	 * list is as wide as, where that is wider than its room. Worked out when it is first asked for.
+	 */
+	val longest: Int by lazy {
+		listed.maxOfOrNull { file ->
+			(file.indices?.asSequence()?.map(file.hits::get) ?: file.hits.asSequence())
+				.maxOfOrNull { it.shownLength }
+				?: 0
+		} ?: 0
+	}
 
 	fun isEmpty(): Boolean = size == 0
 
@@ -627,6 +644,14 @@ class TextRows(
 		val NONE = TextRows(Hits.NONE, emptySet())
 	}
 }
+
+/** How many characters [Hit.excerpt] shows of this line, give or take the dots where it is cut. */
+private val Hit.shownLength: Int get() =
+	minOf(
+		text.length -
+			(text.indexOfFirst { !it.isWhitespace() }.takeIf { it >= 0 } ?: text.length),
+		EXCERPT,
+	)
 
 /** Whether this line's text has every one of [words] in it, without case. */
 private fun Hit.has(words: List<String>): Boolean =
@@ -789,20 +814,26 @@ class TextListed {
 		val hits: Hits,
 		val folded: Set<Path>,
 		val narrowing: String,
+		val admitted: Set<Path>?,
 		val rows: TextRows,
 	)
 
 	private val last = prism.shared.Published<Kept?>(null)
 
-	internal fun of(hits: Hits, folded: Set<Path>, narrowing: String): TextRows =
+	internal fun of(
+		hits: Hits,
+		folded: Set<Path>,
+		narrowing: String,
+		admitted: Set<Path>?,
+	): TextRows =
 		last.now
-			?.takeIf { it.hits === hits && it.folded == folded && it.narrowing == narrowing }
-			?.rows
-			?: TextRows(
-				hits,
-				folded,
-				narrowing,
-			).also { last.set(Kept(hits, folded, narrowing, it)) }
+			?.takeIf {
+				it.hits === hits && it.folded == folded && it.narrowing == narrowing &&
+					it.admitted === admitted
+			}?.rows
+			?: TextRows(hits, folded, narrowing, admitted).also {
+				last.set(Kept(hits, folded, narrowing, admitted, it))
+			}
 
 	override fun equals(other: Any?): Boolean = other is TextListed
 
@@ -810,6 +841,115 @@ class TextListed {
 
 	override fun toString(): String = "TextListed"
 }
+
+// ---- narrowing the files, and finding in the file shown ------------------------------------------------------------
+
+/**
+ * A question of which of the files a search found a query of the index's own language finds ([text], as [query] reads
+ * it): the files are those of [hits], and `~` in the query is [home]. Equal only to itself: the same asked of more
+ * files is another question.
+ */
+class FilterAsk(
+	val text: String,
+	val query: prism.index.query.Query,
+	val hits: Hits,
+	val home: Path,
+) {
+	/** Whether this asks what [text] typed, of the files of [hits], would. */
+	fun asks(text: String, hits: Hits): Boolean = this.text == text && this.hits === hits
+
+	override fun toString(): String = "FilterAsk(“$text”, $hits)"
+}
+
+/**
+ * The files a text search found narrowed to those a query finds among them, by their names and where they are: the
+ * query as typed ([text]), in the language a search of the index is typed in (`*.kt`, `dir:src`, `ext:md`). Which
+ * files it finds is asked off the window's thread ([asked], while it is), and [admitted] is the answer to
+ * [answered], the last question that was: until the first is, every file is listed. A query that cannot be run says
+ * why ([refused]).
+ */
+@Immutable
+data class FileFilter(
+	val text: String = "",
+	val asked: FilterAsk? = null,
+	val answered: FilterAsk? = null,
+	val admitted: Set<Path>? = null,
+	val refused: String? = null,
+) {
+	/** Whether it narrows anything: something is typed. */
+	val narrows: Boolean get() = text.isNotBlank()
+}
+
+/** The files [ask]'s query finds among those it asks of; or why it could not be run. */
+fun filtered(ask: FilterAsk): Reading<Set<Path>> {
+	val paths = ask.hits.groups.mapTo(HashSet()) { it.path }
+
+	// An index of these files and no others, each where it is on disk, searched as the index of the disk is.
+	val index =
+		prism.index.Index.given(
+			paths.map { path -> prism.index.Given(path.map { it.toString() }, folder = false) },
+		)
+
+	return when (
+		val found = index.search(ask.query, prism.index.SearchContext(home = ask.home))
+	) {
+		is prism.index.Searched.Refused -> Reading.Wrong(found.why)
+		// The folders above a file are in such an index too, and are no file a line was found in.
+		is prism.index.Searched.Found ->
+			Reading.Right(
+				found.results
+					.mapNotNullTo(HashSet()) { it.where.path }
+					.apply { retainAll(paths) },
+			)
+	}
+}
+
+/** One place what is looked for in the file shown is at: which of the lines shown, and where in the line. */
+@Immutable
+data class Occurrence(
+	val line: Int,
+	val range: IntRange,
+)
+
+/**
+ * What is looked for in the file shown beside the list, as Ctrl+F looks in any text: [text], typed, and which of the
+ * places it is at is the one gone to ([at], counted round: one past the last is the first). It is of the file shown,
+ * and knows nothing of what the search looks for.
+ */
+@Immutable
+data class PreviewFind(
+	val text: String = "",
+	val at: Int = 0,
+) {
+	/** The place gone to among [found], where there is any. */
+	fun current(found: List<Occurrence>): Occurrence? = found.getOrNull(index(found))
+
+	/** Which of [found] is the one gone to. */
+	fun index(found: List<Occurrence>): Int =
+		if (found.isEmpty())
+			0
+		else
+			at.mod(found.size)
+}
+
+/** Every place [text] is at in these lines, without case, in order; no more than [OCCURRENCES] of them. */
+fun Preview.Shown.occurrences(text: String): List<Occurrence> =
+	if (text.isEmpty())
+		emptyList()
+	else
+		lines
+			.asSequence()
+			.flatMapIndexed { at, line ->
+				generateSequence(
+					line.text.indexOf(text, ignoreCase = true).takeIf { it >= 0 },
+				) { from ->
+					line.text.indexOf(text, from + text.length, ignoreCase = true).takeIf { it >= 0 }
+				}.map { Occurrence(at, it until it + text.length) }
+			}.take(OCCURRENCES)
+			.toList()
+
+/** The most places counted of what is looked for in a file. */
+const val OCCURRENCES = 10_000
 
 // ---- how a line is drawn -------------------------------------------------------------------------------------------
 

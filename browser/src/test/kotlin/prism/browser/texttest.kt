@@ -581,6 +581,179 @@ class TextTest {
 		assertEquals(Effect.Open(listOf(root.resolve("a b.txt"))), opening({ null }))
 	}
 
+	// ---- narrowing the files, and finding in the file shown -----------------------------------------------------------
+
+	@Test
+	fun theFilesFoundAreNarrowedByAQueryOfTheirNames_AsASearchOfTheIndexIsTyped() {
+		has("rg", "xargs")
+		project()
+
+		val found = exploring().searching("class").then(BrowserEvent.TextFiltering(true))
+
+		fun BrowserState.files(): List<String> =
+			text!!
+				.rows.paths
+				.map { root.relativize(it).toString() }
+				.sorted()
+
+		fun narrowed(query: String) = found.then(BrowserEvent.TextFilterTyped(query))
+
+		// Open and empty, it narrows nothing.
+		assertEquals(
+			listOf("launcher/actions.kt", "launcher/step.kt", "linux/epoll.kt"),
+			found.files(),
+		)
+		// A word is in a file's name; `dir:` is a folder it is under; a glob is found in its name, as a word is.
+		assertEquals(listOf("launcher/step.kt"), narrowed("step").files())
+		assertEquals(listOf("linux/epoll.kt"), narrowed("dir:linux").files())
+		assertEquals(
+			listOf("launcher/actions.kt", "linux/epoll.kt"),
+			narrowed("*o*.kt").files(),
+		)
+		assertEquals(emptyList<String>(), narrowed("ext:md").files())
+		// The lines are those of the files left, and the status line says of how many.
+		assertEquals(3, narrowed("step").text!!.rows.lines)
+		assertEquals("3 lines in 1 file of 8", textStatus(narrowed("step").text!!))
+		// Emptied, or put away, every file is listed again.
+		assertEquals(3, narrowed("step").then(BrowserEvent.TextFilterTyped("")).files().size)
+		assertEquals(3, narrowed("step").then(BrowserEvent.TextFiltering(false)).files().size)
+		assertEquals(
+			null,
+			narrowed("step").then(BrowserEvent.TextFiltering(false)).text!!.filter,
+		)
+	}
+
+	@Test
+	fun theFilterIsAskedAgainOfWhatIsFoundSince_AndALateAnswerIsDropped() {
+		val opened = step(texting(), BrowserEvent.TextTyped("a"))
+		val run = opened.state.text!!.running!!
+		val one = step(opened.state, Answer.TextFound(run, listOf(hit("x.txt", 1)))).state
+		val open = step(one, BrowserEvent.TextFiltering(true))
+
+		// Nothing typed asks nothing.
+		assertEquals(emptyList<Effect>(), open.effects)
+
+		val typed = step(open.state, BrowserEvent.TextFilterTyped("y"))
+		val first =
+			typed.effects
+				.filterIsInstance<Effect.FilterText>()
+				.single()
+				.ask
+
+		// Every file stays listed until the first answer comes.
+		assertEquals(listOf("x.txt (1)", "  1: line 1"), typed.state.lines())
+
+		val more = step(typed.state, Answer.TextFound(run, listOf(hit("y.txt", 2))))
+		val second =
+			more.effects
+				.filterIsInstance<Effect.FilterText>()
+				.single()
+				.ask
+
+		assertTrue(second !== first && second.text == "y" && second.hits.count == 2)
+
+		// The answer to the question overtaken is of files that are no longer all there are.
+		val late = step(more.state, Answer.TextFiltered(first, Reading.Right(emptySet())))
+
+		assertEquals(
+			2,
+			late.state.text!!
+				.rows.files,
+		)
+
+		val answered = step(late.state, Answer.TextFiltered(second, filtered(second))).state
+
+		assertEquals(listOf("y.txt (1)", "  2: line 2"), answered.lines())
+		// The cursor was on a line that is no longer listed: it goes to the first that is.
+		assertEquals(TextRowId.Line(root.resolve("y.txt"), 0), answered.text!!.cursor)
+
+		// A query that cannot be run says why, and what was listed stays.
+		val refused =
+			step(
+				step(answered, BrowserEvent.TextFilterTyped("y z"))
+					.let { again ->
+						again.state to
+							again.effects
+								.filterIsInstance<Effect.FilterText>()
+								.single()
+								.ask
+					}.let { (state, ask) ->
+						step(state, Answer.TextFiltered(ask, Reading.Wrong("No such alias"))).state
+					},
+				BrowserEvent.TextMoved(Move.First),
+			).state
+
+		assertEquals("No such alias", refused.text!!.filter!!.refused)
+		assertEquals(1, refused.text!!.rows.files)
+	}
+
+	@Test
+	fun whatIsLookedForInTheFileShownIsFoundThere_WhateverTheSearchLooksFor() {
+		has("rg", "xargs")
+		project()
+
+		// The cursor is on the first line found in a file: here, line 11 of epoll.kt, for "AtMost".
+		val found = exploring().searching("AtMost")
+		val text = found.text!!
+
+		assertEquals(
+			"epoll.kt",
+			text.previewed!!
+				.ask.path.fileName
+				.toString(),
+		)
+
+		val opened = found.then(BrowserEvent.PreviewFinding(true))
+		val typed = opened.then(BrowserEvent.PreviewFindTyped("millis"))
+		val places = typed.text!!.occurrences
+
+		assertEquals(PreviewFind(), opened.text!!.find)
+		// Every place, without case, by the line of the file shown it is in (counted from none) and where in it.
+		assertEquals(listOf(4, 7, 11, 14, 19), places.map { it.line })
+		assertEquals(
+			listOf("millis"),
+			places
+				.map { place ->
+					(typed.text!!.previewed!!.preview as Preview.Shown)
+						.lines[place.line]
+						.text
+						.substring(place.range.first, place.range.last + 1)
+				}.distinct(),
+		)
+		// The place gone to first is the first at or after the line the file is shown at, which is its eleventh.
+		assertEquals(
+			11,
+			typed.text!!
+				.find!!
+				.current(places)!!
+				.line,
+		)
+		// On to the next, round past the last to the first, and back.
+		assertEquals(
+			listOf(14, 19, 4, 7),
+			(1..4).map { steps ->
+				(1..steps)
+					.fold(typed) { state, _ -> state.then(BrowserEvent.PreviewFindStepped(1)) }
+					.text!!
+					.let { it.find!!.current(it.occurrences)!!.line }
+			},
+		)
+		assertEquals(
+			7,
+			typed
+				.then(BrowserEvent.PreviewFindStepped(-1))
+				.text!!
+				.let { it.find!!.current(it.occurrences)!!.line },
+		)
+		// It changes nothing of what the search looks for, or found.
+		assertEquals("AtMost" to 1, typed.text!!.query to typed.text!!.rows.lines)
+		assertEquals(null, typed.then(BrowserEvent.PreviewFinding(false)).text!!.find)
+		assertEquals(
+			emptyList<Occurrence>(),
+			typed.then(BrowserEvent.PreviewFindTyped("")).text!!.occurrences,
+		)
+	}
+
 	// ---- what is declared --------------------------------------------------------------------------------------------
 
 	private fun read(search: String, more: String = ""): Actions =
@@ -1001,6 +1174,31 @@ class TextTest {
 		kept("text-opened", renderedPng(opened, 1280, 500, Palette.Light, scale = 2f))
 		kept("text-scrolled", renderedPng(scrolled, 1280, 600, Palette.Dark, scale = 2f))
 		kept("text-narrow", renderedPng(scrolled, 760, 600, Palette.Light, scale = 2f))
+		kept(
+			"text-filtered",
+			renderedPng(
+				found
+					.then(BrowserEvent.TextFiltering(true))
+					.then(BrowserEvent.TextFilterTyped("dir:linux *.kt")),
+				1280,
+				600,
+				Palette.Light,
+				scale = 2f,
+			),
+		)
+		kept(
+			"text-find",
+			renderedPng(
+				found
+					.then(BrowserEvent.TextPointed(TextRowId.Line(root.resolve("launcher/step.kt"), 0)))
+					.then(BrowserEvent.PreviewFinding(true))
+					.then(BrowserEvent.PreviewFindTyped("event")),
+				1280,
+				760,
+				Palette.Dark,
+				scale = 2f,
+			),
+		)
 		kept(
 			"text-nothing",
 			renderedPng(

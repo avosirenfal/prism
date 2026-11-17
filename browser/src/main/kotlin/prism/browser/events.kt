@@ -110,6 +110,31 @@ sealed interface BrowserEvent : Input {
 	/** The text search's command, under way, stopped. */
 	data object TextStopped : BrowserEvent
 
+	/** The field that narrows the files found by a query of their names opened, or put away, which empties it. */
+	data class TextFiltering(
+		val open: Boolean,
+	) : BrowserEvent
+
+	/** What narrows the files found typed, to be [text]. */
+	data class TextFilterTyped(
+		val text: String,
+	) : BrowserEvent
+
+	/** What looks in the file shown beside the list opened (Ctrl+F), or put away. */
+	data class PreviewFinding(
+		val open: Boolean,
+	) : BrowserEvent
+
+	/** What is looked for in the file shown typed, to be [text]. */
+	data class PreviewFindTyped(
+		val text: String,
+	) : BrowserEvent
+
+	/** The next place what is looked for in the file shown is at gone to, or, where [by] is negative, the one before. */
+	data class PreviewFindStepped(
+		val by: Int,
+	) : BrowserEvent
+
 	/** The folder [path] is in gone to, with it chosen there: "Show in folder", of a file lines were found in. */
 	data class TextRevealed(
 		val path: Path,
@@ -732,6 +757,12 @@ sealed interface Answer : Input {
 		val preview: Preview,
 	) : Answer
 
+	/** Which files [ask]'s query finds among those it asked of; or why it could not be run. */
+	data class TextFiltered(
+		val ask: FilterAsk,
+		val admitted: Reading<Set<Path>>,
+	) : Answer
+
 	/**
 	 * prism itself went wrong answering [asking]: not what the disk, the desktop or a command refused, which each
 	 * answer says in its own way, but a mistake of prism's ([fault]). There is no answer, and none is made up: what
@@ -1341,6 +1372,14 @@ sealed interface Effect {
 	 */
 	data class Preview(
 		val ask: PreviewAsk,
+	) : Asking
+
+	/**
+	 * Which of the files a text search found [ask]'s query finds, sent back as [Answer.TextFiltered]. Overtaken by
+	 * the next one asked for, as [Preview] is.
+	 */
+	data class FilterText(
+		val ask: FilterAsk,
 	) : Asking
 
 	/**

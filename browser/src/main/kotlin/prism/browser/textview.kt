@@ -39,11 +39,13 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isShiftPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
@@ -71,6 +73,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import java.nio.file.Path
 import kotlinx.coroutines.delay
+import prism.index.query.QueryText
 
 /*
  * What a text search found, drawn (docs/text.md), in the listing's place: what is looked for, typed, with the
@@ -89,11 +92,11 @@ import kotlinx.coroutines.delay
  * | Escape | anywhere | back to what the window showed |
  */
 
-/** The least of the window's width either side is given, as a share of it, when the line between them is dragged. */
-private const val LEAST_SHARE = 0.2f
+/** The least width either side is given, however the line between them is dragged, where there is room for both. */
+private val LEAST_SIDE = 200.dp
 
 /** How much of the room the list of lines takes until the line between it and the file is dragged. */
-private const val LIST_SHARE = 0.42f
+private const val LIST_SHARE = 0.3f
 
 /** How far down what is in sight of the file the line wanted is put, as a share of it. */
 private const val LINE_SITS = 0.3f
@@ -167,8 +170,9 @@ internal fun TextPane(
 			}
 		}
 		Divider()
-		// With nothing found there is no file to show beside it: what is said of that has all the room.
-		if (rows.isEmpty())
+		// With nothing found at all there is no file to show beside it: what is said of that has all the room. What
+		// a filter of the files leaves none of stays beside the filter's field, which is where it is typed over.
+		if (text.results.hits.count == 0 && text.filter == null)
 			// It is where the list would be, and takes the keyboard as the list does.
 			TextNothing(
 				text,
@@ -181,42 +185,57 @@ internal fun TextPane(
 		else
 			BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
 				val room = maxWidth
+				// As much of the room as was asked for, but never so little of it that either side cannot be read;
+				// half each, where there is not room for that.
+				val least = minOf(LEAST_SIDE, room / 2)
+				val left = (room * share).coerceIn(least, room - least)
 
 				Row(Modifier.fillMaxSize()) {
-					Box(
-						Modifier
-							.width(room * share)
-							.fillMaxHeight()
-							.focusRequester(stops.listing)
-							.focusable()
-							.onKeyEvent { key ->
-								when {
-									key.type != KeyEventType.KeyDown -> false
-									key.key == Key.Enter || key.key == Key.NumPadEnter ->
-										true.also { onEvent(BrowserEvent.TextOpened()) }
-									key.key == Key.MoveHome ->
-										true.also { onEvent(BrowserEvent.TextMoved(Move.First)) }
-									key.key == Key.MoveEnd ->
-										true.also { onEvent(BrowserEvent.TextMoved(Move.Last)) }
-									key.key == Key.DirectionLeft || key.key == Key.DirectionRight ->
-										text.cursor
-											?.let {
-												onEvent(
-													BrowserEvent.TextFolded(it.path, key.key == Key.DirectionLeft),
-												)
-											} != null
-									else -> moved(key)
-								}
-							},
-					) {
-						TextList(state, text, rows, list, menus, stops, onEvent)
+					Column(Modifier.width(left).fillMaxHeight().testTag("text-list")) {
+						CompositionLocalProvider(LocalType provides LocalTypes.current.general) {
+							ListHeader(text, rows, state.aliases, stops, onEvent)
+						}
+						Box(
+							Modifier
+								.weight(1f)
+								.fillMaxWidth()
+								.focusRequester(stops.listing)
+								.focusable()
+								.onKeyEvent { key ->
+									when {
+										key.type != KeyEventType.KeyDown -> false
+										key.key == Key.Enter || key.key == Key.NumPadEnter ->
+											true.also { onEvent(BrowserEvent.TextOpened()) }
+										key.key == Key.MoveHome ->
+											true.also { onEvent(BrowserEvent.TextMoved(Move.First)) }
+										key.key == Key.MoveEnd ->
+											true.also { onEvent(BrowserEvent.TextMoved(Move.Last)) }
+										key.key == Key.DirectionLeft || key.key == Key.DirectionRight ->
+											text.cursor
+												?.let {
+													onEvent(
+														BrowserEvent.TextFolded(
+															it.path,
+															key.key == Key.DirectionLeft,
+														),
+													)
+												} != null
+										else -> moved(key)
+									}
+								},
+						) {
+							if (rows.isEmpty())
+								TextNothing(text, Modifier.fillMaxSize())
+							else
+								TextList(state, text, rows, list, menus, stops, onEvent)
+						}
 					}
 					Box(Modifier.width(1.dp).fillMaxHeight().background(palette.border))
-					TextPreview(text, Modifier.weight(1f).fillMaxHeight(), menus)
+					TextPreview(text, Modifier.weight(1f).fillMaxHeight(), menus, stops, onEvent)
 				}
 				// Over the line between them, and wider than it, so that it can be taken hold of.
-				Splitter(Modifier.offset(x = room * share - Space.xs)) { dragged ->
-					share = (share + dragged / room).coerceIn(LEAST_SHARE, 1f - LEAST_SHARE)
+				Splitter(Modifier.offset(x = left - Space.xs)) { dragged ->
+					share = ((left + dragged) / room).coerceIn(0f, 1f)
 				}
 			}
 	}
@@ -330,13 +349,25 @@ private fun Splitter(modifier: Modifier, onDrag: (Dp) -> Unit) {
 			.pointerHoverIcon(PointerIcon(java.awt.Cursor(java.awt.Cursor.E_RESIZE_CURSOR)))
 			.pointerInput(Unit) {
 				awaitPointerEventScope {
+					// Where in it the pointer took hold of it. It follows the pointer as it is dragged, so how far
+					// the pointer is from there is how far it has still to go, which is what is reported.
+					var held: Float? = null
+
 					while (true) {
 						val event = awaitPointerEvent()
 						val change = event.changes.firstOrNull() ?: continue
 
-						if (event.type == PointerEventType.Move && change.pressed) {
-							latest(with(density) { change.positionChange().x.toDp() })
-							change.consume()
+						when (event.type) {
+							PointerEventType.Press -> {
+								held = change.position.x
+								change.consume()
+							}
+							PointerEventType.Release -> held = null
+							PointerEventType.Move ->
+								held?.takeIf { change.pressed }?.let {
+									latest(with(density) { (change.position.x - it).toDp() })
+									change.consume()
+								}
 						}
 					}
 				}
@@ -345,6 +376,116 @@ private fun Splitter(modifier: Modifier, onDrag: (Dp) -> Unit) {
 }
 
 // ---- the lines found ---------------------------------------------------------------------------------------------
+
+/**
+ * What is over the list: how much it lists; what narrows its files by a query of their names, and what folds them
+ * all; and, while the first is open, the field the query is typed in, with what is wrong with it under that.
+ */
+@Composable
+private fun ListHeader(
+	text: Location.Text,
+	rows: TextRows,
+	aliases: prism.index.query.Aliases,
+	stops: Stops,
+	onEvent: (BrowserEvent) -> Unit,
+) {
+	val palette = LocalPalette.current
+	val type = LocalType.current
+	val filter = text.filter
+	val everyFolded = rows.files > 0 && rows.paths.all { it in text.folded }
+	val focus = remember { FocusRequester() }
+
+	Row(
+		Modifier
+			.fillMaxWidth()
+			.height(type.row)
+			.background(palette.window)
+			.padding(start = Space.m, end = Space.xs),
+		verticalAlignment = Alignment.CenterVertically,
+		horizontalArrangement = Arrangement.spacedBy(Space.xxs),
+	) {
+		Text(
+			"${counted(rows.files, "file")}, ${counted(rows.lines, "line")}",
+			style = type.muted,
+			maxLines = 1,
+			overflow = TextOverflow.Ellipsis,
+			modifier = Modifier.weight(1f).testTag("text-count"),
+		)
+		ToolButton(
+			if (everyFolded)
+				Glyph.ChevronDown
+			else
+				Glyph.Chevron,
+			if (everyFolded)
+				"Expand all files"
+			else
+				"Collapse all files",
+			enabled = rows.files > 0,
+			Modifier.testTag("text-fold-all"),
+			size = type.row - Space.xs,
+			icon = type.icon * 0.8f,
+		) { onEvent(BrowserEvent.TextFoldedAll(!everyFolded)) }
+		ToolButton(
+			Glyph.Filter,
+			"Filter files by name",
+			enabled = true,
+			Modifier.testTag("text-filter"),
+			selected = filter != null,
+			size = type.row - Space.xs,
+			icon = type.icon * 0.8f,
+		) { onEvent(BrowserEvent.TextFiltering(filter == null)) }
+	}
+	Divider()
+	if (filter != null) {
+		val colouring =
+			remember(filter.text, aliases, palette) {
+				QueryColouring(QueryText.read(filter.text, aliases), palette)
+			}
+
+		// The keyboard goes to it as it opens: it is opened to be typed in.
+		LaunchedEffect(Unit) { focus.requestFocus() }
+		Column(
+			Modifier.fillMaxWidth().padding(horizontal = Space.s, vertical = Space.xs),
+			verticalArrangement = Arrangement.spacedBy(Space.xs),
+		) {
+			Field(
+				filter.text,
+				{ onEvent(BrowserEvent.TextFilterTyped(it)) },
+				Modifier.fillMaxWidth().testTag("text-filter-field"),
+				hint = "*.kt, dir:src, ext:md…",
+				leading = Glyph.Filter,
+				focus = focus,
+				colouring = colouring,
+				onKey = { key ->
+					when {
+						key.type != KeyEventType.KeyDown -> false
+						// Escape puts it away, and every file is listed again; Enter and Down go to what it left.
+						key.key == Key.Escape ->
+							true.also {
+								onEvent(BrowserEvent.TextFiltering(false))
+								stops.search.requestFocus()
+							}
+						key.key == Key.Enter || key.key == Key.NumPadEnter ||
+							key.key == Key.DirectionDown -> true.also { stops.listing.requestFocus() }
+						else -> false
+					}
+				},
+				onClear = {
+					onEvent(BrowserEvent.TextFilterTyped(""))
+					focus.requestFocus()
+				},
+			)
+			filter.refused?.let {
+				Text(
+					it,
+					style = type.muted.copy(color = palette.dangerText),
+					modifier = Modifier.testTag("text-filter-refused"),
+				)
+			}
+		}
+		Divider()
+	}
+}
 
 /** How tall a row of the list is: a line of its text, and a little room. */
 private val Type.textRow: Dp get() = line + Space.s
@@ -365,49 +506,99 @@ private fun TextList(
 	val world = LocalWorld.current
 	val current by rememberUpdatedState(state)
 
-	LazyScrollArea(
-		Modifier.fillMaxSize(),
-		list,
-		line = type.textRow,
-		padding =
-			androidx.compose.foundation.layout
-				.PaddingValues(vertical = Space.xs),
-		tag = "text-rows",
-	) {
-		items(rows.size, key = { rows[it].id }) { index ->
-			val row = rows[index]
+	val measurer = rememberTextMeasurer()
+	val density = LocalDensity.current
+	val mono = type.mono
 
-			Box(
-				Modifier
-					.pressed(
-						row.id,
-						{
-							stops.listing.requestFocus()
-							onEvent(BrowserEvent.TextPointed(row.id))
-						},
-					) {
-						onEvent(
+	val figure =
+		remember(mono, density) {
+			with(density) {
+				measurer
+					.measure("0", mono)
+					.size.width
+					.toDp()
+			}
+		}
+
+	val across = rememberScrollState()
+
+	BoxWithConstraints(Modifier.fillMaxSize()) {
+		val sight = maxWidth
+
+		// As wide as its longest line, where that is wider than its room: it is then scrolled across, as it is down.
+		val width =
+			maxOf(
+				sight,
+				type.lineInset + type.line * 2 + Space.m + figure * (rows.longest + 2) +
+					Dims.scrollbarRoom,
+			)
+
+		Box(Modifier.fillMaxSize().wheelScrolled(list, type.textRow, across = across)) {
+			Box(Modifier.fillMaxSize().horizontalScroll(across, enabled = false)) {
+				LazyColumn(
+					Modifier.width(width).fillMaxHeight().testTag("text-rows"),
+					state = list,
+					contentPadding =
+						androidx.compose.foundation.layout
+							.PaddingValues(vertical = Space.xs),
+					userScrollEnabled = false,
+				) {
+					items(rows.size, key = { rows[it].id }) { index ->
+						val row = rows[index]
+
+						Box(
+							Modifier
+								.fillMaxWidth()
+								.pressed(
+									row.id,
+									{
+										stops.listing.requestFocus()
+										onEvent(BrowserEvent.TextPointed(row.id))
+									},
+								) {
+									onEvent(
+										when (row) {
+											is TextRow.File -> BrowserEvent.TextFolded(row.id.path)
+											is TextRow.Line -> BrowserEvent.TextOpened(row.id)
+										},
+									)
+								}.contextMenu(
+									menus,
+									opening = {
+										stops.listing.requestFocus()
+										onEvent(BrowserEvent.TextPointed(row.id))
+									},
+								) { textMenuOf(current, row, bindings, world) },
+						) {
 							when (row) {
-								is TextRow.File -> BrowserEvent.TextFolded(row.id.path)
-								is TextRow.Line -> BrowserEvent.TextOpened(row.id)
-							},
-						)
-					}.contextMenu(
-						menus,
-						opening = {
-							stops.listing.requestFocus()
-							onEvent(BrowserEvent.TextPointed(row.id))
-						},
-					) { textMenuOf(current, row, bindings, world) },
-			) {
-				when (row) {
-					is TextRow.File -> FileRow(row, text, row.id == text.cursor, onEvent)
-					is TextRow.Line -> LineRow(row, row.id == text.cursor)
+								// A file's row stays where it is as its lines are scrolled across: it says whose they are.
+								is TextRow.File ->
+									FileRow(
+										row,
+										text,
+										row.id == text.cursor,
+										Modifier
+											.width(sight)
+											.offset {
+												androidx.compose.ui.unit
+													.IntOffset(across.value, 0)
+											},
+										onEvent,
+									)
+								is TextRow.Line -> LineRow(row, row.id == text.cursor)
+							}
+						}
+					}
 				}
 			}
+			ScrollbarBeside(rememberScrollbarAdapter(list), Modifier.fillMaxSize())
+			ScrollbarBelow(rememberScrollbarAdapter(across), Modifier.fillMaxSize())
 		}
 	}
 }
+
+/** How far in a line found starts: under its file's name, past what folds the file and its icon. */
+private val Type.lineInset: Dp get() = Space.s + icon * 1.8f + Space.s
 
 /** What the list says where it has no lines: what to do, that nothing was found, or why its command failed. */
 @Composable
@@ -476,6 +667,7 @@ private fun FileRow(
 	row: TextRow.File,
 	text: Location.Text,
 	chosen: Boolean,
+	modifier: Modifier,
 	onEvent: (BrowserEvent) -> Unit,
 ) {
 	val palette = LocalPalette.current
@@ -485,8 +677,7 @@ private fun FileRow(
 	val source = remember { MutableInteractionSource() }
 
 	Row(
-		Modifier
-			.fillMaxWidth()
+		modifier
 			.height(type.textRow)
 			.background(
 				if (chosen)
@@ -552,9 +743,7 @@ private fun LineRow(row: TextRow.Line, chosen: Boolean) {
 					palette.chosen
 				else
 					androidx.compose.ui.graphics.Color.Transparent,
-			)
-			// Under its file's name, past what folds the file and its icon.
-			.padding(start = Space.s + type.icon * 1.8f + Space.s, end = Space.m)
+			).padding(start = type.lineInset, end = Space.m)
 			.semantics { selected = chosen }
 			.testTag("text-line:${row.id.path.fileName}:${row.hit.position}"),
 		verticalAlignment = Alignment.CenterVertically,
@@ -575,8 +764,7 @@ private fun LineRow(row: TextRow.Line, chosen: Boolean) {
 			style = type.mono,
 			maxLines = 1,
 			softWrap = false,
-			overflow = TextOverflow.Ellipsis,
-			modifier = Modifier.weight(1f),
+			overflow = TextOverflow.Clip,
 		)
 	}
 }
@@ -649,6 +837,8 @@ private fun TextPreview(
 	text: Location.Text,
 	modifier: Modifier,
 	menus: ContextMenus<BrowserEvent>,
+	stops: Stops,
+	onEvent: (BrowserEvent) -> Unit,
 ) {
 	val palette = LocalPalette.current
 	val type = LocalType.current
@@ -717,18 +907,132 @@ private fun TextPreview(
 				Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
 					EmptyState(Glyph.File, "Can't show this file", preview.why)
 				}
-			is Preview.Shown -> PreviewLines(text, path, preview, line, menus)
+			is Preview.Shown -> {
+				val find = text.find
+
+				// Every place what is looked for in this file is at, and the one gone to.
+				val found =
+					remember(
+						preview,
+						find?.text,
+					) { find?.let { preview.occurrences(it.text) }.orEmpty() }
+
+				if (find != null) {
+					CompositionLocalProvider(LocalType provides LocalTypes.current.general) {
+						FindBar(find, found, stops, onEvent)
+					}
+					Divider()
+				}
+				PreviewLines(text, path, preview, line, found, find?.current(found), menus)
+			}
 		}
 	}
 }
 
-/** A file's lines, numbered, scrolled so that [wanted] is in sight, with what was found in each marked. */
+/**
+ * What looks in the file shown, as Ctrl+F looks in any text: what is looked for, typed; which of the places it is at
+ * is gone to, of how many; and what goes to the one before, to the next, and puts this away. Enter goes to the next
+ * and Shift with it to the one before; Escape puts it away.
+ */
+@Composable
+private fun FindBar(
+	find: PreviewFind,
+	found: List<Occurrence>,
+	stops: Stops,
+	onEvent: (BrowserEvent) -> Unit,
+) {
+	val palette = LocalPalette.current
+	val type = LocalType.current
+
+	fun close() {
+		onEvent(BrowserEvent.PreviewFinding(false))
+		stops.listing.requestFocus()
+	}
+
+	// The keyboard goes to it as it opens.
+	LaunchedEffect(Unit) { stops.find.requestFocus() }
+	Row(
+		Modifier
+			.fillMaxWidth()
+			.background(palette.window)
+			.padding(horizontal = Space.s, vertical = Space.xs)
+			.testTag("text-find"),
+		verticalAlignment = Alignment.CenterVertically,
+		horizontalArrangement = Arrangement.spacedBy(Space.xs),
+	) {
+		Field(
+			find.text,
+			{ onEvent(BrowserEvent.PreviewFindTyped(it)) },
+			Modifier.weight(1f).testTag("text-find-field"),
+			hint = "Find in this file",
+			leading = Glyph.Search,
+			focus = stops.find,
+			onKey = { key ->
+				when {
+					key.type != KeyEventType.KeyDown -> false
+					key.key == Key.Escape -> true.also { close() }
+					key.key == Key.Enter || key.key == Key.NumPadEnter ->
+						true.also {
+							onEvent(BrowserEvent.PreviewFindStepped(if (key.isShiftPressed) -1 else 1))
+						}
+					else -> false
+				}
+			},
+		)
+		Text(
+			when {
+				find.text.isEmpty() -> ""
+				found.isEmpty() -> "No results"
+				else -> "${"%,d".format(find.index(found) + 1)} of ${"%,d".format(found.size)}"
+			},
+			style =
+				type.muted
+					.copy(
+						color =
+							if (find.text.isNotEmpty() && found.isEmpty())
+								palette.dangerText
+							else
+								palette.textMuted,
+					).tabular(),
+			maxLines = 1,
+			softWrap = false,
+			modifier = Modifier.padding(horizontal = Space.s).testTag("text-find-count"),
+		)
+		ToolButton(
+			Glyph.Up,
+			"Previous (Shift+Enter)",
+			enabled = found.isNotEmpty(),
+			Modifier.testTag("text-find-previous"),
+		) { onEvent(BrowserEvent.PreviewFindStepped(-1)) }
+		ToolButton(
+			Glyph.Down,
+			"Next (Enter)",
+			enabled = found.isNotEmpty(),
+			Modifier.testTag("text-find-next"),
+		) { onEvent(BrowserEvent.PreviewFindStepped(1)) }
+		ToolButton(
+			Glyph.Close,
+			"Close (Escape)",
+			enabled = true,
+			Modifier.testTag("text-find-close"),
+			icon = type.icon * 0.7f,
+		) { close() }
+	}
+}
+
+/**
+ * A file's lines, numbered, scrolled so that [wanted] is in sight, with what the search found in each marked; and
+ * every place what is looked for in the file is at ([found]) marked another way, the one gone to ([current]) most of
+ * all, and brought into sight.
+ */
 @Composable
 private fun PreviewLines(
 	text: Location.Text,
 	path: Path,
 	preview: Preview.Shown,
 	wanted: Long?,
+	found: List<Occurrence>,
+	current: Occurrence?,
 	menus: ContextMenus<BrowserEvent>,
 ) {
 	val palette = LocalPalette.current
@@ -738,7 +1042,7 @@ private fun PreviewLines(
 	val height = type.line
 
 	// What was found in each line of this file, where places in it are lines: marked wherever it is in sight.
-	val found =
+	val matched =
 		remember(text.results.hits, path, text.search.positions) {
 			if (text.search.positions == Positions.Lines)
 				text.results.hits[path]
@@ -779,9 +1083,12 @@ private fun PreviewLines(
 				?: 0
 		}
 	val across = rememberScrollState()
+	// The places what is looked for in the file is at, by the line each is in.
+	val sought = remember(found) { found.groupBy({ it.line }, { it.range }) }
 
 	BoxWithConstraints(Modifier.fillMaxSize()) {
 		val sight = (maxHeight / height).toInt().coerceAtLeast(1)
+		val room = maxWidth
 
 		/** The row to scroll to for line [line] to sit a way down what is in sight. */
 		fun topFor(line: Long): Int =
@@ -797,6 +1104,47 @@ private fun PreviewLines(
 		LaunchedEffect(list, wanted, sight) {
 			if (wanted != null && preview.covers(wanted))
 				list.scrollToItem(topFor(wanted))
+		}
+
+		// The place gone to of what is looked for in the file is brought into sight, down and across: where it is
+		// already, nothing moves.
+		LaunchedEffect(list, current, sight) {
+			if (current != null) {
+				val shown = list.layoutInfo.visibleItemsInfo
+				val inSight =
+					shown.any {
+						it.index == current.line && it.offset >= 0 &&
+							it.offset + it.size <= list.layoutInfo.viewportEndOffset
+					}
+
+				if (!inSight)
+					list.scrollToItem(topFor(preview.first + current.line))
+
+				val (_, at) = untabbed(preview.lines[current.line].text)
+
+				with(density) {
+					val starts =
+						(
+							Space.m + gutter + Space.m + figure *
+								at(
+									current.range.first,
+								)
+						).roundToPx()
+
+					val ends =
+						(
+							Space.m + gutter + Space.m + figure *
+								at(
+									current.range.last + 1,
+								)
+						).roundToPx()
+
+					val sees = across.value until across.value + (room - Dims.scrollbarRoom).roundToPx()
+
+					if (starts !in sees || ends !in sees)
+						across.scrollTo((starts - room.roundToPx() / 3).coerceAtLeast(0))
+				}
+			}
 		}
 
 		val width =
@@ -819,9 +1167,13 @@ private fun PreviewLines(
 					items(preview.lines.size) { index ->
 						val number = preview.first + index
 						val inked = preview.lines[index]
-						val marks = found[number].orEmpty()
+						val marks = matched[number].orEmpty()
+						val places = sought[index].orEmpty()
+						val gone = current?.takeIf { it.line == index }?.range
 						val drawn =
-							remember(inked, marks, palette) { drawnLine(inked, marks, palette) }
+							remember(inked, marks, places, gone, palette) {
+								drawnLine(inked, marks, places, gone, palette)
+							}
 
 						Row(
 							Modifier
@@ -868,15 +1220,23 @@ private fun PreviewLines(
 }
 
 /**
- * [line] as it is drawn: its tabs made spaces, each run of it in its ink (as [palette] draws a terminal's colours),
- * and [marks] of it, said of the line as it is in the file, on the fill of what matched.
+ * [line] as it is drawn: its tabs made spaces, each run of it in its ink (as [palette] draws a terminal's colours);
+ * [marks] of it, said of the line as it is in the file, on the fill of what the search matched; and [places], where
+ * what is looked for in the file is, on a fill of their own, the one gone to ([gone]) in the accent.
  */
 private fun drawnLine(
 	line: InkedLine,
 	marks: List<IntRange>,
+	places: List<IntRange>,
+	gone: IntRange?,
 	palette: Palette,
 ): AnnotatedString {
 	val (text, at) = untabbed(line.text)
+
+	fun filled(range: IntRange, style: SpanStyle, into: AnnotatedString.Builder) {
+		if (range.first < line.text.length && !range.isEmpty())
+			into.addStyle(style, at(range.first), at(minOf(range.last + 1, line.text.length)))
+	}
 
 	return buildAnnotatedString {
 		append(text)
@@ -901,13 +1261,10 @@ private fun drawnLine(
 				at(run.range.last + 1),
 			)
 		}
-		marks.forEach {
-			if (it.first < line.text.length)
-				addStyle(
-					SpanStyle(background = palette.match),
-					at(it.first),
-					at(minOf(it.last + 1, line.text.length)),
-				)
+		marks.forEach { filled(it, SpanStyle(background = palette.match), this) }
+		places.forEach { filled(it, SpanStyle(background = palette.sought), this) }
+		gone?.let {
+			filled(it, SpanStyle(background = palette.accent, color = palette.onAccent), this)
 		}
 	}
 }

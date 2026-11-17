@@ -1,6 +1,7 @@
 package prism.browser
 
 import java.nio.file.Path
+import prism.index.query.QueryText
 
 /*
  * The reducer's part in text searches (docs/text.md): what opening one, typing into it, moving about what it found and
@@ -79,9 +80,28 @@ internal fun BrowserState.textShown(text: Location.Text): Step =
 
 /** This place, with [changed] of its text search, and what that asks for. */
 private fun BrowserState.texted(changed: Pair<Location.Text, List<Effect>>): Step {
-	val (pointed, asks) = changed.first.pointing()
+	val (filtered, wanted) = filtering(changed.first)
+	val (pointed, asks) = filtered.pointing()
 
-	return Step(copy(at = pointed), changed.second + asks)
+	return Step(copy(at = pointed), changed.second + wanted + asks)
+}
+
+/**
+ * [text], with which of the files it found its filter finds asked for, where that is not what was last asked: the
+ * filter typed into, or more files found since. What it listed stays listed until the answer comes.
+ */
+private fun BrowserState.filtering(
+	text: Location.Text,
+): Pair<Location.Text, List<Effect>> {
+	val filter = text.filter?.takeIf { it.narrows } ?: return text to emptyList()
+	val hits = text.results.hits
+
+	if ((filter.asked ?: filter.answered)?.asks(filter.text, hits) == true)
+		return text to emptyList()
+
+	val ask = FilterAsk(filter.text, QueryText.read(filter.text, aliases).query, hits, home)
+
+	return text.copy(filter = filter.copy(asked = ask)) to listOf(Effect.FilterText(ask))
 }
 
 /** The text search shown changed by [change], where one is shown. */
@@ -298,14 +318,127 @@ internal fun BrowserState.textEnded(run: TextRun, ending: TextEnding): Step =
 			it.ended(run, ending) to emptyList()
 	}
 
-/** The file [ask] asked for, read: shown, where it is still the one wanted. */
+/**
+ * The file [ask] asked for, read: shown, where it is still the one wanted. What is looked for in the file shown is
+ * looked for in this one from its first place.
+ */
 internal fun BrowserState.previewed(ask: PreviewAsk, preview: Preview): Step =
 	Step(
 		text
 			?.takeIf { it.asked == ask }
-			?.let { copy(at = it.copy(previewed = Previewed(ask, preview), asked = null)) }
+			?.let {
+				copy(
+					at =
+						it.copy(
+							previewed = Previewed(ask, preview),
+							asked = null,
+							find = it.find?.copy(at = 0),
+						),
+				)
+			}
 			?: this,
 	)
+
+/** The field that narrows the files found opened; or put away, and every file listed again. */
+internal fun BrowserState.textFiltering(open: Boolean): Step =
+	texting {
+		it.copy(
+			filter =
+				if (open)
+					it.filter ?: FileFilter()
+				else
+					null,
+		) to emptyList()
+	}
+
+/** What narrows the files found typed: asked of them, or, emptied, every file listed again. */
+internal fun BrowserState.textFilterTyped(typed: String): Step =
+	texting {
+		it.copy(
+			filter =
+				if (typed.isBlank())
+					FileFilter(typed)
+				else
+					(it.filter ?: FileFilter()).copy(text = typed),
+		) to emptyList()
+	}
+
+/** Which files [ask]'s query found: listed alone, where that is still what the filter asks; or why it could not be run. */
+internal fun BrowserState.textFiltered(
+	ask: FilterAsk,
+	admitted: Reading<Set<Path>>,
+): Step =
+	texting {
+		val filter = it.filter
+
+		if (filter?.asked !== ask)
+			it to emptyList()
+		else
+			it.copy(
+				filter =
+					when (admitted) {
+						is Reading.Right ->
+							filter.copy(
+								asked = null,
+								answered = ask,
+								admitted = admitted.value,
+								refused = null,
+							)
+						// What it listed stays: a query half typed is often one that cannot be run yet.
+						is Reading.Wrong ->
+							filter.copy(asked = null, answered = ask, refused = admitted.why)
+					},
+			) to emptyList()
+	}
+
+/** What looks in the file shown opened, or put away. */
+internal fun BrowserState.previewFinding(open: Boolean): Step =
+	texting {
+		it.copy(
+			find =
+				if (open)
+					it.find ?: PreviewFind()
+				else
+					null,
+		) to emptyList()
+	}
+
+/**
+ * What is looked for in the file shown typed: the place gone to is the first at or after the line found that the
+ * file is shown at, so that what is looked for is found near what is being looked at.
+ */
+internal fun BrowserState.previewFindTyped(typed: String): Step =
+	texting {
+		val shown = it.previewed?.preview as? Preview.Shown
+		val from =
+			it.line
+				?.hit
+				?.position
+				?.let { line -> (line - (shown?.first ?: 1L)).toInt() } ?: 0
+		val found = shown?.occurrences(typed).orEmpty()
+
+		it.copy(
+			find =
+				PreviewFind(
+					typed,
+					found
+						.indexOfFirst { place ->
+							place.line >= from
+						}.coerceAtLeast(0),
+				),
+		) to emptyList()
+	}
+
+/** The next place what is looked for is at gone to, or the one before; round, past the last and the first. */
+internal fun BrowserState.previewFindStepped(by: Int): Step =
+	texting {
+		val find = it.find
+
+		if (find == null)
+			it to emptyList()
+		else
+			it.copy(find = find.copy(at = find.index(it.occurrences) + by)) to emptyList()
+	}
 
 /** The folder [path] is in gone to, with it chosen there. */
 internal fun BrowserState.textRevealed(path: Path): Step =
