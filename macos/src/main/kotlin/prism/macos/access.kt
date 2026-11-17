@@ -81,7 +81,8 @@ fun protectedFolders(home: Path = Path.of(System.getProperty("user.home"))): Lis
 			"Application Support/AddressBook",
 			"Application Support/com.apple.TCC",
 		).map { home.resolve("Library").resolve(it) } +
-		Path.of("/Volumes")
+		// In a list: a path is itself a sequence of its names, and added bare, its names are what is added.
+		listOf(Path.of("/Volumes"))
 
 /** What is said where prism has no Full Disk Access: what it leaves out, and how to give it. */
 const val FULL_DISK_ACCESS_REFUSED =
