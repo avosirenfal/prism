@@ -663,7 +663,9 @@ writes it, or by its chords; and, as JetBrains' keymap has it, a button that ope
 next shortcut pressed (a key with its modifiers, or the mouse's middle, back or forward button over its lower part) for
 as long as it is open, and shows what it does, binding nothing. Closed, the keys are the page's again, and what it
 found stays shown, beside the filter, until its × or the button again. The list's scrollbar is drawn while there is
-more than fits.
+more than fits. File actions and Text searches: every action and text search there is, prism's and the
+user's, each turned off by a switch, changed, copied, moved and tested (docs/menus.md and docs/text.md, "Changing them
+in the preferences").
 
 ## Open terminal here
 

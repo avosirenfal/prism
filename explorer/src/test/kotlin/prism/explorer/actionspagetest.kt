@@ -274,6 +274,7 @@ class ActionsPageTest {
 			onNodeWithTag("action-editor").assertExists()
 			// Nothing typed, it cannot be added, and says only that it is not finished.
 			onNodeWithTag("editor-save").assertIsNotEnabled()
+			onNodeWithTag("editor-test").assertIsNotEnabled()
 			onNodeWithTag("editor-unfinished").assertExists()
 			onNodeWithTag("editor-wrong").assertDoesNotExist()
 
@@ -287,6 +288,12 @@ class ActionsPageTest {
 			onNodeWithTag("editor-wrong").assertExists()
 			onNodeWithText("Unknown placeholder “{paht}”").assertExists()
 			onNodeWithTag("editor-save").assertIsNotEnabled()
+
+			// What a command can name is folded away until it is asked for.
+			onNodeWithTag("legend").assertDoesNotExist()
+			click("legend-toggle")
+			onNodeWithTag("legend").assertExists()
+			click("legend-toggle")
 
 			// Typed right, what it would run for an example is shown, and that its program is not here.
 			type("command", "magick {path} {stem}.png")
@@ -423,7 +430,10 @@ class ActionsPageTest {
 				type("scripts-filter", "mine.png")
 				click("script-edit:mine.png")
 
-				// With nothing to try it on, it says what it wants.
+				// Tried in a window of its own, over the form. With nothing to try it on, it says what it wants.
+				onNodeWithTag("trial").assertDoesNotExist()
+				click("editor-test")
+				onNodeWithTag("trial").assertExists()
 				click("trial-run")
 				waitUntil { onAllNodesWithTag("tried-refused").fetchSemanticsNodes().isNotEmpty() }
 				assertTrue(ran.isEmpty())
@@ -444,8 +454,16 @@ class ActionsPageTest {
 				onNodeWithTag("tried-status:0").assertTextEquals("Failed, with exit status 2.")
 				onNodeWithTag("tried-output:0").assertTextEquals("half done")
 				onNodeWithTag("tried-errors:0").assertTextEquals("magick: no decode delegate")
-				// Trying it changed nothing that would be applied.
+				// Trying it changed nothing that would be applied; closed, the form is there as it was, with what was
+				// typed to try it on kept for the next time.
 				assertEquals(mine, edited.settings.written)
+				click("trial-close")
+				onNodeWithTag("trial").assertDoesNotExist()
+				onNodeWithTag("action-editor").assertExists()
+				assertEquals(
+					file.toString(),
+					(edited.settings.modal as ActingModal.EditingAction).trial.given,
+				)
 			} finally {
 				Files.deleteIfExists(file)
 			}
@@ -476,6 +494,7 @@ class ActionsPageTest {
 				onNodeWithTag("prints-example").assertTextContains("\"marks\"", substring = true)
 				click("read:Lines")
 
+				click("editor-test")
 				type("trial-given", folder.toString())
 				type("trial-query", "word")
 				click("trial-run")
@@ -484,6 +503,7 @@ class ActionsPageTest {
 				onNodeWithTag("tried-hits").assertTextEquals("notes.txt:3:the word is here")
 				onNodeWithTag("tried-unread").assertTextEquals("warming up\nnotes.txt:oops")
 
+				click("trial-close")
 				click("editor-save")
 				assertEquals(
 					listOf(
@@ -541,6 +561,33 @@ class ActionsPageTest {
 				"actions-edit-script" to
 					base.copy(modal = ActingModal.editing(catalog["archive.zip.unpack"]!!.spec)),
 				"actions-new" to base.copy(modal = ActingModal.EditingAction(ActionForm())),
+				"actions-edit-words" to
+					base.copy(modal = ActingModal.editing(catalog["archive.zip.remove"]!!.spec)),
+				"actions-edit-like" to
+					base.copy(modal = ActingModal.editing(catalog["archive.zip.unpack-folder"]!!.spec)),
+				"actions-tried" to
+					base.copy(
+						modal =
+							ActingModal.EditingAction(
+								ActionForm.of(catalog["mine.png"]!!.spec),
+								trying = true,
+								trial =
+									Trial(
+										"~/Pictures/holiday.jpg",
+										result =
+											Tried.Ran(
+												listOf(
+													RanOnce(
+														listOf("magick", "/home/someone/Pictures/holiday.jpg", "holiday.png"),
+														1,
+														"",
+														"magick: no decode delegate for this image format `JPG' @ error/constitute.c\n",
+													),
+												),
+											),
+									),
+							),
+					),
 				"actions-move" to
 					base.copy(
 						modal =
@@ -561,13 +608,51 @@ class ActionsPageTest {
 					searches.copy(
 						modal = ActingModal.editing(ScriptKind.Search.shipped.getValue("text.search")),
 					),
+				"searches-tried" to
+					searches.copy(
+						modal =
+							ActingModal.EditingSearch(
+								SearchForm.of(
+									ScriptKind.Search.shipped
+										.getValue("text.search")
+										.copy(read = "lines"),
+								),
+								trying = true,
+								trial =
+									Trial(
+										"~/Projects/prism",
+										query = "answer",
+										result =
+											Tried.Found(
+												listOf("xargs", "-0", "-r", "rg", "--json", "-e", "answer", "--"),
+												prism.browser.TextEnding.Done(),
+												2,
+												1,
+												listOf(
+													prism.browser.FileHit(
+														Path.of("main.kt"),
+														prism.browser.Hit(12, "val answer = 42"),
+													),
+													prism.browser.FileHit(
+														Path.of("main.kt"),
+														prism.browser.Hit(40, "println(answer)"),
+													),
+												),
+												listOf(
+													"{\"type\":\"begin\",\"data\":{\"path\":{\"text\":\"main.kt\"}}}",
+													"{\"type\":\"summary\",\"data\":{\"elapsed_total\":{\"secs\":0}}}",
+												),
+											),
+									),
+							),
+					),
 			)
 
 		for ((name, settings) in views)
 			for ((tone, palette) in listOf("light" to Palette.Light, "dark" to Palette.Dark))
 				shot(
 					"$name-$tone",
-					renderedPng(1180, 860, palette, scale = 1f) {
+					renderedPng(1180, 860, palette, scale = 2f) {
 						SettingsView(settings, {}, onApply = {}, onClose = {}, world = most)
 					},
 				)

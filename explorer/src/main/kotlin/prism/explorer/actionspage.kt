@@ -673,14 +673,14 @@ internal fun MoveModal(
 
 	Modal(
 		"Move or copy “${entry.spec.label}”",
-		onDismiss = ::close,
+		onDismiss = { close() },
 		tag = "move-modal",
 		buttons = {
 			ButtonRow(
 				Act("Move", "move-apply", modal.to != Retarget.of(entry.spec)) { done(copy = false) },
 				secondary =
 					listOf(
-						Act("Cancel", "move-cancel", onClick = ::close),
+						Act("Cancel", "move-cancel", onClick = { close() }),
 						Act("Copy", "move-copy") { done(copy = true) },
 					),
 			)

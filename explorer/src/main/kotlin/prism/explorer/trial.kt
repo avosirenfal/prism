@@ -611,17 +611,35 @@ fun searchRead(acting: Acting, spec: TextSearchSpec, world: World): TextSearch? 
 
 /** The window open over the pages of actions and text searches. */
 sealed interface ActingModal {
-	/** An action being made or changed, and what it is being tried on. */
+	/**
+	 * Something being made or changed in its window: with what it is being tried on ([trial]), and whether the window
+	 * that tries it is open over the one that edits it ([trying]).
+	 */
+	sealed interface Editing : ActingModal {
+		val trial: Trial
+		val trying: Boolean
+
+		/** This, tried on [trial], the window that tries it [open] or not. */
+		fun trying(trial: Trial, open: Boolean = true): Editing =
+			when (this) {
+				is EditingAction -> copy(trial = trial, trying = open)
+				is EditingSearch -> copy(trial = trial, trying = open)
+			}
+	}
+
+	/** An action being made or changed. */
 	data class EditingAction(
 		val form: ActionForm,
-		val trial: Trial = Trial(),
-	) : ActingModal
+		override val trial: Trial = Trial(),
+		override val trying: Boolean = false,
+	) : Editing
 
-	/** A text search being made or changed, and what it is being tried on. */
+	/** A text search being made or changed. */
 	data class EditingSearch(
 		val form: SearchForm,
-		val trial: Trial = Trial(),
-	) : ActingModal
+		override val trial: Trial = Trial(),
+		override val trying: Boolean = false,
+	) : Editing
 
 	/** What is called [id], of [kind], being moved or copied [to] other windows and extensions. */
 	data class Moving(

@@ -276,7 +276,8 @@ application this once, but the application chosen cannot be made the default for
 the action. Where the action cannot be run (none of its programs is installed) it is not there, and the file opens
 with its application, as any file does.
 
-`menu.hidden` hides entries by id, in every menu: an action's, or one of prism's own. Prism's ids are `builtin.open`,
+`disabled`, beside `actions`, is the ids of the actions (and text searches) turned off: not offered in any menu, and
+not done by their key or a double click either, where one hidden from the menus still is. `menu.hidden` hides entries by id, in every menu: an action's, or one of prism's own. Prism's ids are `builtin.open`,
 `builtin.put-back`, `builtin.open-in-new-window`, `builtin.select-folder`, `builtin.save-over`, `builtin.open-with`,
 `builtin.cut`, `builtin.copy`, `builtin.paste-into`, `builtin.rename`, `builtin.copy-path`, `builtin.pin`,
 `builtin.unpin`, `builtin.terminal`, `builtin.trash`, `builtin.erase`,
@@ -500,6 +501,88 @@ Every one of these was run in the tests against a real archive, with each progra
 (`ArchivesTest`), but for `.dmg`, for which there was no image to hand: it is declared as `.iso` is, and 7-Zip reads
 both.
 
+## Changing them in the preferences
+
+Everything above is written in the preferences file. The preferences window writes it too, on its "File actions" page
+(and, for text searches, its "Text searches" page: docs/text.md). Neither page is another way of saying what an action
+is: each reads and writes the same JSON, an action at a time, and what it does not show of one (the values a place must
+have, a negation beyond extensions) it keeps as it was written.
+
+![The File actions page](actions-page.png)
+
+**The list.** Every action there is, prism's own beside the user's, under the window it is offered in: anywhere, folders,
+search results, then each place. A row is the action's switch, its name after the submenu it is in, and a line of what
+it is for and what it runs (`One file · .zip, .jar and 13 more · Runs unzip or 7zz or bsdtar`); then its shortcut, and
+Edit, Duplicate and a menu. Nothing is left off the list for being unusable, since this is where that is seen:
+
+| | |
+|---|---|
+| off | its switch is off. It is offered in no menu and done by no key or double click, and is still written, to be turned on again. Its id is in the preferences' `disabled`. A place's way out and in, and an action that is `like` it, still work: those are how something else works, not something offered |
+| unavailable | none of its ways can be run here, or a program its conditions name is not installed. The row says which: `Not available here: needs unzip, or 7zz or 7z or 7za or 7zr, or bsdtar`. An action like one that is unavailable, or that opens a place that cannot be listed, says what that one wants |
+| wrong | it does not read. The row says why, in red, as the browser would |
+| yours | the user wrote it |
+| changed | it is one of prism's, and the user wrote over it |
+
+Each of those that is true of anything is a chip over the list with how many (`3 yours`, `11 unavailable`); a chip
+clicked shows only those. The list is also narrowed by words typed (Ctrl+F: a name, an id, an extension, a program),
+to one window, and to what a file of a given name would be offered: `zip` or `notes.tar.gz` typed there leaves the
+actions for that file, those for any file among them, and not what its name rules out. A window's heading clicked
+folds its actions away. So a list of several hundred is still one to find something in; its rows are drawn as they
+are scrolled to.
+
+![Five hundred actions, narrowed to one](actions-narrowed.png)
+
+**One of prism's, changed.** Changing one of prism's writes it into the preferences under the same id, which is how
+the file has always replaced one. It is then marked Changed, and its menu has Reset to default, which takes what was
+written away. One changed back to what prism has is not written at all. What is written is the whole action as it then
+was: a later version of prism that changes its own leaves the user's as they made it, until it is reset.
+
+**The window that edits one.** New action, Edit, a double click, and Duplicate (which opens a copy under an id of its
+own, to be changed before it is added) all open the same window over the page.
+
+![An action being edited](action-editor.png)
+
+Its left side is the form: the name, the submenu, the id (the user's to choose while the action is being made, and
+fixed after, since bindings and menus know it by that) and the default shortcut; what it does (a command, a folder
+opened, a place opened, or what another action does with some of its questions answered); and when it is offered.
+Its right side is what the form comes to, as it is typed:
+
+- **When it's offered**, in sentences: `In the menu of the files selected, in any window. For one file ending in
+  .jpg, .webp.`
+- **What it does**: the command it would run for an example of what it is for, filled in. For an action for `.jpg`
+  that is `magick /home/you/example.jpg example.png`; for one in an archive, an entry of it; an answer not yet given
+  is `‹dest›`. It is the command as this machine would run it: the first of its ways whose programs are here.
+- **What is wrong**, where anything is: what the browser would say of it (`Unknown placeholder “{paht}”. Available
+  here: …`), and Save waits until it reads. A program its ways need that is not installed is said, and does not stop
+  it being saved. A command whose program is not found, and that nothing says it needs, is said too: it would be
+  offered, and fail.
+
+A command is typed as one line, split at spaces as a shell would split it, though no shell runs it; or, by the switch
+under it, as its arguments, each in a box of its own. A command with a script in it (`sh -c '…'`) opens that way, so
+that the script is read as it is and not through a layer of quotes.
+
+![A command as its arguments](action-editor-arguments.png)
+
+Add a fallback command makes the command the first of several ways, each with the programs it needs. Show
+placeholders lists what a command can name. The conditions are those of "When it is offered": the menu, the windows,
+how many of what, extensions, names and types, and under More conditions the rest.
+
+**Test.** The window's Test button opens another over it, which runs the action for real: on the files typed there, a
+line each, with the answers to what it asks. It is run and waited for, whatever the action says of how it runs, and
+each command is shown as it was run, with how it ended and everything it printed, its error output apart. What is to
+follow it (the listing read again, what it made brought out) is not done; an action that opens something only says
+what it would open. Files its conditions leave out are still run for, and said to be. Nothing is saved by testing.
+
+![An action tested](action-test.png)
+
+**Moved, and copied.** A row's menu has "Move or copy to…": the windows it is to be offered in, and the extensions it
+is to be for, with what that comes to said under them. Move changes the action; Copy leaves it and adds another, under
+an id of its own. That is how an action for `.zip` is made one for `.cbz` too, or one for folders one for an archive.
+
+![An action moved](action-move.png)
+
+Places themselves are not edited here: a place's listing command is written in the file.
+
 ## Where it is
 
 | | |
@@ -511,14 +594,18 @@ both.
 | `browser/menus.kt` | prism's own entries, with ids, and the user's among them |
 | `browser/bindings.kt` | `Bindable`: prism's actions and the user's, bound alike |
 | `explorer/explorer.kt` | a window on a place, and the folder picker a question opens |
-
-The preferences window's "Actions" page lists what was read, and, for what was not, why not.
+| `explorer/acting.kt` | the catalogue the pages list: where each comes from, whether it is on, what it wants; and what a change writes |
+| `explorer/actionform.kt` | an action and a search as their windows edit them, and what is said of each in words |
+| `explorer/trial.kt` | whether what is typed can be saved, the example, and a test run |
+| `explorer/actionspage.kt`, `actioneditor.kt` | the pages, and the windows over them |
 
 ## Not built yet
 
 - **Items made as the menu opens** (a submenu whose items depend on the files, from a program asked as the menu is
   built).
-- **An editor.** Actions are written by hand in the preferences file. The "Actions" page only shows them.
+- **An editor for places.** Actions and text searches are edited in the preferences window; a place's listing is
+  still written by hand.
+- **Several actions changed at once**: turned off, moved or deleted together.
 - **How far along a command is.** It is shown as running, with what it writes, and can be stopped; there is no bar.
 - **Dragging entries of a place to another application.** They are dragged between prism's windows. Another
   application would need files, which would mean extracting as the drag starts; it is given their names, as text.

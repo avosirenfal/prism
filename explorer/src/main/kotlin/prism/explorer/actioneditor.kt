@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -74,8 +75,8 @@ import prism.preferences.WhenSpec
 /*
  * The windows that make and change an action and a text search, over the preferences' window. Each is a form on the
  * left and, on the right, what the form comes to, as it is typed: when the thing is offered, in a person's words;
- * the command it would run for an example of what it is for, filled in; what is wrong with it, where anything is; and
- * a way to run it for real on files the user names, which shows everything it printed.
+ * the command it would run for an example of what it is for, filled in; and what is wrong with it, where anything
+ * is. Test opens a window over it that runs it for real on files the user names, and shows everything it printed.
  *
  * So what is asked of someone writing a command is answered where they write it: what will be run (the example),
  * what the command is given and must give back (said beside it, with a line of each form of output), where it will
@@ -275,10 +276,11 @@ private fun CommandEditor(
 				) { onChange(CommandForm.Words(command.words + "")) }
 			Text(
 				if (command is CommandForm.Words)
-					"Each box is one argument, passed exactly as written."
+					"Each box is one argument, passed as written."
 				else
 					"Split at spaces; quote what has spaces in it. No shell runs it.",
 				style = type.muted,
+				maxLines = 2,
 				modifier = Modifier.weight(1f),
 			)
 			Segmented(
@@ -428,28 +430,66 @@ private fun WaysEditor(
 	}
 }
 
-/** What a command can name, each with what it becomes. */
+/**
+ * What a command can name, each with what it becomes: folded away under a button until it is asked for, since it is
+ * looked up and not read each time.
+ */
 @Composable
 private fun Legend(names: List<Pair<String, String>>, note: String? = null) {
 	val palette = LocalPalette.current
 	val type = LocalType.current
+	var open by remember { mutableStateOf(false) }
 
-	Column(
-		Modifier
-			.fillMaxWidth()
-			.background(palette.sunken, RoundedCornerShape(Radius.medium))
-			.padding(Space.m)
-			.testTag("legend"),
-		verticalArrangement = Arrangement.spacedBy(Space.xs),
-	) {
-		names.forEach { (name, meaning) ->
-			Row(horizontalArrangement = Arrangement.spacedBy(Space.m)) {
-				Text(name, style = type.mono, modifier = Modifier.width(150.dp))
-				Text(meaning, style = type.muted, modifier = Modifier.weight(1f))
+	Column(verticalArrangement = Arrangement.spacedBy(Space.s)) {
+		PushButton(
+			if (open)
+				"Hide placeholders"
+			else
+				"Show placeholders",
+			Emphasis.Quiet,
+			enabled = true,
+			Modifier.testTag("legend-toggle"),
+			glyph =
+				if (open)
+					Glyph.ChevronDown
+				else
+					Glyph.Chevron,
+		) { open = !open }
+		if (open)
+			Column(
+				Modifier
+					.fillMaxWidth()
+					.background(palette.sunken, RoundedCornerShape(Radius.medium))
+					.padding(Space.m)
+					.testTag("legend"),
+				verticalArrangement = Arrangement.spacedBy(Space.xs),
+			) {
+				names.forEach { (name, meaning) ->
+					Row(horizontalArrangement = Arrangement.spacedBy(Space.m)) {
+						Text(name, style = type.mono, modifier = Modifier.width(150.dp))
+						Text(meaning, style = type.muted, modifier = Modifier.weight(1f))
+					}
+				}
+				note?.let { Text(it, style = type.muted) }
 			}
-		}
-		note?.let { Text(it, style = type.muted) }
 	}
+}
+
+/**
+ * A list a form adds to (questions, options): under its [label] and what it is for once it holds [any], and until
+ * then only the button that adds the first, so that what is not used takes a line and no more.
+ */
+@Composable
+private fun Listing(
+	label: String,
+	help: String,
+	any: Boolean,
+	content: @Composable ColumnScope.() -> Unit,
+) {
+	if (any)
+		Labelled(label, help = help, content = content)
+	else
+		Column(content = content)
 }
 
 /** A choice of a few, where none is one of them. */
@@ -489,7 +529,7 @@ private fun ConditionsEditor(
 			}
 		},
 	) { onChange(form.copy(target = it)) }
-	Labelled("In", help = "The kinds of window whose menus offer it.") {
+	Labelled("In windows showing") {
 		ScenesPicker(form.within, scenes) { onChange(form.copy(within = it)) }
 	}
 	Fields(
@@ -530,8 +570,7 @@ private fun ConditionsEditor(
 		"Extensions",
 		form.ext,
 		"when-ext",
-		hint = "zip, tar.gz",
-		help = "Without the dot, separated by commas. Empty for any name.",
+		hint = "zip, tar.gz (without the dot; empty for any name)",
 	) { onChange(form.copy(ext = it)) }
 	Fields(
 		1f to {
@@ -674,6 +713,16 @@ private fun Printed(text: String, tag: String, bad: Boolean = false) {
 	}
 }
 
+/**
+ * A command as it is run, to be read: on one line, where that reads as typed; and where an argument has quotes or
+ * lines in it (a script), each argument on a line of its own, numbered, with nothing added to it.
+ */
+internal fun runSaid(words: List<String>): String =
+	if (words.any { word -> word.any { it in "\"'\\\n" } })
+		words.withIndex().joinToString("\n") { (at, word) -> "${at + 1}  $word" }
+	else
+		textOf(words)
+
 /** What would be run for an example, or what would be opened. */
 @Composable
 private fun ExampleSaid(example: Example) {
@@ -701,7 +750,7 @@ private fun ExampleSaid(example: Example) {
 				},
 				style = type.muted,
 			)
-			Printed(example.runs.joinToString("\n") { textOf(it) }, "example")
+			Printed(example.runs.joinToString("\n", transform = ::runSaid), "example")
 		}
 	}
 }
@@ -738,8 +787,8 @@ private fun CheckedSaid(checked: Checked) {
 			Tone.Plain,
 			Modifier.testTag("editor-unfound"),
 			detail =
-				"The menus will still offer this, and it will fail. To have it offered only where “$it” is " +
-					"installed, name it under “Needs” by adding a fallback command, or under “Only if installed”.",
+				"The menus will still offer this, and it will fail. To hide it where “$it” is missing, name " +
+					"it under “Only if installed”, in More conditions.",
 		)
 	}
 }
@@ -776,7 +825,7 @@ private fun TriedSaid(tried: Tried?, read: String = "") {
 		is Tried.Ran -> {
 			tried.note?.let { Text(it, style = type.muted) }
 			tried.runs.forEachIndexed { at, run ->
-				Printed(textOf(run.words), "tried-command:$at")
+				Printed(runSaid(run.words), "tried-command:$at")
 				Text(
 					when (run.status) {
 						null -> "It couldn't be started."
@@ -806,7 +855,7 @@ private fun TriedSaid(tried: Tried?, read: String = "") {
 			}
 		}
 		is Tried.Found -> {
-			Printed(textOf(tried.words), "tried-command:0")
+			Printed(runSaid(tried.words), "tried-command:0")
 			when (val ended = tried.ended) {
 				is TextEnding.Failed ->
 					Text(
@@ -854,7 +903,7 @@ private fun TriedSaid(tried: Tried?, read: String = "") {
 				)
 			if (tried.unread.isNotEmpty()) {
 				Text(
-					"These lines of its output couldn't be read as $read, and were ignored:",
+					"These lines of its output aren't $read, so they were ignored:",
 					style = type.body.copy(color = palette.dangerText),
 					modifier = Modifier.testTag("tried-unread-said"),
 				)
@@ -863,6 +912,9 @@ private fun TriedSaid(tried: Tried?, read: String = "") {
 		}
 	}
 }
+
+/** The room between what scrolls in one of these windows and the bar it scrolls by. */
+private val BAR_ROOM = PaddingValues(end = Space.m)
 
 /** The frame both windows share: the form at the left, what it comes to at the right, and Save under them. */
 @Composable
@@ -873,6 +925,7 @@ private fun EditorModal(
 	checked: Checked,
 	onSave: () -> Unit,
 	onClose: () -> Unit,
+	onTest: () -> Unit,
 	form: @Composable ColumnScope.() -> Unit,
 	said: @Composable ColumnScope.() -> Unit,
 ) {
@@ -894,6 +947,8 @@ private fun EditorModal(
 					onClick = onSave,
 				),
 				secondary = listOf(Act("Cancel", "editor-cancel", onClick = onClose)),
+				// Tried out in a window of its own, once it is something that can be run.
+				aside = listOf(Act("Test…", "editor-test", checked.savable, onClick = onTest)),
 				// Why it cannot be saved, in as few words as say it: the whole of it is beside the form.
 				note =
 					checked.wrong
@@ -906,12 +961,13 @@ private fun EditorModal(
 	) {
 		Row(
 			Modifier.fillMaxWidth().weight(1f, fill = false),
-			horizontalArrangement = Arrangement.spacedBy(Space.l),
+			horizontalArrangement = Arrangement.spacedBy(Space.xl),
 		) {
-			ScrollArea(Modifier.weight(1.3f), tag = "editor-form") {
+			// Each side keeps room between what it holds and its bar, so that no field's edge is against it.
+			ScrollArea(Modifier.weight(1.3f), padding = BAR_ROOM, tag = "editor-form") {
 				Column(verticalArrangement = Arrangement.spacedBy(Space.xl), content = form)
 			}
-			ScrollArea(Modifier.weight(1f), tag = "editor-said") {
+			ScrollArea(Modifier.weight(1f), padding = BAR_ROOM, tag = "editor-said") {
 				Column(verticalArrangement = Arrangement.spacedBy(Space.m), content = said)
 			}
 		}
@@ -960,11 +1016,7 @@ private fun Naming(
 					"Id",
 					id,
 					"form-id",
-					help =
-						if (fresh)
-							"What the preferences file and key bindings know it by."
-						else
-							"Fixed once saved: key bindings and menus know it by this.",
+					help = "Can't be changed once saved.".takeIf { !fresh },
 					readOnly = !fresh,
 					mono = true,
 					onText = onId,
@@ -976,7 +1028,6 @@ private fun Naming(
 					key,
 					"form-key",
 					hint = "Ctrl+Shift+E",
-					help = "Its default; Key bindings can change it.",
 					onText = onKey,
 				)
 			},
@@ -1016,7 +1067,6 @@ internal fun ActionEditor(
 	modal: ActingModal.EditingAction,
 	settings: Settings,
 	world: World,
-	commands: Commands,
 	onChange: (Settings) -> Unit,
 ) {
 	val type = LocalType.current
@@ -1032,29 +1082,10 @@ internal fun ActionEditor(
 			ScriptKind.Action.checked(acting, spec, form.fresh, installed)
 		}
 	val example = remember(acting, spec) { exampleOf(acting, spec, world) }
-	val asked = remember(acting, spec) { valuesAsked(acting, spec, world) }
-	val scope = rememberCoroutineScope()
-	val latest by rememberUpdatedState(settings)
-	val change by rememberUpdatedState(onChange)
 
 	fun typed(form: ActionForm) = onChange(settings.copy(modal = modal.copy(form = form)))
 
-	fun trying(trial: Trial) = onChange(settings.copy(modal = modal.copy(trial = trial)))
-
 	fun close() = onChange(settings.copy(modal = null))
-
-	fun run() {
-		val trial = modal.trial
-
-		trying(trial.copy(result = Tried.Running))
-		scope.launch {
-			val tried = withContext(Dispatchers.IO) { tried(acting, spec, trial, world, commands) }
-
-			(latest.modal as? ActingModal.EditingAction)?.let { now ->
-				change(latest.copy(modal = now.copy(trial = now.trial.copy(result = tried))))
-			}
-		}
-	}
 
 	// The places there are to open, and the actions there are to be like: those that are not like another themselves.
 	val places = settings.actions.places
@@ -1072,7 +1103,8 @@ internal fun ActionEditor(
 		onSave = {
 			onChange(settings.copy(acting = ScriptKind.Action.put(acting, spec), modal = null))
 		},
-		onClose = ::close,
+		onClose = { close() },
+		onTest = { onChange(settings.copy(modal = modal.copy(trying = true))) },
 		form = {
 			Naming(
 				form.label,
@@ -1105,9 +1137,10 @@ internal fun ActionEditor(
 							"Each named value is also in the command's environment (\$dest), which is the " +
 								"safe way to use one inside sh -c.",
 						)
-						Labelled(
+						Listing(
 							"Ask first",
-							help = "Each answer is used in the command by its name: {dest}.",
+							"Each answer is used in the command by its name: {dest}.",
+							form.asks.isNotEmpty(),
 						) {
 							form.asks.forEachIndexed { at, ask ->
 								fun asking(to: AskForm) =
@@ -1282,8 +1315,7 @@ internal fun ActionEditor(
 					"Confirm first",
 					form.confirm,
 					"confirm",
-					hint = "This can't be undone.",
-					help = "A warning to agree to before it is done. Empty for none.",
+					hint = "A warning to agree to before it is done (optional)",
 				) { typed(form.copy(confirm = it)) }
 			}
 			FormSection("When it's offered") {
@@ -1305,40 +1337,8 @@ internal fun ActionEditor(
 			}
 			Panel("What it does", "said-does") {
 				ExampleSaid(example)
-				if (form.does == Does.Run)
-					Text(form.running.help, style = type.muted)
 			}
 			CheckedSaid(checked)
-			Panel("Try it", "trial") {
-				Text(
-					"Runs the command for real, on the files you name here, and shows what it printed.",
-					style = type.muted,
-				)
-				TextArea(
-					modal.trial.given,
-					{ trying(modal.trial.copy(given = it)) },
-					Modifier.fillMaxWidth().testTag("trial-given"),
-					hint = "Files to try it on, one per line",
-				)
-				asked.forEach { name ->
-					Field(
-						modal.trial.answers[name].orEmpty(),
-						{ trying(modal.trial.copy(answers = modal.trial.answers + (name to it))) },
-						Modifier.fillMaxWidth().testTag("trial-answer:$name"),
-						hint = "Value for {$name}",
-						style = type.mono,
-					)
-				}
-				PushButton(
-					"Run",
-					Emphasis.Secondary,
-					enabled = checked.savable && modal.trial.result != Tried.Running,
-					Modifier.testTag("trial-run"),
-					glyph = Glyph.Play,
-					onClick = ::run,
-				)
-				TriedSaid(modal.trial.result)
-			}
 		},
 	)
 }
@@ -1395,7 +1395,6 @@ internal fun SearchEditor(
 	modal: ActingModal.EditingSearch,
 	settings: Settings,
 	world: World,
-	commands: Commands,
 	onChange: (Settings) -> Unit,
 ) {
 	val type = LocalType.current
@@ -1411,29 +1410,11 @@ internal fun SearchEditor(
 			ScriptKind.Search.checked(acting, spec, form.fresh, installed)
 		}
 	val example = remember(acting, spec) { exampleOf(acting, spec, world) }
-	val scope = rememberCoroutineScope()
-	val latest by rememberUpdatedState(settings)
-	val change by rememberUpdatedState(onChange)
 	val (prints, printed) = printsSaid(form)
 
 	fun typed(form: SearchForm) = onChange(settings.copy(modal = modal.copy(form = form)))
 
-	fun trying(trial: Trial) = onChange(settings.copy(modal = modal.copy(trial = trial)))
-
 	fun close() = onChange(settings.copy(modal = null))
-
-	fun run() {
-		val trial = modal.trial
-
-		trying(trial.copy(result = Tried.Running))
-		scope.launch {
-			val tried = withContext(Dispatchers.IO) { tried(acting, spec, trial, world, commands) }
-
-			(latest.modal as? ActingModal.EditingSearch)?.let { now ->
-				change(latest.copy(modal = now.copy(trial = now.trial.copy(result = tried))))
-			}
-		}
-	}
 
 	val named =
 		if (form.positions == Positions.Lines)
@@ -1453,7 +1434,8 @@ internal fun SearchEditor(
 		onSave = {
 			onChange(settings.copy(acting = ScriptKind.Search.put(acting, spec), modal = null))
 		},
-		onClose = ::close,
+		onClose = { close() },
+		onTest = { onChange(settings.copy(modal = modal.copy(trying = true))) },
 		form = {
 			Naming(
 				form.label,
@@ -1520,9 +1502,10 @@ internal fun SearchEditor(
 						"{folder}" to "The folder the command runs in, which paths are shown from.",
 					),
 				)
-				Labelled(
+				Listing(
 					"Options",
-					help = "Switches shown beside the query. Each adds its words where the command says {options}.",
+					"Switches shown beside the query. Each adds its words where the command says {options}.",
+					form.options.isNotEmpty(),
 				) {
 					form.options.forEachIndexed { at, option ->
 						fun opting(to: OptionForm) =
@@ -1689,64 +1672,209 @@ internal fun SearchEditor(
 			}
 			Panel("What it does", "said-does") {
 				ExampleSaid(example)
-				Text(givenSaid(form.takes), style = type.muted)
 				Text("It must print: $prints", style = type.muted)
 			}
 			CheckedSaid(checked)
-			Panel("Try it", "trial") {
-				Text(
-					"Runs the command for real and shows what it found, and any output that couldn't be read.",
-					style = type.muted,
-				)
-				TextArea(
-					modal.trial.given,
-					{ trying(modal.trial.copy(given = it)) },
-					Modifier.fillMaxWidth().testTag("trial-given"),
-					hint =
-						if (form.takes == Takes.Lines)
-							"Lines for it to look through"
-						else
-							"Files or folders to look in, one per line",
-				)
-				Field(
-					modal.trial.query,
-					{ trying(modal.trial.copy(query = it)) },
-					Modifier.fillMaxWidth().testTag("trial-query"),
-					hint = "What to look for",
-					leading = Glyph.Search,
-				)
-				form.options.filter { it.name.isNotBlank() }.forEach { option ->
-					CheckBox(
-						option.label.ifBlank { option.name },
-						option.name in modal.trial.on,
-						Modifier.testTag("trial-option:${option.name}"),
-					) { on ->
-						trying(
-							modal.trial.copy(
-								on =
-									if (on)
-										modal.trial.on + option.name
-									else
-										modal.trial.on - option.name,
-							),
-						)
-					}
-				}
-				PushButton(
-					"Run",
-					Emphasis.Secondary,
-					enabled = checked.savable && modal.trial.result != Tried.Running,
-					Modifier.testTag("trial-run"),
-					glyph = Glyph.Play,
-					onClick = ::run,
-				)
-				TriedSaid(modal.trial.result, read = prints.substringBefore(':').lowercase())
-			}
 		},
 	)
 }
 
-/** Whatever window is open over the pages of actions and searches. */
+// ---- trying it out ---------------------------------------------------------------------------------------------------
+
+/**
+ * The window that tries out what is being edited, over the window that edits it: what it is to be run on, typed in
+ * [inputs]; Run, which does [work] off the window's thread and shows how it went; and Close, back to the form with
+ * what was typed here kept.
+ */
+@Composable
+private fun TrialModal(
+	modal: ActingModal.Editing,
+	title: String,
+	about: String,
+	settings: Settings,
+	onChange: (Settings) -> Unit,
+	work: (Trial) -> Tried,
+	read: String = "",
+	inputs: @Composable ColumnScope.((Trial) -> Unit) -> Unit,
+) {
+	val type = LocalType.current
+	val scope = rememberCoroutineScope()
+	val latest by rememberUpdatedState(settings)
+	val change by rememberUpdatedState(onChange)
+	val trial = modal.trial
+
+	// Each of these is given as a lambda and never by reference: a reference to one is equal to the last, whatever
+	// it has closed over since, and so would go on being the one that knew the window as it first was.
+	fun trying(trial: Trial) = onChange(settings.copy(modal = modal.trying(trial)))
+
+	fun close() = onChange(settings.copy(modal = modal.trying(trial, open = false)))
+
+	fun run() {
+		trying(trial.copy(result = Tried.Running))
+		scope.launch {
+			val tried = withContext(Dispatchers.IO) { work(trial) }
+
+			// Shown in whichever window is editing by then: this one, if it is still open, and the form's otherwise.
+			(latest.modal as? ActingModal.Editing)?.let { now ->
+				change(latest.copy(modal = now.trying(now.trial.copy(result = tried), now.trying)))
+			}
+		}
+	}
+
+	Modal(
+		title,
+		onDismiss = { close() },
+		width = ModalWidth.Large,
+		outside = false,
+		tag = "trial",
+		buttons = {
+			ButtonRow(
+				Act("Run", "trial-run", trial.result != Tried.Running, onClick = { run() }),
+				secondary = listOf(Act("Close", "trial-close", onClick = { close() })),
+			)
+		},
+	) {
+		Text(about, style = type.muted)
+		ScrollArea(
+			Modifier.fillMaxWidth().weight(1f, fill = false),
+			padding = BAR_ROOM,
+			tag = "trial-scroll",
+		) {
+			Column(verticalArrangement = Arrangement.spacedBy(Space.m)) {
+				inputs { trying(it) }
+				TriedSaid(trial.result, read)
+			}
+		}
+	}
+}
+
+/** An action tried out: the files it is run on, and the answers to what it asks. */
+@Composable
+private fun ActionTrial(
+	modal: ActingModal.EditingAction,
+	settings: Settings,
+	world: World,
+	commands: Commands,
+	onChange: (Settings) -> Unit,
+) {
+	val type = LocalType.current
+	val acting = settings.acting
+	val spec = modal.form.spec()
+	val asked = remember(acting, spec) { valuesAsked(acting, spec, world) }
+	val trial = modal.trial
+
+	TrialModal(
+		modal,
+		"Test “${spec.label}”",
+		"Runs the command for real on the files you name here, and shows everything it printed. " +
+			"Nothing is saved by testing.",
+		settings,
+		onChange,
+		work = { tried(acting, spec, it, world, commands) },
+	) { trying ->
+		Labelled("Files to run it on", help = "One per line. ~ is your home folder.") {
+			TextArea(
+				trial.given,
+				{ trying(trial.copy(given = it)) },
+				Modifier.fillMaxWidth().testTag("trial-given"),
+				hint = "~/Pictures/holiday.jpg",
+			)
+		}
+		asked.forEach { name ->
+			Labelled("{$name}") {
+				Field(
+					trial.answers[name].orEmpty(),
+					{ trying(trial.copy(answers = trial.answers + (name to it))) },
+					Modifier.fillMaxWidth().testTag("trial-answer:$name"),
+					style = type.mono,
+				)
+			}
+		}
+	}
+}
+
+/** A text search tried out: what it looks in, what for, and with which of its options on. */
+@Composable
+private fun SearchTrial(
+	modal: ActingModal.EditingSearch,
+	settings: Settings,
+	world: World,
+	commands: Commands,
+	onChange: (Settings) -> Unit,
+) {
+	val acting = settings.acting
+	val form = modal.form
+	val spec = form.spec()
+	val trial = modal.trial
+	val lines = form.takes == Takes.Lines
+
+	TrialModal(
+		modal,
+		"Test “${spec.label}”",
+		"Runs the command for real and shows what it found, and any of its output that couldn't be read. " +
+			"Nothing is saved by testing.",
+		settings,
+		onChange,
+		work = { tried(acting, spec, it, world, commands) },
+		read =
+			when (form.read) {
+				HitRead.Lines ->
+					if (lines)
+						"a number, a colon and a line"
+					else
+						"a path, a number and a line"
+				HitRead.RgJson -> "ripgrep's JSON"
+				HitRead.Json -> "JSON objects"
+				HitRead.Paths -> "paths"
+			},
+	) { trying ->
+		Labelled(
+			if (lines)
+				"Lines for it to look through"
+			else
+				"Files or folders to look in",
+			help = "One per line.",
+		) {
+			TextArea(
+				trial.given,
+				{ trying(trial.copy(given = it)) },
+				Modifier.fillMaxWidth().testTag("trial-given"),
+				hint =
+					if (lines)
+						"val answer = 42"
+					else
+						"~/Projects",
+			)
+		}
+		Labelled("What to look for") {
+			Field(
+				trial.query,
+				{ trying(trial.copy(query = it)) },
+				Modifier.fillMaxWidth().testTag("trial-query"),
+				leading = Glyph.Search,
+			)
+		}
+		form.options.filter { it.name.isNotBlank() }.forEach { option ->
+			CheckBox(
+				option.label.ifBlank { option.name },
+				option.name in trial.on,
+				Modifier.testTag("trial-option:${option.name}"),
+			) { on ->
+				trying(
+					trial.copy(
+						on =
+							if (on)
+								trial.on + option.name
+							else
+								trial.on - option.name,
+					),
+				)
+			}
+		}
+	}
+}
+
+/** Whatever window is open over the pages of actions and searches, and over that the one that tries it out. */
 @Composable
 internal fun ActingModals(
 	settings: Settings,
@@ -1756,8 +1884,16 @@ internal fun ActingModals(
 ) {
 	when (val modal = settings.modal) {
 		null -> Unit
-		is ActingModal.EditingAction -> ActionEditor(modal, settings, world, commands, onChange)
-		is ActingModal.EditingSearch -> SearchEditor(modal, settings, world, commands, onChange)
+		is ActingModal.EditingAction -> {
+			ActionEditor(modal, settings, world, onChange)
+			if (modal.trying)
+				ActionTrial(modal, settings, world, commands, onChange)
+		}
+		is ActingModal.EditingSearch -> {
+			SearchEditor(modal, settings, world, onChange)
+			if (modal.trying)
+				SearchTrial(modal, settings, world, commands, onChange)
+		}
 		is ActingModal.Moving -> MoveModal(modal, settings, world, onChange)
 	}
 }

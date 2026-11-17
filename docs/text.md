@@ -346,7 +346,29 @@ A line is opened by the first of these there is:
 The daemon's environment is the one it was started with. A session's service may have no `EDITOR` in it, where a
 terminal's shell does: then set `"editor"`.
 
-The preferences' "Actions" page says which editor is in use.
+The preferences' "Text searches" page has the editor under its list: a command line naming `{path}` and `{line}`,
+and whether it runs in a terminal. Left empty, it says which editor the environment names, which is the one used.
+
+## Changing them in the preferences
+
+The preferences window's "Text searches" page lists the searches as its "File actions" page lists actions, and works
+the same way (docs/menus.md, "Changing them in the preferences"): a switch turns one off, prism's own are changed and
+reset, one is duplicated, and each is made and changed in a window over the page.
+
+![The Text searches page](searches-page.png)
+
+That window says, beside the form, what a search's author most needs said. What the command is given: the files a
+window shows on its standard input, each ended by a NUL character, or the lines found so far. What it must print, for
+the form of output chosen, with a line of it (`src/main.kt:12:val answer = 42`). And the command as it would be run.
+
+![A text search being edited](search-editor.png)
+
+Its Test button runs the command for real on files or folders typed there, with a query and its options, and shows
+what it found: how many lines in how many files, and the first of them. With them it shows the lines the command
+printed that could not be read in the form the search says, which is what is wrong when a search finds nothing: a
+command that prints `rg --json` read as lines shows every line of it there.
+
+![A text search tested](search-test.png)
 
 ## Keys, and the menus
 
@@ -413,7 +435,6 @@ was found.
 - **The files in a steady order.** They are listed as the command finds them, which for ripgrep is whichever of its
   threads is first. `--sort path` in the command orders them, at the cost of its threads.
 - **Highlighting without a program.** With no `bat`, the file beside the list is plain.
-- **An editor chosen in the preferences window.** It is written in the file, and shown on the "Actions" page.
 - **What was typed last, the options, and the steps, kept** from one opening of a search to the next: a chain
   used often has to be made again each time.
 - **A command of its own for when only files are wanted.** A step that is not the last is run as it would be were it
