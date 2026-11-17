@@ -3,6 +3,7 @@ package prism.browser
 import androidx.compose.runtime.Immutable
 import java.nio.file.Path
 import prism.desktop.TerminalChoice
+import prism.desktop.macos.Packages
 import prism.preferences.ColumnId
 import prism.preferences.Held
 import prism.preferences.Kind
@@ -400,6 +401,12 @@ private fun rowsSlots(
 							id = "builtin.open",
 						)
 					}
+			}
+			// A Mac's package is opened as one thing, and is a folder all the same: gone into from here.
+			row.path?.takeIf { !row.isFolder && Packages.holds(row.name) }?.let { inside ->
+				slot("builtin.open-as-folder") {
+					item("Open as folder", BrowserEvent.Opened(inside), id = "builtin.open-as-folder")
+				}
 			}
 		}
 		// Several files open together, each with its application.

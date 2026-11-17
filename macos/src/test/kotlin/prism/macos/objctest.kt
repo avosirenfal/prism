@@ -61,4 +61,12 @@ class ObjCTest {
 		// Either answer is right; that it answers without failing is what is tested.
 		prefersDark()
 	}
+
+	@Test
+	fun quickLookDrawsAFile() {
+		val png = QuickLook.png(Path.of("/System/Applications/TextEdit.app"), 128)
+
+		assertNotNull(png)
+		assertEquals(listOf(0x89, 0x50, 0x4E, 0x47), png!!.take(4).map { it.toInt() and 0xFF })
+	}
 }

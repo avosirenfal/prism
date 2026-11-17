@@ -26,7 +26,7 @@ import org.jetbrains.skia.MipmapMode
 import org.jetbrains.skia.Rect
 import org.jetbrains.skia.Surface
 import org.jetbrains.skia.makeFromFileName
-import prism.desktop.freedesktop.ThumbnailCache
+import prism.desktop.SharedThumbnails
 import prism.shared.Guarded
 
 /**
@@ -54,7 +54,7 @@ class Thumbnails(
 	private val budget: Long = 16L * 1024 * 1024,
 	parallel: Int = 4,
 	/** The thumbnails the desktop's programs share; none, for pictures of images alone. */
-	private val shared: ThumbnailCache? = ThumbnailCache.of(),
+	private val shared: SharedThumbnails? = SharedThumbnails.system(),
 	/** What time it is, in nanoseconds from whenever: what a file known to have no picture is forgotten by. */
 	private val now: () -> Long = System::nanoTime,
 ) {

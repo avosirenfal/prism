@@ -10,6 +10,7 @@ import java.nio.file.Path
 import java.nio.file.attribute.BasicFileAttributes
 import java.time.Instant
 import kotlin.io.path.name
+import prism.desktop.macos.Packages
 import prism.linux.AtFlags
 import prism.linux.DirentBuffer
 import prism.linux.Errno
@@ -47,10 +48,22 @@ private class EntryRead(
 	val size: Long,
 	val modified: Instant,
 	val created: Created,
-)
+) {
+	/** This, as a file's is read: for a folder that is shown and opened as one thing. */
+	fun asFile(): EntryRead =
+		EntryRead(link, folder = false, regular = true, size, modified, created)
+}
 
 /** [name] of [folder] as a row, from what was [read] of it. */
-private fun rowOf(folder: Path, name: String, read: EntryRead): Row {
+private fun rowOf(folder: Path, name: String, entry: EntryRead): Row {
+	// A Mac's packages (an application, a document kept as a folder) are folders on disk and one thing to a person:
+	// shown and opened as a file is, as Finder has them, and gone into only when asked ("Open as folder").
+	val read =
+		if (entry.folder && Packages.holds(name))
+			entry.asFile()
+		else
+			entry
+
 	val category =
 		when {
 			read.folder -> Category.Folder

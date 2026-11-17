@@ -12,6 +12,7 @@ import java.time.Instant
 import java.util.HexFormat
 import java.util.zip.DataFormatException
 import java.util.zip.Inflater
+import prism.desktop.SharedThumbnails
 
 /*
  * The thumbnails the desktop's programs share, as freedesktop.org's Thumbnail Managing Standard keeps them: small
@@ -95,7 +96,7 @@ data class ThumbnailOf(
 /** The thumbnails kept under [root], which is the `thumbnails` folder of a user's cache. */
 class ThumbnailCache(
 	val root: Path,
-) {
+) : SharedThumbnails {
 	/** Where the thumbnail of [file] at [size] is, if there is one: the one place such a path is made. */
 	fun entry(file: Path, size: ThumbnailSize): Path =
 		root.resolve(size.folder).resolve(nameOf(uriOf(file)))
@@ -105,7 +106,7 @@ class ThumbnailCache(
 	 * by when it was last [modified] and its [bytes]), of the first size there is one at ([ThumbnailSize.toShow]);
 	 * null where there is none. Each size is one file looked for by name: the cache is never listed.
 	 */
-	fun find(
+	override fun find(
 		file: Path,
 		modified: Instant,
 		bytes: Long?,

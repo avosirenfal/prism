@@ -1,6 +1,7 @@
 package prism.browser
 
 import androidx.compose.runtime.Immutable
+import prism.platform.Os
 import prism.preferences.Held
 import prism.preferences.ListingKind
 import prism.preferences.MenuKey
@@ -154,6 +155,11 @@ val BUILTINS: Map<String, Builtin> =
 		Builtin("builtin.open", "Open"),
 		Builtin("builtin.put-back", "Restore"),
 		Builtin("builtin.open-in-new-window", "Open in new window", "Explorer only"),
+		Builtin(
+			"builtin.open-as-folder",
+			"Open as folder",
+			"Applications and other packages, on a Mac",
+		),
 		Builtin("builtin.select-folder", "Select folder", "When selecting a folder"),
 		Builtin("builtin.save-over", "Replace", "When saving a file"),
 		Builtin("builtin.open-with", "Open with…", "Explorer only"),
@@ -230,6 +236,9 @@ private fun listingHolds(kind: ListingKind, of: MenuOf): Set<String> {
 										"builtin.terminal",
 									),
 								)
+							// A Mac's alone: nowhere else is a folder shown as a file.
+							if (of == MenuOf.File && Os.current == Os.MacOS)
+								add("builtin.open-as-folder")
 							if (of != MenuOf.Folder)
 								add("builtin.open-with")
 							if (one)
@@ -303,6 +312,7 @@ private val ROWS: List<Placed> =
 		slot("builtin.open"),
 		slot("builtin.put-back"),
 		slot("builtin.open-in-new-window"),
+		slot("builtin.open-as-folder"),
 		slot("builtin.select-folder"),
 		slot("builtin.save-over"),
 		slot("builtin.open-with"),

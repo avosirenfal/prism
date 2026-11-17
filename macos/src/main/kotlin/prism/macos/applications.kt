@@ -1,11 +1,15 @@
 package prism.macos
 
 import java.lang.foreign.Arena
+import java.lang.foreign.MemoryLayout
 import java.lang.foreign.MemorySegment
 import java.lang.foreign.ValueLayout.ADDRESS
 import java.lang.foreign.ValueLayout.JAVA_BYTE
 import java.lang.foreign.ValueLayout.JAVA_DOUBLE
 import java.nio.file.Path
+import prism.ffi.ByValue
+import prism.ffi.Library
+import prism.ffi.StructType
 
 /*
  * Applications as macOS keeps them: each a bundle (`Safari.app`), whose Info.plist says what it is called, what kind
@@ -156,35 +160,9 @@ object Applications {
 				if (drawn.address() == 0L)
 					return@pooled null
 
-				val bitmap =
-					NSBitmapImageRep.initWithCGImage(
-						NSObject.alloc.on(NSBitmapImageRep.cls),
-						drawn,
-					)
-
-				try {
-					val png =
-						NSBitmapImageRep.representationUsingType(
-							bitmap,
-							PNG,
-							NSDictionary.dictionary(),
-						)
-
-					val length = NSData.length(png)
-
-					NSData
-						.bytes(png)
-						.reinterpret(length)
-						.toArray(JAVA_BYTE)
-						.takeIf { length > 0 }
-				} finally {
-					NSObject.release(bitmap)
-				}
+				pngOf(drawn)
 			}
 		}
-
-	/** `NSBitmapImageFileTypePNG`. */
-	private const val PNG = 4L
 
 	/** The applications running now that the user started (with a place in the Dock). */
 	fun running(): List<Running> =
@@ -219,6 +197,88 @@ object Applications {
 
 	private fun typeOf(identifier: String): Id? =
 		UTType.typeWithIdentifier(nsString(identifier)).orNull()
+}
+
+/** `NSBitmapImageFileTypePNG`. */
+private const val PNG = 4L
+
+/** A `CGImage` as a PNG's bytes; null where it comes to none. Called inside a pool. */
+internal fun pngOf(image: MemorySegment): ByteArray? {
+	val bitmap =
+		NSBitmapImageRep.initWithCGImage(
+			NSObject.alloc.on(NSBitmapImageRep.cls),
+			image,
+		)
+
+	try {
+		val png =
+			NSBitmapImageRep.representationUsingType(
+				bitmap,
+				PNG,
+				NSDictionary.dictionary(),
+			)
+
+		val length = NSData.length(png)
+
+		return NSData
+			.bytes(png)
+			.reinterpret(length)
+			.toArray(JAVA_BYTE)
+			.takeIf { length > 0 }
+	} finally {
+		NSObject.release(bitmap)
+	}
+}
+
+/*
+ * Quick Look's picture of a file: what Finder shows for a document, a video, a picture of a kind only the system reads
+ * (HEIC, RAW). Asked of Quick Look's own C function, which answers as it returns, with an image or with none.
+ */
+
+/** A `CGSize`, which Quick Look is passed by value: width, then height. */
+object CgSize : StructType {
+	override val layout: MemoryLayout = MemoryLayout.structLayout(JAVA_DOUBLE, JAVA_DOUBLE)
+}
+
+internal fun interface QlThumbnailImageCreate {
+	operator fun invoke(
+		allocator: MemorySegment,
+		url: MemorySegment,
+		@ByValue(CgSize::class) size: MemorySegment,
+		options: MemorySegment,
+	): MemorySegment
+}
+
+/** Quick Look's thumbnails. */
+object QuickLook {
+	private val create by Library
+		.at("/System/Library/Frameworks/QuickLook.framework/QuickLook")
+		.binding<QlThumbnailImageCreate>("QLThumbnailImageCreate")
+
+	/** The picture Quick Look makes of the file at [path], [pixels] across at most, as a PNG; null where it makes none. */
+	fun png(path: Path, pixels: Int): ByteArray? =
+		ObjC.pooled {
+			Arena.ofConfined().use { arena ->
+				val size =
+					arena.allocate(CgSize.layout).also {
+						it.set(JAVA_DOUBLE, 0, pixels.toDouble())
+						it.set(JAVA_DOUBLE, 8, pixels.toDouble())
+					}
+
+				// An NSURL is a CFURL, as Foundation's objects are CoreFoundation's.
+				val image =
+					create(MemorySegment.NULL, fileUrl(path).address, size, MemorySegment.NULL)
+
+				if (image.address() == 0L)
+					return@pooled null
+
+				try {
+					pngOf(image)
+				} finally {
+					CoreFoundation.release(image)
+				}
+			}
+		}
 }
 
 /** What Finder calls the file or folder at [path], in the user's language ("Macintosh HD", "Schreibtisch"). */

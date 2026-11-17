@@ -140,4 +140,12 @@ class MacDesktopTest {
 		Files.delete(file)
 		assertInstanceOf(TrashFor.Nowhere::class.java, trash.whereFor(Path.of("/")))
 	}
+
+	@Test
+	@EnabledOnOs(OS.MAC)
+	fun aMacsPackagesAreKnownByTheirNames() {
+		assertTrue(Packages.holds("Safari.app"))
+		assertFalse(Packages.holds("Documents"))
+		assertFalse(Packages.holds("notes.txt"))
+	}
 }
