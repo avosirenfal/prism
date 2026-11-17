@@ -168,6 +168,16 @@ class TextViewTest {
 				hasTestTag("text-preview-name") and hasText(first.path.fileName.toString()),
 			).assertExists()
 
+			// Enter opens nothing, from the field or from the list: a line is opened by a double click.
+			press(Key.Enter)
+			waitForIdle()
+			assertEquals(null, session.state.value.notice)
+			assertEquals(
+				first,
+				session.state.value.text!!
+					.cursor,
+			)
+
 			// Down, from the field, moves the cursor and leaves the keyboard where it is.
 			press(Key.DirectionDown)
 			until(session) { it.cursor != first }

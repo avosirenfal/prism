@@ -238,7 +238,6 @@ fun textMenuOf(
 		item(
 			"Open in editor",
 			BrowserEvent.TextOpened(row.id),
-			keys = bindings.keys(Action.Open),
 			id = "builtin.open-in-editor",
 		)
 		if (row is TextRow.File)

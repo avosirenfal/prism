@@ -15,7 +15,7 @@ files…", "Strings in files…", "Search in these lines…" and "List files…"
 ## One search, followed through
 
 Say the window shows the results of `proj@ *.kt`: every Kotlin file under the `proj` alias. The user presses
-Ctrl+Shift+G, types `class`, moves down a few lines and presses Enter. This is the search that ships, written out
+Ctrl+Shift+G, types `class`, moves down a few lines and double-clicks one. This is the search that ships, written out
 with one program (as it ships, it names `grep` as a second way, for a machine without ripgrep):
 
 ```json
@@ -69,8 +69,9 @@ of no run the window knows, and are dropped (a `TextRun` is equal only to itself
 printed it; otherwise prism reads the file as plain text. Either way prism scrolls it to the line, and marks what
 matched in it, since it knows both from the line found. Moving among the lines of one file asks for nothing more.
 
-**Enter hands over to the editor.** `BrowserEvent.TextOpened` becomes `Effect.Launch`: the user's editor, given the
-file and the line. Prism does not edit.
+**A double click hands over to the editor.** `BrowserEvent.TextOpened` becomes `Effect.Launch`: the user's editor,
+given the file and the line. Prism does not edit. No key opens a line: a double click does, or "Open in editor" in
+its menu.
 
 ## What is looked in
 
@@ -354,7 +355,6 @@ The preferences' "Actions" page says which editor is in use.
 | Up, Down, Page Up, Page Down | the field, the list | the cursor, among the files and their lines |
 | Home, End | the list | the first row, the last |
 | Left, Right | the list | a file's lines put away under it, or shown again |
-| Enter | the field, the list | the row under the cursor opened in the editor |
 | a search's own key (Ctrl+Shift+G) | anywhere | that search added as a step, looking in what was found; what is typed is then for it |
 | Ctrl+L | anywhere | the keyboard to the field |
 | Ctrl+F | anywhere | what looks in the file shown: opened, or given the keyboard again |

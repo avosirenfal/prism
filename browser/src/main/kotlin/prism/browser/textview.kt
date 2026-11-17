@@ -89,7 +89,6 @@ import prism.index.query.QueryText
  * | Up, Down, Page Up, Page Down | the field, the list | the cursor, among the files and their lines |
  * | Home, End | the list | the first row, the last |
  * | Left, Right | the list | a file's lines put away under it, or shown again |
- * | Enter | the field, the list | the line under the cursor opened in the editor |
  * | Escape | anywhere | back to what the window showed |
  */
 
@@ -162,12 +161,7 @@ internal fun TextPane(
 		// What is typed is the window's own text, as a toolbar's is, whatever size the listing is drawn at.
 		CompositionLocalProvider(LocalType provides LocalTypes.current.general) {
 			TextHeader(state, text, stops, onEvent) { key ->
-				when {
-					key.type != KeyEventType.KeyDown -> false
-					key.key == Key.Enter || key.key == Key.NumPadEnter ->
-						true.also { onEvent(BrowserEvent.TextOpened()) }
-					else -> moved(key)
-				}
+				key.type == KeyEventType.KeyDown && moved(key)
 			}
 		}
 		Divider()
@@ -206,8 +200,6 @@ internal fun TextPane(
 								.onKeyEvent { key ->
 									when {
 										key.type != KeyEventType.KeyDown -> false
-										key.key == Key.Enter || key.key == Key.NumPadEnter ->
-											true.also { onEvent(BrowserEvent.TextOpened()) }
 										key.key == Key.MoveHome ->
 											true.also { onEvent(BrowserEvent.TextMoved(Move.First)) }
 										key.key == Key.MoveEnd ->
