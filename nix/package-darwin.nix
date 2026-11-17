@@ -15,6 +15,7 @@
   gradle_9,
   temurin-bin-25,
   graalvmPackages,
+  zlib,
 }:
 
 let
@@ -61,6 +62,13 @@ stdenv.mkDerivation (finalAttrs: {
 
   nativeBuildInputs = [
     gradle_9
+  ];
+
+  # What the client is linked against besides the system: zlib, which native-image asks the linker for by name
+  # (`-lz`) and nixpkgs' copy of Apple's SDK does not hold. The static one, so that the client names nothing in the
+  # Nix store and runs on a Mac that has none.
+  buildInputs = [
+    zlib.static
   ];
 
   mitmCache = gradle_9.fetchDeps {
