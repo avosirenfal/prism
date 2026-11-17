@@ -67,6 +67,11 @@ data class Preferences(
 	 * environment names (`VISUAL`, then `EDITOR`), in the terminal; and where it names none, the file's application.
 	 */
 	val editor: OpenSpec? = null,
+	/**
+	 * The ids of the actions and text searches turned off, prism's own among them: offered in no menu and done by no
+	 * key, as though they were not written, and kept as they are written, to be turned on again.
+	 */
+	val disabled: Set<String> = emptySet(),
 	/** What of the menus is left out. */
 	val menu: MenuSpec = MenuSpec(),
 	/**

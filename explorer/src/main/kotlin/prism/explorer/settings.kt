@@ -46,7 +46,8 @@ enum class Page(
 	Bindings("Key bindings"),
 	Aliases("Aliases"),
 	Indexing("Indexing"),
-	Actions("Actions"),
+	Actions("File actions"),
+	Searches("Text searches"),
 }
 
 /**
@@ -303,6 +304,14 @@ data class Settings(
 	val aliasing: AliasEdits = AliasEdits.of(base.aliases),
 	/** What the index leaves out, as the Indexing page has it. */
 	val excluding: ExcludingEdits = ExcludingEdits.of(base.excluding),
+	/** The user's actions and text searches, which are turned off, and the editor, as their two pages have them. */
+	val acting: Acting = Acting.of(base),
+	/** Which actions the File actions page shows. */
+	val actionsShown: Narrowing = Narrowing(),
+	/** Which text searches the Text searches page shows. */
+	val searchesShown: Narrowing = Narrowing(),
+	/** The window open over those pages, where one is: an action or a search being edited, or moved. */
+	val modal: ActingModal? = null,
 ) {
 	/** What stops these from being applied, where anything does: an alias changed here with something wrong with it. */
 	val blocked: String?
@@ -313,10 +322,17 @@ data class Settings(
 			}
 
 	/** The actions and places there are, prism's own and those the preferences write, with what of them did not read. */
-	val actions: Actions by lazy { Actions.of(base) }
+	val actions: Actions by lazy {
+		Actions.read(
+			listOf(Actions.SHIPPED, acting.file),
+			menus.hidden.toSet(),
+			acting.disabled,
+			System::getenv,
+		)
+	}
 
 	/** What each action is written to be offered for, by its id: prism's own, then the preferences'. */
-	val specs: Map<String, WhenSpec> by lazy { specsOf(Actions.SHIPPED, base.written) }
+	val specs: Map<String, WhenSpec> by lazy { specsOf(Actions.SHIPPED, acting.file) }
 
 	/**
 	 * The bindings the page shows and rebinds: an explorer's, or a picker's own; none, where it shows a picker's and
@@ -372,6 +388,8 @@ data class Settings(
 			holding = holding,
 			dragged = dragged,
 			keys = keys,
+			actionsShown = actionsShown,
+			searchesShown = searchesShown,
 		).let {
 			it.copy(
 				rebinding = it.rebinding.finding(rebinding.finding),
@@ -408,6 +426,10 @@ data class Settings(
 			// Never written with anything wrong in them: what is typed stays on the page until it is right.
 			aliases = aliasing.written?.let { kept(Preferences::aliases, it) } ?: current.aliases,
 			excluding = kept(Preferences::excluding, excluding.kept),
+			actions = kept(Preferences::actions, acting.actions),
+			textSearches = kept(Preferences::textSearches, acting.searches),
+			disabled = kept(Preferences::disabled, acting.disabled),
+			editor = kept(Preferences::editor, acting.editor),
 			pickerBindings =
 				if (picking?.bindings != pickersWere)
 					picking?.bindings?.differences()

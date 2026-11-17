@@ -976,6 +976,11 @@ data class Actions(
 	val searches: List<TextSearch> = emptyList(),
 	/** What opens a file at a line: the user's editor. */
 	val editor: Editor = Editor.Application,
+	/**
+	 * The actions the user has turned off: offered nowhere and bound to no key, but still what a place's way out or in
+	 * is, and what another action is like, since those are how something else works and not something offered.
+	 */
+	val off: List<UserAction> = emptyList(),
 ) {
 	/**
 	 * The text searches offered for [subject], in the order they are written, those hidden left out: those that look
@@ -989,7 +994,7 @@ data class Actions(
 	/** The text search called [id], where there is one. */
 	fun search(id: String): TextSearch? = searches.firstOrNull { it.id == id }
 
-	private val byId: Map<String, UserAction> by lazy { actions.associateBy { it.id } }
+	private val byId: Map<String, UserAction> by lazy { (actions + off).associateBy { it.id } }
 
 	operator fun get(id: String): UserAction? = byId[id]
 
@@ -1031,6 +1036,7 @@ data class Actions(
 			read(
 				listOf(SHIPPED, preferences.written),
 				preferences.menu.hidden.toSet(),
+				preferences.disabled,
 				environment,
 				installed,
 			)
@@ -1040,11 +1046,13 @@ data class Actions(
 		 * several ways, it is read as the first whose programs are [installed]; one none of whose ways can be run here
 		 * is left out, without being said to be wrong ([Actions.unavailable]). Unless told, every program is taken to
 		 * be installed, which reads everything, as its first way. The editor is the last file's that names one, or
-		 * the one [environment] names.
+		 * the one [environment] names. Those whose ids are [disabled] are read, and said to be wrong where they are,
+		 * but are not among the actions and searches there are to offer.
 		 */
 		fun read(
 			files: List<ActionsFile>,
 			hidden: Set<String> = emptySet(),
+			disabled: Set<String> = emptySet(),
 			environment: (String) -> String? = { null },
 			installed: (String) -> Boolean = { true },
 		): Actions {
@@ -1166,13 +1174,14 @@ data class Actions(
 				}
 
 			return Actions(
-				all,
+				all.filter { it.id !in disabled },
 				sound,
 				broken,
 				hidden,
 				unavailable,
-				searchSpecs.keys.mapNotNull(searches::get),
+				searchSpecs.keys.filter { it !in disabled }.mapNotNull(searches::get),
 				editor,
+				all.filter { it.id in disabled },
 			)
 		}
 

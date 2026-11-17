@@ -197,6 +197,7 @@ fun SettingsView(
 					settings.excluding,
 				) { onChange(settings.copy(excluding = it)) }
 			Page.Actions -> ActionsPage(settings.actions)
+			Page.Searches -> ActionsPage(settings.actions)
 		}
 	}
 }
@@ -256,6 +257,7 @@ private fun glyphOf(page: Page): Glyph =
 		Page.Aliases -> Glyph.At
 		Page.Indexing -> Glyph.Filter
 		Page.Actions -> Glyph.Bolt
+		Page.Searches -> Glyph.Search
 	}
 
 /** What each part's text is, as the Display page says it. */

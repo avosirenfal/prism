@@ -212,15 +212,18 @@ class Session(
 		// preferences say of them changes.
 		scope.launch(io) {
 			services.preferences.preferences
-				.map { Triple(it.written, it.menu, it.terminal) }
+				.map { Triple(it.written to it.disabled, it.menu, it.terminal) }
 				.distinctUntilChanged()
-				.collect { (written, menu, terminal) ->
+				.collect { (acted, menu, terminal) ->
+					val (written, disabled) = acted
+
 					inputs.send(
 						Answer.Configured(
 							// Read for this machine: each action as the first of its ways whose programs are here.
 							Actions.read(
 								listOf(Actions.SHIPPED, written),
 								menu.hidden.toSet(),
+								disabled,
 								services.environment,
 								services.world::installed,
 							),

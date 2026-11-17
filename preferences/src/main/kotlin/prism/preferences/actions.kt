@@ -20,25 +20,55 @@ import kotlinx.serialization.json.jsonPrimitive
  * is checked by whoever uses them (the browser's actions.kt), which says so in the same way.
  */
 
+/**
+ * Something written that a menu offers, by a name, when its conditions hold: an action, or a text search. What the
+ * preferences' pages list, turn off and change of either is this much of it.
+ */
+sealed interface Declared {
+	val id: String
+	val label: String
+	val conditions: WhenSpec
+	val submenu: String?
+	val key: String?
+
+	/** The command it runs, where it is written as one. */
+	val run: List<String>?
+
+	/** The commands it can run, where it is written as several, the most to be preferred first. */
+	val ways: List<WaySpec>
+}
+
+/** This, called [id] and [label], offered when [conditions] hold: still what it was, an action or a text search. */
+@Suppress("UNCHECKED_CAST") // Each kind's copy is of that kind.
+fun <S : Declared> S.declared(
+	id: String = this.id,
+	label: String = this.label,
+	conditions: WhenSpec = this.conditions,
+): S =
+	when (val written: Declared = this) {
+		is ActionSpec -> written.copy(id = id, label = label, conditions = conditions)
+		is TextSearchSpec -> written.copy(id = id, label = label, conditions = conditions)
+	} as S
+
 /** An action as it is written. */
 @Serializable
 data class ActionSpec(
-	val id: String,
-	val label: String,
+	override val id: String,
+	override val label: String,
 	/** When it is offered: every condition named must hold. */
 	@SerialName("when")
-	val conditions: WhenSpec = WhenSpec(),
+	override val conditions: WhenSpec = WhenSpec(),
 	/** What is asked for before anything is done: each question by the name its answer is used under. */
 	val ask: Map<String, AskSpec> = emptyMap(),
 	/** Answers given beforehand to the questions of the action this one is [like]. */
 	val given: Map<String, String> = emptyMap(),
 	/** A command, as its words: what the action runs. One of this, [show] and [like]. */
-	val run: List<String>? = null,
+	override val run: List<String>? = null,
 	/**
 	 * Several commands that do the same with different programs, the most to be preferred first: the first whose
 	 * programs are all installed is what the action runs. In place of [run].
 	 */
-	val ways: List<WaySpec> = emptyList(),
+	override val ways: List<WaySpec> = emptyList(),
 	/** Somewhere gone to: what the action shows. */
 	val show: ShowSpec? = null,
 	/** Another action's id: this one does what that one does, with the answers [given]. */
@@ -46,12 +76,12 @@ data class ActionSpec(
 	val how: HowSpec = HowSpec(),
 	val then: ThenSpec = ThenSpec(),
 	/** The submenu it is offered in, levels apart by `/`: `Archive`, `Image/Convert`. */
-	val submenu: String? = null,
+	override val submenu: String? = null,
 	/** The chord that does it, until the user binds another. */
-	val key: String? = null,
+	override val key: String? = null,
 	/** Whether a double click (or Enter) on what it is offered for does it, in place of opening. */
 	val default: Boolean = false,
-)
+) : Declared
 
 /** When an action is offered. */
 @Serializable
@@ -194,15 +224,15 @@ data class PlaceSpec(
  */
 @Serializable
 data class TextSearchSpec(
-	val id: String,
-	val label: String,
+	override val id: String,
+	override val label: String,
 	/** When it is offered: every condition named must hold. Whatever the menu is of, unless `target` says. */
 	@SerialName("when")
-	val conditions: WhenSpec = WhenSpec(),
+	override val conditions: WhenSpec = WhenSpec(),
 	/** The submenu it is offered in, levels apart by `/`. */
-	val submenu: String? = null,
+	override val submenu: String? = null,
 	/** The chord that opens it on everything the window shows, until the user binds another. */
-	val key: String? = null,
+	override val key: String? = null,
 	/**
 	 * What is typed into it: `typed` (unless said), which the command is run again for as it changes, and names as
 	 * `{query}`; or `narrows`, which the command is run once without, and which narrows what it printed.
@@ -211,9 +241,9 @@ data class TextSearchSpec(
 	/** What can be turned on beside the query, each by its name: the words `{options}` becomes say which are. */
 	val options: Map<String, OptionSpec> = emptyMap(),
 	/** The command, as its words. One of this and [ways]. */
-	val run: List<String>? = null,
+	override val run: List<String>? = null,
 	/** Several commands that find the same with different programs, the most to be preferred first. */
-	val ways: List<WaySpec> = emptyList(),
+	override val ways: List<WaySpec> = emptyList(),
 	/**
 	 * What it is given on its standard input: `files` (unless said), each ended by a NUL character, to find lines in;
 	 * or `lines`, the lines found already, to keep some of, saying which by the number each has among them.
@@ -231,7 +261,7 @@ data class TextSearchSpec(
 	val previews: List<WaySpec> = emptyList(),
 	/** What opening a line found does, in place of the user's editor. */
 	val open: OpenSpec? = null,
-)
+) : Declared
 
 /** Something turned on or off beside a text search's query: the words its command is given when it is [on], and when [off]. */
 @Serializable
