@@ -111,8 +111,8 @@ entries out hides them (each block keeps the ranges it no longer holds), and put
 own beside the others. Compacting makes one block of each root again. A search reads the blocks as they are, so it
 finds the same before and after.
 
-The file is a compressed snapshot followed by frames of changes appended as they are flushed, and is compacted, written
-anew as one snapshot, once the changes are a quarter of it (docs/format.md says it byte by byte). An earlier plan was
+The file is one compressed snapshot, written whole once an hour and as the daemon closes (docs/format.md says it byte
+by byte; it once had frames of changes appended after the snapshot, which are still read). An earlier plan was
 a file mapped into memory as it is; the file is compressed instead (zstd), which makes it a fraction of the size, and
 reading it back is fast enough not to need mapping (under a third of a second for three million entries). Every change says what is
 so now (this entry and everything under it is as this tree says, or it is absent), so making one twice is making it

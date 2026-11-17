@@ -287,11 +287,11 @@ is made up for the way everything is in an index that is a cache of the disk: by
 | the watcher: starting, or reading its ring | said; the daemon runs without, reading its roots again every half hour |
 | an index file that cannot be read | said; the index is built anew, and written over it |
 
-**Written on the way out.** The daemon writes its index every few seconds, and once more as it ends: when systemd
-stops it, when it is interrupted, and when prism ends itself after something it could not go on from. The file is a
-snapshot followed by frames of changes, and a frame cut short is dropped when the file is next read
-(docs/format.md), so even a daemon killed outright loses only what it had not yet written, which the reading of the
-roots at its next start finds again.
+**Written on the way out.** The daemon writes its index once an hour, and once more as it ends: when systemd stops
+it, when it is interrupted, and when prism ends itself after something it could not go on from. The file is written
+whole, beside itself, and renamed into place (docs/format.md), so it is always one index or the one before it. A
+daemon killed outright loses only what it had not yet written, which the reading of the roots at its next start finds
+again; what is not found again is when the files made in that hour were first seen.
 
 **Where it is said.** Everything that goes wrong is written to standard error as `prism: ` and what failed, then the
 failure in full, whether or not it was gone on from. Run as a service, that is the journal:

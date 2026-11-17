@@ -16,15 +16,16 @@ import kotlin.io.path.writeText
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertInstanceOf
+import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import prism.index.query.query
 
 /**
- * The index's file: written and read back to the same index; changes appended and read back as they were made; a
- * frame cut short or damaged dropped, and written over by the next; and the store that keeps an index and its file in
- * step, building one where there is none and compacting it once changes pile up.
+ * The index's file: written and read back to the same index; changes appended, as versions before this wrote them,
+ * and read back as they were made; a frame cut short or damaged dropped; and the store that keeps an index and its
+ * file, writing it whole when it is asked to and only where the file is behind.
  */
 class FileTest {
 	@TempDir
@@ -207,28 +208,31 @@ class FileTest {
 		assertEquals(0, store.index.size)
 		assertFalse(file.exists())
 
-		// What is made is written by the first flush, the whole index at once.
+		// What is made is written when a write is asked for, the whole index at once; and not before.
+		assertTrue(store.unwritten)
 		store.make(listOf(indexer.index(root)))
-		store.flush()
+		assertFalse(file.exists())
+		store.write()
 		assertTrue(file.exists())
+		assertFalse(store.unwritten)
 
 		made("docs/c.txt")
 		store.make(listOfNotNull(indexer.reread(where("docs/c.txt"))))
-		store.flush()
+		store.write()
 
 		val reopened = IndexStore.open(file)
 
 		assertEquals(IndexStore.Origin.Read(torn = false), reopened.origin)
 		assertEquals(store.index.shape(), reopened.index.shape())
 
-		// A file of something else is said to be, and written over by the next flush.
+		// A file of something else is said to be, and written over by the next write.
 		file.writeText("something else")
 
 		val over = IndexStore.open(file)
 
 		assertInstanceOf(IndexStore.Origin.Unreadable::class.java, over.origin)
 		over.make(listOf(indexer.index(root)))
-		over.flush()
+		over.write()
 		assertEquals(store.index.shape(), IndexStore.open(file).index.shape())
 	}
 
@@ -239,8 +243,8 @@ class FileTest {
 		val store = IndexStore.inMemory()
 
 		store.make(listOf(indexer.index(root)))
-		store.flush()
-		store.compact()
+		store.write()
+		assertFalse(store.unwritten)
 		assertEquals(IndexStore.Origin.Memory, store.origin)
 		assertEquals(
 			listOf(Where.of(root.resolve("a.txt"))),
@@ -254,39 +258,124 @@ class FileTest {
 	}
 
 	@Test
-	fun aStoreCompactsOnceChangesPileUp() {
+	fun aStoreWritesItsIndexWhole_AndOnlyWhereTheFileIsBehindIt() {
 		made(*(1..50).map { "docs/file$it.txt" }.toTypedArray())
 
 		val store =
 			IndexStore.open(file).also {
 				it.make(listOf(indexer.index(root)))
-				it.flush()
+				it.write()
 			}
-		val compact = file.fileSize()
 
-		// Each change is small next to the snapshot; enough of them, and the file is written anew, as one snapshot.
-		for (round in 1..200) {
+		fun stamp() = Files.getLastModifiedTime(file) to file.fileSize()
+
+		// Changes are made in memory, and the file is as it was until a write is asked for.
+		val before = stamp()
+
+		for (round in 1..40) {
 			made("docs/new$round.txt")
 			store.make(listOfNotNull(indexer.reread(where("docs/new$round.txt"))))
-			store.flush()
-			if (read().changes == 0L)
-				break
 		}
+		assertEquals(before, stamp())
+		assertEquals(
+			Index.EMPTY.with(indexer.index(root)).shape(),
+			store.index.compacted().shape(),
+		)
+
+		// Written, it is one snapshot of the index as it now is, compact: nothing is added after it.
+		store.write()
 
 		val read = read()
 
-		assertEquals(0, read.changes)
+		assertEquals(0L to false, read.changes to read.torn)
+		assertEquals(file.fileSize(), read.length)
 		assertEquals(0, store.index.loose)
-		assertTrue(file.fileSize() < compact * 3)
 		assertEquals(Index.EMPTY.with(indexer.index(root)).shape(), read.index.shape())
+
+		// With nothing made since, a write writes nothing: the file is not touched.
+		val written = stamp()
+
+		Files.setLastModifiedTime(
+			file,
+			java.nio.file.attribute.FileTime
+				.fromMillis(1_000),
+		)
+		store.write()
+		assertEquals(1_000L, Files.getLastModifiedTime(file).toMillis())
+		assertEquals(written.second, file.fileSize())
+
 		// Nothing was left half written beside it, and the store reads as it holds.
 		assertEquals(
 			emptyList<String>(),
 			Files.list(state).use { all ->
-				all.map { it.fileName.toString() }.filter { it.endsWith(".new") }.toList()
+				all
+					.map { it.fileName.toString() }
+					.filter {
+						it != "index.prism" &&
+							!it.endsWith(".lock")
+					}.toList()
 			},
 		)
 		assertEquals(store.index.shape(), IndexStore.open(file).index.shape())
+	}
+
+	@Test
+	fun theFileThatWasThereIsThereWholeUntilTheNewOneIs() {
+		made("a.txt")
+
+		val store =
+			IndexStore.open(file).also {
+				it.make(listOf(indexer.index(root)))
+				it.write()
+			}
+		val old = file.readBytes()
+
+		// A write that cannot finish (its folder taken away from under it) leaves the file as it was.
+		made("b.txt")
+		store.make(listOfNotNull(indexer.reread(where("b.txt"))))
+		state.toFile().setWritable(false)
+		try {
+			org.junit.jupiter.api.Assumptions.assumeFalse(
+				Files.isWritable(state),
+				"runs as a user no folder refuses",
+			)
+			assertThrows(java.io.IOException::class.java) { store.write() }
+			assertTrue(old.contentEquals(file.readBytes()))
+		} finally {
+			state.toFile().setWritable(true)
+		}
+
+		// And it is written the next time it is asked for: what could not be written was kept.
+		store.write()
+		assertEquals(store.index.shape(), IndexStore.open(file).index.shape())
+		assertTrue(
+			"b.txt" in
+				IndexStore
+					.open(file)
+					.index
+					.shape()
+					.joinToString(),
+		)
+	}
+
+	@Test
+	fun aFileWithChangesAfterItsSnapshot_AsOlderVersionsLeftThem_IsReadAndThenWrittenAsOne() {
+		made("a.txt")
+
+		val length = IndexFile.write(file, Index.EMPTY.with(indexer.index(root)))
+
+		made("b.txt")
+		IndexFile.append(file, length, listOfNotNull(indexer.reread(where("b.txt"))))
+		assertTrue(read().changes > 0)
+
+		val store = IndexStore.open(file)
+
+		assertEquals(IndexStore.Origin.Read(torn = false), store.origin)
+		assertTrue("b.txt" in store.index.shape().joinToString())
+		// Nothing was made in it, and still the file is not as one is written now: a write makes it so.
+		store.write()
+		assertEquals(0L, read().changes)
+		assertEquals(store.index.shape(), read().index.shape())
 	}
 
 	@Test

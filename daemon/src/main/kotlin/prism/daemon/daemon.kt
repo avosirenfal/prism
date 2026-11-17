@@ -10,6 +10,7 @@ import java.util.concurrent.TimeUnit
 import kotlin.io.path.Path
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.days
+import kotlin.time.Duration.Companion.hours
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 import prism.index.IgnoreRules
@@ -92,8 +93,14 @@ data class DaemonSettings(
 	val roots: List<Path> = listOf(Path("/")),
 	val indexer: Indexer = Indexer(),
 	val live: LiveSettings = LiveSettings(),
-	/** How often what was made is written, places read for searches alone let go, and the watcher looked at. */
+	/** How often places read for searches alone are let go, the watcher looked at, and whether it is time to write asked. */
 	val tick: Duration = 5.seconds,
+	/**
+	 * How often the index is written to its file, whole. Not often: what is lost with what was not written is when
+	 * the files made since were first seen, and nothing else, since the roots are read again as a daemon starts. It
+	 * is written as a daemon closes, whenever that is.
+	 */
+	val write: Duration = 1.hours,
 	/** How often the roots are read again where there is no watcher to say what changed. */
 	val rescanWithoutWatcher: Duration = 30.minutes,
 	/** How often what is mounted is looked at, for file systems that have come or gone. */
@@ -176,6 +183,9 @@ class Daemon private constructor(
 	/** What the last write of the index failed with, as text; null while it is written. */
 	private var unwritten: String? = null
 
+	/** When the index was last written, or the daemon started, in nanoseconds of [System.nanoTime]. */
+	private var wrote: Long = System.nanoTime()
+
 	init {
 		val every = settings.tick.inWholeMilliseconds
 
@@ -197,7 +207,14 @@ class Daemon private constructor(
 	}
 
 	private fun tick() {
-		written()
+		// Written once an hour; at once, where the roots have been read and no file holds an index yet, since reading
+		// them is what takes long; and again at the next tick, where a write failed, until one does not.
+		val first = live.unwritten && live.opened.isDone
+
+		if (first || unwritten != null ||
+			System.nanoTime() - wrote >= settings.write.inWholeNanoseconds
+		)
+			written()
 		carrying("letting go of places read for searches") { live.tidy() }
 
 		when (val now = feeding) {
@@ -227,12 +244,13 @@ class Daemon private constructor(
 		reported("applying the rules of what is left out", live.ruled(rules))
 
 	/**
-	 * What was made written, and a failure to write reported when it is not the one reported last: a disk that is
-	 * full is said once, not every few seconds. What could not be written is kept, and written the next time.
+	 * The index written, and a failure to write reported when it is not the one reported last: a disk that is full is
+	 * said once, not every few seconds. What could not be written is held as it is, and written the next time.
 	 */
 	private fun written() {
 		try {
-			live.flush()
+			live.write()
+			wrote = System.nanoTime()
 			unwritten = null
 		} catch (failed: Throwable) {
 			val why = failed.toString()

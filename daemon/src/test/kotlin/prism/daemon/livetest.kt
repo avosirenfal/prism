@@ -206,7 +206,7 @@ class LiveIndexTest {
 			)
 
 			// Never in the index proper, nor written with it.
-			live.flush()
+			live.write()
 			assertNull(live.index.find(where("proj/node_modules")))
 			assertNull(IndexStore.open(file).index.find(where("proj/node_modules")))
 
@@ -225,7 +225,7 @@ class LiveIndexTest {
 
 		LiveIndex.open(null, listOf(root), indexer).use { live ->
 			live.opened.done()
-			live.flush()
+			live.write()
 			assertEquals(IndexStore.Origin.Memory, live.origin)
 			assertTrue("a.txt" in live.index.names())
 		}

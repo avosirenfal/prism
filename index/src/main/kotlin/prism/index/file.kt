@@ -162,8 +162,11 @@ object IndexFile {
 	/**
 	 * [changes] appended to [file] as one frame, after the first [length] bytes (what a read found good; anything
 	 * after it, a frame cut short, is cut off first), and flushed to the disk. The file's length after it.
+	 *
+	 * Nothing writes a file this way any more: an index is written whole ([write]). Versions before this did, and a
+	 * file they left is still read; this is here so that reading one is tested against files made as they made them.
 	 */
-	fun append(file: Path, length: Long, changes: List<Change>): Long {
+	internal fun append(file: Path, length: Long, changes: List<Change>): Long {
 		val frame = frame(CHANGES, Out().also { out -> written(out, changes) }.bytes())
 
 		FileChannel.open(file, StandardOpenOption.WRITE).use {

@@ -81,7 +81,8 @@ alone) and the `Indexer` that reads the disk for it. It needs no watcher; what i
   `rescanRoots()` reads every root again. Each completes once what it read is made.
 - `changed(changes)` makes changes the watcher saw.
 - `search(query, context)` searches, as the next section says.
-- `flush()` writes what was made to the file; `close()` stops the scans and flushes.
+- `write()` writes the index to its file, whole, where the file is behind it; `close()` stops the scans and writes.
+  A daemon asks for a write once an hour (`DaemonSettings.write`), and once the first index there is has been read.
 
 **Scans, and what happens during them.** A scan of a large place takes seconds, so it reads without holding the
 index, and makes what it read once it has. Changes made meanwhile are made at once, as far as the index holds their

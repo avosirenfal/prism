@@ -507,8 +507,11 @@ class LiveIndex private constructor(
 		)
 	}
 
-	/** What was made since the last flush, written to the index's file (where it has one). */
-	fun flush() = store.flush()
+	/** The index written to its file, whole, where it has one and it is behind the index. */
+	fun write() = store.write()
+
+	/** Whether the index has a file to be in and is in none yet: none was read, and none has been written. */
+	val unwritten: Boolean get() = store.unwritten
 
 	/** The places read for searches alone that no search has asked for since [now] less [LiveSettings.keepAdHoc], let go. */
 	fun tidy(now: Instant = Instant.now()) {
@@ -519,18 +522,18 @@ class LiveIndex private constructor(
 		}
 	}
 
-	/** The scans stopped, and what was made written. */
+	/** The scans stopped, and the index written. */
 	override fun close() {
 		for (executor in listOf(scanning, adHocScanning)) {
 			executor.shutdownNow()
 			executor.awaitTermination(5, TimeUnit.SECONDS)
 		}
-		store.flush()
+		store.write()
 	}
 
 	/**
 	 * A scan of [places] that [read]s them without holding the index, then makes what it read, and then what was
-	 * changed while it read; written to the file once made.
+	 * changed while it read; written to the file once made, where no file holds an index yet.
 	 */
 	private fun scan(places: Set<Where>, read: () -> List<Change>): CompletableFuture<Unit> {
 		if (places.isEmpty())
@@ -558,10 +561,13 @@ class LiveIndex private constructor(
 					make(made(meanwhile, store.index, indexer))
 					scans = scans - id
 				}
-				// What was read is made, whether or not it can be written now: a write that fails is said by whoever
-				// writes next ([flush], a daemon's every tick), with what was made kept until then.
+				// The first index there is, is written as soon as it is read: reading it is what takes long, and
+				// until it is written a prism that starts has none. After that the file is written when whoever keeps
+				// this says ([write]: a daemon, once an hour and as it closes). What was read is made whether or not it
+				// can be written now: a write that fails is said by whoever writes next.
 				try {
-					store.flush()
+					if (store.unwritten)
+						store.write()
 				} catch (unwritten: Exception) {
 					// Said by whoever writes next.
 				}

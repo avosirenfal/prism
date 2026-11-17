@@ -1,5 +1,6 @@
 package prism.daemon
 
+import java.nio.file.Files
 import java.nio.file.Path
 import java.util.Collections
 import java.util.concurrent.CopyOnWriteArrayList
@@ -15,6 +16,8 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import prism.index.FileId
 import prism.index.Index
+import prism.index.IndexFile
+import prism.index.IndexRead
 import prism.index.Indexer
 import prism.index.Name
 import prism.linux.Dev
@@ -176,6 +179,41 @@ class DaemonTest {
 		}
 
 		assertEquals(listOf("starting the watcher"), reported.map { it.first })
+	}
+
+	@Test
+	fun theIndexIsWrittenOnceItIsFirstRead_ThenOnlyAsOftenAsIsSaid_AndAsTheDaemonCloses() {
+		made("docs/a.txt")
+
+		val file = state.resolve("index.prism")
+		val feed = Given()
+
+		fun onDisk(): Set<String> = (IndexFile.read(file) as IndexRead.Read).index.names()
+
+		// Written once an hour, which no test waits for: so what is written meanwhile is what the first read wrote.
+		Daemon.start(settings(), feed).use { daemon ->
+			daemon.live.opened.get(30, TimeUnit.SECONDS)
+			eventually { Files.exists(file) }
+			assertTrue("docs/a.txt" in onDisk())
+
+			made("docs/b.txt")
+			feed.seen(listOf(Changed(idOf("docs"), Name.of("b.txt"))))
+			eventually { "docs/b.txt" in daemon.live.index.names() }
+			// Many ticks on, the change is in the index and not in its file.
+			Thread.sleep(500)
+			assertTrue("docs/b.txt" !in onDisk())
+		}
+		// Closed, it is: one snapshot, with nothing after it.
+		assertTrue("docs/b.txt" in onDisk())
+		assertEquals(0L, (IndexFile.read(file) as IndexRead.Read).changes)
+
+		// Told to write more often, it does, while it runs.
+		Daemon.start(settings().copy(write = 200.milliseconds), feed).use { daemon ->
+			daemon.live.opened.get(30, TimeUnit.SECONDS)
+			made("docs/c.txt")
+			feed.seen(listOf(Changed(idOf("docs"), Name.of("c.txt"))))
+			eventually { "docs/c.txt" in onDisk() }
+		}
 	}
 
 	@Test

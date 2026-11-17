@@ -6,31 +6,39 @@ what is in it, byte by byte, and why it is laid out so. The code is `prism.index
 
 ## The idea
 
-A daemon keeps the index current as files change, in memory, and writes it out now and then. Writing the whole index
-for every change would mean writing megabytes to say that one file was made. So the file is a log:
+A daemon keeps the index current as files change, in memory. Its file is the index **written whole**: one
+**snapshot** of it, compacted, written column by column. Compressed, an index is small (a few megabytes for millions
+of entries), so writing all of it costs little, and a file of one snapshot is read at once.
 
-1. a **snapshot** of the index, compacted, written column by column;
-2. then **frames of changes**, each a batch of what changed since the last flush, appended.
+It is not written often. A daemon writes it once an hour, and as it closes; and once more at the start, as soon as
+the first index there is has been read, since reading the disk is the one thing that takes long. What is lost with
+an hour that was not written (the power gone) is small: the roots are read again as a daemon starts, so the index is
+right either way, and only when the files made in that hour were first seen is forgotten.
 
-Reading the file is reading the snapshot and making each batch of changes after it, in order. Since every change says
-what is so now rather than what happened (an entry and everything under it is as this tree says, or is absent), making
-one twice is the same as making it once, so a batch read twice does no harm.
+The file is never written where it lies. A new one is written under another name beside it, flushed to the disk,
+and renamed over the old one, which rename(2) does as one step (`Snapshot`, `shared/whole.kt`): the old index is
+there, whole, until the new one is, and is gone only by the rename that puts the new one in its place. A reader sees
+the old file or the new one, never half of either, and at no moment is there no index.
+
+### Files with changes after the snapshot
+
+Versions before this one added to the file between snapshots: after the snapshot came **frames of changes**, each a
+batch of what had changed since the last, appended every few seconds, and the file was written anew once they were a
+quarter of the snapshot's size. Nothing writes those any more, but a file that has them is still read: reading it is
+reading the snapshot and making each batch of changes after it, in order. Since every change says what is so now
+rather than what happened (an entry and everything under it is as this tree says, or is absent), making one twice is
+the same as making it once. The first write after such a file is read makes it one snapshot.
 
 The changes are all made to one working copy of the index (`Index.Changing`), which finds the block a change is made
-in by where its root is. A file can hold tens of thousands of changes before it is compacted, and they are read
-before a window opens: made one at a time to an index made anew for each, every change went over every block the
-changes before it had placed, and a day's changes took the best part of a minute to read. Now 24,000 are read in
-under a second, and four times as many take four times as long (`FileTest`).
-
-Now and then, once the changes are a quarter of the size of the snapshot, the file is **compacted**: the index is
-written anew as one snapshot, into a file of another name beside it, flushed to the disk, and renamed over the old
-one (`Snapshot`, `shared/whole.kt`). A reader sees the old file or the new one, never half of either.
+in by where its root is. Such a file could hold tens of thousands of changes, and they are read before a window
+opens: made one at a time to an index made anew for each, every change went over every block the changes before it
+had placed, and a day's changes took the best part of a minute to read. Now 24,000 are read in under a second, and
+four times as many take four times as long (`FileTest`).
 
 Every frame is compressed with zstd (through zstd-jni, which carries the native library for each platform in its jar;
-a snapshot at level 9, since it is written now and then and read at every start, a frame of changes at level 3, since
-one is written at every flush) and carries a CRC-32C of its compressed bytes. A frame cut short
-by a crash, or damaged, fails its check, and it and anything after it are dropped: the index is what the frames
-before it say. The next frame appended is written where the bad one began, cutting it off.
+a snapshot at level 9, since it is written now and then and read at every start) and carries a CRC-32C of its
+compressed bytes. A frame that fails its check, and anything after it, is dropped: the index is what the frames
+before it say.
 
 ## Byte by byte
 

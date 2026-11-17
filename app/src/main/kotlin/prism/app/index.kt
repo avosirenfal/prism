@@ -101,7 +101,7 @@ object IndexCommand : Command(
 					// No file it can read: the roots indexed, and the file written.
 					if (store.origin !is IndexStore.Origin.Read) {
 						store.make(roots.map(indexer::index))
-						store.flush()
+						store.write()
 					}
 				}
 			}
