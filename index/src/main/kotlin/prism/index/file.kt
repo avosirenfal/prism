@@ -99,7 +99,10 @@ object IndexFile {
 					"The daemon writes it anew as it starts; without one, `prism index --fresh` does",
 			)
 
-		var index = Index.EMPTY
+		// The index as its changes are made to it, frame after frame: one working copy for them all, since a file can
+		// hold thousands of frames after its snapshot, and an index made anew for each is the whole of it gone over
+		// each time.
+		var changing = Index.EMPTY.changing()
 		var at = HEADER
 		var changes = 0L
 
@@ -107,22 +110,28 @@ object IndexFile {
 			val frame = frameAt(bytes, at) ?: break
 
 			// A frame whole and sound that still does not read as one (written by something else, or by a bug) is
-			// dropped as a torn one is: the index is what the frames before it say.
-			index =
-				try {
-					when (frame.kind) {
-						SNAPSHOT -> snapshotOf(In(frame.payload)).also { changes = 0 }
-						else -> index.with(changesOf(In(frame.payload))).also { changes += frame.length }
+			// dropped as a torn one is: the index is what the frames before it say. It is read whole before any of
+			// it is made, so that none of a frame that does not read is.
+			try {
+				when (frame.kind) {
+					SNAPSHOT -> {
+						changing = snapshotOf(In(frame.payload)).changing()
+						changes = 0
 					}
-				} catch (wrong: IOException) {
-					break
-				} catch (wrong: IllegalArgumentException) {
-					break
+					else -> {
+						changesOf(In(frame.payload)).forEach(changing::make)
+						changes += frame.length
+					}
 				}
+			} catch (wrong: IOException) {
+				break
+			} catch (wrong: IllegalArgumentException) {
+				break
+			}
 			at += frame.length
 		}
 
-		return IndexRead.Read(index, at.toLong(), changes, torn = at < bytes.size)
+		return IndexRead.Read(changing.index(), at.toLong(), changes, torn = at < bytes.size)
 	}
 
 	/**

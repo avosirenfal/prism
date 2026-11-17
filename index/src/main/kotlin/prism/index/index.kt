@@ -85,116 +85,14 @@ class Index private constructor(
 				placed.filter { it.block.root !in roots }.sumOf { it.block.size }
 
 	/** The index with [change] made. */
-	fun with(change: Change): Index =
-		when (change) {
-			is Change.Indexed -> indexed(change.tree)
-			is Change.Present -> present(change.tree)
-			is Change.Absent ->
-				without(change.where).rooted(
-					roots
-						.filterNot {
-							it.within(change.where)
-						}.toSet(),
-				)
-		}
+	fun with(change: Change): Index = with(listOf(change))
 
 	/** The index with [changes] made, in order. */
-	fun with(changes: Iterable<Change>): Index = changes.fold(this, Index::with)
+	fun with(changes: Iterable<Change>): Index =
+		changing().also { changes.forEach(it::make) }.index()
 
-	private fun indexed(tree: Block): Index {
-		val at = tree.root
-		val heldAbove = at.parent?.let(::isFolder) == true
-
-		return if (heldAbove || at in roots)
-			present(tree)
-		else
-			without(at)
-				.rooted(roots.filterNot { it.within(at) }.toSet() + at)
-				.placing(tree.seenAs(IntArray(tree.size)))
-	}
-
-	private fun present(tree: Block): Index {
-		val at = tree.root
-		val held = at in roots || at.parent?.let(::isFolder) == true
-
-		return if (held)
-			without(at).placing(carried(tree))
-		else
-			this
-	}
-
-	private fun rooted(roots: Set<Where>) = Index(roots, placed)
-
-	private fun placing(tree: Block) = Index(roots, placed + Placed(tree, Ranges.NONE))
-
-	/**
-	 * [tree] with each entry this index holds already seen when the index first saw it, and the rest as [tree] says:
-	 * the old entries and the new walked side by side, folder by folder, each folder's children matched by name (in
-	 * the order of their names' bytes, which both keep). An entry is the same entry where it has the same path and is
-	 * the same kind of thing; a folder made where a file was is new.
-	 */
-	private fun carried(tree: Block): Block {
-		val start = locate(tree.root) ?: return tree
-		val seen = tree.seen.copyOf()
-		val grafts = graftsUnder(tree.root)
-
-		fun children(of: Pair<Int, Int>): List<Pair<Int, Int>> {
-			val (at, entry) = of
-			val within = placed[at].block.childrenOf(entry, placed[at].hidden).map { at to it }
-			val grafted = grafts[of].orEmpty().map { it to 0 }
-
-			return if (grafted.isEmpty())
-				within
-			else
-				(within + grafted).sortedWith(::byName)
-		}
-
-		fun carry(new: Int, old: Pair<Int, Int>) {
-			val block = placed[old.first].block
-
-			if (block.kindOf(old.second) != tree.kindOf(new))
-				return
-
-			seen[new] = block.seen[old.second]
-
-			if (tree.kindOf(new) != Kind.Directory)
-				return
-
-			val olds = children(old)
-			val news = tree.childrenOf(new, Ranges.NONE)
-			var i = 0
-			var j = 0
-
-			while (i < news.size && j < olds.size) {
-				val (at, entry) = olds[j]
-				val other = placed[at].block
-
-				val order =
-					java.util.Arrays.compareUnsigned(
-						tree.names,
-						tree.nameAt[news[i]],
-						tree.nameAt[news[i] + 1],
-						other.names,
-						other.nameAt[entry],
-						other.nameAt[entry + 1],
-					)
-
-				when {
-					order < 0 -> i++
-					order > 0 -> j++
-					else -> {
-						carry(news[i], olds[j])
-						i++
-						j++
-					}
-				}
-			}
-		}
-
-		carry(0, start)
-
-		return tree.seenAs(seen)
-	}
+	/** This index, to make many changes to at once: what reading its file does, a frame of them after another. */
+	internal fun changing(): Changing = Changing(this)
 
 	/** The grafts under [where] (or all, for null), each by the entry it is placed under. */
 	private fun graftsUnder(where: Where?): Map<Pair<Int, Int>?, List<Int>> =
@@ -210,37 +108,8 @@ class Index private constructor(
 			}
 
 	/** Two entries, each a placed block's, in the order of their names' bytes. */
-	private fun byName(one: Pair<Int, Int>, other: Pair<Int, Int>): Int {
-		val a = placed[one.first].block
-		val b = placed[other.first].block
-
-		return java.util.Arrays.compareUnsigned(
-			a.names,
-			a.nameAt[one.second],
-			a.nameAt[one.second + 1],
-			b.names,
-			b.nameAt[other.second],
-			b.nameAt[other.second + 1],
-		)
-	}
-
-	/** The index without the entry at [where] and everything under it: blocks under it dropped, the rest hidden. */
-	private fun without(where: Where): Index =
-		Index(
-			roots,
-			placed.mapNotNull { it ->
-				val block = it.block
-
-				when {
-					block.root.within(where) -> null
-					where.within(block.root) ->
-						block.locate(where, it.hidden)?.let { entry ->
-							Placed(block, it.hidden.plus(entry, block.end[entry]))
-						} ?: it
-					else -> it
-				}
-			},
-		)
+	private fun byName(one: Pair<Int, Int>, other: Pair<Int, Int>): Int =
+		named(placed[one.first].block, one.second, placed[other.first].block, other.second)
 
 	/** Where the entry at [where] is held: which placed block, and which entry of it; null where it is not held. */
 	internal fun locate(where: Where): Pair<Int, Int>? =
@@ -252,12 +121,6 @@ class Index private constructor(
 			else
 				null
 		}
-
-	private fun isFolder(where: Where): Boolean =
-		locate(where)?.let { (at, entry) ->
-			placed[at].block.kindOf(entry) == Kind.Directory
-		} ==
-			true
 
 	/** The entry at [where], if it is held. */
 	fun find(where: Where): Entry? = locate(where)?.let { (at, entry) -> entryAt(at, entry) }
@@ -466,6 +329,211 @@ class Index private constructor(
 			.forEach { (childAt, child) -> copy(builder, id, childAt, child, grafts, null) }
 	}
 
+	/**
+	 * An index as changes are made to it, one after another: the blocks it holds, each by where its root is, so that
+	 * a change finds the block it is made in without looking at every block there is. An index made anew for each
+	 * change looks at them all each time, which is nothing for one change and everything for the thousands a file
+	 * holds after a day: reading it then took as long as their number squared.
+	 *
+	 * It is changed, and is its maker's alone, which keeps it to one thread and lets go of it once it has the index it
+	 * came to ([index]): an [Index] is a value still, and this is how one is made.
+	 *
+	 * What it relies on is what an index always keeps: a tree is held live in one block alone. Placing a tree drops
+	 * every block at its root or under it, and hides the tree where a block above held it, so that of the blocks whose
+	 * roots are above a place, at most one still has it.
+	 */
+	internal class Changing(
+		index: Index,
+	) {
+		private var roots: Set<Where> = index.roots
+
+		/** The blocks held, in the order they were placed; null where one has been dropped since. */
+		private val blocks = ArrayList<Block?>()
+
+		/** What of each block is no longer there. */
+		private val hidden = ArrayList<Hides>()
+
+		/** Which block is rooted where, by the place's bytes: in their order, so that what is under a place is together. */
+		private val rooted = java.util.TreeMap<String, Int>()
+
+		init {
+			index.placed.forEach { place(it.block, it.hidden) }
+		}
+
+		/** The index these changes have come to. */
+		fun index(): Index =
+			Index(
+				roots,
+				blocks.indices.mapNotNull { at ->
+					blocks[at]?.let { Placed(it, hidden[at].ranges()) }
+				},
+			)
+
+		fun make(change: Change) {
+			when (change) {
+				is Change.Indexed -> indexed(change.tree)
+				is Change.Present -> present(change.tree)
+				is Change.Absent -> {
+					without(change.where)
+					roots = roots.filterNot { it.within(change.where) }.toSet()
+				}
+			}
+		}
+
+		private fun indexed(tree: Block) {
+			val at = tree.root
+			val heldAbove = at.parent?.let(::isFolder) == true
+
+			if (heldAbove || at in roots) {
+				present(tree)
+			} else {
+				without(at)
+				roots = roots.filterNot { it.within(at) }.toSet() + at
+				place(tree.seenAs(IntArray(tree.size)), Ranges.NONE)
+			}
+		}
+
+		private fun present(tree: Block) {
+			val at = tree.root
+
+			if (at in roots || at.parent?.let(::isFolder) == true) {
+				// Each entry seen when it was, read from what is held before that is taken away.
+				val carried = carried(tree)
+
+				without(at)
+				place(carried, Ranges.NONE)
+			}
+		}
+
+		private fun place(block: Block, gone: Ranges) {
+			rooted[block.root.key] = blocks.size
+			blocks += block
+			hidden += Hides(gone)
+		}
+
+		/** The blocks rooted at [where] or under it. */
+		private fun under(where: Where): List<Int> =
+			if (where.isRoot)
+				rooted.values.toList()
+			else
+				// What is under it starts with its bytes and a slash; the byte after a slash is the first that does not.
+				listOfNotNull(rooted[where.key]) +
+					rooted.subMap(where.key + SLASH, where.key + AFTER_SLASH).values
+
+		/** Without the entry at [where] and everything under it: blocks under it dropped, and it hidden where it is held. */
+		private fun without(where: Where) {
+			under(where).forEach { at ->
+				blocks[at]?.let { rooted.remove(it.root.key) }
+				blocks[at] = null
+			}
+			locate(where)?.let { (at, entry) ->
+				blocks[at]?.let { hidden[at].hide(entry, it.end[entry]) }
+			}
+		}
+
+		/**
+		 * Where the entry at [where] is held: which block, and which entry of it. Of the blocks rooted at it or above
+		 * it, the one that still has it, the nearest looked in first.
+		 */
+		private fun locate(where: Where): Pair<Int, Int>? {
+			// Its own bytes, then those of each folder above it, and the root's.
+			val above =
+				generateSequence(where.key) {
+					it.substring(0, it.lastIndexOf(SLASH)).takeIf(String::isNotEmpty)
+				} + ROOT_KEY
+
+			return above.distinct().firstNotNullOfOrNull { place ->
+				rooted[place]?.let { at ->
+					blocks[at]?.locate(where, hidden[at])?.let { at to it }
+				}
+			}
+		}
+
+		private fun isFolder(where: Where): Boolean =
+			locate(where)?.let { (at, entry) -> blocks[at]?.kindOf(entry) == Kind.Directory } ==
+				true
+
+		/** The grafts at [where] or under it, each by the entry it is placed under. */
+		private fun graftsUnder(where: Where): Map<Pair<Int, Int>?, List<Int>> =
+			under(where)
+				.filter { blocks[it]?.root?.let { root -> root !in roots } == true }
+				.sorted()
+				.groupBy { at -> blocks[at]?.root?.parent?.let(::locate) }
+
+		/**
+		 * [tree] with each entry held already seen when the index first saw it, and the rest as [tree] says: the old
+		 * entries and the new walked side by side, folder by folder, each folder's children matched by name (in the
+		 * order of their names' bytes, which both keep). An entry is the same entry where it has the same path and is
+		 * the same kind of thing; a folder made where a file was is new.
+		 */
+		private fun carried(tree: Block): Block {
+			val start = locate(tree.root) ?: return tree
+			val seen = tree.seen.copyOf()
+			val grafts = graftsUnder(tree.root)
+
+			/** The block placed [at], which is held: what was located in is. */
+			fun held(at: Int): Block =
+				checkNotNull(blocks[at]) { "an entry was found in a block that is gone" }
+
+			fun children(of: Pair<Int, Int>): List<Pair<Int, Int>> {
+				val (at, entry) = of
+				val within = held(at).childrenOf(entry, hidden[at]).map { at to it }
+				val grafted = grafts[of].orEmpty().map { it to 0 }
+
+				return if (grafted.isEmpty())
+					within
+				else
+					(within + grafted).sortedWith { one, other ->
+						named(held(one.first), one.second, held(other.first), other.second)
+					}
+			}
+
+			fun carry(new: Int, old: Pair<Int, Int>) {
+				val block = held(old.first)
+
+				if (block.kindOf(old.second) != tree.kindOf(new))
+					return
+
+				seen[new] = block.seen[old.second]
+
+				if (tree.kindOf(new) != Kind.Directory)
+					return
+
+				val olds = children(old)
+				val news = tree.childrenOf(new, Ranges.NONE)
+				var i = 0
+				var j = 0
+
+				while (i < news.size && j < olds.size) {
+					val (at, entry) = olds[j]
+					val order = named(tree, news[i], held(at), entry)
+
+					when {
+						order < 0 -> i++
+						order > 0 -> j++
+						else -> {
+							carry(news[i], olds[j])
+							i++
+							j++
+						}
+					}
+				}
+			}
+
+			carry(0, start)
+
+			return tree.seenAs(seen)
+		}
+
+		private companion object {
+			const val SLASH = '/'
+
+			/** The character after a slash: what the bytes of everything under a place come before. */
+			const val AFTER_SLASH = '0'
+			const val ROOT_KEY = "/"
+		}
+	}
+
 	companion object {
 		/** An index of nothing. */
 		val EMPTY = Index(emptySet(), emptyList())
@@ -487,3 +555,14 @@ class Index private constructor(
 		}
 	}
 }
+
+/** The entry [one] of [a] and the entry [other] of [b], in the order of their names' bytes. */
+private fun named(a: Block, one: Int, b: Block, other: Int): Int =
+	java.util.Arrays.compareUnsigned(
+		a.names,
+		a.nameAt[one],
+		a.nameAt[one + 1],
+		b.names,
+		b.nameAt[other],
+		b.nameAt[other + 1],
+	)

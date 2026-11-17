@@ -16,6 +16,12 @@ Reading the file is reading the snapshot and making each batch of changes after 
 what is so now rather than what happened (an entry and everything under it is as this tree says, or is absent), making
 one twice is the same as making it once, so a batch read twice does no harm.
 
+The changes are all made to one working copy of the index (`Index.Changing`), which finds the block a change is made
+in by where its root is. A file can hold tens of thousands of changes before it is compacted, and they are read
+before a window opens: made one at a time to an index made anew for each, every change went over every block the
+changes before it had placed, and a day's changes took the best part of a minute to read. Now 24,000 are read in
+under a second, and four times as many take four times as long (`FileTest`).
+
 Now and then, once the changes are a quarter of the size of the snapshot, the file is **compacted**: the index is
 written anew as one snapshot, into a file of another name beside it, flushed to the disk, and renamed over the old
 one (`Snapshot`, `shared/whole.kt`). A reader sees the old file or the new one, never half of either.

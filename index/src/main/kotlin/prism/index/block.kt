@@ -185,7 +185,7 @@ class Block private constructor(
 			java.util.Arrays.equals(names, nameAt[entry], nameAt[entry + 1], name, 0, name.size)
 
 	/** The child of [folder] named [name] that is not [hidden], if there is one. */
-	internal fun childNamed(folder: Int, name: ByteArray, hidden: Ranges): Int? {
+	internal fun childNamed(folder: Int, name: ByteArray, hidden: Gone): Int? {
 		var child = folder + 1
 
 		while (child < end[folder]) {
@@ -198,14 +198,14 @@ class Block private constructor(
 	}
 
 	/** The children of [folder] that are not [hidden], in order. */
-	internal fun childrenOf(folder: Int, hidden: Ranges): List<Int> =
+	internal fun childrenOf(folder: Int, hidden: Gone): List<Int> =
 		generateSequence(folder + 1) { end[it] }
 			.takeWhile { it < end[folder] }
 			.filter { it !in hidden }
 			.toList()
 
 	/** The entry at [where], which is [root] or under it, unless it is not held or [hidden]. */
-	internal fun locate(where: Where, hidden: Ranges): Int? {
+	internal fun locate(where: Where, hidden: Gone): Int? {
 		if (0 in hidden)
 			return null
 
@@ -342,6 +342,11 @@ internal object Seen {
 			java.time.Instant.ofEpochSecond(seen.toLong() and 0xFFFFFFFFL)
 }
 
+/** Which entries of a block are no longer there. */
+internal fun interface Gone {
+	operator fun contains(entry: Int): Boolean
+}
+
 /**
  * Entries no longer there, as ranges: whole subtrees, sorted and apart. Hiding is how an index takes entries out of a
  * block without making the block again; compacting makes it again without them.
@@ -349,7 +354,7 @@ internal object Seen {
 internal class Ranges private constructor(
 	/** Each range's first entry and the entry after its last, in turn. */
 	private val bounds: IntArray,
-) {
+) : Gone {
 	val count: Int get() = bounds.size / 2
 
 	/** How many entries the ranges hold. */
@@ -359,7 +364,7 @@ internal class Ranges private constructor(
 
 	fun end(range: Int): Int = bounds[range * 2 + 1]
 
-	operator fun contains(entry: Int): Boolean {
+	override operator fun contains(entry: Int): Boolean {
 		val range = after(entry)
 
 		return range < count && start(range) <= entry
@@ -382,21 +387,50 @@ internal class Ranges private constructor(
 		return low
 	}
 
-	/** These and the entries from [from] up to [to], merged where they meet. */
+	/**
+	 * These and the entries from [from] up to [to], merged where they meet: the ranges before those it meets and those
+	 * after them are as they were, and are copied across as they are. A block that many changes are made in has many
+	 * ranges, and each change adds one: so this is in proportion to how many there are, and no worse.
+	 */
 	fun plus(from: Int, to: Int): Ranges {
-		val merged =
-			((0 until count).map { start(it) to end(it) } + (from to to))
-				.sortedBy { it.first }
-				.fold(listOf<Pair<Int, Int>>()) { ranges, range ->
-					val last = ranges.lastOrNull()
+		// The ranges it meets: from the first that ends at [from] or after it, up to the first that starts after [to].
+		val first = firstWhere { end(it) >= from }
+		val beyond = firstWhere { start(it) > to }
+		val met = beyond - first
 
-					if (last != null && range.first <= last.second)
-						ranges.dropLast(1) + (last.first to maxOf(last.second, range.second))
-					else
-						ranges + range
-				}
+		val merged = IntArray(bounds.size - met * 2 + 2)
 
-		return Ranges(merged.flatMap { listOf(it.first, it.second) }.toIntArray())
+		bounds.copyInto(merged, 0, 0, first * 2)
+		merged[first * 2] =
+			if (met > 0)
+				minOf(from, start(first))
+			else
+				from
+		merged[first * 2 + 1] =
+			if (met > 0)
+				maxOf(to, end(beyond - 1))
+			else
+				to
+		bounds.copyInto(merged, first * 2 + 2, beyond * 2, bounds.size)
+
+		return Ranges(merged)
+	}
+
+	/** The first range that [holds], which every range after it does too; how many there are, where none does. */
+	private inline fun firstWhere(holds: (Int) -> Boolean): Int {
+		var low = 0
+		var high = count
+
+		while (low < high) {
+			val middle = (low + high) ushr 1
+
+			if (holds(middle))
+				high = middle
+			else
+				low = middle + 1
+		}
+
+		return low
 	}
 
 	/** These and [other] together, merged where they meet: one pass over both. */
@@ -447,4 +481,53 @@ internal class Ranges private constructor(
 			else
 				Ranges(bounds)
 	}
+}
+
+/**
+ * The ranges of a block as they are added to, many times over: what [Ranges] holds, kept so that one more costs no
+ * more however many there are. An index has a great many changes made to it at once as its file is read, each of
+ * which takes a tree out of the block it was in; a set of ranges made anew for each is the whole set copied each time.
+ *
+ * It is changed, and is its maker's alone: what is read of it elsewhere is the [Ranges] it comes to ([ranges]).
+ */
+internal class Hides(
+	from: Ranges,
+) : Gone {
+	/** What these were as they began, while nothing has been added: given back as it is, where nothing is. */
+	private var untouched: Ranges? = from
+
+	/** Each range's first entry, and the entry after its last. */
+	private val ends = java.util.TreeMap<Int, Int>()
+
+	init {
+		for (range in 0 until from.count)
+			ends[from.start(range)] = from.end(range)
+	}
+
+	override operator fun contains(entry: Int): Boolean =
+		ends.floorEntry(entry)?.let { it.value > entry } == true
+
+	/** The entries from [from] up to [to] added, merged with the ranges they meet. */
+	fun hide(from: Int, to: Int) {
+		// The range that starts before and reaches it, and every range that starts in it or at its end: one, with it.
+		val before = ends.floorEntry(from)?.takeIf { it.value >= from }
+		val met = ends.subMap(from, true, to, true)
+		val reach = maxOf(to, before?.value ?: to, met.values.maxOrNull() ?: to)
+
+		met.clear()
+		ends[before?.key ?: from] = reach
+		untouched = null
+	}
+
+	/** These, as ranges that are no longer added to. */
+	fun ranges(): Ranges =
+		untouched
+			?: Ranges.of(
+				IntArray(ends.size * 2).also { bounds ->
+					ends.entries.forEachIndexed { at, range ->
+						bounds[at * 2] = range.key
+						bounds[at * 2 + 1] = range.value
+					}
+				},
+			)
 }

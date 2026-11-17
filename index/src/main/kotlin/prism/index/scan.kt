@@ -122,7 +122,17 @@ class Where internal constructor(
 	fun within(other: Where): Boolean =
 		other.isRoot ||
 			(
-				key.startsWith(other.key) &&
+				bytes.size >= other.bytes.size &&
+					// Its bytes, compared as they are: nothing is made to compare them by, since this is asked of
+					// every block an index holds.
+					java.util.Arrays.equals(
+						bytes,
+						0,
+						other.bytes.size,
+						other.bytes,
+						0,
+						other.bytes.size,
+					) &&
 					(bytes.size == other.bytes.size || bytes[other.bytes.size] == SLASH)
 			)
 

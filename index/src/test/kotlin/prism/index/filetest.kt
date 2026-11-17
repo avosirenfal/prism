@@ -304,4 +304,61 @@ class FileTest {
 		assertFalse(read().torn)
 		assertTrue(after > length)
 	}
+
+	/**
+	 * A file as a daemon leaves it after a day of work: one snapshot, and after it a great many changes, each of
+	 * another folder. Reading it makes every one of them, and must take time in proportion to how many there are: it is
+	 * read before a window opens. It once took time as their number squared, which was a minute for a day's changes.
+	 *
+	 * So the same is read with four times the changes, and may take no more than eight times as long: four, were it
+	 * exactly in proportion, and sixteen, were it as the square. Each is the best of three readings, so that a pause
+	 * of the machine's is not taken for the reading's.
+	 */
+	@Test
+	fun aFileOfManyChangesIsReadInTimeInProportionToThem() {
+		// Folders in folders, as they are on a disk: a hundred to each, so that no one folder holds them all.
+		fun folder(at: Int) = "d${at / 100}/f${at % 100}"
+
+		/** How long the file takes to read, in nanoseconds, once [folders] of the tree have each been changed in it. */
+		fun readingAfter(from: Int, folders: Int): Long {
+			var length = read().length
+
+			// Twenty changes to a frame, as a flush writes what gathered since the last.
+			(from until folders).chunked(20).forEach { batch ->
+				batch.forEach { made("${folder(it)}/b.txt") }
+				length =
+					IndexFile.append(file, length, batch.map { indexer.reread(where(folder(it)))!! })
+			}
+
+			return (1..3).minOf {
+				val began = System.nanoTime()
+
+				read()
+				System.nanoTime() - began
+			}
+		}
+
+		(0 until MANY).forEach { made("${folder(it)}/a.txt") }
+		IndexFile.write(file, Index.EMPTY.with(indexer.index(root)))
+
+		val few = readingAfter(0, MANY / 4)
+		val many = readingAfter(MANY / 4, MANY)
+		val read = read()
+
+		// Every change was made: each folder holds both its files, and the index is the one a fresh look gives.
+		assertEquals(1 + MANY / 100 + MANY * 3, read.index.size)
+		assertEquals(
+			Index.EMPTY.with(indexer.index(root)).shape(),
+			read.index.compacted().shape(),
+		)
+		assertTrue(
+			many < few * 8,
+			"${MANY / 4} changes read in ${few / 1_000_000} ms, and $MANY in ${many / 1_000_000} ms",
+		)
+	}
+
+	private companion object {
+		/** How many folders the file of many changes changes. */
+		const val MANY = 6000
+	}
 }
