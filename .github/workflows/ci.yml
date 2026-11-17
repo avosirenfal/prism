@@ -3,6 +3,8 @@ name: ci
 on:
   push:
   pull_request:
+  # Run by hand, from the Actions page: what a Mac's disk image is asked for by.
+  workflow_dispatch:
 
 jobs:
   build-and-test:
@@ -48,7 +50,22 @@ jobs:
         run: ./gradlew assemble testClasses --no-daemon
       # What is macOS's own, against the system itself; and what stands apart from any platform.
       - name: Test macOS's own
-        run: ./gradlew :platform:test :macos:test --no-daemon
+        run: ./gradlew :ffi:test :platform:test :macos:test --no-daemon
+      # Prism.app in a disk image, to download from the run's page and pass to a Mac (docs/platform.md, "Passing it
+      # on"): with the client compiled ahead of time by GraalVM beside it, and sealed for no one in particular, since
+      # there is no certificate here to sign it with.
+      - uses: graalvm/setup-graalvm@v1
+        with:
+          java-version: '25'
+          distribution: graalvm
+          set-java-home: false
+      - name: Make the disk image
+        run: ./gradlew :app:macDmg --no-daemon
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Prism-macos-arm64
+          path: app/build/mac/Prism.dmg
+          if-no-files-found: error
 
   # The flake: prism built as the Nix package (which fails where nix/deps.json no longer holds what Gradle fetches,
   # as after a dependency was changed without it being written again), and the NixOS module evaluated each way it

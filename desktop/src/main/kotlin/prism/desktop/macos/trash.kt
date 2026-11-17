@@ -91,8 +91,8 @@ class SystemTrash(
 		// Its place in the trash, for what does not say where it came from.
 		if (entry.original == kept)
 			throw IOException(
-				"“${entry.name}” was put in the trash by another program, which doesn't say where it was. " +
-					"Move it out of the trash to where you want it.",
+				"“${entry.name}” was put in the trash by another program, which doesn't say where " +
+					"it was. Move it out of the trash to where you want it.",
 			)
 		if (Files.exists(entry.original, LinkOption.NOFOLLOW_LINKS))
 			throw FileAlreadyExistsException(entry.original.toString())

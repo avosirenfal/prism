@@ -115,3 +115,53 @@ compose.desktop {
 		}
 	}
 }
+
+// A Mac's prism to hand to someone: build/mac/Prism.dmg, a disk image holding Prism.app and a link to Applications to
+// drag it onto, which is how a Mac's applications are passed about. Made on a Mac alone (its tools are macOS's own).
+//
+// Prism.app is the one `createDistributable` makes, with the client beside its own program where there is a GraalVM
+// to compile it (`-Pprism.graalvm=DIR` or `$GRAALVM_HOME`), and sealed: with the identity `-Pprism.sign=NAME` names (a
+// "Developer ID Application: ..." certificate in the keychain), or, with none, for this machine alone ("ad hoc"), which
+// another Mac will open only once its user has said to (docs/platform.md, "Passing it on").
+if (Host.current == Host.MacOS)
+	tasks.register<Exec>("macDmg") {
+		val graalvm =
+			providers
+				.gradleProperty("prism.graalvm")
+				.orElse(providers.environmentVariable("GRAALVM_HOME"))
+		val identity = providers.gradleProperty("prism.sign").orElse("-")
+		val built = layout.buildDirectory.dir("compose/binaries/main/app/Prism.app")
+		val client = rootProject.layout.projectDirectory.file("client/build/native/prism")
+		val stage = layout.buildDirectory.dir("mac/stage")
+		val image = layout.buildDirectory.file("mac/Prism.dmg")
+
+		group = "distribution"
+		description = "Prism.app in a disk image, build/mac/Prism.dmg, to pass to another Mac"
+		dependsOn("createDistributable")
+		if (graalvm.isPresent)
+			dependsOn(":client:nativeImage")
+		inputs.property("identity", identity)
+		inputs.property("client", graalvm.isPresent)
+		outputs.file(image)
+
+		environment("PRISM_BUILT", built.get().asFile.path)
+		environment("PRISM_CLIENT", if (graalvm.isPresent) client.asFile.path else "")
+		environment("PRISM_STAGE", stage.get().asFile.path)
+		environment("PRISM_IMAGE", image.get().asFile.path)
+		environment("PRISM_IDENTITY", identity.get())
+		commandLine(
+			"/bin/sh",
+			"-euc",
+			"""
+			rm -rf "${'$'}PRISM_STAGE" "${'$'}PRISM_IMAGE"
+			mkdir -p "${'$'}PRISM_STAGE"
+			ditto "${'$'}PRISM_BUILT" "${'$'}PRISM_STAGE/Prism.app"
+			if [ -n "${'$'}PRISM_CLIENT" ]; then
+				cp "${'$'}PRISM_CLIENT" "${'$'}PRISM_STAGE/Prism.app/Contents/MacOS/prism-client"
+			fi
+			codesign --force --deep --options runtime --sign "${'$'}PRISM_IDENTITY" "${'$'}PRISM_STAGE/Prism.app"
+			ln -s /Applications "${'$'}PRISM_STAGE/Applications"
+			hdiutil create -volname Prism -srcfolder "${'$'}PRISM_STAGE" -ov -format UDZO "${'$'}PRISM_IMAGE"
+			""".trimIndent(),
+		)
+	}

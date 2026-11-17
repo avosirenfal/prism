@@ -31,7 +31,10 @@ val PRISM =
 				),
 			),
 			Category("searching", listOf(PathSearch)),
-			Category("running", listOf(DaemonCommand, StatusCommand, MatchesCommand, AgentGroup)),
+			Category(
+				"running",
+				listOf(DaemonCommand, StatusCommand, MatchesCommand, AgentGroup, CliGroup),
+			),
 			Category("indexing", listOf(IndexCommand, ScanCommand)),
 			Category("watching", listOf(ProbeGroup)),
 		),
@@ -90,6 +93,8 @@ fun main(args: Array<String>) {
 
 	val ran =
 		try {
+			// A Mac's application opened by its icon sets itself up, the first time, before it does what it was opened for.
+			settleAsApplication()
 			execute(PRISM, args.toList())
 		} catch (failed: Throwable) {
 			out.flush()
