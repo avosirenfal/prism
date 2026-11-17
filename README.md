@@ -130,6 +130,8 @@ fexit(VfsMkdir) {
 
 ## Setup
 
+build.md has every build and how each is installed, updated and removed. In short:
+
 The build needs a JDK to run Gradle (the toolchain resolver fetches JDK 25 for the modules), a clang with the BPF
 target (the `index` module compiles the watcher), and libbpf at run time to load it. With Nix, `nix develop` (or
 direnv) gives all of them; the flake points `PRISM_CLANG` at an unwrapped clang, since the wrapped one adds hardening

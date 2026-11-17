@@ -391,19 +391,21 @@ object DaemonCommand : Command(
 
 	/**
 	 * On a Mac, Full Disk Access looked at as the daemon runs. Without it, that is said, and System Settings' page for
-	 * it is opened the first time it is found missing (and not again: whether it is noted in prism's state); once it is
-	 * given, the folders left out for want of it are read.
+	 * it is opened the first time it is found missing for the program this daemon is, and not again: which program
+	 * was asked for is noted in prism's state. Access is given to a program, so the daemon of Prism.app is asked for
+	 * though one run from a terminal was before it. Once it is given, the folders left out for want of it are read.
 	 */
 	private fun watchDiskAccess(daemon: Daemon) {
 		val asked = stateFolder().resolve("asked-full-disk-access")
+		val program = Self.launcher()?.firstOrNull().orEmpty()
 
 		if (fullDiskAccess() == DiskAccess.Refused) {
 			warn(this, FULL_DISK_ACCESS_REFUSED)
-			if (!Files.exists(asked))
+			if (!Files.exists(asked) || Files.readString(asked) != program)
 				try {
 					ProcessBuilder("/usr/bin/open", FULL_DISK_ACCESS_SETTINGS).start()
 					Files.createDirectories(asked.parent)
-					Files.writeString(asked, "")
+					Files.writeString(asked, program)
 				} catch (failed: IOException) {
 					warn(this, "System Settings could not be opened: ${failed.message ?: failed}")
 				}
