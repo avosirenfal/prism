@@ -90,7 +90,11 @@ whether it is on the same volume, is known only once it is dropped.
 | the launcher's key | the window manager's binding of `prism launcher` | the daemon's own: a Carbon hot key, ⌘Space once Spotlight's is turned off (docs/launcher.md, "On a Mac") | a hot key of the system's (`RegisterHotKey`) |
 | the launcher over every window | a layer surface, or a window kept in front | a non-activating panel, as Spotlight's is: made by prism as AppKit makes one and given to SDL for its window, at a pop-up menu's level, on every Space and over full-screen applications | a topmost tool window |
 | hidden files | names starting with a dot | those, and the `UF_HIDDEN` flag (`~/Library`), later | the hidden attribute |
-| packaging | AppImage | a signed, notarized DMG (and signing is what keeps Full Disk Access granted across updates) | MSI |
+| what is left out by default | Linux's own, after what every platform has: containers, snapshots, the system's stores (`Exclusions.defaultsOn`) | a Mac's own: the Library's folders of applications' data, what is inside a bundle, what the system keeps on a volume for itself, the system's trees and Homebrew's | what every platform has, until Windows' own are written |
+| the application | a desktop entry, with "New Window" | Prism.app, whose own program is what runs (the daemon too), so the Dock and the system's permissions know it as Prism; opened again while it runs, it shows a window where it has none; "New Window" in its Dock menu and in prism's launcher | a shortcut |
+| quitting | closing the last window | Command-Q asks each window to close, and a daemon stays; Quit asked any other way ends it | closing the last window |
+| setting it up | the flake's NixOS module, or `prism portal install` | the flake's nix-darwin module, or `tools/macos/install.sh` | |
+| packaging | AppImage | Prism.app, and a DMG of it; signed and notarized, later (signing is what keeps Full Disk Access granted across updates) | MSI |
 
 Where a part stands apart from the platform, a port is an implementation behind an interface: the `Desktop`
 interfaces (docs/explorer.md, "Across platforms") with the trash among them, the index's `FileSystems`, the daemon's
@@ -168,8 +172,64 @@ What to try on an Apple-silicon Mac, in order, since each needs the one before:
    first, makes it the terminal.
 6. **The launcher.** With the daemon running, ⌘Space, once Spotlight's is turned off (System Settings › Keyboard ›
    Keyboard Shortcuts… › Spotlight); the daemon says so where it is not.
-7. **The agent.** `prism agent install`, once there is a `prism` to run (an app image from
-   `./gradlew :app:createDistributable`, or `--command`).
+7. **The application.** `tools/macos/install.sh` ("Setting it up on a Mac", below): Prism.app in the Dock as Prism
+   while a window is open, its icon opening a window, "New Window" in its Dock menu, and Command-Q closing windows
+   and leaving the daemon.
+
+## Setting it up on a Mac
+
+What is set up is three things: Prism.app among the applications, `prism` on the PATH, and the daemon as a launchd
+agent (`dev.prism.daemon`), started as you log in and again should it fail.
+
+**Without Nix**, from a checkout, with a JDK to run Gradle:
+
+```bash
+tools/macos/install.sh
+```
+
+It builds Prism.app (`./gradlew :app:createDistributable`), puts it in /Applications, links `/usr/local/bin/prism`
+to it, and has Prism.app's own `prism agent install` write and start the agent. With `GRAALVM_HOME` naming a GraalVM,
+the `prism` it links is the client compiled ahead of time (`./gradlew :client:nativeImage`), which asks the prism
+running in a few thousandths of a second; without one it is the application's own program, which does the same a
+moment slower. Run again, it replaces an older build; `tools/macos/install.sh --uninstall` takes all three away.
+
+**With nix-darwin**, the flake has a module (`darwinModules.prism`) that does the same:
+
+```nix
+{
+  inputs.prism.url = "github:avosirenfal/prism";
+
+  outputs = { nix-darwin, prism, ... }: {
+    darwinConfigurations.mac = nix-darwin.lib.darwinSystem {
+      modules = [
+        prism.darwinModules.prism
+        { programs.prism.enable = true; }
+      ];
+    };
+  };
+}
+```
+
+`programs.prism.daemon.roots` and `.extraArgs` are as on NixOS (docs/nixos.md). The package (nix/package-darwin.nix)
+is Prism.app built by the same Gradle task, with the client beside its program and linked as `bin/prism`.
+
+Two things about the Nix package are not as they should be yet. Its lock of what Gradle fetches
+(nix/deps-darwin.json) is empty: a Mac's artifacts are not Linux's, and the lock is written by running, on a Mac,
+
+```bash
+$(nix build .#prism.mitmCache.updateScript --print-out-paths --no-link)
+```
+
+until which the package does not build. And an application that is not signed is known to the system's permissions
+by where it is, which in the Nix store is somewhere new at each change: Full Disk Access is given again after an
+update, until prism is signed.
+
+**Then, either way**, two things are yours to do in System Settings: give Prism Full Disk Access (Privacy &
+Security), so the index reads every folder without asking; and turn off Spotlight's shortcut (Keyboard › Keyboard
+Shortcuts… › Spotlight), so Command-Space is prism's. The daemon says so where either is not done.
+
+Run from Gradle (`./gradlew :app:run`), prism is `java` to the Dock and to the system's permissions, since the
+program running is java's and no application's: that is for working on prism, and Prism.app is for using it.
 
 Not written yet: drags out to other applications (an `NSDraggingSession`, which wants an Objective-C class of
 prism's own made at run time, with `objc_allocateClassPair`); resuming FSEvents from the last event id a daemon saw;

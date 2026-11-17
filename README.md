@@ -70,6 +70,9 @@ how it is meant to work; docs/inprogress.md says where it stands.
 
 `prism --help` and `prism COMMAND --help` say more.
 
+On a Mac, `tools/macos/install.sh` builds Prism.app, puts `prism` on the PATH and starts the daemon as you log in; the
+flake's `darwinModules.prism` does the same for nix-darwin (docs/platform.md, "Setting it up on a Mac").
+
 ## Layout
 
 | module | depends on | what it is |

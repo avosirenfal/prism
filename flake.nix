@@ -8,6 +8,7 @@
   #   packages.<system>.prism (and .default)   prism: `environment.systemPackages = [ prism.packages.${system}.prism ]`
   #   overlays.default                         the same, as `pkgs.prism`
   #   nixosModules.prism (and .default)        `programs.prism`: the package, its daemon, the portal and the file manager
+  #   darwinModules.prism (and .default)       nix-darwin's `programs.prism`: Prism.app, `prism`, and its daemon's agent
   #   apps.<system>.default                    `nix run`
   #   devShells.<system>.default               what building it with Gradle needs
   #   checks.<system>                          the package built, and the module evaluated each way it can be set
@@ -21,15 +22,33 @@
       systems = [ "x86_64-linux" ];
 
       eachSystem = perSystem: lib.genAttrs systems (system: perSystem nixpkgs.legacyPackages.${system});
+
+      # A Mac's prism is another package (nix/package-darwin.nix): Prism.app, with a lock of its own.
+      macSystems = [ "aarch64-darwin" ];
+
+      eachMac = perSystem: lib.genAttrs macSystems (system: perSystem nixpkgs.legacyPackages.${system});
     in
     {
-      packages = eachSystem (pkgs: rec {
-        prism = pkgs.callPackage ./nix/package.nix { };
-        default = prism;
-      });
+      packages =
+        eachSystem (pkgs: rec {
+          prism = pkgs.callPackage ./nix/package.nix { };
+          default = prism;
+        })
+        // eachMac (pkgs: rec {
+          prism = pkgs.callPackage ./nix/package-darwin.nix { };
+          default = prism;
+        });
 
       overlays.default = final: _prev: {
-        prism = final.callPackage ./nix/package.nix { };
+        prism = final.callPackage (
+          if final.stdenv.hostPlatform.isDarwin then ./nix/package-darwin.nix else ./nix/package.nix
+        ) { };
+      };
+
+      # nix-darwin's: `programs.prism`, the package and its daemon as a launchd agent.
+      darwinModules = rec {
+        prism = import ./nix/darwin-module.nix self;
+        default = prism;
       };
 
       nixosModules = rec {
@@ -37,7 +56,14 @@
         default = prism;
       };
 
-      apps = eachSystem (pkgs: {
+      apps = (eachSystem (pkgs: {
+        default = {
+          type = "app";
+          program = lib.getExe self.packages.${pkgs.stdenv.hostPlatform.system}.prism;
+          meta.description = "prism: the file explorer, in the prism already running where there is one";
+        };
+      }))
+      // eachMac (pkgs: {
         default = {
           type = "app";
           program = lib.getExe self.packages.${pkgs.stdenv.hostPlatform.system}.prism;
@@ -45,7 +71,7 @@
         };
       });
 
-      devShells = eachSystem (
+      devShells = (eachSystem (
         pkgs:
         let
           prism = self.packages.${pkgs.stdenv.hostPlatform.system}.prism;
@@ -70,7 +96,19 @@
             LD_LIBRARY_PATH = prism.libraryPath;
           };
         }
-      );
+      ))
+      // eachMac (pkgs: {
+        default = pkgs.mkShell {
+          packages = with pkgs; [
+            jdk25
+            gradle_9
+          ];
+
+          JAVA_HOME = pkgs.jdk25.home;
+          # What `./gradlew :client:nativeImage` compiles the client with; nothing else in the build needs it.
+          GRAALVM_HOME = pkgs.graalvmPackages.graalvm-ce;
+        };
+      });
 
       checks = eachSystem (
         pkgs:
