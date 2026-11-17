@@ -553,9 +553,9 @@ private fun thingsSaid(spec: WhenSpec): String {
 fun offeredSaid(spec: WhenSpec, unsaid: On?, scenes: Scenes): List<String> {
 	val menu =
 		when (spec.target ?: unsaid?.word) {
-			On.Files.word -> "In the menu of the files selected"
-			On.Folder.word -> "In the menu of the folder itself (a click on empty space)"
-			On.Place.word -> "In the menu of a place in the sidebar"
+			On.Files.word -> "In the menu of the items selected"
+			On.Folder.word -> "In the menu of empty space in a folder"
+			On.Place.word -> "In the menu of a sidebar entry"
 			else -> "In any menu"
 		}
 
@@ -636,8 +636,8 @@ fun offeredSaid(spec: WhenSpec, unsaid: On?, scenes: Scenes): List<String> {
 fun offeredBrief(spec: WhenSpec, unsaid: On?): String {
 	val target =
 		when (spec.target ?: unsaid?.word) {
-			On.Folder.word -> "Folder background"
-			On.Place.word -> "Sidebar place"
+			On.Folder.word -> "Empty space in a folder"
+			On.Place.word -> "Sidebar entry"
 			else -> null
 		}
 

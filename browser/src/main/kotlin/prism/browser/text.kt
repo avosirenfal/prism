@@ -1167,6 +1167,55 @@ const val EXCERPT = 400
 private const val LEAD = 24
 
 /**
+ * The most characters of one line the file beside the list draws. A line longer than this (a minified file is one
+ * line of hundreds of thousands) is shown as this much of it, about what was found in it: laying out all of it would
+ * take longer than anyone waits, and a line that long is wider than anything drawn can be.
+ */
+const val LINE_SHOWN = 2000
+
+/**
+ * A line as the file beside the list shows it: [line], all of it or, of one longer than [LINE_SHOWN], the part of it
+ * from [from], with an ellipsis ([lead] characters of it at its start) wherever it is cut.
+ */
+@Immutable
+data class LineSight(
+	val line: InkedLine,
+	val from: Int = 0,
+	val lead: Int = 0,
+	private val length: Int = line.text.length,
+) {
+	/** Where [range] of the whole line is in what is shown; null where none of it is. */
+	fun at(range: IntRange): IntRange? {
+		val first = maxOf(range.first, from)
+		val last = minOf(range.last, from + length - 1)
+
+		return (first - from + lead..last - from + lead).takeIf { first <= last }
+	}
+}
+
+/**
+ * This line as it is shown: itself, where it is no longer than [most]; otherwise [most] characters of it, a quarter of
+ * them before [about] (a place in it: where what was found is; its start, where nothing was) and the rest after.
+ */
+fun InkedLine.sight(about: Int?, most: Int = LINE_SHOWN): LineSight {
+	if (text.length <= most)
+		return LineSight(this)
+
+	val from = ((about ?: 0) - most / 4).coerceIn(0, text.length - most)
+	val to = from + most
+	val before = "…".takeIf { from > 0 }.orEmpty()
+	val sight = LineSight(this, from, before.length, most)
+
+	return sight.copy(
+		line =
+			InkedLine(
+				before + text.substring(from, to) + "…".takeIf { to < text.length }.orEmpty(),
+				runs.mapNotNull { run -> sight.at(run.range)?.let { run.copy(range = it) } },
+			),
+	)
+}
+
+/**
  * [text] with each tab in it as the spaces that reach the next stop, every [stop] characters: the text, and where
  * each character of [text] is in it (and where its end is), for what is marked in the one to be marked in the other.
  * Text with no tab in it is itself, each character where it was.

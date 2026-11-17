@@ -234,18 +234,45 @@ fun SettingRow(
 	}
 }
 
-/** A labelled control: its [label], the control under it, and what it is for ([help]) under that, kept together. */
+/**
+ * What a control is called, over it. Where there is more to say of it than its name ([tip]: what a word of prism's
+ * means, what the choices come to), a small mark follows the name, and the pointer resting on either says it.
+ */
+@Composable
+fun Caption(label: String, tip: String? = null) {
+	val palette = LocalPalette.current
+	val type = LocalType.current
+
+	if (tip == null)
+		Text(label, style = type.strong)
+	else
+		Tip(tip) {
+			Row(
+				verticalAlignment = Alignment.CenterVertically,
+				horizontalArrangement = Arrangement.spacedBy(Space.xs),
+			) {
+				Text(label, style = type.strong)
+				GlyphIcon(Glyph.Help, palette.textFaint, type.icon * 0.8f)
+			}
+		}
+}
+
+/**
+ * A labelled control: its [label], the control under it, and what it is for ([help]) under that, kept together.
+ * What there is to explain of it that is not said every time is its [tip], shown from its label.
+ */
 @Composable
 fun Labelled(
 	label: String,
 	modifier: Modifier = Modifier,
 	help: String? = null,
+	tip: String? = null,
 	content: @Composable ColumnScope.() -> Unit,
 ) {
 	val type = LocalType.current
 
 	Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(Space.s)) {
-		Text(label, style = type.strong)
+		Caption(label, tip)
 		content()
 		help?.let { Text(it, style = type.muted) }
 	}

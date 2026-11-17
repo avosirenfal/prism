@@ -133,6 +133,35 @@ class TextViewTest {
 	}
 
 	@Test
+	fun aFileOfOneVeryLongLineIsShownBesideTheList_AtWhatWasFoundInIt() {
+		assumeTrue(
+			listOf("rg", "xargs").all(SystemWorld(work, null)::installed),
+			"needs rg and xargs",
+		)
+		// A minified file: one line, far longer than anything laid out can be wide, with what is looked for deep in it.
+		work
+			.resolve("app.min.js")
+			.writeText("var a=1;".repeat(60_000) + "needle();" + "var b=2;".repeat(60_000) + "\n")
+
+		exploring { session ->
+			onNode(isFocused()).performKeyInput {
+				withKeyDown(Key.CtrlLeft) { withKeyDown(Key.ShiftLeft) { pressKey(Key.G) } }
+			}
+			until(session) { true }
+			type("needle")
+			until(session) { it.running == null && it.rows.lines == 1 }
+			until(session) { it.previewed?.preview is Preview.Shown }
+
+			// It is drawn, which a line as wide as it is whole could not be: as the part of it about what was found.
+			onNodeWithTag("text-preview-line:1").assertExists()
+			onNode(
+				hasAnyAncestor(hasTestTag("text-preview-line:1")) and
+					hasText("needle();", substring = true),
+			).assertExists()
+		}
+	}
+
+	@Test
 	fun aSearchIsOpenedByItsKey_TypedInto_MovedAbout_AndLeftByEscape() {
 		assumeTrue(
 			listOf("rg", "xargs").all(SystemWorld(work, null)::installed),

@@ -322,7 +322,7 @@ class ActingTest {
 
 		assertEquals(
 			listOf(
-				"In the menu of the files selected, in any window.",
+				"In the menu of the items selected, in any window.",
 				"For any files ending in .gz, but not .tar.gz.",
 			),
 			offeredSaid(gz, On.Files, scenes),
@@ -330,7 +330,7 @@ class ActingTest {
 		assertEquals("Files · .gz · not .tar.gz", offeredBrief(gz, On.Files))
 		assertEquals(
 			listOf(
-				"In the menu of the folder itself (a click on empty space), in the place archive.zip.",
+				"In the menu of empty space in a folder, in the place archive.zip.",
 			),
 			offeredSaid(
 				ScriptKind.Action.shipped
@@ -345,7 +345,7 @@ class ActingTest {
 			offeredSaid(WhenSpec(within = listOf("folder", "results")), null, scenes),
 		)
 		assertEquals(
-			listOf("In the menu of the files selected, in any window.", "For anything selected."),
+			listOf("In the menu of the items selected, in any window.", "For anything selected."),
 			offeredSaid(WhenSpec(), On.Files, scenes),
 		)
 		assertEquals(

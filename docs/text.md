@@ -429,6 +429,10 @@ was found.
 | `browser/textview.kt` | the steps, the field, the list and the file, drawn; and what looks in the file shown |
 | `browser/menus.kt` | the searches in the context menus, and the menus of a line and of a file |
 
+A line too long to draw whole is shown in part. A minified file is one line of hundreds of thousands of characters:
+the file beside the list shows 2,000 of them, about what was found in the line, with an ellipsis where it is cut. All
+of it is still what a command is given, and what Ctrl+F looks in.
+
 ## Not built yet
 
 - **Lines piped in from a shell**, as `prism dmenu` takes lines: `rg --vimgrep TODO | prism lines`, for a build's

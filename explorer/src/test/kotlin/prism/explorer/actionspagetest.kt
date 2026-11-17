@@ -21,6 +21,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performKeyInput
+import androidx.compose.ui.test.performMouseInput
 import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.test.pressKey
 import androidx.compose.ui.test.v2.runComposeUiTest
@@ -278,6 +279,15 @@ class ActionsPageTest {
 			onNodeWithTag("editor-unfinished").assertExists()
 			onNodeWithTag("editor-wrong").assertDoesNotExist()
 
+			// A label says what it means when the pointer rests on it: a submenu is a word of prism's, not everyone's.
+			onNodeWithText("Puts it inside a submenu", substring = true).assertDoesNotExist()
+			onNodeWithText("Submenu").performMouseInput { moveTo(center) }
+			mainClock.advanceTimeBy(1_000)
+			waitForIdle()
+			onNodeWithText("Puts it inside a submenu", substring = true).assertExists()
+			onNodeWithText("Name in the menu").performMouseInput { moveTo(center) }
+			waitForIdle()
+
 			// Named, its id follows; a command typed wrong is said to be, and why.
 			type("form-label", "To PNG")
 			assertEquals(
@@ -410,7 +420,7 @@ class ActionsPageTest {
 			click("scene-add")
 			click("option:Search results")
 			onNodeWithTag("move-said").assertExists()
-			onNodeWithText("In the menu of the files selected, in search results.").assertExists()
+			onNodeWithText("In the menu of the items selected, in search results.").assertExists()
 			click("move-apply")
 			edited.actions.single { it.id == "mine.png" }.conditions.let {
 				assertEquals(listOf("tiff", "bmp"), it.ext)

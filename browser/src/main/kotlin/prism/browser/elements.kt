@@ -292,6 +292,8 @@ fun Tip(tip: String, modifier: Modifier = Modifier, content: @Composable () -> U
 				style = type.muted.copy(color = palette.text),
 				modifier =
 					Modifier
+						// A tip of a sentence or two is a few lines of it, not one line across the window.
+						.widthIn(max = 360.dp)
 						.shadow(6.dp, shape, ambientColor = palette.shadow, spotColor = palette.shadow)
 						.background(palette.overlay, shape)
 						.border(1.dp, palette.border, shape)

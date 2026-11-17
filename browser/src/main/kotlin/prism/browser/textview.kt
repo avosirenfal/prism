@@ -101,6 +101,9 @@ private const val LIST_SHARE = 0.3f
 /** How far down what is in sight of the file the line wanted is put, as a share of it. */
 private const val LINE_SITS = 0.3f
 
+/** The most pixels wide the file beside the list is laid out: what is wider cannot be measured, and is not scrolled to. */
+private const val WIDEST = 100_000
+
 /** What [text] found, drawn in the listing's place. */
 @Composable
 internal fun TextPane(
@@ -1221,14 +1224,28 @@ private fun PreviewLines(
 		else
 			0.dp
 
+	// A line too long to draw whole is drawn in part ([sight]), so none is longer than that part and its two dots.
 	val longest =
 		remember(preview) {
-			preview.lines.maxOfOrNull { untabbed(it.text).first.length }
+			preview.lines.maxOfOrNull { untabbed(it.text.take(LINE_SHOWN + 2)).first.length }
 				?: 0
 		}
 	val across = rememberScrollState()
 	// The places what is looked for in the file is at, by the line each is in.
 	val sought = remember(found) { found.groupBy({ it.line }, { it.range }) }
+
+	/**
+	 * The line at [index] as it is shown: whole, or, of one too long to draw whole, the part about the place gone to
+	 * in it, or what the search found in it, or what is looked for in it, whichever there is first.
+	 */
+	fun shownAt(index: Int): LineSight =
+		preview.lines[index].sight(
+			(
+				current?.takeIf { it.line == index }?.range
+					?: matched[preview.first + index]?.firstOrNull()
+					?: sought[index]?.firstOrNull()
+			)?.first,
+		)
 
 	BoxWithConstraints(Modifier.fillMaxSize()) {
 		val sight = (maxHeight / height).toInt().coerceAtLeast(1)
@@ -1264,7 +1281,12 @@ private fun PreviewLines(
 				if (!inSight)
 					list.scrollToItem(topFor(preview.first + current.line))
 
-				val (_, at) = untabbed(preview.lines[current.line].text)
+				// Where it is in the line as that is shown, which for a line too long to draw whole is a part of it.
+				val part = shownAt(current.line)
+				val (_, spaced) = untabbed(part.line.text)
+				val within = part.at(current.range) ?: 0..0
+
+				fun at(place: Int): Int = spaced(place - current.range.first + within.first)
 
 				with(density) {
 					val starts =
@@ -1291,10 +1313,15 @@ private fun PreviewLines(
 			}
 		}
 
+		// As wide as its longest line as that is shown, and never wider than can be laid out at all, whatever its
+		// tabs come to.
 		val width =
 			maxOf(
 				maxWidth,
-				Space.m + gutter + Space.m + figure * (longest + 2) + Dims.scrollbarRoom,
+				minOf(
+					Space.m + gutter + Space.m + figure * (longest + 2) + Dims.scrollbarRoom,
+					with(density) { WIDEST.toDp() },
+				),
 			)
 
 		Box(
@@ -1314,9 +1341,18 @@ private fun PreviewLines(
 						val marks = matched[number].orEmpty()
 						val places = sought[index].orEmpty()
 						val gone = current?.takeIf { it.line == index }?.range
+
 						val drawn =
 							remember(inked, marks, places, gone, palette) {
-								drawnLine(inked, marks, places, gone, palette)
+								val part = shownAt(index)
+
+								drawnLine(
+									part.line,
+									marks.mapNotNull(part::at),
+									places.mapNotNull(part::at),
+									gone?.let(part::at),
+									palette,
+								)
 							}
 
 						Row(

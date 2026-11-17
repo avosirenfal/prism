@@ -559,6 +559,10 @@ comes to is said in that part as it is typed, and nowhere else:
 
 ![When it is offered, said over the conditions](action-editor-offered.png)
 
+Each label says what it means when the pointer rests on it, or on the small mark after it: what a submenu is, which
+menu "Empty space in a folder" is, what a place is. The words for those are prism's, and are explained where they are
+met rather than known beforehand.
+
 What is the matter with what is typed is one line over the buttons: what the browser would say of it (`Unknown
 placeholder “{paht}”. Available here: …`), and Save waits until it reads. A program its ways need that is not
 installed is said there, and does not stop it being saved. A command whose program is not found, and that nothing

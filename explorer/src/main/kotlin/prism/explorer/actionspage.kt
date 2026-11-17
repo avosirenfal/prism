@@ -61,6 +61,7 @@ import prism.browser.Select
 import prism.browser.Space
 import prism.browser.Switch
 import prism.browser.Takes
+import prism.browser.Tip
 import prism.browser.Tone
 import prism.browser.ToolButton
 import prism.browser.World
@@ -191,21 +192,31 @@ internal fun <S : Declared> ScriptsPage(
 				// The window: all of them, or one of those something here is offered in, found by typing where there
 				// are many. Where everything is offered in the same one, there is none to choose.
 				if (catalog.offeredIn.size > 1)
-					Select(
-						listOf<Scene?>(null) + catalog.offeredIn,
-						narrowing.scene,
-						{ scene -> scene?.let(catalog.scenes::titled) ?: "All windows" },
-						Modifier.width(190.dp).testTag("scripts-scene"),
-					) { narrow(narrowing.copy(scene = it)) }
+					Tip(
+						"Show only what is offered in one kind of view: ordinary folders, search results, or a " +
+							"place (a view a command lists, such as the inside of an archive).",
+					) {
+						Select(
+							listOf<Scene?>(null) + catalog.offeredIn,
+							narrowing.scene,
+							{ scene -> scene?.let(catalog.scenes::titled) ?: "All windows" },
+							Modifier.width(190.dp).testTag("scripts-scene"),
+						) { narrow(narrowing.copy(scene = it)) }
+					}
 				if (kind == ScriptKind.Action)
-					Field(
-						narrowing.named,
-						{ narrow(narrowing.copy(named = it)) },
-						Modifier.width(170.dp).testTag("scripts-named"),
-						hint = "For a file: zip",
-						leading = Glyph.File,
-						onClear = { narrow(narrowing.copy(named = "")) },
-					)
+					Tip(
+						"Show only what a file with this name would be offered. Type an extension (zip) or a " +
+							"whole name (notes.tar.gz).",
+					) {
+						Field(
+							narrowing.named,
+							{ narrow(narrowing.copy(named = it)) },
+							Modifier.width(170.dp).testTag("scripts-named"),
+							hint = "For a file: zip",
+							leading = Glyph.File,
+							onClear = { narrow(narrowing.copy(named = "")) },
+						)
+					}
 				PushButton(
 					wording.new,
 					Emphasis.Primary,

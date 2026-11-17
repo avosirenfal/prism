@@ -40,6 +40,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import prism.browser.Act
 import prism.browser.ButtonRow
+import prism.browser.Caption
 import prism.browser.CheckBox
 import prism.browser.Commands
 import prism.browser.Count
@@ -70,6 +71,7 @@ import prism.browser.Tabs
 import prism.browser.Takes
 import prism.browser.TextEnding
 import prism.browser.ThingKind
+import prism.browser.Tip
 import prism.browser.Tone
 import prism.browser.ToolButton
 import prism.browser.World
@@ -137,6 +139,126 @@ internal fun TextArea(
 	}
 }
 
+/**
+ * What each label of these windows says when the pointer rests on it: what a word of prism's means (a place, a
+ * submenu), and what a choice comes to, for whoever has not met it. A label with nothing to add to its name has none.
+ */
+private val TIPS: Map<String, String> =
+	mapOf(
+		"Name in the menu" to "What the context menu calls it.",
+		"Submenu" to
+			"Puts it inside a submenu of the context menu, instead of in the menu itself. Type the submenu's " +
+			"name; use / for a submenu within a submenu, as in Image/Convert. Leave empty to list it in the " +
+			"menu directly.",
+		"It should" to
+			"Run a command: runs a program on what is selected. Open a folder: goes to a folder. Open a " +
+			"place: opens a view whose contents a command lists, such as the inside of an archive or a " +
+			"repository's changed files. Like another: does what another action does, with some of the " +
+			"things it asks already answered.",
+		"Command" to
+			"The program to run, then its arguments. It is run directly, not by a shell, so pipes, && and " +
+			"redirection only work inside sh -c. The {} button puts in a placeholder, which becomes the " +
+			"file's path, its name, an answer, and so on.",
+		"needs" to
+			"Programs that must be installed for this command to be used, separated by commas. Write a|b " +
+			"where either will do. If they are missing, the next command is tried; if none can run, the " +
+			"menus leave the action out.",
+		"It asks first" to
+			"Questions asked before it runs. The command uses each answer by the name given here, as " +
+			"{name}. Text is typed; Folder opens a folder picker.",
+		"Folder" to
+			"The folder to go to. It can use placeholders: {parent} is the folder the file is in.",
+		"Then select" to
+			"A name to put the cursor on once it is done, such as the file the command made: {stem}.png.",
+		"Open it in" to
+			"The window that shows it: this one, a new one, or whichever is usual for it.",
+		"Place" to
+			"A place is a view that is not a folder on disk: its contents are whatever a command lists, such " +
+			"as the entries of an archive. Places are defined in the preferences file.",
+		"Action" to "The action whose command this one reuses.",
+		"Run it" to
+			"In the background: started and forgotten, for opening other applications. In a terminal: opens " +
+			"your terminal and runs there. Watched: prism runs it, shows that it is running, lets you stop " +
+			"it, and shows its error output if it fails.",
+		"Bring what it made from" to
+			"For a command that works in a temporary folder ({temp}): when it finishes, what it made there " +
+			"is moved from this folder into the one named beside it, and nothing already there is replaced.",
+		"Into" to "The folder that what the command made is moved into.",
+		"Confirm first" to "A warning shown before it is done, with the choice to go on or not.",
+		"In the menu of" to
+			"Which right-click menu offers it. Selected items: the menu of the files or folders clicked. " +
+			"Empty space in a folder: the menu of the background of a folder, where it is done to the folder " +
+			"shown. A sidebar entry: the menu of a location in the sidebar, such as Home or a drive.",
+		"In windows showing" to
+			"Limits it to one kind of view: ordinary folders, search results, or a place (a view a command " +
+			"lists, such as the inside of an archive). With none chosen, it is offered in every view.",
+		"How many" to "How many items must be selected for it to be offered.",
+		"Of what" to "Whether every selected item must be a file, a folder, or a link.",
+		"Extensions" to
+			"Offered only when every selected file ends in one of these. Written without the dot and " +
+			"separated by commas: zip, tar.gz.",
+		"Names" to
+			"Offered only when every selected item's name matches one of these patterns, where * stands for " +
+			"anything: Makefile, *.min.js.",
+		"Types" to
+			"Offered only for files of these MIME types, which are decided by a file's content as well as " +
+			"its name: image/*, application/pdf.",
+		"But not extensions" to
+			"Extensions it is not for, even though they match the above: tar.gz, for something that is for gz.",
+		"Only if installed" to
+			"Programs that must be installed for it to be offered at all, separated by commas. Write a|b " +
+			"where either will do.",
+		"Under folders" to
+			"Offered only for items somewhere inside one of these folders. ~ is your home folder.",
+		"Inside a folder that has" to
+			"Offered only for items in a folder that contains one of these names, or in a folder below one: " +
+			".git, for anything inside a repository.",
+		"What they are" to
+			"Real files have a path on disk. Items inside a place exist only in that view, such as a file " +
+			"listed inside an archive, and are named to commands as {entry}.",
+		"Shown outside their folder" to
+			"Yes: only where items are listed apart from the folder they are in, as in search results. " +
+			"That is how “Open containing folder” is offered only there.",
+		"Shortcut" to
+			"A key that does it for what is selected, written as Ctrl+Shift+E. This is its default: the Key " +
+			"bindings page can change it.",
+		"Id" to
+			"A unique name that the preferences file, key bindings and menu arrangements know it by. It is " +
+			"never shown in a menu.",
+		"It looks through" to
+			"What the command is given to search. The files a window shows are every file listed, or the " +
+			"results of a search. Lines already found makes it a further step, run on what an earlier " +
+			"search found.",
+		"What is typed into it" to
+			"Whether the command does the searching, and is run again for each change to the query; or is " +
+			"run once, and prism filters what it printed as you type.",
+		"Its output is" to
+			"The format the command prints its results in, which is how prism reads them. Test shows any " +
+			"lines that did not fit it.",
+		"The number with each line is" to
+			"A line number lets the preview go to that line. A byte offset, as strings -t d prints, is " +
+			"shown as a position and not gone to by line.",
+		"Options beside the query" to
+			"Switches shown next to the search field, such as Match case. Each adds its words to the " +
+			"command, where the command says {options}, depending on whether it is on or off.",
+		"Preview command" to
+			"A command that prints the file to show beside the results, such as bat for syntax colours. " +
+			"Its colours are kept. Without one, the file's text is shown plain.",
+		"Opening command" to
+			"What a double click on a result runs, instead of your editor. It names the file as {path} and " +
+			"the line as {line}.",
+	)
+
+/** A labelled control of these windows: as [Labelled], with what its label says under the pointer, where it says more. */
+@Composable
+private fun Headed(
+	label: String,
+	help: String? = null,
+	content: @Composable ColumnScope.() -> Unit,
+) {
+	Labelled(label, help = help, tip = TIPS[label], content = content)
+}
+
 /** Fields side by side, each with its label, sharing the row's width as [weights] say. */
 @Composable
 private fun Fields(vararg fields: Pair<Float, @Composable () -> Unit>) {
@@ -161,7 +283,7 @@ private fun Typed(
 	mono: Boolean = false,
 	onText: (String) -> Unit,
 ) {
-	Labelled(label, help = help) {
+	Headed(label, help = help) {
 		Field(
 			text,
 			onText,
@@ -324,16 +446,16 @@ private fun WaysEditor(
 					verticalAlignment = Alignment.CenterVertically,
 					horizontalArrangement = Arrangement.spacedBy(Space.s),
 				) {
-					Text(
+					Caption(
 						when {
 							ways.size == 1 -> label
 							at == 0 -> "First choice"
 							else -> "Otherwise"
 						},
-						style = type.strong,
+						TIPS[label],
 					)
 					if (several) {
-						Text("needs", style = type.muted)
+						Tip(TIPS.getValue("needs")) { Text("needs", style = type.muted) }
 						Field(
 							way.programs,
 							{ changed(at, way.copy(programs = it)) },
@@ -450,7 +572,7 @@ private fun <T> Choice(
 	name: (T) -> String,
 	onChoose: (T) -> Unit,
 ) {
-	Labelled(label) { Segmented(options, chosen, name, tag = tag, onChoose = onChoose) }
+	Headed(label) { Segmented(options, chosen, name, tag = tag, onChoose = onChoose) }
 }
 
 /** When something is offered: which menu, which windows, how many of what, and what they are named. */
@@ -471,13 +593,13 @@ private fun ConditionsEditor(
 		{
 			when (it) {
 				null -> "Any"
-				On.Files -> "Selected files"
-				On.Folder -> "The folder itself"
-				On.Place -> "A sidebar place"
+				On.Files -> "Selected items"
+				On.Folder -> "Empty space in a folder"
+				On.Place -> "A sidebar entry"
 			}
 		},
 	) { onChange(form.copy(target = it)) }
-	Labelled("In windows showing") {
+	Headed("In windows showing") {
 		ScenesPicker(form.within, scenes) { onChange(form.copy(within = it)) }
 	}
 	Fields(
@@ -580,8 +702,8 @@ private fun ConditionsEditor(
 					{
 						when (it) {
 							null -> "Either"
-							true -> "Files on disk"
-							false -> "Place entries"
+							true -> "Real files"
+							false -> "Items inside a place"
 						}
 					},
 				) { onChange(form.copy(real = it)) }
@@ -1100,8 +1222,10 @@ internal fun ActionEditor(
 					onLabel = { typed(form.named(it, catalog.ids)) },
 					onSubmenu = { typed(form.copy(submenu = it)) },
 				)
-				Segmented(Does.entries, form.does, Does::label, tag = "does") {
-					typed(form.copy(does = it))
+				Headed("It should") {
+					Segmented(Does.entries, form.does, Does::label, tag = "does") {
+						typed(form.copy(does = it))
+					}
 				}
 				when (form.does) {
 					Does.Run -> {
@@ -1144,7 +1268,7 @@ internal fun ActionEditor(
 						) { typed(form.copy(ways = it)) }
 						ExampleSaid(example)
 						if (form.asks.isNotEmpty())
-							Labelled(
+							Headed(
 								"It asks first",
 								help = "Each answer is used in the command by its name, and is in its environment.",
 							) {
@@ -1233,7 +1357,7 @@ internal fun ActionEditor(
 						ExampleSaid(example)
 					}
 					Does.Place -> {
-						Labelled("Place") {
+						Headed("Place") {
 							Select(
 								listOf("") + places.keys,
 								form.place.takeIf { it in places }.orEmpty(),
@@ -1256,7 +1380,7 @@ internal fun ActionEditor(
 						ExampleSaid(example)
 					}
 					Does.Like -> {
-						Labelled(
+						Headed(
 							"Action",
 							help = "This does what that one does, with some of its questions answered already.",
 						) {
@@ -1287,7 +1411,7 @@ internal fun ActionEditor(
 			}
 			ActionTab.Runs -> {
 				if (form.does == Does.Run) {
-					Labelled("Run it", help = form.running.help) {
+					Headed("Run it", help = form.running.help) {
 						Segmented(Running.entries, form.running, Running::label, tag = "running") {
 							typed(form.copy(running = it))
 						}
@@ -1471,7 +1595,7 @@ internal fun SearchEditor(
 					onLabel = { typed(form.named(it, catalog.ids)) },
 					onSubmenu = { typed(form.copy(submenu = it)) },
 				)
-				Labelled("It looks through", help = givenSaid(form.takes)) {
+				Headed("It looks through", help = givenSaid(form.takes)) {
 					Segmented(
 						Takes.entries,
 						form.takes,
@@ -1496,7 +1620,7 @@ internal fun SearchEditor(
 					reads = true,
 				) { typed(form.copy(ways = it)) }
 				ExampleSaid(example)
-				Labelled(
+				Headed(
 					"What is typed into it",
 					help =
 						when (form.query) {
@@ -1520,7 +1644,7 @@ internal fun SearchEditor(
 				}
 			}
 			SearchTab.Prints -> {
-				Labelled("Its output is", help = prints) {
+				Headed("Its output is", help = prints) {
 					Segmented(
 						HitRead.entries,
 						form.read,
@@ -1555,7 +1679,7 @@ internal fun SearchEditor(
 							}
 						},
 					) { typed(form.copy(positions = it)) }
-				Labelled(
+				Headed(
 					"Options beside the query",
 					help = "Each is a switch, and adds its words where the command says {options}.",
 				) {
@@ -1787,7 +1911,7 @@ private fun ActionTrial(
 		onChange,
 		work = { tried(acting, spec, it, world, commands) },
 	) { trying ->
-		Labelled("Files to run it on", help = "One per line. ~ is your home folder.") {
+		Headed("Files to run it on", help = "One per line. ~ is your home folder.") {
 			TextArea(
 				trial.given,
 				{ trying(trial.copy(given = it)) },
@@ -1796,7 +1920,7 @@ private fun ActionTrial(
 			)
 		}
 		asked.forEach { name ->
-			Labelled("{$name}") {
+			Headed("{$name}") {
 				Field(
 					trial.answers[name].orEmpty(),
 					{ trying(trial.copy(answers = trial.answers + (name to it))) },
@@ -1843,7 +1967,7 @@ private fun SearchTrial(
 				HitRead.Paths -> "paths"
 			},
 	) { trying ->
-		Labelled(
+		Headed(
 			if (lines)
 				"Lines for it to look through"
 			else
@@ -1861,7 +1985,7 @@ private fun SearchTrial(
 						"~/Projects",
 			)
 		}
-		Labelled("What to look for") {
+		Headed("What to look for") {
 			Field(
 				trial.query,
 				{ trying(trial.copy(query = it)) },

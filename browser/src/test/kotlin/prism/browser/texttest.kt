@@ -1503,6 +1503,46 @@ class TextTest {
 	}
 
 	@Test
+	fun aLineTooLongToDrawIsShownInPart_AboutWhatWasFoundInIt() {
+		val short = InkedLine("val x = 1", listOf(Inked(4..4, Ink(bold = true))))
+
+		assertEquals(LineSight(short), short.sight(4))
+		assertEquals(4..4, short.sight(4).at(4..4))
+
+		val long =
+			InkedLine(
+				"a".repeat(5000) + "needle" + "b".repeat(5000),
+				listOf(Inked(0..9, Ink(bold = true)), Inked(5000..5005, Ink(italic = true))),
+			)
+
+		val part = long.sight(5000, most = 100)
+
+		// A hundred characters of it, a quarter of them before what was found, and dots at both cuts.
+		assertEquals(102, part.line.text.length)
+		assertTrue(part.line.text.startsWith("…a") && part.line.text.endsWith("b…"))
+		assertEquals(26..31, part.at(5000..5005))
+		assertEquals("needle", part.line.text.substring(26, 32))
+		// What is drawn otherwise goes with it; what is out of sight is not there, here or as a place.
+		assertEquals(listOf(Inked(26..31, Ink(italic = true))), part.line.runs)
+		assertEquals(null, part.at(0..9))
+		// What straddles a cut is as much of it as is shown.
+		assertEquals(1..5, part.at(4000..4979))
+
+		// With nothing found in it, it is shown from its start, cut only at its end.
+		long.sight(null, most = 100).let {
+			assertEquals("a".repeat(100) + "…", it.line.text)
+			assertEquals(0..9, it.at(0..9))
+		}
+		// And one whose end is in sight is cut only at its start.
+		assertTrue(
+			long
+				.sight(10_005, most = 100)
+				.line.text
+				.endsWith("b"),
+		)
+	}
+
+	@Test
 	fun aLineIsShownFromItsFirstLetter_AndALongOneFromNearWhatMatched() {
 		assertEquals(
 			Hit(1, "val x = 1", listOf(4..4)),
