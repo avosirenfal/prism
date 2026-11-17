@@ -13,11 +13,16 @@
   lib,
   stdenv,
   gradle_9,
-  jdk25,
+  temurin-bin-25,
   graalvmPackages,
 }:
 
 let
+  # The Java the application is built with and carries inside it: Adoptium's build, which is linked against the
+  # system alone, where nixpkgs' own is linked against the Nix store. So Prism.app runs on a Mac with no Nix, which is
+  # what the disk image made of it is for (nix/dmg.nix).
+  jdk = temurin-bin-25;
+
   # Where in the package the Java prism is: the application's own program, which the daemon's agent runs directly
   # and the client hands its words to (it looks for it beside itself: prism.client, main.kt, javaPrism).
   application = "Applications/Prism.app";
@@ -67,7 +72,7 @@ stdenv.mkDerivation (finalAttrs: {
     "-Dfile.encoding=utf-8"
     "-Dorg.gradle.java.installations.auto-download=false"
     "-Dorg.gradle.java.installations.auto-detect=false"
-    "-Dorg.gradle.java.installations.paths=${jdk25}"
+    "-Dorg.gradle.java.installations.paths=${jdk}"
     "--no-configuration-cache"
   ];
 
@@ -90,12 +95,14 @@ stdenv.mkDerivation (finalAttrs: {
     install -m755 client/build/native/prism $out/${application}/Contents/MacOS/prism-client
     ln -s $out/${application}/Contents/MacOS/prism-client $out/bin/prism
 
+    # Sealed again with the client in it: what an Apple-silicon Mac runs is sealed, if only for no one in particular.
+    /usr/bin/codesign --force --deep --sign - $out/${application} || true
+
     runHook postInstall
   '';
 
   passthru = {
-    inherit javaPrism application;
-    jdk = jdk25;
+    inherit javaPrism application jdk;
     graalvm = graalvmPackages.graalvm-ce;
   };
 

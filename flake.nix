@@ -6,6 +6,8 @@
   # What the flake gives (docs/nixos.md):
   #
   #   packages.<system>.prism (and .default)   prism: `environment.systemPackages = [ prism.packages.${system}.prism ]`
+  #   packages.x86_64-linux.prism-portable     to publish: an archive that runs on a Linux with no Nix
+  #   packages.aarch64-darwin.prism-dmg        to publish: Prism.app in a disk image, for a Mac with no Nix
   #   overlays.default                         the same, as `pkgs.prism`
   #   nixosModules.prism (and .default)        `programs.prism`: the package, its daemon, the portal and the file manager
   #   darwinModules.prism (and .default)       nix-darwin's `programs.prism`: Prism.app, `prism`, and its daemon's agent
@@ -33,10 +35,14 @@
         eachSystem (pkgs: rec {
           prism = pkgs.callPackage ./nix/package.nix { };
           default = prism;
+          # To publish: prism for a Linux with no Nix, in an archive (nix/package-portable.nix).
+          prism-portable = pkgs.callPackage ./nix/package-portable.nix { inherit prism; };
         })
         // eachMac (pkgs: rec {
           prism = pkgs.callPackage ./nix/package-darwin.nix { };
           default = prism;
+          # To publish: Prism.app in a disk image, for a Mac with no Nix (nix/dmg.nix).
+          prism-dmg = pkgs.callPackage ./nix/dmg.nix { inherit prism; };
         });
 
       overlays.default = final: _prev: {
