@@ -213,13 +213,16 @@ internal fun settleAsApplication() {
 		AgentSet.AsItWas ->
 			if (!answers()) {
 				startAgent(home)
-				awaitDaemon()
+				if (!awaitDaemon())
+					System.err.println("prism: ${unanswered()}")
 			}
 		is AgentSet.Not ->
 			System.err.println(
 				"prism: the daemon was not set up to start as you log in: ${set.why}",
 			)
-		is AgentSet.Started -> awaitDaemon()
+		is AgentSet.Started ->
+			if (!awaitDaemon())
+				System.err.println("prism: ${unanswered()}")
 	}
 	offerCli(Path(program))
 }
@@ -231,13 +234,40 @@ private fun answers(): Boolean {
 	return ask(place, Request(listOf(StatusCommand.name), Caller.here())) != Asking.Nobody
 }
 
-/** Until the daemon answers, or long enough: a window asked for before it does would be this process's own. */
-private fun awaitDaemon() {
+/**
+ * Until the daemon answers, or long enough: a window asked for before it does would be this process's own. Whether
+ * it answered.
+ */
+private fun awaitDaemon(): Boolean {
 	val until = System.nanoTime() + DAEMON_AWAITED.inWholeNanoseconds
 
-	while (System.nanoTime() < until && !answers())
+	while (System.nanoTime() < until) {
+		if (answers())
+			return true
 		Thread.sleep(200)
+	}
+
+	return false
 }
+
+/** What is said of a daemon launchd was had to start and that does not answer: the last of what it said itself. */
+private fun unanswered(): String {
+	val log = stateFolder().resolve("daemon.log")
+	val last =
+		try {
+			Files.readAllLines(log).takeLast(LOG_SHOWN)
+		} catch (unread: IOException) {
+			emptyList()
+		}
+
+	return "launchd started the daemon, and it does not answer. " +
+		if (last.isEmpty())
+			"It has said nothing in $log."
+		else
+			"The last it said, in $log:\n${last.joinToString("\n") { "  $it" }}"
+}
+
+private const val LOG_SHOWN = 20
 
 /**
  * Where an application sets nothing up by being opened: a disk image it was opened from and where the system runs one
@@ -370,10 +400,11 @@ object AgentStart : Command(
 
 		val (started, said) = startAgent(home)
 
-		return if (started)
-			Outcome("started the daemon (prism status says how it is)")
-		else
-			Outcome("launchd did not start it: $said", 1)
+		return when {
+			!started -> Outcome("launchd did not start it: $said", 1)
+			awaitDaemon() -> Outcome("started the daemon (prism status says how it is)")
+			else -> Outcome(unanswered(), 1)
+		}
 	}
 }
 
@@ -413,10 +444,11 @@ object AgentRestart : Command(
 
 		val (started, said) = launchctl("kickstart", "-k", "${domain(home)}/$AGENT_LABEL")
 
-		return if (started)
-			Outcome("started the daemon again")
-		else
-			Outcome("launchd did not start it again: $said", 1)
+		return when {
+			!started -> Outcome("launchd did not start it again: $said", 1)
+			awaitDaemon() -> Outcome("started the daemon again")
+			else -> Outcome(unanswered(), 1)
+		}
 	}
 }
 

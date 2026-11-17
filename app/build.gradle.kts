@@ -79,8 +79,11 @@ compose.desktop {
 		// Native access for SDL, libc and libbpf through FFM; AWT never opens a window (prism's are SDL's), which
 		// headless says, and macOS has SDL's windows on the process's first thread.
 		jvmArgs += listOf("--enable-native-access=ALL-UNNAMED", "-Djava.awt.headless=true")
+		// LWJGL checks each library it loads against a hash written when LWJGL was built, and says so, at length,
+		// where they differ. In Prism.app they always do: an application's libraries are signed as it is packaged,
+		// which changes their bytes. So the check is not made.
 		if (Host.current == Host.MacOS)
-			jvmArgs += "-XstartOnFirstThread"
+			jvmArgs += listOf("-XstartOnFirstThread", "-Dorg.lwjgl.util.NoHashChecks=true")
 		nativeDistributions {
 			// Each platform's own kind of package, made on that platform: Compose's packaging cannot make another's.
 			targetFormats(

@@ -68,7 +68,7 @@ whether it is on the same volume, is known only once it is dropped.
 
 | part | Linux | macOS | Windows |
 |---|---|---|---|
-| which platform this is, and where prism keeps its own files | `Os`, `OwnFolders` (platform module): the XDG folders | the same: `~/Library/Application Support/prism`, `~/Library/Caches/prism`, the socket in `$TMPDIR` | the same: `%APPDATA%`, `%LOCALAPPDATA%` |
+| which platform this is, and where prism keeps its own files | `Os`, `OwnFolders` (platform module): the XDG folders | the same: `~/Library/Application Support/prism`, `~/Library/Caches/prism`, the socket in the temporary folder the system names for the user (under /var/folders) | the same: `%APPDATA%`, `%LOCALAPPDATA%` |
 | keeping the index current | the eBPF watcher | FSEvents (`Feed.fsEvents`): each entry made, removed or renamed, by its folder's device and inode; a folder to read again, or events dropped, counted as lost and the roots read again | the USN journal, or `ReadDirectoryChangesW` |
 | a folder shown kept current | the JVM's watch service (inotify) | FSEvents (`FsEventsFolderWatcher`), since the JVM's only polls there | the JVM's (`ReadDirectoryChangesW`) |
 | reading folders | getdents64 through FFM | the JVM's reader (`FileSystems.MacOS`); `getattrlistbulk` through FFM for speed, later | the JVM's reader; `FindFirstFileEx` for speed |

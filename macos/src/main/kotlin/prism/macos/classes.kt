@@ -19,6 +19,7 @@ val NS_RECT: MemoryLayout =
 	)
 
 private val Rect = Struct(NS_RECT)
+internal val Point = Struct(NsPoint.layout)
 
 data object NSObject : ObjCClass("NSObject") {
 	val alloc = static("alloc", Obj)
@@ -136,7 +137,24 @@ data object NSApplication : ObjCClass("NSApplication", Frameworks.appKit) {
 }
 
 data object NSEvent : ObjCClass("NSEvent", Frameworks.appKit) {
-	val type = message("type", Int64)
+	/** The pointer's buttons held now, a bit each: the first is the left. */
+	val pressedMouseButtons = static("pressedMouseButtons", Int64)
+
+	/** An event of the pointer's, made here: its type, where, the keys held, when, in which window, and how hard. */
+	val mouseEvent =
+		staticOf(
+			"mouseEventWithType:location:modifierFlags:timestamp:windowNumber:context:" +
+				"eventNumber:clickCount:pressure:",
+			listOf(Int64, Point, Int64, Float64, Int64, Obj, Int64, Int64, Float32),
+			Obj,
+		)
+}
+
+data object NSProcessInfo : ObjCClass("NSProcessInfo") {
+	val processInfo = static("processInfo", Obj)
+
+	/** How long the system has been up, in seconds: what an event's time is counted in. */
+	val systemUptime = message("systemUptime", Float64)
 }
 
 data object NSMutableArray : ObjCClass("NSMutableArray") {
@@ -175,6 +193,7 @@ data object NSWindow : ObjCClass("NSWindow", Frameworks.appKit) {
 		message("initWithContentRect:styleMask:backing:defer:", Rect, Int64, Int64, Bool, Obj)
 	val setContentView = message("setContentView:", Obj, NoValue)
 	val contentView = message("contentView", Obj)
+	val windowNumber = message("windowNumber", Int64)
 	val setLevel = message("setLevel:", Int64, NoValue)
 	val setCollectionBehavior = message("setCollectionBehavior:", Int64, NoValue)
 	val setHidesOnDeactivate = message("setHidesOnDeactivate:", Bool, NoValue)

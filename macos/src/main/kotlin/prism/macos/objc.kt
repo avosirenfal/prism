@@ -52,6 +52,7 @@ enum class Code {
 	Int32,
 	Bool,
 	Float64,
+	Float32,
 	Struct,
 	Void,
 }
@@ -140,6 +141,16 @@ data object Float64 : Passed<Double> {
 	override fun into(value: Double): Any = value
 
 	override fun out(raw: Any?): Double = raw as Double
+}
+
+/** `float`: the pressure of a pointer's press. */
+data object Float32 : Passed<Float> {
+	override val layout: MemoryLayout get() = ValueLayout.JAVA_FLOAT
+	override val code get() = Code.Float32
+
+	override fun into(value: Float): Any = value
+
+	override fun out(raw: Any?): Float = raw as Float
 }
 
 /** A struct passed by value, laid out as [layout] says: an `NSRect`. */

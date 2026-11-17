@@ -44,7 +44,8 @@ class FoldersTest {
 
 	@Test
 	fun macOSsAreTheLibrarysAndTheUsersTemporaryFolder() {
-		val folders = OwnFolders.of(Os.MacOS, mapOf("TMPDIR" to "/var/folders/xy/abc/T/"), home)
+		val folders =
+			OwnFolders.of(Os.MacOS, mapOf("TMPDIR" to "/var/folders/xy/abc/T/"), home, null)
 
 		assertEquals(
 			OwnFolder(
@@ -64,7 +65,19 @@ class FoldersTest {
 		)
 		assertEquals(
 			Runtime.Missing("TMPDIR is not set"),
-			OwnFolders.of(Os.MacOS, emptyMap(), home).runtime,
+			OwnFolders.of(Os.MacOS, emptyMap(), home, null).runtime,
+		)
+		// The system's own word for it comes before the variable: a daemon launchd starts is given no variable,
+		// and a shell may be given another's.
+		assertEquals(
+			Runtime.At(OwnFolder(Path.of("/var/folders/xy/abc/T/prism"), "\$TMPDIR/prism")),
+			OwnFolders
+				.of(
+					Os.MacOS,
+					mapOf("TMPDIR" to "/tmp/nix-shell"),
+					home,
+					Path.of("/var/folders/xy/abc/T"),
+				).runtime,
 		)
 	}
 

@@ -107,11 +107,21 @@ private fun InTheDock(windows: List<ExplorerWindow>) {
 		return
 
 	val usual =
-		windows.any {
-			it !is ExplorerWindow.Launching && it !is ExplorerWindow.Dmenu
-		}
+		windows
+			.filter { it !is ExplorerWindow.Launching && it !is ExplorerWindow.Dmenu }
+			.map { it.id }
+			.toSet()
+	var before by remember { mutableStateOf(emptySet<WindowId>()) }
 
-	LaunchedEffect(usual) { Dock.shown(usual, PRISM_ICON) }
+	LaunchedEffect(usual.isNotEmpty()) { Dock.shown(usual.isNotEmpty(), PRISM_ICON) }
+
+	// A window just opened is the one to work in: prism is brought in front of the application before it, as any
+	// application is when it opens a window. The launcher's own window never does this, which is the point of it.
+	LaunchedEffect(usual) {
+		if ((usual - before).isNotEmpty())
+			Dock.forward()
+		before = usual
+	}
 }
 
 /** prism's icon, as the Dock shows it: the one the Linux package installs, kept beside the classes. */

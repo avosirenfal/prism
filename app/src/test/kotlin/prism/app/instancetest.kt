@@ -253,7 +253,7 @@ class InstanceTest {
 	@Test
 	fun whereThereIsNoRuntimeFolderThereIsNoPlace() {
 		fun on(os: Os, environment: Map<String, String>) =
-			InstancePlace.of(OwnFolders.of(os, environment, Path("/home/a")))
+			InstancePlace.of(OwnFolders.of(os, environment, Path("/home/a"), null))
 
 		assertEquals(null, on(Os.Linux, emptyMap()))
 		assertEquals(null, on(Os.Linux, mapOf("XDG_RUNTIME_DIR" to "relative")))

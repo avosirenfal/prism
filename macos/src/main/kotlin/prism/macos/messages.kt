@@ -118,6 +118,34 @@ class Message4<A, B, C, D, R>(
 		send(receiver, result, a.into(first), b.into(second), c.into(third), d.into(fourth))
 }
 
+/**
+ * A class's own method of more arguments than the others here are written for: each a value with the kind it is to
+ * be passed as, so that a value of another type is not one that can be written.
+ */
+class StaticOf<R>(
+	owner: ObjCClass,
+	selector: String,
+	takes: List<Passed<*>>,
+	private val result: Returned<R>,
+) : Declared(owner, selector, true, result, takes) {
+	/** A value, as the kind it is passed as. */
+	class Given<T>(
+		val kind: Passed<T>,
+		val value: T,
+	) {
+		internal fun raw(): Any = kind.into(value)
+	}
+
+	operator fun invoke(vararg given: Given<*>): R {
+		require(given.map { it.kind } == takes) { "$this takes $takes" }
+
+		return send(owner.cls, result, *given.map { it.raw() }.toTypedArray())
+	}
+}
+
+/** [value], to be passed as [this] kind. */
+infix fun <T> Passed<T>.of(value: T): StaticOf.Given<T> = StaticOf.Given(this, value)
+
 /** A class's own method of no arguments: called of its class, or [on] a class made from it. */
 class Static0<R>(
 	private val message: Message0<R>,
@@ -187,6 +215,12 @@ sealed class ObjCClass(
 		returns: Returned<R>,
 	) = kept(Message4(this, selector, false, a, b, c, d, returns))
 
+	protected fun <R> staticOf(
+		selector: String,
+		takes: List<Passed<*>>,
+		returns: Returned<R>,
+	) = kept(StaticOf(this, selector, takes, returns))
+
 	protected fun <R> static(selector: String, returns: Returned<R>) =
 		Static0(kept(Message0(this, selector, true, returns)))
 
@@ -248,6 +282,7 @@ object Encoding {
 			'i', 'I' -> Code.Int32 to from + 1
 			'B' -> Code.Bool to from + 1
 			'd' -> Code.Float64 to from + 1
+			'f' -> Code.Float32 to from + 1
 			'v' -> Code.Void to from + 1
 			'{', '(' -> Code.Struct to closing(text, from) + 1
 			'[' -> Code.Pointer to closing(text, from) + 1

@@ -51,8 +51,8 @@ object FileDrags {
 	/** `NSDragOperationCopy`, `Link`, `Generic` and `Move`: what a target may make of the files. */
 	private const val OPERATIONS = 1L or 2L or 4L or 16L
 
-	/** `NSEventTypeLeftMouseDown` and `NSEventTypeLeftMouseDragged`: the events a drag may begin from. */
-	private val PRESSES = setOf(1L, 6L)
+	/** `NSEventTypeLeftMouseDragged`: the event a drag is begun from. */
+	private const val LEFT_DRAGGED = 6L
 
 	/** How large a file's icon is drawn under the pointer, in points. */
 	private const val ICON = 48.0
@@ -116,8 +116,11 @@ object FileDrags {
 	/**
 	 * A drag of [files] begun from [window] (an `NSWindow *`), the pointer's button held at [x] and [fromBottom]
 	 * points from the window's lower left corner; [onEnd] told, on the windows' thread, whether something took them.
-	 * False where it cannot be begun: the event now being handled is no press of the pointer's, which a session is
-	 * begun from.
+	 * False where it cannot be begun: the pointer's button is held no longer.
+	 *
+	 * A session is begun from an event of the pointer's, and the event is made here, for where the pointer is. The
+	 * one AppKit last gave out (`currentEvent`) is not it: by the time a drag is known to be one, SDL has read on,
+	 * and the last event is as often the one that woke its loop as a movement of the pointer's.
 	 */
 	fun begin(
 		window: Long,
@@ -127,19 +130,36 @@ object FileDrags {
 		onEnd: (Boolean) -> Unit,
 	): Boolean =
 		ObjC.pooled {
-			val event = NSApplication.currentEvent(NSApplication.sharedApplication()).orNull()
-			val view = NSWindow.contentView(Id(MemorySegment.ofAddress(window))).orNull()
+			val nsWindow = Id(MemorySegment.ofAddress(window))
+			val view = NSWindow.contentView(nsWindow).orNull()
 
-			if (files.isEmpty() || event == null || view == null ||
-				NSEvent.type(event) !in PRESSES
-			)
+			if (files.isEmpty() || view == null || NSEvent.pressedMouseButtons() and 1L == 0L)
 				return@pooled false
 
 			Arena.ofConfined().use { arena ->
+				val at =
+					arena.allocate(NsPoint.layout).also {
+						it.set(JAVA_DOUBLE, 0, x)
+						it.set(JAVA_DOUBLE, 8, fromBottom)
+					}
+
+				val event =
+					NSEvent.mouseEvent(
+						Int64 of LEFT_DRAGGED,
+						Point of at,
+						Int64 of 0L,
+						Float64 of NSProcessInfo.systemUptime(NSProcessInfo.processInfo()),
+						Int64 of NSWindow.windowNumber(nsWindow),
+						Obj of Id.NIL,
+						Int64 of 0L,
+						Int64 of 1L,
+						Float32 of 1f,
+					)
+
 				val items = NSMutableArray.array()
 				val workspace = NSWorkspace.sharedWorkspace()
 
-				files.forEachIndexed { at, file ->
+				files.forEachIndexed { nth, file ->
 					val item =
 						NSDraggingItem.initWithPasteboardWriter(
 							NSObject.alloc.on(NSDraggingItem.cls),
@@ -149,8 +169,8 @@ object FileDrags {
 					// Each file's icon, the pointer in the middle of the first, the rest a little down and across.
 					val frame =
 						arena.allocate(NS_RECT).also {
-							it.set(JAVA_DOUBLE, 0, x - ICON / 2 + at * STEP)
-							it.set(JAVA_DOUBLE, 8, fromBottom - ICON / 2 - at * STEP)
+							it.set(JAVA_DOUBLE, 0, x - ICON / 2 + nth * STEP)
+							it.set(JAVA_DOUBLE, 8, fromBottom - ICON / 2 - nth * STEP)
 							it.set(JAVA_DOUBLE, 16, ICON)
 							it.set(JAVA_DOUBLE, 24, ICON)
 						}

@@ -29,15 +29,19 @@ data class OwnFolders(
 	val runtime: Runtime,
 ) {
 	companion object {
-		/** prism's folders on [os], from [environment] and the user's [home]: what this process uses, by default. */
+		/**
+		 * prism's folders on [os], from [environment], the user's [home], and the folder the system says is for
+		 * what is [temporary]: what this process uses, by default.
+		 */
 		fun of(
 			os: Os = Os.current,
 			environment: Map<String, String> = System.getenv(),
 			home: Path = Path.of(System.getProperty("user.home")),
+			temporary: Path? = System.getProperty("java.io.tmpdir")?.let(Path::of),
 		): OwnFolders =
 			when (os) {
 				Os.Linux -> linux(XdgHomes(environment, home))
-				Os.MacOS -> macOS(environment, home)
+				Os.MacOS -> macOS(environment, home, temporary)
 				Os.Windows -> windows(environment, home)
 			}
 
@@ -52,11 +56,19 @@ data class OwnFolders(
 		/**
 		 * The Library's folders, as Apple's guidelines put each kind: the preferences and what prism keeps of its own
 		 * doing in Application Support (Preferences is for property lists, which the preferences are not), the index
-		 * in Caches. The socket is in the user's own temporary folder (`$TMPDIR`, under /var/folders), which is theirs
-		 * alone, as a Linux session's runtime folder is, and short enough a path for a socket's name (104 bytes, on
-		 * macOS).
+		 * in Caches. The socket is in the user's own temporary folder (under /var/folders), which is theirs alone, as
+		 * a Linux session's runtime folder is, and short enough a path for a socket's name (104 bytes, on macOS).
+		 *
+		 * That folder is the one the system itself names ([temporary]: Java asks macOS for it), and `$TMPDIR` only
+		 * where it names none. The variable is the same folder in a terminal, but it is not every process's to have:
+		 * a daemon launchd starts is given none, and a shell may be given another's (Nix's shells are), and a daemon
+		 * and what asks it must come to the same place.
 		 */
-		private fun macOS(environment: Map<String, String>, home: Path): OwnFolders {
+		private fun macOS(
+			environment: Map<String, String>,
+			home: Path,
+			temporary: Path?,
+		): OwnFolders {
 			val library = OwnFolder(home.resolve("Library"), "~/Library")
 			val support = library.resolve("Application Support").resolve(PRISM)
 
@@ -66,10 +78,11 @@ data class OwnFolders(
 				state = support,
 				runtime =
 					Runtime.of(
-						environment["TMPDIR"]
-							?.takeIf {
-								it.startsWith("/")
-							}?.let(Path::of),
+						temporary?.takeIf(Path::isAbsolute)
+							?: environment["TMPDIR"]
+								?.takeIf {
+									it.startsWith("/")
+								}?.let(Path::of),
 						"\$TMPDIR",
 					),
 			)
