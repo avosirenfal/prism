@@ -359,7 +359,7 @@ class FileTest {
 	}
 
 	@Test
-	fun aFileWithChangesAfterItsSnapshot_AsOlderVersionsLeftThem_IsReadAndThenWrittenAsOne() {
+	fun aFileWithChangesAfterItsSnapshotIsReadAndThenWrittenAsOne() {
 		made("a.txt")
 
 		val length = IndexFile.write(file, Index.EMPTY.with(indexer.index(root)))
