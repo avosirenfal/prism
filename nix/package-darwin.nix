@@ -16,6 +16,7 @@
   temurin-bin-25,
   graalvmPackages,
   zlib,
+  callPackage,
 }:
 
 let
@@ -103,8 +104,11 @@ stdenv.mkDerivation (finalAttrs: {
     install -m755 client/build/native/prism $out/${application}/Contents/MacOS/prism-client
     ln -s $out/${application}/Contents/MacOS/prism-client $out/bin/prism
 
-    # Sealed again with the client in it: what an Apple-silicon Mac runs is sealed, if only for no one in particular.
-    /usr/bin/codesign --force --deep --sign - $out/${application} || true
+    # Sealed again with the client in it (nix/seal.nix): what an Apple-silicon Mac runs is sealed, if only for no
+    # one in particular.
+    ${callPackage ./seal.nix { } "-"}
+    chmod -R u+w $out/${application}
+    seal $out/${application}
 
     runHook postInstall
   '';

@@ -337,7 +337,9 @@ class Daemon private constructor(
 	private fun placed() {
 		val history = history ?: return
 
-		settledAt?.let { history.write(Place(recordOf(live.rules, settings.live.mounts()), it)) }
+		settledAt?.let {
+			history.write(Place(volumesOf(settings.live.mounts()), rulesOf(live.rules), it))
+		}
 	}
 
 	private fun tick() {
@@ -507,16 +509,20 @@ class Daemon private constructor(
 
 		/**
 		 * A daemon started with the platform's own feed. On a Mac, where the index's file has a place kept beside it
-		 * that is of the volumes and rules there are now ([History]), the feed takes up from that place, and the
-		 * roots the file holds are not read again: what changed while no daemon ran is told by FSEvents.
+		 * that is of the volumes there are now, and of rules this daemon still has ([History]), the feed takes up
+		 * from that place, and the roots the file holds are not read again: what changed while no daemon ran is told
+		 * by FSEvents.
 		 */
 		fun start(settings: DaemonSettings): Daemon {
 			val history =
 				settings.file?.takeIf { Os.current == Os.MacOS }?.let(History::beside)
 					?: return start(settings, Feed.of(settings.roots), null) {}
-			val record = recordOf(settings.indexer.rules, settings.live.mounts())
+			val rules = rulesOf(settings.indexer.rules)
 			val kept =
-				history.read()?.takeIf { it.of == record && Files.exists(settings.file) }
+				history.read()?.takeIf {
+					it.of == volumesOf(settings.live.mounts()) && rules.containsAll(it.rules) &&
+						Files.exists(settings.file)
+				}
 
 			// Whatever is kept is of the daemon before: this one keeps its own, once it is settled.
 			history.forget()
@@ -528,7 +534,11 @@ class Daemon private constructor(
 					settings.copy(live = settings.live.copy(readRootsOnOpen = false)),
 					Feed.fsEvents(settings.roots, kept.id),
 					history,
-				) {}
+				) {}.also {
+					// Rules added while no daemon ran: what they leave out is taken out, which reads nothing.
+					if (kept.rules != rules)
+						it.live.leaveOut()
+				}
 		}
 
 		internal fun start(

@@ -112,6 +112,28 @@ class RuledTest {
 	}
 
 	@Test
+	fun aRuleAddedTakesOutWhatItNamesAndReadsNothing() {
+		made("a/build/out.o", "a/src/main.c", "b/notes.txt")
+
+		opened(rules()).use { live ->
+			// Made behind the index's back: a reading of the roots would find it.
+			made("b/unseen.txt")
+
+			live.ruled(rules("build/" to Exclusion.Ignored).ignore).done()
+			assertEquals(
+				setOf("a", "a/src", "a/src/main.c", "b", "b/notes.txt"),
+				live.index.names(),
+			)
+
+			live
+				.ruled(
+					rules("build/" to Exclusion.Ignored, ".c" to Exclusion.Ignored).ignore,
+				).done()
+			assertEquals(setOf("a", "a/src", "b", "b/notes.txt"), live.index.names())
+		}
+	}
+
+	@Test
 	fun aQueryRuleChangedIsTheWholeIndexReadAgainByIt() {
 		made("a/build/out.o", "a/src/main.c", "b/build/out.o", "b/notes.txt")
 

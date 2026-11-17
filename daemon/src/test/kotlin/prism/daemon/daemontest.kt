@@ -326,8 +326,9 @@ class DaemonTest {
 			daemon.live.opened.get()
 			eventually { history.read()?.id == 7L }
 
-			// A place is of the rules and the volumes it was kept with.
-			assertEquals(recordOf(daemon.live.rules, settings().live.mounts()), history.read()?.of)
+			// A place is of the volumes and the rules it was kept with.
+			assertEquals(volumesOf(settings().live.mounts()), history.read()?.of)
+			assertEquals(rulesOf(daemon.live.rules), history.read()?.rules)
 
 			at.set(9)
 			eventually { history.read()?.id == 9L }
@@ -335,21 +336,20 @@ class DaemonTest {
 	}
 
 	@Test
-	fun aPlaceIsOfItsRulesWhateverOrderTheyAreIn() {
+	fun aPlaceIsKeptWithItsRulesARuleToALine() {
 		val one = IgnoreRules.DEFAULT
 		val other = one.copy(directories = one.directories.reversed().toSet())
 
-		assertEquals(recordOf(one, emptyList()), recordOf(other, emptyList()))
-		assertNotEquals(
-			recordOf(one, emptyList()),
-			recordOf(one.copy(directories = emptySet()), emptyList()),
-		)
+		assertEquals(rulesOf(one), rulesOf(other))
+		// A rule added is rules the same and more: what a daemon may take up from.
+		assertTrue(rulesOf(one).containsAll(rulesOf(one.copy(directories = emptySet()))))
+		assertNotEquals(rulesOf(one), rulesOf(one.copy(directories = emptySet())))
 
 		val history = History.beside(state.resolve("index.prism"))
 
 		assertEquals(null, history.read())
-		history.write(Place("abc", 42))
-		assertEquals(Place("abc", 42), history.read())
+		history.write(Place("abc", rulesOf(one), 42))
+		assertEquals(Place("abc", rulesOf(one), 42), history.read())
 		history.forget()
 		assertEquals(null, history.read())
 	}

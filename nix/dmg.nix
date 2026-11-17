@@ -11,6 +11,7 @@
   lib,
   stdenv,
   runCommand,
+  callPackage,
   prism,
   signingIdentity ? "-",
 }:
@@ -32,8 +33,9 @@ runCommand name
     cp -R ${prism}/${prism.application} stage/Prism.app
     chmod -R u+w stage/Prism.app
 
-    # Sealed again: it was copied out of the store, and is to run somewhere else.
-    /usr/bin/codesign --force --deep --options runtime --sign ${lib.escapeShellArg signingIdentity} stage/Prism.app
+    # Sealed again (nix/seal.nix): it was copied out of the store, and is to run somewhere else.
+    ${callPackage ./seal.nix { } signingIdentity}
+    seal stage/Prism.app
     ln -s /Applications stage/Applications
     /usr/bin/hdiutil create -volname Prism -srcfolder stage -ov -format UDZO $out/${name}.dmg
   ''

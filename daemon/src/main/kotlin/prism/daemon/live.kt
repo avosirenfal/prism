@@ -29,6 +29,7 @@ import prism.index.Name
 import prism.index.Results
 import prism.index.SearchContext
 import prism.index.Searched
+import prism.index.Seeking
 import prism.index.Volume
 import prism.index.VolumeId
 import prism.index.Where
@@ -424,11 +425,17 @@ class LiveIndex private constructor(
 	}
 
 	/**
-	 * What the index leaves out made [rules], and the index made to agree with them, as it runs. Where all that
-	 * differs is folders named by their paths, each is dealt with alone: one now left out is taken out of the index,
-	 * and one no longer left out is read. Where anything else differs (a rule of names, or a query, which may be
-	 * anywhere), every root is read again, which leaves out what is now left out and finds what no longer is. The
-	 * places read for searches alone were read by the old rules, and are let go. Completes once what was read is made.
+	 * What the index leaves out made [rules], and the index made to agree with them, as it runs, reading as little as
+	 * agreeing takes.
+	 *
+	 * A rule added reads nothing: what it leaves out is in the index, and is taken out of it, whether the rule names
+	 * a folder by its path, folders of a name wherever they are, or what a query finds. A rule taken away has to read
+	 * what it left out, which the index does not hold. Where it named a folder by its path, that folder is read, and
+	 * nothing else. Where it named folders by name, or by a query, nothing says where on the disk they are but
+	 * reading it, so every root is read again; and so it is where the file systems left out changed.
+	 *
+	 * The places read for searches alone were read by the old rules, and are let go. Completes once what was read is
+	 * made.
 	 */
 	fun ruled(rules: IgnoreRules): CompletableFuture<Unit> {
 		val before = indexer.rules
@@ -441,26 +448,66 @@ class LiveIndex private constructor(
 			adHoc = emptyMap()
 		}
 
-		val differing =
-			(rules.directories - before.directories) + (before.directories - rules.directories)
+		val added = rules.directories - before.directories
+		val removed = before.directories - rules.directories
+		val seekingMore = rules.sought.queries - before.sought.queries.toSet()
+		val seekingLess = before.sought.queries - rules.sought.queries.toSet()
 
-		val byPath =
-			rules.fileSystems == before.fileSystems && rules.sought == before.sought &&
-				differing.all { it is Ignored.At }
+		val foundOnlyByReading =
+			rules.fileSystems != before.fileSystems || rules.sought.home != before.sought.home ||
+				removed.any { it !is Ignored.At } || seekingLess.isNotEmpty()
 
-		if (!byPath)
+		if (foundOnlyByReading)
 			return rescanRoots()
 
 		fun places(of: Set<Ignored>) =
 			of.filterIsInstance<Ignored.At>().map { Where.of(it.path) }
 
-		val out = places(rules.directories - before.directories).filter { it !in index.roots }
-		val back = places(before.directories - rules.directories).filter(::holds).toSet()
+		// What the rules added leave out that are not paths: folders of a name, and what a query finds.
+		val elsewhere =
+			IgnoreRules(
+				added.filterNot { it is Ignored.At }.toSet(),
+				emptySet(),
+				Seeking(seekingMore, rules.sought.home),
+			)
 
-		changing.guarded { make(out.filter { index.find(it) != null }.map(Change::Absent)) }
+		val back = places(removed).filter(::holds).toSet()
+
+		takeOut(places(added).filter { index.find(it) != null } + heldLeftOutBy(elsewhere))
 
 		// What was taken out is written with whatever is made next; nothing waits for it.
 		return scan(back) { back.mapNotNull(indexer::reread) }
+	}
+
+	/**
+	 * What the rules as they are leave out taken out of the index, reading nothing: what an index read by fewer rules
+	 * than there are now (one kept by a daemon before a rule was added) is made to agree by.
+	 */
+	fun leaveOut() = takeOut(heldLeftOutBy(indexer.rules))
+
+	/** The places the index holds that [rules] leave out, by name or by a query: looked for in what it holds. */
+	private fun heldLeftOutBy(rules: IgnoreRules): List<Where> =
+		if (rules.directories.isEmpty() && rules.sought.none)
+			emptyList()
+		else
+			index.entries().map { it.where }.filter {
+				rules.ignores(it) || rules.sought.finds(it)
+			}
+
+	/** [places] taken out of the index, each with all that is in it; a root stays, whatever names it. */
+	private fun takeOut(places: List<Where>) {
+		changing.guarded {
+			make(outermost(places).filter { it !in index.roots }.map(Change::Absent))
+		}
+	}
+
+	/** [places] without those inside another of them: taking a folder out takes out all that is in it. */
+	private fun outermost(places: List<Where>): List<Where> {
+		val all = places.toSet()
+
+		return all.filter { place ->
+			generateSequence(place.parent) { it.parent }.none { it in all }
+		}
 	}
 
 	/** Every root read again, as it is now: what is done where changes may have been missed. */
