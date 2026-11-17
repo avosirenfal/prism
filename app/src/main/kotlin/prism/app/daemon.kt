@@ -197,6 +197,7 @@ object DaemonCommand : Command(
 		}
 
 		Runtime.getRuntime().addShutdownHook(Thread(::close))
+		followOwnApplication(::say)
 
 		say("$STARTED (process ${ProcessHandle.current().pid()})")
 		say(watchingLine(daemon, settings))

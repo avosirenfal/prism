@@ -57,6 +57,7 @@ how it is meant to work; docs/inprogress.md says where it stands.
 | `daemon [PATH...]` | the one prism that stays (docs/running.md): the index kept current (the watcher started first, or why it could not be, then the index read or built, every change made as it is seen), every prism's windows, each searching that index, and the portal's file chooser and `org.freedesktop.FileManager1`. Started apart from the terminal, unless `--foreground` runs it in place; `--no-windows`, `--no-file-chooser`, `--no-file-manager`, `--replace`, `--theme`, `--decorated`; `--find QUERY` searches once the roots are read, reading places the rules leave out for the search alone; `--in-memory`, `--for N` |
 | `status` | what the prism already running says of itself: its index, whether changes are watched, its windows |
 | `agent install`, `agent uninstall` | on a Mac, the daemon as a launchd agent: started as you log in, and again should it fail; and taken away (docs/platform.md) |
+| `agent stop`, `agent start`, `agent restart` | on a Mac, that agent stopped until it is started or you log in again; started; and started anew |
 | `cli install`, `cli uninstall` | on a Mac, `prism` linked into a folder of the PATH (`/usr/local/bin`), to the application's own; and the link taken away |
 | `portal serve` | the daemon without its index: the desktop's file chooser (as the portal's backend) and file manager (`org.freedesktop.FileManager1`), a window for each request, until stopped; what D-Bus starts, once it is installed, where no daemon runs |
 | `portal install`, `portal uninstall` | make prism your file chooser and file manager, or stop it being them: files in your own folders only, each prism's (docs/portal.md) |
@@ -71,8 +72,8 @@ how it is meant to work; docs/inprogress.md says where it stands.
 
 `prism --help` and `prism COMMAND --help` say more.
 
-On a Mac, prism is Prism.app: `./gradlew :app:macDmg` makes a disk image of it to pass on, and opened the first time
-it sets up its own daemon; the flake's `darwinModules.prism` does the same for nix-darwin (docs/platform.md, "Setting
+On a Mac, prism is Prism.app: `nix build .#prism-dmg` makes a disk image of it to pass on, and opened the first time
+it sets up its own daemon and puts `prism` on the PATH; the flake's `darwinModules.prism` does the same for nix-darwin (docs/platform.md, "Setting
 it up on a Mac").
 
 ## Layout
@@ -142,7 +143,9 @@ A clang other than the one on the PATH is named with `-Pprism.clang=PATH` or `$P
 
 The flake also builds prism as a package (`nix build`, `nix run`), and has a NixOS module that installs it, runs the
 daemon in your session and makes it your file chooser and file manager: `programs.prism.enable = true`
-(docs/nixos.md).
+(docs/nixos.md). The same flake makes what is passed to a machine with no Nix: `nix build .#prism-portable` (an
+archive for any Linux) and, on a Mac, `nix build .#prism-dmg` (Prism.app in a disk image); docs/platform.md, "What is
+built, and by what".
 
 ## Docs
 

@@ -308,6 +308,10 @@ more memory and work), or `-Xlog:gc` to see when garbage is collected (docs/wind
 | output | what |
 |---|---|
 | `packages.x86_64-linux.prism`, `.default` | the package |
+| `packages.x86_64-linux.prism-portable` | to publish: prism for a Linux with no Nix, in an archive (docs/platform.md, "What is built, and by what") |
+| `packages.aarch64-darwin.prism`, `.default` | a Mac's package: Prism.app, and `prism` |
+| `packages.aarch64-darwin.prism-dmg` | to publish: Prism.app in a disk image, for a Mac with no Nix |
+| `darwinModules.prism`, `.default` | nix-darwin's module (docs/platform.md, "With nix-darwin") |
 | `overlays.default` | the package as `pkgs.prism` |
 | `nixosModules.prism`, `.default` | the module above |
 | `apps.x86_64-linux.default` | `nix run github:avosirenfal/prism` |

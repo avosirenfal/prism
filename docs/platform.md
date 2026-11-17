@@ -143,6 +143,33 @@ What a method answers lives until its autorelease pool is drained, so objects ar
 Kotlin's values leave it. No method prism calls takes a block, and what needs a callback has a C function for it
 (FSEvents, Carbon's hot keys, `dispatch_sync_f`), so nothing of Swift is built, and all of it compiles on Linux.
 
+## What is built, and by what
+
+Every build that is installed or passed on is made by the flake, which brings its own Java, Gradle and GraalVM (the
+compiler of the client): nothing is installed first but Nix. Each holds the Java prism and the `prism` a shell
+starts, the client compiled ahead of time.
+
+| for | made by | what it is | `prism` on the PATH |
+|---|---|---|---|
+| NixOS | the flake as an input, and `programs.prism.enable = true` (docs/nixos.md) | the package (nix/package.nix), the daemon as a systemd user service | by NixOS |
+| nix-darwin, on Apple silicon | the flake as an input, and `programs.prism.enable = true` (below, "With nix-darwin") | Prism.app in the Nix store (nix/package-darwin.nix), the daemon as a launchd agent | by nix-darwin |
+| a Linux with no Nix | `nix build .#prism-portable`, on Linux | `prism-0.1.0-linux-x86_64.tar.gz` (nix/package-portable.nix): one folder to unpack anywhere, holding the jars, a Java to run them (Adoptium's, as published, which runs on any distribution) and the client, linked statically against musl | by linking `bin/prism` of the folder into `~/.local/bin` |
+| a Mac with no Nix | `nix build .#prism-dmg`, on a Mac | `Prism-0.1.0-macos-arm64.dmg` (nix/dmg.nix): Prism.app to drag onto Applications | by the application, the first time it is opened (below) |
+| Windows | nothing yet | prism does not run on Windows yet | |
+
+A Java program cannot be one statically linked file: what runs it is a Java, which is many files and loads the
+system's C library. So "needs nothing of the system" is reached another way for the Linux archive: the Java is in
+the folder, and is one built against a C library old enough for every distribution in use, and the one part that is
+compiled to machine code, the client, is linked statically. What the archive still takes from the system is what
+every desktop program does: the Wayland or X11 libraries and OpenGL, which are the desktop's own, and libbpf where
+the watcher is wanted.
+
+The archive's daemon is started by hand or by a systemd user service (docs/running.md); its desktop entry is in
+`share/applications` of the folder, to copy into `~/.local/share/applications`.
+
+Each is built on its own kind of machine: Nix builds a Mac's programs on a Mac and Linux's on Linux. CI does both
+(the `portable` and `dmg` jobs) and keeps what they made with the run.
+
 ## macOS, as it stands
 
 Everything above in the macOS column is written, and builds and is tested on Linux as far as it can be: the
@@ -172,7 +199,8 @@ What to try on an Apple-silicon Mac, in order, since each needs the one before:
    first, makes it the terminal.
 6. **The launcher.** With the daemon running, ⌘Space, once Spotlight's is turned off (System Settings › Keyboard ›
    Keyboard Shortcuts… › Spotlight); the daemon says so where it is not.
-7. **The application.** `./gradlew :app:macDmg`, and Prism.app from the image put in /Applications and opened
+7. **The application.** `./gradlew :app:createDistributable`, and Prism.app (in
+   `app/build/compose/binaries/main/app`) put in /Applications and opened
    ("Setting it up on a Mac", below): Prism.app in the Dock as Prism
    while a window is open, its icon opening a window, "New Window" in its Dock menu, and Command-Q closing windows
    and leaving the daemon.
@@ -187,37 +215,73 @@ other platforms have one do, a Mac's application does for itself the first time 
    application (`dev.prism.daemon`, a file in `~/Library/LaunchAgents`), which launchd starts at once and whenever
    you log in, and starts again should it fail; then it shows a window. From then on the daemon is what runs: it
    keeps the index, holds the launcher's key, and opens every window, and opening Prism.app asks it for one.
-3. **Two things are yours to do in System Settings**, and the daemon says so where either is not done: give Prism
+3. **It asks for your password once**, to link `/usr/local/bin/prism` to the client inside the application, so that
+   `prism` is a command in every terminal. That folder is the administrator's, which is why it asks. Said no to, it
+   does not ask again; `Prism.app/Contents/MacOS/Prism cli install` does it later (`--bin DIR` for a folder of yours).
+4. **Two things are yours to do in System Settings**, and the daemon says so where either is not done: give Prism
    Full Disk Access (Privacy & Security), so the index reads every folder without asking; and turn off Spotlight's
    shortcut (Keyboard › Keyboard Shortcuts… › Spotlight), so Command-Space is prism's.
-4. **For `prism` in a terminal**, once: `/Applications/Prism.app/Contents/MacOS/Prism cli install`, which links
-   `/usr/local/bin/prism` to the application's (`--bin DIR` for another folder).
 
-To take it away: `prism agent uninstall`, `prism cli uninstall`, and Prism.app to the trash. What it kept is in
-`~/Library/Application Support/prism` and `~/Library/Caches/prism`.
+### The daemon, day to day
+
+The daemon has no window and no icon in the Dock, so it is spoken to through `prism`:
+
+| to | run | which is |
+|---|---|---|
+| see how it is | `prism status` | asked of the daemon itself; what it has said is in `~/Library/Application Support/prism/daemon.log` |
+| stop it | `prism agent stop` | launchd told to unload the agent (`launchctl bootout`). It stays stopped until you log in again, open Prism.app, or start it |
+| start it | `prism agent start` | launchd told to load the agent and set it going |
+| restart it | `prism agent restart` | `launchctl kickstart -k` |
+| stop it for good | `prism agent uninstall` | the agent stopped and its file removed, so nothing starts at login. Opening Prism.app sets it up again |
+
+Quitting a window (Command-Q, or Command-W) closes windows and leaves the daemon, as closing a Finder window leaves
+Finder.
+
+### A new build over an old one
+
+Drag the new Prism.app onto /Applications and say "Replace". Nothing else is needed: the daemon looks at its own
+program's file every few seconds, and when another has settled in its place it ends by failing, which is what
+launchd starts it again for, now from the new application (agent.kt, `followOwnApplication`). The link in
+/usr/local/bin points into /Applications/Prism.app, so it is the new client already.
+
+One thing does not carry over while the application is sealed for no one in particular: Full Disk Access. The system
+knows such an application by what it is byte for byte, so a new build is a stranger, and is given access again in
+System Settings (remove the old Prism from the list, add the new). One signed with a Developer ID is known by that,
+and keeps it.
+
+### Taking it away
+
+Dragging Prism.app to the Trash is enough to stop it: the daemon sees its application gone and, after a minute, ends
+without failing, which launchd leaves ended. What is left does nothing and can stay or go:
+
+| left behind | what it is | removed by |
+|---|---|---|
+| `~/Library/LaunchAgents/dev.prism.daemon.plist` | the agent, naming a program that is no longer there; launchd finds nothing to start | `prism agent uninstall` before trashing, or deleting the file |
+| `/usr/local/bin/prism` | a link to nothing | `prism cli uninstall` before trashing, or `sudo rm /usr/local/bin/prism` |
+| `~/Library/Application Support/prism`, `~/Library/Caches/prism` | the index, the settings, the log; thumbnails | deleting them |
 
 ### Passing it on
 
 ```bash
-./gradlew :app:macDmg
+nix build .#prism-dmg
 ```
 
-makes `app/build/mac/Prism.dmg` on a Mac: a disk image that opens to Prism.app beside a link to Applications, to drag
-the one onto the other. With `GRAALVM_HOME` naming a GraalVM, the client compiled ahead of time is put beside the
-application's own program, and is what `prism cli install` links. CI's job on macOS makes the same image on every
-run, and on one started by hand from the Actions page, to download from the run's page ("Prism-macos-arm64").
+makes `result/Prism-0.1.0-macos-arm64.dmg` on a Mac (nix/dmg.nix): a disk image that opens to Prism.app beside a link
+to Applications, to drag the one onto the other. The application in it is the flake's package, which carries its own
+Java (Adoptium's, linked against the system alone) and the client compiled ahead of time, so it runs on a Mac with
+no Nix. CI's `dmg` job makes the same image on every run, and on one started by hand from the Actions page, to
+download from the run's page ("Prism-macos-arm64").
+
+A disk image holds files and runs nothing: it cannot start a daemon or change the PATH. That is why the application
+does both for itself when it is first opened, as above.
 
 Whether another Mac opens it without a word depends on how it is sealed:
 
 | sealed | made by | on another Mac |
 |---|---|---|
-| for no one ("ad hoc") | `./gradlew :app:macDmg`, and CI | the first opening is refused ("Apple could not verify…"), since it came from the network and nobody vouches for it. The user allows it once: System Settings › Privacy & Security › "Open Anyway"; or `xattr -dr com.apple.quarantine /Applications/Prism.app`. A copy that never touched a browser (AirDrop is one that does; a USB stick, `scp` or `rsync` are not) is opened without a word |
-| with a Developer ID | `./gradlew :app:macDmg -Pprism.sign="Developer ID Application: NAME (TEAM)"`, the certificate being in the keychain | the same refusal, worded as "from an identified developer", until it is also notarized |
-| and notarized | the image sent to Apple (`xcrun notarytool submit app/build/mac/Prism.dmg --keychain-profile NAME --wait`, then `xcrun stapler staple` the same), which needs Apple's developer programme | opened as any application is |
-
-Signing matters for one more thing: the system's permissions know an application that is not signed by where it is
-and what it is byte for byte, so Full Disk Access is given again after each new build; one signed with a Developer
-ID is known by that, and keeps it.
+| for no one ("ad hoc") | `nix build .#prism-dmg`, and CI | the first opening is refused ("Apple could not verify…"), since it came from the network and nobody vouches for it. The user allows it once: System Settings › Privacy & Security › "Open Anyway"; or `xattr -dr com.apple.quarantine /Applications/Prism.app`. A copy that never touched a browser (AirDrop is one that does; a USB stick, `scp` or `rsync` are not) is opened without a word |
+| with a Developer ID | the package overridden: `prism-dmg.override { signingIdentity = "Developer ID Application: NAME (TEAM)"; }`, the certificate being in the keychain | the same refusal, worded as "from an identified developer", until it is also notarized |
+| and notarized | the image sent to Apple (`xcrun notarytool submit Prism.dmg --keychain-profile NAME --wait`, then `xcrun stapler staple` the same), which needs Apple's developer programme | opened as any application is |
 
 ### With nix-darwin
 
@@ -240,7 +304,9 @@ agent:
 ```
 
 `programs.prism.daemon.roots` and `.extraArgs` are as on NixOS (docs/nixos.md). The package (nix/package-darwin.nix)
-is Prism.app built by Gradle, with the client beside its program and linked as `bin/prism`.
+is Prism.app built by Gradle, with the client beside its program and linked as `bin/prism`, which nix-darwin puts on
+the PATH. An application in the Nix store sets nothing up by being opened: the module is what runs the daemon, and
+`darwin-rebuild switch` is what stops, replaces and removes it.
 
 Two things about the Nix package are not as they should be yet. Its lock of what Gradle fetches
 (nix/deps-darwin.json) is empty: a Mac's artifacts are not Linux's, and the lock is written by running, on a Mac,
@@ -249,8 +315,8 @@ Two things about the Nix package are not as they should be yet. Its lock of what
 $(nix build .#prism.mitmCache.updateScript --print-out-paths --no-link)
 ```
 
-until which the package does not build. And since it is not signed, Full Disk Access is given again after an update,
-as above.
+until which the package does not build (CI's `dmg` job writes it, and keeps it with the run, to be committed). And
+since it is not signed, Full Disk Access is given again after an update, as above.
 
 ### Run from Gradle
 
@@ -258,5 +324,5 @@ Run by `./gradlew :app:run`, prism is `java` to the Dock and to the system's per
 is java's and no application's: that is for working on prism, and Prism.app is for using it.
 
 Not written yet: resuming FSEvents from the last event id a daemon saw;
-`getattrlistbulk` for reading folders; `UF_HIDDEN`; IOKit's and DiskArbitration's drives; the shared thumbnails
-(QuickLook's); a package opened as Finder opens it (an application started, not gone into); signing and the DMG.
+`getattrlistbulk` for reading folders; `UF_HIDDEN`; IOKit's and DiskArbitration's drives; a Developer ID to sign
+with, and notarizing.
