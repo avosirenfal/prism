@@ -435,13 +435,14 @@ fun ButtonRow(
 	}
 }
 
-/** How wide a modal is: a few words, a paragraph and a field, or a list. */
+/** How wide a modal is: a few words, a paragraph and a field, a list, or a form with what it comes to beside it. */
 enum class ModalWidth(
 	val width: Dp,
 ) {
 	Small(420.dp),
 	Medium(540.dp),
 	Large(640.dp),
+	Wide(1040.dp),
 }
 
 /**

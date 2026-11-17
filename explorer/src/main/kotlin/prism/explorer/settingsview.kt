@@ -70,6 +70,7 @@ import prism.browser.CheckBox
 import prism.browser.Chip
 import prism.browser.Chord
 import prism.browser.ComboBox
+import prism.browser.Commands
 import prism.browser.Dims
 import prism.browser.Divider
 import prism.browser.EmptyState
@@ -85,6 +86,7 @@ import prism.browser.LocalType
 import prism.browser.Moving
 import prism.browser.Notice
 import prism.browser.OptionGroup
+import prism.browser.ProcessCommands
 import prism.browser.Radio
 import prism.browser.Radius
 import prism.browser.ReorderableColumn
@@ -140,7 +142,8 @@ import prism.browser.Page as PageLayout
  * [onClose]. [mouseChords] are the mouse's buttons pressed over the window, which a binding waiting for a chord takes.
  * The Renderer page shows [graphics] (while it is looked at, null), and copies its report by [onCopy]. The Context
  * menus page decides the user's actions in [world], as the menus it shows would. The keys for undo and redo, wherever
- * nothing that has the keyboard takes them (a field's own typing), are [onUndo] and [onRedo].
+ * nothing that has the keyboard takes them (a field's own typing), are [onUndo] and [onRedo]. An action or a text
+ * search tried out from the window that edits it is run by [commands].
  */
 @Composable
 fun SettingsView(
@@ -158,6 +161,7 @@ fun SettingsView(
 	world: World = World.Bare(Path.of(System.getProperty("user.home"))),
 	onUndo: () -> Unit = {},
 	onRedo: () -> Unit = {},
+	commands: Commands = ProcessCommands,
 ) {
 	// The keys as they are applied, not as the bindings page is changing them.
 	val bindings = remember(settings.base) { Bindings.of(settings.base) }
@@ -180,6 +184,7 @@ fun SettingsView(
 		onRedo = onRedo,
 		filter = filter,
 		blocked = settings.blocked,
+		finds = settings.page in setOf(Page.Bindings, Page.Actions, Page.Searches),
 	) { page ->
 		when (page) {
 			Page.Display -> DisplayPage(settings, onChange)
@@ -196,10 +201,12 @@ fun SettingsView(
 				ExcludingPage(
 					settings.excluding,
 				) { onChange(settings.copy(excluding = it)) }
-			Page.Actions -> ActionsPage(settings.actions)
-			Page.Searches -> ActionsPage(settings.actions)
+			Page.Actions -> ScriptsPage(ScriptKind.Action, settings, world, filter, onChange)
+			Page.Searches -> SearchesPage(settings, world, filter, onChange)
 		}
 	}
+	// Whatever is open over the pages of actions and text searches: one being made, changed or moved.
+	ActingModals(settings, world, commands, onChange)
 }
 
 /**
@@ -822,87 +829,65 @@ private fun FiltersSection(settings: Settings, onChange: (Settings) -> Unit) {
 }
 
 /**
- * The actions the menus offer beyond prism's own, and the places they show: which there are, and, of those the
- * preferences write that did not read, why not, so that one written wrong is not simply missing from a menu. They are
- * written in the preferences file, as docs/menus.md says how.
+ * The text searches' page: the searches, and under them the editor a line found is opened in, as a command line that
+ * names the file and the line; with none typed, the editor the environment names is said, which is the one used.
  */
 @Composable
-private fun ActionsPage(actions: Actions) {
+private fun SearchesPage(
+	settings: Settings,
+	world: World,
+	filter: FocusRequester,
+	onChange: (Settings) -> Unit,
+) {
 	val palette = LocalPalette.current
 	val type = LocalType.current
+	val editor = settings.acting.editor
 
-	PageLayout(
-		"Actions",
-		"Custom context menu actions, places and text searches, defined under “actions”, " +
-			"“places” and “textSearches” in the preferences file.",
-	) {
-		if (actions.broken.isNotEmpty())
-			Section(
-				"Errors",
-				description = "These entries in the preferences file are invalid and were skipped.",
+	fun edited(to: EditorForm) =
+		onChange(settings.copy(acting = settings.acting.copy(editor = to)))
+
+	ScriptsPage(ScriptKind.Search, settings, world, filter, onChange) {
+		Card {
+			SettingRow(
+				"Editor",
+				description =
+					"Opens a line found, as a command naming {path} and {line}. " +
+						when {
+							editor.spec() != null -> "Empty to use \$VISUAL or \$EDITOR."
+							settings.actions.editor == prism.browser.Editor.Application ->
+								"Empty, and neither \$VISUAL nor \$EDITOR is set: the file's default application opens it."
+							else -> "Empty: ${editorSaid(settings.actions.editor)}, from \$VISUAL or \$EDITOR."
+						},
 			) {
-				Card {
-					actions.broken.forEach { broken ->
-						Notice(
-							"${broken.what.replaceFirstChar {
-								it.uppercase()
-							}} ${broken.id?.let { "“$it”" } ?: "with no id"}",
-							Tone.Bad,
-							Modifier.testTag("broken:${broken.id}"),
-							detail = broken.why,
-						)
-					}
+				Field(
+					editor.command,
+					{ edited(editor.copy(command = it)) },
+					Modifier.width(260.dp).testTag("editor"),
+					hint = "code --goto {path}:{line}",
+					style = type.mono,
+					onClear = { edited(EditorForm()) },
+				)
+				CheckBox("In a terminal", editor.terminal, Modifier.testTag("editor-terminal")) {
+					edited(editor.copy(terminal = it))
 				}
 			}
-		Section("Actions") {
-			Card(Modifier.testTag("actions")) {
-				actions.actions.forEach { action ->
-					SettingRow(
-						(action.submenu + action.label).joinToString(" ▸ "),
-						description =
-							action.id + " (hidden)".takeIf { action.id in actions.hidden }.orEmpty(),
-					) {}
-				}
-			}
-		}
-		Section("Places") {
-			Card {
-				actions.places.values.forEach { place ->
-					SettingRow(place.id) {}
-				}
-			}
-		}
-		Section(
-			"Text searches",
-			description =
-				"Commands that find lines in the files a window shows, defined under “textSearches”.",
-		) {
-			Card(Modifier.testTag("text-searches")) {
-				actions.searches.forEach { search ->
-					SettingRow(
-						(search.submenu + search.label).joinToString(" ▸ "),
-						description =
-							search.id + " (hidden)".takeIf { search.id in actions.hidden }.orEmpty(),
-					) {}
-				}
-				SettingRow(
-					"Editor",
-					description =
-						"Opens a line found. Set under “editor”; otherwise \$VISUAL or \$EDITOR is used.",
-				) {
-					Text(
-						editorSaid(actions.editor),
-						style = type.mono.copy(color = palette.textMuted),
-						maxLines = 1,
-						modifier = Modifier.testTag("editor"),
-					)
-				}
+			settings.actions.broken.firstOrNull { it.what == "editor" }?.let {
+				Text(
+					it.why,
+					style = type.muted.copy(color = palette.dangerText),
+					modifier =
+						Modifier
+							.padding(
+								horizontal = Space.l,
+								vertical = Space.s,
+							).testTag("editor-wrong"),
+				)
 			}
 		}
 	}
 }
 
-/** What opens a line a text search found, as the Actions page says it. */
+/** What opens a line a text search found, as the Text searches page says it. */
 internal fun editorSaid(editor: prism.browser.Editor): String =
 	when (editor) {
 		prism.browser.Editor.Application -> "The file's default application"

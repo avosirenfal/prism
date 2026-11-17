@@ -187,7 +187,7 @@ enum class Does(
 	Run("Run a command"),
 	Folder("Open a folder"),
 	Place("Open a place"),
-	Like("Same as another action"),
+	Like("Like another"),
 }
 
 /** How an action's command is run. */
@@ -235,7 +235,12 @@ data class AskForm(
 
 	companion object {
 		fun of(name: String, spec: AskSpec): AskForm =
-			AskForm(name, spec.folder != null, spec.folder ?: spec.text.orEmpty(), spec.start.orEmpty())
+			AskForm(
+				name,
+				spec.folder != null,
+				spec.folder ?: spec.text.orEmpty(),
+				spec.start.orEmpty(),
+			)
 	}
 }
 
@@ -461,7 +466,11 @@ data class SearchForm(
 			takes = takes.word.takeIf { takes != Takes.Files || kept?.takes != null },
 			read = read.word.takeIf { read != HitRead.Lines || kept?.read != null },
 			nul = nul,
-			positions = positions.word.takeIf { positions != Positions.Lines || kept?.positions != null },
+			positions =
+				positions.word.takeIf {
+					positions != Positions.Lines ||
+						kept?.positions != null
+				},
 			preview = shown,
 			previews =
 				previews
@@ -557,18 +566,30 @@ fun offeredSaid(spec: WhenSpec, unsaid: On?, scenes: Scenes): List<String> {
 
 	val not = spec.not
 
+	// What is chosen is said where the conditions say anything of it, and of a menu of files always.
+	val things =
+		when {
+			named.isNotEmpty() || spec.count != null || spec.kind != null -> "For ${thingsSaid(
+				spec,
+			)}"
+			(spec.target ?: unsaid?.word) == On.Files.word -> "For anything selected"
+			else -> null
+		}
+
 	return listOfNotNull(
 		"$menu, in $where.",
-		"For ${thingsSaid(spec)}" +
-			named
-				.takeIf { it.isNotEmpty() }
-				?.let { " $it" }
-				.orEmpty() +
-			not
-				?.ext
-				?.takeIf { it.isNotEmpty() }
-				?.let { ", but not ${dotted(it)}" }
-				.orEmpty() + ".",
+		things?.let {
+			it +
+				named
+					.takeIf { said -> said.isNotEmpty() }
+					?.let { said -> " $said" }
+					.orEmpty() +
+				not
+					?.ext
+					?.takeIf { ext -> ext.isNotEmpty() }
+					?.let { ext -> ", but not ${dotted(ext)}" }
+					.orEmpty() + "."
+		},
 		not
 			?.takeIf { it.copy(ext = null) != WhenSpec() }
 			?.let { "With further exceptions, set in the preferences file." },
@@ -593,7 +614,10 @@ fun offeredSaid(spec: WhenSpec, unsaid: On?, scenes: Scenes): List<String> {
 		},
 		spec.with?.takeIf { it.isNotEmpty() }?.let { with ->
 			"Only where the place's " +
-				with.entries.joinToString(" and ") { (name, globs) -> "$name is like ${few(globs)}" } + "."
+				with.entries.joinToString(
+					" and ",
+				) { (name, globs) -> "$name is like ${few(globs)}" } +
+				"."
 		},
 	)
 }
@@ -611,6 +635,7 @@ fun offeredBrief(spec: WhenSpec, unsaid: On?): String {
 		target,
 		thingsSaid(spec)
 			.takeIf { spec.count != null || spec.kind != null }
+			?.removePrefix("any ")
 			?.replaceFirstChar { it.uppercase() },
 		spec.ext?.takeIf { it.isNotEmpty() }?.let { ext -> few(ext.map { ".$it" }, 3) },
 		spec.names?.takeIf { it.isNotEmpty() }?.let { few(it, 3) },
@@ -626,16 +651,19 @@ fun offeredBrief(spec: WhenSpec, unsaid: On?): String {
 /** What [spec] does, in a few words, for a list's row: the programs it runs, or what it opens. */
 fun doesBrief(spec: Declared, labelOf: (String) -> String?): String? =
 	when {
-		spec is ActionSpec && spec.like != null -> "Same as “${labelOf(spec.like!!) ?: spec.like}”"
+		spec is ActionSpec && spec.like != null -> "Same as “${labelOf(
+			spec.like!!,
+		) ?: spec.like}”"
 		spec is ActionSpec && spec.show?.place != null -> "Opens the place ${spec.show?.place}"
 		spec is ActionSpec && spec.show != null -> "Opens ${spec.show?.folder}"
 		else ->
 			programsOf(spec)
-				.map { way -> way.joinToString(" and ") { it.replace("|", " or ") } }
+				// A program that goes by several names is said by its first: which it is here is not the point.
+				.map { way -> way.joinToString(" and ") { it.substringBefore('|') } }
 				.filter { it.isNotEmpty() }
 				.distinct()
 				.takeIf { it.isNotEmpty() }
-				?.let { "Runs ${it.joinToString(", or ")}" }
+				?.let { "Runs ${it.joinToString(" or ")}" }
 				?: (spec.run ?: spec.ways.firstOrNull()?.run)
 					?.firstOrNull()
 					?.let { "Runs $it" }

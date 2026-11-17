@@ -110,6 +110,21 @@ enum class Glyph {
 
 	/** A pin, as it holds a note to a board: something kept where it is. */
 	Pin,
+
+	/** A pencil: something changed. */
+	Edit,
+
+	/** Two sheets, one over the other: a copy made. */
+	Copy,
+
+	/** Three dots: what more can be done. */
+	More,
+
+	/** A triangle, as a player's: something run. */
+	Play,
+
+	/** An arrow round to where it set out from: something put back. */
+	Revert,
 }
 
 /** [glyph] at [size], in [tint]; a file's icon is marked with [category]'s colour. */
@@ -378,6 +393,53 @@ fun DrawScope.drawGlyph(
 			drawCircle(tint, 1.6f * unit, at(unit, 12f, 17.5f))
 		}
 		// Drawn upright, then leant over as a pin in a board is: its head, its body widening to a flange, its point.
+		Glyph.Edit -> {
+			stroked(
+				unit,
+				tint,
+				listOf(5f to 19f, 6f to 15f, 15.5f to 5.5f, 18.5f to 8.5f, 9f to 18f, 5f to 19f),
+			)
+			stroked(unit, tint, listOf(13.5f to 7.5f, 16.5f to 10.5f))
+		}
+		Glyph.Copy -> {
+			drawRoundRect(
+				tint,
+				at(unit, 9f, 9f),
+				Size(10.5f * unit, 10.5f * unit),
+				CornerRadius(2f * unit),
+				style = line(unit),
+			)
+			stroked(
+				unit,
+				tint,
+				listOf(15f to 6f, 15f to 4.5f, 4.5f to 4.5f, 4.5f to 15f, 6f to 15f),
+			)
+		}
+		Glyph.More ->
+			for (x in listOf(5.5f, 12f, 18.5f))
+				drawCircle(tint, 1.7f * unit, at(unit, x, 12f))
+		Glyph.Play ->
+			drawPath(
+				Path().apply {
+					moveTo(8f * unit, 5.5f * unit)
+					lineTo(18.5f * unit, 12f * unit)
+					lineTo(8f * unit, 18.5f * unit)
+					close()
+				},
+				tint,
+			)
+		Glyph.Revert -> {
+			drawArc(
+				tint,
+				startAngle = -150f,
+				sweepAngle = 300f,
+				useCenter = false,
+				topLeft = at(unit, 5f, 5.5f),
+				size = Size(14f * unit, 14f * unit),
+				style = line(unit),
+			)
+			stroked(unit, tint, listOf(5.2f to 4.2f, 5.6f to 9.2f, 10.6f to 8.6f))
+		}
 		Glyph.Pin ->
 			rotate(45f) {
 				stroked(unit, tint, listOf(8.5f to 3.5f, 15.5f to 3.5f))

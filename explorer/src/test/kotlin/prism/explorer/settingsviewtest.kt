@@ -250,48 +250,6 @@ class SettingsViewTest {
 		}
 
 	@Test
-	fun theActionsPageListsTheTextSearches_AndSaysWhichEditorOpensALineFound() =
-		runComposeUiTest {
-			val preferences =
-				Preferences(
-					editor = prism.preferences.OpenSpec(listOf("zed", "{path}:{line}")),
-				)
-
-			setContent {
-				BrowserTheme {
-					SettingsView(
-						Settings(preferences, page = Page.Actions),
-						{},
-						onApply = {},
-						onClose = {},
-					)
-				}
-			}
-
-			// Those that ship are there, each by what the menus call it and by its id; and the editor, as it is set.
-			onNodeWithText("Search in files…").assertExists()
-			onNodeWithText("text.strings").assertExists()
-			onNode(
-				hasTestTag("editor") and
-					androidx.compose.ui.test
-						.hasText("zed"),
-			).assertExists()
-			assertEquals(
-				"nvim, in the terminal",
-				editorSaid(
-					(
-						prism.browser.Editor.of(null) { "nvim".takeIf { _ -> it == "EDITOR" } }
-							as prism.browser.Reading.Right
-					).value,
-				),
-			)
-			assertEquals(
-				"The file's default application",
-				editorSaid(prism.browser.Editor.Application),
-			)
-		}
-
-	@Test
 	fun aTerminalIsFoundByTypingItsName_OneNotInstalledSaidSo_AndCustomShowsItsLines() =
 		runComposeUiTest {
 			var settings by mutableStateOf(Settings(Preferences.DEFAULT, page = Page.Terminal))

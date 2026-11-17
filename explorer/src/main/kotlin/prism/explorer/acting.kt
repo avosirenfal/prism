@@ -31,6 +31,23 @@ import prism.preferences.declared
  * replaced one), and putting one of prism's back is no more than taking what was written over it away.
  */
 
+/** The editor as it is typed: its command, as a line, and whether it runs in a terminal. None, where nothing is typed. */
+data class EditorForm(
+	val command: String = "",
+	val terminal: Boolean = false,
+) {
+	fun spec(): OpenSpec? =
+		wordsOf(command)
+			.takeIf {
+				it.isNotEmpty()
+			}?.let { OpenSpec(it, terminal) }
+
+	companion object {
+		fun of(spec: OpenSpec?): EditorForm =
+			spec?.let { EditorForm(textOf(it.run), it.terminal) } ?: EditorForm()
+	}
+}
+
 /**
  * What of the preferences the two pages change: the user's actions and text searches as they are written, the ids
  * turned off, and the editor. The user's [places] are here to read the rest with, and are not changed.
@@ -39,11 +56,11 @@ data class Acting(
 	val actions: List<JsonElement> = emptyList(),
 	val searches: List<JsonElement> = emptyList(),
 	val disabled: Set<String> = emptySet(),
-	val editor: OpenSpec? = null,
+	val editor: EditorForm = EditorForm(),
 	val places: List<JsonElement> = emptyList(),
 ) {
 	/** These as a file of actions, to be read after prism's own. */
-	val file: ActionsFile get() = ActionsFile(actions, places, searches, editor)
+	val file: ActionsFile get() = ActionsFile(actions, places, searches, editor.spec())
 
 	/** These, with what is called [id] turned on, or off. */
 	fun enabling(id: String, on: Boolean): Acting =
@@ -61,7 +78,7 @@ data class Acting(
 				preferences.actions,
 				preferences.textSearches,
 				preferences.disabled,
-				preferences.editor,
+				EditorForm.of(preferences.editor),
 				preferences.places,
 			)
 	}
@@ -97,8 +114,12 @@ sealed class ScriptKind<S : Declared>(
 			acting.copy(actions = written)
 	}
 
-	data object Search : ScriptKind<TextSearchSpec>("text search", TextSearchSpec.serializer()) {
-		override fun read(file: ActionsFile): List<Spec<TextSearchSpec>> = file.textSearchSpecs()
+	data object Search : ScriptKind<TextSearchSpec>(
+		"text search",
+		TextSearchSpec.serializer(),
+	) {
+		override fun read(file: ActionsFile): List<Spec<TextSearchSpec>> =
+			file.textSearchSpecs()
 
 		override fun written(acting: Acting): List<JsonElement> = acting.searches
 
@@ -119,7 +140,13 @@ sealed class ScriptKind<S : Declared>(
 		return writing(
 			acting,
 			when {
-				shipped[spec.id] == spec -> written.filterIndexed { index, _ -> ids[index] != spec.id }
+				shipped[spec.id] == spec ->
+					written.filterIndexed {
+						index,
+						_,
+						->
+						ids[index] != spec.id
+					}
 				at < 0 -> written + JSON.encodeToJsonElement(serializer, spec)
 				else ->
 					written.mapIndexed { index, element ->
@@ -188,6 +215,25 @@ sealed class ScriptKind<S : Declared>(
 			Scenes(
 				everything.places.keys.toList(),
 				read.searches.associate { it.id to it.label },
+			),
+		)
+	}
+
+	/**
+	 * [acting] with what is called [id] offered where, and for what, [to] says: itself, moved there; or, where it is
+	 * to be a [copy], a copy of it, under an id of its own, the one copied left as it is.
+	 */
+	fun moved(acting: Acting, id: String, to: Retarget, copy: Boolean): Acting {
+		val catalog = catalog(acting) { true }
+		val spec = catalog[id]?.spec ?: return acting
+
+		return put(
+			acting,
+			to.applied(
+				if (copy)
+					copyOf(spec, catalog.ids)
+				else
+					spec,
 			),
 		)
 	}
@@ -409,10 +455,15 @@ data class Narrowing(
 	fun shows(entry: Entry<Declared>): Boolean =
 		(scene == null || scene in entry.scenes) &&
 			entry.marks.containsAll(marks) &&
-			terms.all { term -> haystack(entry.spec).any { it.contains(term, ignoreCase = true) } } &&
+			terms.all { term ->
+				haystack(entry.spec).any { it.contains(term, ignoreCase = true) }
+			} &&
 			file.let { it == null || offeredFor(entry.spec.conditions, it) }
 
-	private val terms: List<String> get() = words.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }
+	private val terms: List<String> get() =
+		words.trim().split(Regex("\\s+")).filter {
+			it.isNotEmpty()
+		}
 
 	/** The file's name that [named] means: `zip` and `.zip` are a file of that extension, anything else a name. */
 	private val file: String? get() =
@@ -488,7 +539,9 @@ private class Written(
 				.map(::lacks)
 				.takeIf { each -> each.isNotEmpty() && each.none { it.isEmpty() } }
 				?.distinct()
-				?.joinToString(", or ") { way -> way.joinToString(" and ") { it.replace("|", " or ") } }
+				?.joinToString(
+					", or ",
+				) { way -> way.joinToString(" and ") { it.replace("|", " or ") } }
 
 		val action = spec as? ActionSpec
 		val place = action?.show?.place?.let(places::get)
@@ -510,7 +563,10 @@ private class Written(
 		fun of(acting: Acting): Written {
 			val files = listOf(Actions.SHIPPED, acting.file)
 
-			fun <T> read(specs: (ActionsFile) -> List<Spec<T>>, id: (T) -> String): Map<String, T> =
+			fun <T> read(
+				specs: (ActionsFile) -> List<Spec<T>>,
+				id: (T) -> String,
+			): Map<String, T> =
 				files
 					.flatMap(specs)
 					.filterIsInstance<Spec.Read<T>>()

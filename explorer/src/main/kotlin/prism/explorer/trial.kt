@@ -62,7 +62,12 @@ data class Trial(
 	/** How the last trial went; null before any. */
 	val result: Tried? = null,
 ) {
-	val lines: List<String> get() = given.lines().map { it.trim() }.filter { it.isNotEmpty() }
+	val lines: List<String> get() =
+		given
+			.lines()
+			.map {
+				it.trim()
+			}.filter { it.isNotEmpty() }
 }
 
 /** How a trial went. */
@@ -108,10 +113,17 @@ data class RanOnce(
 	val errors: String,
 )
 
-/** What stops something typed from being saved ([wrong]), and the programs it needs that are not here ([missing]). */
+/**
+ * What stops something typed from being saved ([wrong]), which is only that it is not finished where it is
+ * [unfinished] (no name yet, no command); the programs it needs that are not here ([missing]), with which it can be
+ * saved and is offered once they are; and the program its command runs, where that is not found here ([unfound]) and
+ * nothing says it has to be, so that it would be offered and then fail.
+ */
 data class Checked(
 	val wrong: List<String> = emptyList(),
 	val missing: String? = null,
+	val unfound: String? = null,
+	val unfinished: Boolean = false,
 ) {
 	val savable: Boolean get() = wrong.isEmpty()
 }
@@ -128,32 +140,55 @@ fun <S : Declared> ScriptKind<S>.checked(
 ): Checked {
 	val named =
 		listOfNotNull(
-			"Give it a name.".takeIf { spec.label.isBlank() },
 			when {
+				spec.label.isBlank() -> "Give it a name."
 				spec.id.isBlank() -> "Give it an id."
-				!ID.matches(spec.id) ->
-					"The id can only have letters, digits, dots, hyphens and underscores."
-				fresh && spec.id in catalog(acting, installed).ids ->
-					"The id “${spec.id}” is already used. Choose another."
 				else -> null
 			},
 		)
 
 	if (named.isNotEmpty())
-		return Checked(named)
+		return Checked(named, unfinished = true)
+
+	val taken =
+		when {
+			!ID.matches(
+				spec.id,
+			) -> "The id can only have letters, digits, dots, hyphens and underscores."
+			fresh && spec.id in catalog(acting, installed).ids ->
+				"The id “${spec.id}” is already used. Choose another."
+			else -> null
+		}
+
+	if (taken != null)
+		return Checked(listOf(taken))
+
+	// The program a lone command runs, where it is a name to be looked for and not a path or something filled in.
+	val unfound =
+		spec.run
+			?.firstOrNull()
+			?.takeIf { '/' !in it && '{' !in it && it.isNotBlank() && !installed(it) }
 
 	return when (val trouble = catalog(put(acting, spec), installed)[spec.id]?.trouble) {
-		is Trouble.Wrong -> Checked(listOf(trouble.why))
+		is Trouble.Wrong ->
+			Checked(listOf(trouble.why), unfinished = spec.run?.all { it.isBlank() } == true)
 		is Trouble.Missing -> Checked(missing = trouble.needs)
-		null -> Checked()
+		null -> Checked(unfound = unfound)
 	}
 }
 
 private val ID = Regex("[A-Za-z0-9._-]+")
 
 /** [acting]'s actions and searches read with [spec] among them, as this machine would have them. */
-private fun <S : Declared> ScriptKind<S>.readWith(acting: Acting, spec: S, world: World): Actions =
-	Actions.read(listOf(Actions.SHIPPED, put(acting, spec).file), installed = world::installed)
+private fun <S : Declared> ScriptKind<S>.readWith(
+	acting: Acting,
+	spec: S,
+	world: World,
+): Actions =
+	Actions.read(
+		listOf(Actions.SHIPPED, put(acting, spec).file),
+		installed = world::installed,
+	)
 
 // ---- an example ------------------------------------------------------------------------------------------------------
 
@@ -231,11 +266,14 @@ fun exampleOf(acting: Acting, spec: ActionSpec, world: World): Example {
 			where,
 		)
 
-	val answers = action.questions.associate { it.name to unknown(it.name) } + (TEMP to unknown("temp"))
+	val answers =
+		action.questions.associate { it.name to unknown(it.name) } + (TEMP to unknown("temp"))
 	val filling = filled(action, subject, answers) ?: return Example.None
 
 	return when (val deed = action.deed) {
-		is Deed.Run -> deed.command.fill(filling)?.let { Example.Runs(names, it) } ?: Example.None
+		is Deed.Run ->
+			deed.command.fill(filling)?.let { Example.Runs(names, it) }
+				?: Example.None
 		is Deed.Show -> Example.Opens(openedSaid(deed.what, filling))
 	}
 }
@@ -271,7 +309,8 @@ private fun openedSaid(what: Showing, filling: Filling): String =
 
 /** What [spec]'s command would be for the query “example”, with none of its options on, as this machine has it. */
 fun exampleOf(acting: Acting, spec: TextSearchSpec, world: World): Example {
-	val search = ScriptKind.Search.readWith(acting, spec, world).search(spec.id) ?: return Example.None
+	val search =
+		ScriptKind.Search.readWith(acting, spec, world).search(spec.id) ?: return Example.None
 
 	return search
 		.words(unknown("query"), emptySet(), world.home)
@@ -285,9 +324,13 @@ fun exampleOf(acting: Acting, spec: TextSearchSpec, world: World): Example {
 fun valuesAsked(acting: Acting, spec: ActionSpec, world: World): List<String> {
 	val actions = ScriptKind.Action.readWith(acting, spec, world)
 	val action = actions[spec.id] ?: return emptyList()
-	val place = spec.conditions.within.orEmpty().firstNotNullOfOrNull(actions.places::get)
+	val place =
+		spec.conditions.within
+			.orEmpty()
+			.firstNotNullOfOrNull(actions.places::get)
 
-	return place?.takes.orEmpty() + action.questions.filter { it.name !in action.given }.map { it.name }
+	return place?.takes.orEmpty() +
+		action.questions.filter { it.name !in action.given }.map { it.name }
 }
 
 /**
@@ -310,14 +353,17 @@ fun tried(
 					?: "It can't be run on this computer: a program it needs isn't installed.",
 			)
 
-	val place = spec.conditions.within.orEmpty().firstNotNullOfOrNull(actions.places::get)
+	val place =
+		spec.conditions.within
+			.orEmpty()
+			.firstNotNullOfOrNull(actions.places::get)
 	val entries = place != null && Need.Real !in action.needs
 
 	val things =
 		trial.lines.map { line ->
-			if (entries)
+			if (entries) {
 				Thing(Item.InPlace(line), line.trimEnd('/').substringAfterLast('/'), ThingKind.File)
-			else {
+			} else {
 				val path =
 					pathOf(line, world.home, world.home)
 						?: return Tried.Refused("“$line” isn't a path.")
@@ -338,7 +384,16 @@ fun tried(
 		Subject(
 			on,
 			things,
-			place?.let { Where.Place(Placed(it, it.takes.associateWith { name -> trial.answers[name].orEmpty() })) }
+			place?.let {
+				Where.Place(
+					Placed(
+						it,
+						it.takes.associateWith { name ->
+							trial.answers[name].orEmpty()
+						},
+					),
+				)
+			}
 				?: Where.Folder(
 					if (on == On.Files)
 						folder
@@ -356,7 +411,10 @@ fun tried(
 		)
 
 	val unanswered =
-		action.questions.filter { it.name !in action.given && trial.answers[it.name].isNullOrEmpty() }
+		action.questions.filter {
+			it.name !in action.given &&
+				trial.answers[it.name].isNullOrEmpty()
+		}
 
 	if (unanswered.isNotEmpty())
 		return Tried.Refused("Fill in ${unanswered.joinToString { "“${it.name}”" }} first.")
@@ -450,7 +508,10 @@ fun tried(
 				pathOf(it, world.home, world.home) ?: return Tried.Refused("“$it” isn't a path.")
 			}
 
-	paths.firstOrNull { !Files.exists(it) }?.let { return Tried.Refused("$it doesn't exist.") }
+	paths
+		.firstOrNull {
+			!Files.exists(it)
+		}?.let { return Tried.Refused("$it doesn't exist.") }
 	if (trial.lines.isEmpty())
 		return Tried.Refused(
 			if (lines)
@@ -489,7 +550,8 @@ fun tried(
 	// What it printed is kept as it is read, a line each, to say which of them were not read as anything found.
 	val listening =
 		object : Commands {
-			override fun run(invocation: Invocation, watch: Watch) = commands.run(invocation, watch)
+			override fun run(invocation: Invocation, watch: Watch) =
+				commands.run(invocation, watch)
 
 			override fun stream(
 				invocation: Invocation,
@@ -567,4 +629,13 @@ sealed interface ActingModal {
 		val id: String,
 		val to: Retarget,
 	) : ActingModal
+
+	companion object {
+		/** [spec] opened to be changed; or, where it is [fresh], to be made. */
+		fun editing(spec: Declared, fresh: Boolean = false): ActingModal =
+			when (spec) {
+				is ActionSpec -> EditingAction(ActionForm.of(spec, fresh))
+				is TextSearchSpec -> EditingSearch(SearchForm.of(spec, fresh))
+			}
+	}
 }

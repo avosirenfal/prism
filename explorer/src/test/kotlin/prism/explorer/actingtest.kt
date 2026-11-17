@@ -91,7 +91,10 @@ class ActingTest {
 		assertNull(kind.catalog(kind.without(acting, "mine.mail"), everything)["mine.mail"])
 
 		// The same one written twice is written once.
-		assertEquals(1, kind.put(kind.put(Acting(), mine), mine.copy(label = "Send")).actions.size)
+		assertEquals(
+			1,
+			kind.put(kind.put(Acting(), mine), mine.copy(label = "Send")).actions.size,
+		)
 	}
 
 	@Test
@@ -112,7 +115,9 @@ class ActingTest {
 		val settings = Settings(Preferences.DEFAULT).copy(acting = acting)
 
 		assertEquals(setOf("archive.zip.unpack"), settings.written.disabled)
-		assertFalse(ScriptKind.Action.catalog(acting, everything)["archive.zip.unpack"]!!.enabled)
+		assertFalse(
+			ScriptKind.Action.catalog(acting, everything)["archive.zip.unpack"]!!.enabled,
+		)
 		assertTrue(settings.actions.actions.none { it.id == "archive.zip.unpack" })
 		assertEquals(acting.enabling("archive.zip.unpack", true), Acting())
 	}
@@ -134,13 +139,19 @@ class ActingTest {
 		fun needs(id: String) = (catalog[id]?.trouble as? Trouble.Missing)?.needs
 
 		assertEquals("zip, or 7zz or 7z or 7za or 7zr", needs("archive.zip.remove"))
-		assertEquals("unzip, or 7zz or 7z or 7za or 7zr, or bsdtar", needs("archive.zip.unpack"))
+		assertEquals(
+			"unzip, or 7zz or 7z or 7za or 7zr, or bsdtar",
+			needs("archive.zip.unpack"),
+		)
 		assertEquals("exiftool", needs("a.needs"))
 		assertEquals("magick or convert", needs("a.which"))
 		// What is like one that cannot be run cannot be either, for want of the same.
 		assertEquals(needs("archive.zip.unpack"), needs("archive.zip.unpack-here"))
 		// What opens a place that cannot be listed wants what its listing does.
-		assertEquals("zipinfo, or 7zz or 7z or 7za or 7zr, or bsdtar", needs("archive.zip.open"))
+		assertEquals(
+			"zipinfo, or 7zz or 7z or 7za or 7zr, or bsdtar",
+			needs("archive.zip.open"),
+		)
 		assertNull(catalog["archive.tar.unpack"]?.trouble)
 		assertNull(catalog["git.changes"]?.trouble)
 		assertTrue((catalog["a.wrong"]?.trouble as Trouble.Wrong).why.contains("{nowhere}"))
@@ -156,12 +167,22 @@ class ActingTest {
 		val kind = ScriptKind.Action
 		val catalog = kind.catalog(Acting().enabling("decompress.gz", false), everything)
 
-		fun shown(narrowing: Narrowing) = catalog.groups(narrowing).flatMap { it.entries }.map { it.id }
+		fun shown(narrowing: Narrowing) =
+			catalog
+				.groups(narrowing)
+				.flatMap {
+					it.entries
+				}.map { it.id }
 
 		val groups = catalog.groups(Narrowing())
 
 		assertEquals(
-			listOf(Scene.Anywhere, Scene.In("folder"), Scene.In("archive.tar"), Scene.In("archive.zip")),
+			listOf(
+				Scene.Anywhere,
+				Scene.In("folder"),
+				Scene.In("archive.tar"),
+				Scene.In("archive.zip"),
+			),
 			groups.map { it.scene }.take(4),
 		)
 		assertEquals(catalog.entries.size, groups.sumOf { it.entries.size })
@@ -171,17 +192,27 @@ class ActingTest {
 		// By a word of its name, its id, or an extension it is for.
 		assertEquals(listOf("git.changes"), shown(Narrowing("changed")))
 		assertEquals(listOf("decompress.zst"), shown(Narrowing(".zstd decompress")))
-		assertTrue(shown(Narrowing("bsdtar")).containsAll(listOf("archive.tar.unpack", "archive.zip.unpack")))
+		assertTrue(
+			shown(
+				Narrowing("bsdtar"),
+			).containsAll(listOf("archive.tar.unpack", "archive.zip.unpack")),
+		)
 		// In one window.
 		assertEquals(
-			catalog.entries.filter { it.spec.conditions.within == listOf("archive.zip") }.map { it.id },
+			catalog.entries
+				.filter {
+					it.spec.conditions.within == listOf("archive.zip")
+				}.map { it.id },
 			shown(Narrowing(scene = Scene.In("archive.zip"))),
 		)
+
 		// For a file of a name: what names its extension, and what is for any file; not what its name rules out.
 		val forGz = shown(Narrowing(named = "notes.tar.gz"))
 
 		assertTrue("archive.tar.unpack" in forGz && "compress.zip" in forGz)
-		assertFalse("decompress.gz" in forGz || "archive.zip.unpack" in forGz || "git.changes" in forGz)
+		assertFalse(
+			"decompress.gz" in forGz || "archive.zip.unpack" in forGz || "git.changes" in forGz,
+		)
 		assertTrue("decompress.gz" in shown(Narrowing(named = "gz")))
 		assertEquals(shown(Narrowing(named = ".zip")), shown(Narrowing(named = "zip")))
 		// With a mark.
@@ -259,7 +290,13 @@ class ActingTest {
 
 		assertTrue(checked(form).savable)
 		assertEquals(listOf("Give it a name."), checked(form.copy(label = " ")).wrong)
-		assertTrue(checked(form.copy(id = "compress.zip")).wrong.single().contains("already used"))
+		assertTrue(checked(form.copy(label = " ")).unfinished)
+		// A program nothing says it needs, and that is not here, is said: it would be offered, and fail.
+		assertEquals("mail", checked(form) { it != "mail" }.unfound)
+		assertNull(checked(form).unfound)
+		assertTrue(
+			checked(form.copy(id = "compress.zip")).wrong.single().contains("already used"),
+		)
 		assertTrue(checked(form.copy(id = "compress.zip", fresh = false)).savable)
 		assertTrue(
 			checked(form.copy(ways = listOf(WayForm(command = CommandForm.Line("mail {paht}")))))
@@ -278,7 +315,10 @@ class ActingTest {
 	@Test
 	fun whenSomethingIsOfferedIsSaidInAPersonsWords() {
 		val scenes = ScriptKind.Action.catalog(Acting(), everything).scenes
-		val gz = ScriptKind.Action.shipped.getValue("decompress.gz").conditions
+		val gz =
+			ScriptKind.Action.shipped
+				.getValue("decompress.gz")
+				.conditions
 
 		assertEquals(
 			listOf(
@@ -287,24 +327,29 @@ class ActingTest {
 			),
 			offeredSaid(gz, On.Files, scenes),
 		)
-		assertEquals("Any files · .gz · not .tar.gz", offeredBrief(gz, On.Files))
+		assertEquals("Files · .gz · not .tar.gz", offeredBrief(gz, On.Files))
 		assertEquals(
 			listOf(
 				"In the menu of the folder itself (a click on empty space), in the place archive.zip.",
-				"For any items.",
 			),
 			offeredSaid(
-				ScriptKind.Action.shipped.getValue("archive.zip.extract-all").conditions,
+				ScriptKind.Action.shipped
+					.getValue("archive.zip.extract-all")
+					.conditions,
 				On.Files,
 				scenes,
 			),
 		)
 		assertEquals(
-			"In any menu, in folders or search results.",
-			offeredSaid(WhenSpec(within = listOf("folder", "results")), null, scenes).first(),
+			listOf("In any menu, in folders or search results."),
+			offeredSaid(WhenSpec(within = listOf("folder", "results")), null, scenes),
 		)
 		assertEquals(
-			"Runs unzip, or 7zz or 7z or 7za or 7zr, or bsdtar",
+			listOf("In the menu of the files selected, in any window.", "For anything selected."),
+			offeredSaid(WhenSpec(), On.Files, scenes),
+		)
+		assertEquals(
+			"Runs unzip or 7zz or bsdtar",
 			doesBrief(ScriptKind.Action.shipped.getValue("archive.zip.unpack")) { null },
 		)
 		assertEquals(
@@ -316,8 +361,11 @@ class ActingTest {
 	}
 
 	@Test
-	fun anExampleShowsTheCommandForAFileItIsFor_AndATrialRunsItForReal(@TempDir home: Path) {
+	fun anExampleShowsTheCommandForAFileItIsFor_AndATrialRunsItForReal(
+		@TempDir home: Path,
+	) {
 		val world = world(home)
+
 		val spec =
 			ActionSpec(
 				"t.count",
@@ -338,7 +386,9 @@ class ActingTest {
 			exampleOf(Acting(), spec, world),
 		)
 		assertEquals(
-			Example.Opens("Opens the place archive.zip with archive = ${home.resolve("example.zip")}"),
+			Example.Opens(
+				"Opens the place archive.zip with archive = ${home.resolve("example.zip")}",
+			),
 			exampleOf(Acting(), ScriptKind.Action.shipped.getValue("archive.zip.open"), world),
 		)
 		assertEquals(Example.None, exampleOf(Acting(), spec.copy(run = listOf("{no}")), world))
@@ -364,14 +414,23 @@ class ActingTest {
 		val ran = tried(Trial("a.txt\nb.md", mapOf("word" to "one"))) as Tried.Ran
 
 		assertEquals(listOf(0 to "2\n", 1 to "0\n"), ran.runs.map { it.status to it.output })
-		assertEquals(home.resolve("a.txt").toString(), ran.runs.first().words.last())
+		assertEquals(
+			home.resolve("a.txt").toString(),
+			ran.runs
+				.first()
+				.words
+				.last(),
+		)
 		assertTrue(ran.note!!.contains("don't meet its conditions"))
 
 		// One that fails says so, with what it wrote; and nothing after it is run.
 		val failed =
 			tried(
 				Trial("a.txt\nb.md"),
-				spec.copy(ask = emptyMap(), run = listOf("sh", "-c", "echo no >&2; exit 3", "sh", "{path}")),
+				spec.copy(
+					ask = emptyMap(),
+					run = listOf("sh", "-c", "echo no >&2; exit 3", "sh", "{path}"),
+				),
 			) as Tried.Ran
 
 		assertEquals(listOf(3 to "no\n"), failed.runs.map { it.status to it.errors })
@@ -382,7 +441,9 @@ class ActingTest {
 	}
 
 	@Test
-	fun aSearchTriedSaysWhatItFound_AndWhichLinesItPrintedCouldNotBeRead(@TempDir home: Path) {
+	fun aSearchTriedSaysWhatItFound_AndWhichLinesItPrintedCouldNotBeRead(
+		@TempDir home: Path,
+	) {
 		val world = world(home)
 
 		Files.writeString(home.resolve("a.txt"), "alpha\nbeta alpha\n")
@@ -404,7 +465,13 @@ class ActingTest {
 		)
 
 		val found =
-			tried(Acting(), spec, Trial("a.txt", query = "alpha"), world, ProcessCommands) as Tried.Found
+			tried(
+				Acting(),
+				spec,
+				Trial("a.txt", query = "alpha"),
+				world,
+				ProcessCommands,
+			) as Tried.Found
 
 		assertEquals(2, found.lines)
 		assertEquals(1, found.files)
@@ -439,7 +506,18 @@ class ActingTest {
 
 		// What a command that cannot be started says is how it ended.
 		val none =
-			tried(Acting(), spec, Trial("a.txt"), world, Commands { _, _ -> Ran(null, "", "no sh") })
+			tried(
+				Acting(),
+				spec,
+				Trial("a.txt"),
+				world,
+				Commands {
+					_,
+					_,
+					->
+					Ran(null, "", "no sh")
+				},
+			)
 
 		assertTrue((none as Tried.Found).ended is TextEnding.Failed)
 	}
@@ -470,8 +548,11 @@ class ActingTest {
 		// The menus page sees it before it is applied.
 		assertNotNull(settings.actions["mine.mail"])
 		assertEquals(
-			Subject(On.Files, listOf(Thing(Item.OnDisk(Path.of("/a")), "a", ThingKind.File)), Where.Results)
-				.let { settings.actions["mine.mail"]!!.fits(it) },
+			Subject(
+				On.Files,
+				listOf(Thing(Item.OnDisk(Path.of("/a")), "a", ThingKind.File)),
+				Where.Results,
+			).let { settings.actions["mine.mail"]!!.fits(it) },
 			true,
 		)
 

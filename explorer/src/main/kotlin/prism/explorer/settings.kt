@@ -429,7 +429,7 @@ data class Settings(
 			actions = kept(Preferences::actions, acting.actions),
 			textSearches = kept(Preferences::textSearches, acting.searches),
 			disabled = kept(Preferences::disabled, acting.disabled),
-			editor = kept(Preferences::editor, acting.editor),
+			editor = kept(Preferences::editor, acting.editor.spec()),
 			pickerBindings =
 				if (picking?.bindings != pickersWere)
 					picking?.bindings?.differences()

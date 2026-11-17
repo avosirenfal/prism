@@ -64,7 +64,7 @@ import prism.browser.Space
  *
  * [rebinding] is the bindings the page shown rebinds, where it rebinds any, each change to them made through
  * [onRebinding]; [mouseChords] are the mouse's buttons pressed over the window, and [filter] the page's field that
- * Ctrl+F goes to. Undo and redo, as [keys] bind them, are [onUndo] and [onRedo], wherever nothing that has the
+ * Ctrl+F goes to, on a page that rebinds or otherwise [finds]. Undo and redo, as [keys] bind them, are [onUndo] and [onRedo], wherever nothing that has the
  * keyboard takes them first (a field's own typing).
  */
 @Composable
@@ -85,6 +85,7 @@ internal fun <P> SettingsFrame(
 	onRedo: () -> Unit = {},
 	filter: FocusRequester = remember { FocusRequester() },
 	blocked: String? = null,
+	finds: Boolean = rebinding != null,
 	content: @Composable (P) -> Unit,
 ) {
 	val palette = LocalPalette.current
@@ -119,8 +120,8 @@ internal fun <P> SettingsFrame(
 				// While a chord is awaited, every key is it: none reaches a field, nor moves the keyboard on. Ctrl+F on
 				// a page that rebinds goes to its filter, as it does in a browser's page.
 				when {
-					rebinding == null -> false
-					!listening ->
+					!finds -> false
+					rebinding == null || !listening ->
 						(key.type == KeyEventType.KeyDown && key.isCtrlPressed && key.key == Key.F).also {
 							if (it)
 								filter.requestFocus()

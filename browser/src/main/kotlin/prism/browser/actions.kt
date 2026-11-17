@@ -207,12 +207,10 @@ data class Phrase(
 								)
 							else ->
 								return Reading.Wrong(
-									"Unknown placeholder “${match.value}”" +
-										named
-											.takeIf { it.isNotEmpty() }
-											?.let { names ->
-												". Available here: ${names.sorted().joinToString { "{$it}" }}"
-											}.orEmpty(),
+									"Unknown placeholder “${match.value}”. Available here: " +
+										// Prism's own, which are there whatever is named, and then what is named here.
+										(Each.entries.map { it.word } + "folder" + named.sorted())
+											.joinToString { "{$it}" },
 								)
 						},
 					)
@@ -994,7 +992,9 @@ data class Actions(
 	/** The text search called [id], where there is one. */
 	fun search(id: String): TextSearch? = searches.firstOrNull { it.id == id }
 
-	private val byId: Map<String, UserAction> by lazy { (actions + off).associateBy { it.id } }
+	private val byId: Map<String, UserAction> by lazy {
+		(actions + off).associateBy { it.id }
+	}
 
 	operator fun get(id: String): UserAction? = byId[id]
 
