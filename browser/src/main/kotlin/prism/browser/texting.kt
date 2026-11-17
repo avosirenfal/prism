@@ -4,14 +4,16 @@ import java.nio.file.Path
 import prism.index.query.QueryText
 
 /*
- * The reducer's part in text searches (docs/text.md): what opening one, typing into it, moving about what it found and
- * opening a line come to. Like the rest of the reducer it runs nothing: the command to run is an effect
- * ([Effect.FindText]), and so is the file to show beside the list ([Effect.Preview]).
+ * The reducer's part in text searches (docs/text.md): what opening one, typing into it, adding a step to it, moving
+ * about what it found and opening a line come to. Like the rest of the reducer it runs nothing: a command to run is
+ * an effect ([Effect.FindText]), and so are the files a query of names finds ([Effect.FilterText]) and the file to
+ * show beside the list ([Effect.Preview]).
  *
- * One run of the command is under way at most. Whatever asks for another (a letter typed, an option turned) takes the
- * place of the one under way, which is stopped; and what a run that was overtaken found, arriving late, is of no run
- * the window knows, and is dropped. What the last run found stays shown until the next finds something or ends, so
- * that the list is not emptied at every letter.
+ * A text search is steps (pipeline.kt), and they are run one at a time, in order, each given what the one before it
+ * gave. What changes a step (a letter typed for it, an option turned) leaves the steps before it as they are, and it
+ * and every step after it to be run again: the step under way, if it is one of those, is stopped, and what a run that
+ * was overtaken found, arriving late, is of no run the window knows, and is dropped. What the last step gave stays
+ * shown until it gives something again, so that the list is not emptied at every letter.
  */
 
 /** What [target] holds to look in; everything the window shows, where it is null. */
@@ -57,78 +59,170 @@ internal fun BrowserState.textScope(target: Target?): TextScope {
 fun BrowserState.searchable(target: Target?): Boolean = textScope(target).paths.any()
 
 /**
- * [search] opened on [target]: shown in place of what is, which goes behind it in the history. Nothing, where there
- * is nothing on disk there to look in.
+ * [search] opened on [target]: shown in place of what is, which goes behind it in the history. Opened on everything a
+ * text search shows, it is a step more of that search, looking in what its last step gave. Nothing, where there is
+ * nothing on disk to look in, or it is a search of lines, which only follows something that found some.
  */
 internal fun BrowserState.searchingText(search: TextSearch, target: Target?): Step =
-	textScope(target).let { scope ->
-		if (scope.paths.none())
-			Step(this)
-		else
-			shown(Location.Text(search, scope), History(history.back + at, emptyList()), null)
+	when {
+		text != null && target == null -> textStepAdded(search)
+		search.takes != Takes.Files -> Step(this)
+		else ->
+			textScope(target).let { scope ->
+				if (scope.paths.none())
+					Step(this)
+				else
+					shown(Location.Text(search, scope), History(history.back + at, emptyList()), null)
+			}
 	}
 
 /**
- * [text] shown, the window just come to it: its command run, where it has found nothing yet or was stopped by
- * being left; as it was, where it had ended.
+ * [text] shown, the window just come to it: its steps run on from the first that has not been, which is all of them
+ * where it is new, the one that was under way where it was left while it ran, and none where they had all ended.
  */
 internal fun BrowserState.textShown(text: Location.Text): Step =
-	if (text.running != null || text.results.of == null)
-		texted(text.rerun())
-	else
-		texted(text to emptyList())
+	texted(advanced(text.copy(under = null)))
 
-/** This place, with [changed] of its text search, and what that asks for. */
+/** The text search shown, every step of it run again: what it shows stays until the last gives something. */
+internal fun BrowserState.textReran(): Step = texting { it.from(0) }
+
+/** This place, with [changed] of its text search, and what that asks for: its cursor on a row it shows, and that row's file. */
 private fun BrowserState.texted(changed: Pair<Location.Text, List<Effect>>): Step {
-	val (filtered, wanted) = filtering(changed.first)
-	val (pointed, asks) = filtered.pointing()
+	val (pointed, asks) = changed.first.pointing()
 
-	return Step(copy(at = pointed), changed.second + wanted + asks)
+	return Step(copy(at = pointed), changed.second + asks)
 }
 
-/**
- * [text], with which of the files it found its filter finds asked for, where that is not what was last asked: the
- * filter typed into, or more files found since. What it listed stays listed until the answer comes.
- */
-private fun BrowserState.filtering(
-	text: Location.Text,
-): Pair<Location.Text, List<Effect>> {
-	val filter = text.filter?.takeIf { it.narrows } ?: return text to emptyList()
-	val hits = text.results.hits
-
-	if ((filter.asked ?: filter.answered)?.asks(filter.text, hits) == true)
-		return text to emptyList()
-
-	val ask = FilterAsk(filter.text, QueryText.read(filter.text, aliases).query, hits, home)
-
-	return text.copy(filter = filter.copy(asked = ask)) to listOf(Effect.FilterText(ask))
-}
-
-/** The text search shown changed by [change], where one is shown. */
+/** The text search shown changed by [change], and its steps run on from the first that is then to be run. */
 private fun BrowserState.texting(
 	change: (Location.Text) -> Pair<Location.Text, List<Effect>>,
-): Step = text?.let { texted(change(it)) } ?: Step(this)
+): Step =
+	text?.let {
+		val (changed, stops) = change(it)
+		val (advanced, starts) = advanced(changed)
+
+		// A run started takes the place of the one under way, which need not be stopped besides.
+		texted(
+			advanced to
+				(
+					stops
+						.takeIf {
+							starts.none { start ->
+								start is Effect.FindText
+							}
+						}.orEmpty() + starts
+				),
+		)
+	} ?: Step(this)
 
 /**
- * This search's command run for what is typed now: the run under way, if one is, gives way to it. A search that looks
- * for what is typed, with nothing typed, runs nothing and has found nothing.
+ * This search with every step from [index] on to be run again. The step under way, where it is one of those, is
+ * stopped; one before them runs on.
  */
-private fun Location.Text.rerun(): Pair<Location.Text, List<Effect>> =
-	if (search.query == QueryUse.Typed && query.isBlank())
-		copy(running = null, results = TextResults.NONE, cursor = null) to
-			listOf(Effect.FindText(null))
+private fun Location.Text.from(index: Int): Pair<Location.Text, List<Effect>> {
+	val overtaken = under?.takeIf { it.index >= index }
+
+	return copy(
+		stages =
+			stages.mapIndexed { at, stage ->
+				if (at >=
+					index
+				)
+					stage.copy(done = null)
+				else
+					stage
+			},
+		under = under.takeIf { overtaken == null },
+	) to listOfNotNull(Effect.FindText(null).takeIf { overtaken?.run != null })
+}
+
+/** What the step at [index] is given: what the one before it gave; nothing, for the first, which is given the files shown. */
+private fun Location.Text.inputOf(index: Int): TextFlow? =
+	stages.getOrNull(index - 1)?.done?.out
+
+/** This search, the step at [index] having come to [done]: where it is the last, what it gave is what is shown. */
+private fun Location.Text.done(index: Int, done: StepDone): Location.Text =
+	copy(
+		stages =
+			stages.mapIndexed { at, stage ->
+				if (at ==
+					index
+				)
+					stage.copy(done = done)
+				else
+					stage
+			},
+		under = under.takeIf { it?.index != index },
+	).let {
+		if (index == stages.size - 1)
+			it.showing(done.out)
+		else
+			it
+	}
+
+/** This search showing [flow] in its list. */
+private fun Location.Text.showing(flow: TextFlow): Location.Text =
+	if (flow.hits === shown.hits)
+		this
 	else
-		TextRun(
-			search,
-			scope,
-			query
-				.takeIf {
-					search.query == QueryUse.Typed
-				}.orEmpty(),
-			on,
-		).let {
-			copy(running = it) to listOf(Effect.FindText(it))
+		copy(shown = flow)
+
+/**
+ * [text], its steps run on: the first that has not run since something before it changed is started, unless one is
+ * under way already, or one before it failed, after which nothing is run. A step with nothing to look for gives what
+ * it was given, at once, and the one after it is come to.
+ */
+private tailrec fun BrowserState.advanced(
+	text: Location.Text,
+	asked: List<Effect> = emptyList(),
+): Pair<Location.Text, List<Effect>> {
+	val index = text.stages.indexOfFirst { it.done == null }
+
+	if (text.failed != null)
+		return text.copy(shown = TextFlow.NONE) to asked
+	// Every step has run: what the last gave is what is shown, whichever was the last to be changed.
+	if (index < 0)
+		return text.showing(
+			text.stages
+				.last()
+				.done
+				?.out ?: text.shown,
+		) to asked
+	if (text.under != null)
+		return text to asked
+
+	val input = text.inputOf(index)
+	val step = text.stages[index].step
+
+	// What is waited for, where the step has something to look for; none, where it gives what it was given.
+	val awaited: Pair<Awaited, Effect>? =
+		when (step) {
+			is TextStep.Search ->
+				if (step.idle)
+					null
+				else
+					TextRun(
+						step.search,
+						input?.let { scopeOf(it, text.scope.said, text.scope.folder) } ?: text.scope,
+						step.sought,
+						step.on,
+						input?.hits?.lines?.filter { it.hit != null }?.toList().takeIf {
+							step.search.takes == Takes.Lines
+						},
+						step.without,
+					).let { Awaited.Run(it) to Effect.FindText(it) }
+			is TextStep.Names ->
+				input?.takeIf { step.text.isNotBlank() }?.let {
+					FilterAsk(step.text, QueryText.read(step.text, aliases).query, it.hits, home)
+						.let { ask -> Awaited.Names(ask) to Effect.FilterText(ask) }
+				}
 		}
+
+	return if (awaited == null)
+		advanced(text.done(index, passed(input)), asked)
+	else
+		text.copy(under = Under(index, awaited.first)) to asked + awaited.second
+}
 
 /**
  * This search with its cursor on a row its list shows (the first line found, where it was on none that is), and the
@@ -179,32 +273,168 @@ private fun Location.Text.previewOf(id: TextRowId): PreviewAsk? {
 	}
 }
 
-/** What a text search looks for typed: looked for, or what was found narrowed by it. */
+/**
+ * What is typed for the step typed for: looked for, by that step and those after it; or, of a search whose command is
+ * run once, what it found narrowed by it, and only the steps after it run again.
+ */
 internal fun BrowserState.textTyped(typed: String): Step =
 	texting {
-		val next = it.copy(query = typed)
+		val stage = it.stages[it.at]
+		val step = stage.step.typing(typed)
+
+		val stepped =
+			it.copy(
+				stages =
+					it.stages.mapIndexed { at, each ->
+						if (at ==
+							it.at
+						)
+							each.copy(step = step)
+						else
+							each
+					},
+			)
+
+		val old = stage.step
 
 		when {
-			typed == it.query -> it to emptyList()
-			it.search.query == QueryUse.Typed -> next.rerun()
-			else -> next to emptyList()
+			step == old -> it to emptyList()
+			old is TextStep.Search && step is TextStep.Search &&
+				!old.reruns(
+					step,
+				)
+			-> stepped.remade(it.at)
+			else -> stepped.from(it.at)
 		}
 	}
 
-/** An option of the text search shown turned the other way: its command is run again, with it so. */
+/**
+ * This search, what the step at [index] found made again into what it gives, as it is now typed for: its command is
+ * not run again. The steps after it are, since what they are given has changed.
+ */
+private fun Location.Text.remade(index: Int): Pair<Location.Text, List<Effect>> {
+	val step = stages[index].step as TextStep.Search
+	val done = stages[index].done
+	val found = under?.takeIf { it.index == index }?.found
+
+	return when {
+		// Run and ended: what it found, given anew.
+		done != null ->
+			from(index + 1).let { (stale, stops) ->
+				stale.done(index, done.copy(out = given(step, inputOf(index), done.raw))) to stops
+			}
+		// Under way, and the last: what it has found so far, shown as it is now narrowed.
+		found != null && index == stages.size - 1 ->
+			showing(given(step, inputOf(index), found)) to emptyList()
+		else -> this to emptyList()
+	}
+}
+
+/** An option of the step typed for turned the other way: that step and those after it are run again. */
 internal fun BrowserState.textOptioned(name: String): Step =
 	texting {
-		if (it.search.options.none { option -> option.name == name })
+		val step = it.step as? TextStep.Search
+
+		if (step == null || step.search.options.none { option -> option.name == name })
 			it to emptyList()
 		else
-			it
-				.copy(
+			it.stepped(
+				step.copy(
 					on =
-						if (name in it.on)
-							it.on - name
+						if (name in step.on)
+							step.on - name
 						else
-							it.on + name,
-				).rerun()
+							step.on + name,
+				),
+			)
+	}
+
+/** This search with the step typed for [step] instead, and it and those after it to be run again. */
+private fun Location.Text.stepped(step: TextStep): Pair<Location.Text, List<Effect>> =
+	copy(
+		stages =
+			stages.mapIndexed { index, each ->
+				if (index ==
+					at
+				)
+					each.copy(step = step)
+				else
+					each
+			},
+	).from(at)
+
+/**
+ * The step typed for turned about, or back: giving what it was given and found nothing in. Not the first step, which
+ * is given what the window showed, of which only its command knows the files.
+ */
+internal fun BrowserState.textWithout(): Step =
+	texting {
+		val step = it.step as? TextStep.Search
+
+		if (step == null || it.at == 0)
+			it to emptyList()
+		else
+			it.stepped(step.copy(without = !step.without))
+	}
+
+/**
+ * A step added after the last, and made the one typed for: [search], or a query of the files' names where it is null.
+ * Where the last step is that already, with nothing typed for it, it is the one typed for, and none is added. A
+ * search of lines is added only after lines.
+ */
+internal fun BrowserState.textStepAdded(search: TextSearch?): Step =
+	texting {
+		val step = search?.let { found -> TextStep.Search(found) } ?: TextStep.Names()
+		val last = it.stages.last().step
+
+		when {
+			last == step -> it.copy(at = it.stages.size - 1) to emptyList()
+			search?.takes == Takes.Lines && it.lined(it.stages.size) == null -> it to emptyList()
+			else ->
+				it.copy(stages = it.stages + Stage(step), at = it.stages.size) to emptyList()
+		}
+	}
+
+/**
+ * The search whose lines a step at [index] would be given: the nearest before it that finds lines in files. None,
+ * where every step before it gives files alone.
+ */
+fun Location.Text.lined(index: Int): TextSearch? =
+	stages
+		.take(index)
+		.lastOrNull { stage ->
+			(stage.step as? TextStep.Search)?.let {
+				it.search.takes == Takes.Files && it.search.read != HitRead.Paths && !it.without
+			} == true
+		}?.let { (it.step as TextStep.Search).search }
+
+internal fun BrowserState.textStepChosen(index: Int): Step =
+	texting {
+		if (index in it.stages.indices)
+			it.copy(at = index) to emptyList()
+		else
+			it to emptyList()
+	}
+
+/**
+ * The step at [index] taken out: those after it are run again, given what the one before it gives. Not the first,
+ * which is what the search is of: that is left by going back.
+ */
+internal fun BrowserState.textStepRemoved(index: Int): Step =
+	texting {
+		if (index !in 1 until it.stages.size)
+			it to emptyList()
+		else
+			it.from(index).let { (stale, stops) ->
+				stale.copy(
+					stages = stale.stages.filterIndexed { at, _ -> at != index },
+					at =
+						if (it.at >= index)
+							it.at - 1
+						else
+							it.at,
+				) to stops
+			}
 	}
 
 /** The cursor of the list moved as [move] says, among the rows it shows. */
@@ -258,7 +488,7 @@ internal fun BrowserState.textFoldedAll(folded: Boolean): Step =
 		it.copy(
 			folded =
 				if (folded)
-					it.results.hits.groups
+					it.shown.hits.groups
 						.mapTo(HashSet()) { group -> group.path }
 				else
 					emptySet(),
@@ -266,56 +496,101 @@ internal fun BrowserState.textFoldedAll(folded: Boolean): Step =
 		) to emptyList()
 	}
 
-/** The run under way stopped by the user: what it found so far is what it found. */
-internal fun BrowserState.textStopped(): Step =
-	texting {
-		val run = it.running
+/**
+ * The step under way stopped by the user: what its command found so far is what it found, and no step after it is
+ * run until something is changed.
+ */
+internal fun BrowserState.textStopped(): Step {
+	val text = text ?: return Step(this)
+	val under = text.under ?: return Step(this)
+	val step = text.stages[under.index].step as? TextStep.Search ?: return Step(this)
 
-		if (run == null)
-			it to emptyList()
-		else
-			it.ended(run, TextEnding.Stopped) to listOf(Effect.FindText(null))
-	}
-
-/** This search, [run] having ended as [ending] says: what it found is all it found, which is nothing where it sent none. */
-private fun Location.Text.ended(run: TextRun, ending: TextEnding): Location.Text =
-	copy(
-		running = null,
-		results =
-			if (results.of === run)
-				results.copy(ending = ending)
-			else
-				TextResults(run, Hits.NONE, ending),
-		cursor = cursor.takeIf { results.of === run },
+	return texted(
+		text.done(
+			under.index,
+			StepDone(
+				TextEnding.Stopped,
+				under.found,
+				given(step, text.inputOf(under.index), under.found),
+			),
+		) to listOf(Effect.FindText(null)),
 	)
+}
 
-/** Lines [run] found: added to what it has found, or shown in place of what the run before it did. */
+/** Lines [run] found: added to what it has found; shown, where it is the last step's. */
 internal fun BrowserState.textFound(run: TextRun, hits: List<FileHit>): Step =
 	texting {
-		when {
-			it.running !== run -> it to emptyList()
-			it.results.of === run ->
-				it.copy(
-					results =
-						it.results.copy(
-							hits =
-								it.results.hits + hits,
-						),
-				) to
+		val under = it.under
+		val step = under?.let { at -> it.stages[at.index].step as? TextStep.Search }
+
+		if (under?.run !== run || step == null) {
+			it to emptyList()
+		} else {
+			val found = under.found + hits
+			val grown = it.copy(under = under.copy(found = found))
+
+			if (under.index == it.stages.size - 1)
+				grown
+					.showing(given(step, it.inputOf(under.index), found))
+					// The first of what a run finds takes the place of what the run before it did: so does the cursor.
+					.let { shown ->
+						if (under.found ===
+							Hits.NONE
+						)
+							shown.copy(cursor = null)
+						else
+							shown
+					} to
 					emptyList()
-			else ->
-				it.copy(results = TextResults(run, Hits.NONE + hits, null), cursor = null) to
-					emptyList()
+			else
+				grown to emptyList()
 		}
 	}
 
-/** [run]'s command ended. */
+/** [run]'s command ended: its step has come to what it found, and the step after it is come to. */
 internal fun BrowserState.textEnded(run: TextRun, ending: TextEnding): Step =
 	texting {
-		if (it.running !== run)
+		val under = it.under
+		val step = under?.let { at -> it.stages[at.index].step as? TextStep.Search }
+
+		if (under?.run !== run || step == null)
 			it to emptyList()
 		else
-			it.ended(run, ending) to emptyList()
+			it.done(
+				under.index,
+				StepDone(ending, under.found, given(step, it.inputOf(under.index), under.found)),
+			) to emptyList()
+	}
+
+/** Which files [ask]'s query found: its step gives those; or, where it could not be run, has failed, and says why. */
+internal fun BrowserState.textFiltered(
+	ask: FilterAsk,
+	admitted: Reading<Set<Path>>,
+): Step =
+	texting {
+		val under = it.under
+		val input = under?.let { at -> it.inputOf(at.index) }
+
+		if ((under?.awaited as? Awaited.Names)?.ask !== ask || input == null)
+			it to emptyList()
+		else
+			it.done(
+				under.index,
+				when (admitted) {
+					is Reading.Right ->
+						StepDone(
+							TextEnding.Done(),
+							input.hits,
+							named(input, admitted.value),
+						)
+					is Reading.Wrong ->
+						StepDone(
+							TextEnding.Failed(admitted.why),
+							Hits.NONE,
+							TextFlow.NONE,
+						)
+				},
+			) to emptyList()
 	}
 
 /**
@@ -339,56 +614,55 @@ internal fun BrowserState.previewed(ask: PreviewAsk, preview: Preview): Step =
 			?: this,
 	)
 
-/** The field that narrows the files found opened; or put away, and every file listed again. */
-internal fun BrowserState.textFiltering(open: Boolean): Step =
-	texting {
-		it.copy(
-			filter =
-				if (open)
-					it.filter ?: FileFilter()
-				else
-					null,
-		) to emptyList()
-	}
+/**
+ * The files the text search shown lists, asked to be shown as a listing of files: a place of them, in which each is
+ * the file it is, to be chosen, copied, and given to any action.
+ */
+internal fun BrowserState.textListed(): Step {
+	val text = text ?: return Step(this)
+	val paths = text.shown.hits.paths
 
-/** What narrows the files found typed: asked of them, or, emptied, every file listed again. */
-internal fun BrowserState.textFilterTyped(typed: String): Step =
-	texting {
-		it.copy(
-			filter =
-				if (typed.isBlank())
-					FileFilter(typed)
-				else
-					(it.filter ?: FileFilter()).copy(text = typed),
-		) to emptyList()
-	}
+	return if (paths.isEmpty())
+		Step(this)
+	else
+		Step(this, listOf(Effect.ListFound(FoundAsk(text.said, paths))))
+}
 
-/** Which files [ask]'s query found: listed alone, where that is still what the filter asks; or why it could not be run. */
-internal fun BrowserState.textFiltered(
-	ask: FilterAsk,
-	admitted: Reading<Set<Path>>,
+/** What its steps look for, one after another: what a listing of the files it found is called. */
+val Location.Text.said: String get() =
+	stages
+		.mapNotNull { stage ->
+			stage.step.typed.takeIf { it.isNotBlank() }?.let { typed ->
+				if ((stage.step as? TextStep.Search)?.without == true)
+					"not “$typed”"
+				else
+					"“$typed”"
+			}
+		}.joinToString(" › ")
+		.ifEmpty { first.label.removeSuffix("…") }
+
+/** [ask]'s files read: shown, every one, as what a search of a place of them finds, where the search is still shown. */
+internal fun BrowserState.foundListed(
+	ask: FoundAsk,
+	tree: PlaceTree,
+	finding: Finding,
 ): Step =
-	texting {
-		val filter = it.filter
-
-		if (filter?.asked !== ask)
-			it to emptyList()
-		else
-			it.copy(
-				filter =
-					when (admitted) {
-						is Reading.Right ->
-							filter.copy(
-								asked = null,
-								answered = ask,
-								admitted = admitted.value,
-								refused = null,
-							)
-						// What it listed stays: a query half typed is often one that cannot be run yet.
-						is Reading.Wrong ->
-							filter.copy(asked = null, answered = ask, refused = admitted.why)
-					},
-			) to emptyList()
+	when {
+		text == null -> Step(this)
+		finding is Finding.Matched ->
+			shown(
+				Location.Results(
+					finding,
+					within =
+						Location.Place(
+							Placed(FOUND_FILES, mapOf(FoundAsk.TITLE to ask.title)),
+							tree = tree,
+						),
+				),
+				History(history.back + at, emptyList()),
+				null,
+			)
+		else -> notice(Notice.Failed("Couldn't list the files found", "They couldn't be read."))
 	}
 
 /** What looks in the file shown opened, or put away. */

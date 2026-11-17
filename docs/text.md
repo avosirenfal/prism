@@ -7,8 +7,8 @@ under the file it is in, and beside them the file itself, at the line under the 
 Prism finds nothing itself. A text search is **declared**, as actions and places are (docs/menus.md): what it
 declares is a command, which is given the files and prints the lines it finds in them. So the program that searches is
 whichever the user has (`rg`, `grep`, `git grep`), and anything else that prints lines of files can be looked through
-the same way. Two ship, as declarations in `browser/src/main/resources/prism/browser/actions.json`: "Search in
-files…" and "Strings in files…".
+the same way. Four ship, as declarations in `browser/src/main/resources/prism/browser/actions.json`: "Search in
+files…", "Strings in files…", "Search in these lines…" and "List files…".
 
 ![Lines found, under their files, with the file beside them](text-search.png)
 
@@ -79,7 +79,7 @@ file and the line. Prism does not edit.
 | its key, or the menu of the space around the rows | everything the window shows: a folder's rows as they are filtered, a search's results, a place's files |
 | the menu of chosen rows | those rows |
 | the menu of a folder in the sidebar | that folder |
-| inside another text search | where that one looked |
+| beside what a text search found | what that search's last step gave: it is added to it as a step ("Steps", below) |
 
 A text search needs files on disk. It is not offered where there are none: on the entries of an archive, on a
 place's own groupings, in an empty folder. Like the user's actions, it is an explorer's to offer, and never a
@@ -100,6 +100,7 @@ page with why, and the rest are still read.
 | `query` | `typed` (unless said) or `narrows`: see below |
 | `options` | what can be turned on beside the field, each by a name: its `label`, and the words the command is given when it is `on` and when it is `off` |
 | `run`, or `ways` | the command; or several, each with the `programs` it needs, the first that can be run here being used |
+| `takes` | what it is given on its standard input: `files` (unless said), or `lines` found already: see "Steps" |
 | `read`, `nul`, `positions` | how what it prints is read: see below. A way can say its own `read` and `nul` |
 | `preview`, or `previews` | the command whose output is shown beside a line; or several, as `ways` are |
 | `open` | what opens a line, in place of the user's editor: `{ "run": […], "terminal": true }` |
@@ -137,6 +138,7 @@ that only lists. "Strings in files…" is one:
 | `lines` (unless said) | `path:12:text`. A number and a space also part them, as in `path:    4096 text` | `grep -n`, `git grep -n`, `strings -f -t d`, compilers |
 | `rg-json` | one of ripgrep's `--json` messages | `rg --json` |
 | `json` | an object: `path`, and any of `at` (the number), `text`, and `marks` (pairs of where a match starts and ends in the text) | a script of your own |
+| `paths` | a file, and no line of it | `rg --files`, `rg -l`, `git ls-files`, `fd` |
 
 A line that is not of its kind is passed over. A relative path is in the folder the command ran in, which is the
 folder shown (the home folder, where the window shows none).
@@ -185,13 +187,81 @@ about a string, say.
 With no preview command, or none that is installed, prism reads the file as text. A file longer than 20,000 lines is
 read about the line wanted. A file with a NUL character near its start is said not to be text.
 
-## Narrowing the files found
+## Steps, one after another
 
-Over the list are how many files and lines it lists, a button that folds every file or unfolds them, and a button
-that narrows the files. The second opens a field, and what is typed there is a query in the language a search of the
-index is typed in (docs/search.md), run over the files that were found, by their names and where they are:
+A text search is one or more **steps**. Each is given what the one before it gave, and what the last gives is what the
+window lists. Say you want every file that has both `class` and `Forever` in it, on whatever lines:
 
-| typed | lists the files |
+1. Search for `class`. The list is every file with `class` in it.
+2. Press Ctrl+Shift+G again, or the + after the steps, and choose "Search in files…". A second step is added, and
+   what is typed is now for it.
+3. Type `Forever`. The second step is given the files the first one found, and nothing else. The list is the lines
+   with `Forever`, in files that also have `class`.
+
+![Three steps: a search, a search turned about, and a query of names](text-steps.png)
+
+The steps are over the field, as chips, in the order they run: where it looks, then each step with what is typed for
+it and how many files it gave. One of them is lit: the one what is typed is for. A click on a chip makes it that one,
+so any step can be typed for again; it and every step after it are then run again, and those before it are left as
+they are. Each chip but the first has a cross, which takes the step out.
+
+What goes from a step to the next is files, with the lines found in them (`TextFlow`, in `browser/pipeline.kt`). A
+step is one of three kinds, by what it takes of that and what it gives:
+
+| a step that is | is given | gives |
+|---|---|---|
+| a search that takes **files** (any search, unless it says otherwise) | the files | the lines it finds in them, under their files |
+| a search that takes **lines** (`"takes": "lines"`) | the lines | those of them it keeps, each still of its file and at its place |
+| a query of **names** (the funnel over the list, or "Filter files by name…" in the + menu) | the files | those whose names, and where they are, the query finds, with their lines |
+
+So which steps can follow which is not a rule that is written anywhere: it is what each takes. `strings` takes files,
+so it can follow anything that gives files; it does not take lines, so it is never offered to look through lines. A
+search that takes lines is offered only once some step has found lines.
+
+### Turned about: what it does not find
+
+A search after the first has a toggle, **Without**, beside its options. Turned on, the step gives what it was given
+and found nothing in: the files it found no line in, with whatever lines they came with; or, of a search that takes
+lines, the lines it did not keep. Prism does this, by taking what the command found away from what it was given, so
+it is the same for every program.
+
+The first step has no such toggle. What it is given is what the window showed, which may be folders, and which files
+are in those only its command knows. To have "every file without X" of a folder, list its files first: "List files…"
+(from the folder's menu) and then a search, turned about.
+
+### A search that takes lines
+
+Its command is given the lines, one to a line of its standard input, as text: nothing of which file each is in. It
+prints the ones it keeps as `grep -n` prints lines of its input: `N:text`, where `N` is the line's number among those
+it was given. That number is how prism knows which line it kept, and so which file it is of and where in it. What it
+colours in the text is what matched, as ever. "Search in these lines…" is one, and ships:
+
+```json
+{
+  "id": "text.lines",
+  "label": "Search in these lines…",
+  "takes": "lines",
+  "run": ["rg", "--json", "--line-number", "{options}", "-e", "{query}", "-"],
+  "read": "rg-json"
+}
+```
+
+The lines it keeps are still the lines of whatever found them in files. That search says what their numbers are, how
+their file is shown beside them, and what opens them: after `strings`, a line kept by `rg` is still at its byte, and
+the file beside it is still the bytes about it.
+
+### A search that gives files and no lines
+
+`"read": "paths"` reads each line a command prints as a file, and no line of it: what `rg --files`, `rg -l`,
+`git ls-files` and `fd` print. Such a step gives the files it names, with whatever lines they came with. First, it is
+a list of files, which what is typed narrows by where each is. "List files…" is one, and ships.
+
+### A query of names
+
+What is typed for it is a query in the language a search of the index is typed in (docs/search.md), run over the
+files it is given, by their names and where they are:
+
+| typed | gives the files |
 |---|---|
 | `step` | with `step` in their names |
 | `*.kt$` | whose names end in `.kt` |
@@ -201,11 +271,47 @@ index is typed in (docs/search.md), run over the files that were found, by their
 
 ![The files found narrowed to those under one folder](text-filtered.png)
 
-It narrows what is listed, and looks for nothing: the command is not run again. Which files the query finds is
-worked out off the window's thread, in an index made of the files found and no others (`Index.given`, as a place is
-searched), and asked again whenever more are found. Until an answer comes, what was listed stays listed. A query
-that cannot be run says why under the field. Escape in the field, or the button again, puts it away, and every file
-is listed again.
+It runs no command. Which files it finds is worked out off the window's thread, in an index made of the files it is
+given and no others (`Index.given`, as a place is searched).
+
+### How they run
+
+One step is under way at a time. A step must have ended before the next is given what it found, so only the last
+step's lines are shown as they come; while an earlier one runs, its chip has a spinner, and the list shows what it
+showed. A step that fails says so where the list would be, and no step after it is run. A step with nothing typed for
+it (just added) gives what it was given, so adding a step does not empty the list.
+
+A step that stopped at 100,000 lines gave the next the files it had found by then, which may not be all of them: its
+chip's count has a + after it.
+
+### Chains that work, and are tested
+
+Each of these is run in `TextTest`, with the machine's own programs:
+
+| wanted | steps |
+|---|---|
+| the files with A and B, on any lines | Search in files `A` › Search in files `B` |
+| the files with A and no B | Search in files `A` › Search in files `B`, without |
+| A, in the files under one folder, that also have B | Search in files `A` › names `dir:launcher` › Search in files `B` |
+| the strings of a binary that look like version numbers | Strings in files › Search in these lines `[0-9]+\.[0-9]+` (Regex) |
+| the TODOs that name nobody | Search in files `TODO` › Search in these lines `TODO\(\w+\)` (Regex), without |
+| the files with no licence | List files › Search in files `licensed under`, without |
+| what the binaries that use a library say when they fail | Strings in files, narrowed to `libssl` › Strings in files, narrowed to `failed` |
+| the files found, zipped (or anything else done to files) | any steps › "Show these files as a listing" › choose them, and the action |
+
+![The strings of two binaries, and of those the ones a pattern finds](text-strings-searched.png)
+
+### The files found, as a listing
+
+The last button over the list shows the files it lists as a listing of files: all together, each with its folder,
+size and date, as a search's results are shown. There they are files as anywhere: chosen, copied, dragged, moved to
+the trash, and given to any action. Back is the search again, as it was left.
+
+![The files two steps found, as a listing of files](text-as-files.png)
+
+It is a place (docs/menus.md) that no command lists: it holds what was found when it was made, and reading it again
+changes nothing. Searching in it (Ctrl+Shift+F) finds among those files, and a text search opened on it looks in
+them.
 
 ## Looking in the file shown
 
@@ -249,12 +355,16 @@ The preferences' "Actions" page says which editor is in use.
 | Home, End | the list | the first row, the last |
 | Left, Right | the list | a file's lines put away under it, or shown again |
 | Enter | the field, the list | the row under the cursor opened in the editor |
-| the search's own key (Ctrl+Shift+G) | anywhere | the keyboard to the field, to look for something else |
+| a search's own key (Ctrl+Shift+G) | anywhere | that search added as a step, looking in what was found; what is typed is then for it |
+| Ctrl+L | anywhere | the keyboard to the field |
 | Ctrl+F | anywhere | what looks in the file shown: opened, or given the keyboard again |
-| F5 | anywhere | the command run again |
+| F5 | anywhere | every step run again |
 | Escape, Alt+Left | anywhere | back to what the window showed; Alt+Right comes back to what was found, which is kept |
 
 A click puts the cursor on a row. A double click opens a line, and folds a file.
+
+Over the list are how many files and lines it lists, and three buttons: one folds every file or unfolds them, one
+adds a step that narrows the files by a query of their names, and one shows the files as a listing.
 
 The list has three tenths of the window, until the line between it and the file is dragged. Dragged as far as it
 goes, either side keeps 200 pixels. Each side scrolls down and across where what it shows is longer or wider than
@@ -288,10 +398,11 @@ was found.
 | `browser/text.kt` | what a search is (`TextSearch`), what one found (`Hit`, `Hits`), what reads a command's output (`HitReader`), what the list shows (`TextRows`), and the editor |
 | `browser/ansi.kt` | a terminal's colours read out of text |
 | `browser/actions.kt` | the searches read with the actions, and checked |
-| `browser/texting.kt` | the reducer's part: opening, typing, moving, folding, opening a line |
-| `browser/textsource.kt` | the command run, and a file read to be shown |
+| `browser/pipeline.kt` | a search as steps: the three kinds of step, what goes from one to the next, and what each makes of what it found |
+| `browser/texting.kt` | the reducer's part: which step runs next and what a change runs again; opening, typing, moving, folding, opening a line |
+| `browser/textsource.kt` | the command run, on files or on lines, and what it did not find where that is wanted; a file read to be shown |
 | `browser/session.kt` | one run at a time, its lines sent in batches, stopped by the next |
-| `browser/textview.kt` | the field, the list and the file, drawn; what narrows the files, and what looks in the file shown |
+| `browser/textview.kt` | the steps, the field, the list and the file, drawn; and what looks in the file shown |
 | `browser/menus.kt` | the searches in the context menus, and the menus of a line and of a file |
 
 ## Not built yet
@@ -303,5 +414,10 @@ was found.
   threads is first. `--sort path` in the command orders them, at the cost of its threads.
 - **Highlighting without a program.** With no `bat`, the file beside the list is plain.
 - **An editor chosen in the preferences window.** It is written in the file, and shown on the "Actions" page.
-- **What was typed last, and the options, kept** from one opening of a search to the next.
+- **What was typed last, the options, and the steps, kept** from one opening of a search to the next: a chain
+  used often has to be made again each time.
+- **A command of its own for when only files are wanted.** A step that is not the last is run as it would be were it
+  the last, lines and all, and stops at 100,000 of them; `rg -l` would be cheaper and would not stop short.
+- **Steps side by side** (the files that have A *or* B). One pattern with both does it for a program that has
+  alternation; nothing does it across programs.
 - **Replacing.** Not planned: prism finds, and hands over to an editor.

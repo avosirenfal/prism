@@ -863,6 +863,16 @@ sealed interface Location {
 
 		/** These, pinned or not: the same results, which the view shows as it did. */
 		val unpinned: Results get() = copy(pinned = false)
+
+		/**
+		 * What these are called, where they are the files a text search found, every one of them: what that search
+		 * looked for. Null for a search's results, and for what a search among those files found of them.
+		 */
+		val found: String? get() =
+			within
+				?.placed
+				?.takeIf { it.type === FOUND_FILES && finding.text == FoundAsk.EVERY_FILE }
+				?.title
 	}
 
 	/**
@@ -880,38 +890,75 @@ sealed interface Location {
 	 * What a text search found in the files the window showed ([scope]), in their place (docs/text.md): the lines
 	 * found, under the file each is in, and beside them the file the line under the [cursor] is in. It lists no files.
 	 *
-	 * [query] is what is typed and [on] the options turned on; [running] the run of its command under way, where one
-	 * is; [results] what the last run to find anything found, which stays shown while the next is under way, until
-	 * that finds something or ends. [folded] are the files whose lines are put away under them. [previewed] is the
-	 * file shown beside the list, and [asked] the one asked for and not yet read.
+	 * It is one or more steps ([stages], never none, the first a search of files), each given what the one before it
+	 * gave (pipeline.kt). What is typed is the step [at]'s. At most one step is under way ([under]); those after it
+	 * wait for it. What the list shows is [shown]: what the last step gave when it last gave anything, which stays
+	 * while steps run again, until the last has something new. [folded] are the files whose lines are put away under
+	 * them. [previewed] is the file shown beside the list, and [asked] the one asked for and not yet read.
 	 */
 	data class Text(
-		val search: TextSearch,
 		val scope: TextScope,
-		val query: String = "",
-		val on: Set<String> = emptySet(),
-		val running: TextRun? = null,
-		val results: TextResults = TextResults.NONE,
+		val stages: List<Stage>,
+		val at: Int = stages.size - 1,
+		val under: Under? = null,
+		val shown: TextFlow = TextFlow.NONE,
 		val folded: Set<Path> = emptySet(),
 		val cursor: TextRowId? = null,
 		val previewed: Previewed? = null,
 		val asked: PreviewAsk? = null,
-		/** The files narrowed by a query of their names, while that is open; every file, where null. */
-		val filter: FileFilter? = null,
 		/** What is looked for in the file shown, while that is open. */
 		val find: PreviewFind? = null,
 		private val listed: TextListed = TextListed(),
 	) : Location {
-		/** What is typed, where it narrows what was found and is not what the command looks for. */
-		val narrowing: String get() =
-			if (search.query == QueryUse.Narrows)
-				query
-			else
-				""
+		constructor(search: TextSearch, scope: TextScope) : this(
+			scope,
+			listOf(Stage(TextStep.Search(search))),
+		)
+
+		init {
+			require(
+				(stages.firstOrNull()?.step as? TextStep.Search)?.search?.takes == Takes.Files,
+			) {
+				"a text search starts by looking in files"
+			}
+			require(at in stages.indices) { "no step $at of ${stages.size}" }
+		}
+
+		/** The step what is typed is for. */
+		val step: TextStep get() = stages[at].step
+
+		/** The search the first step is: what the window is called by. */
+		val first: TextSearch get() = (stages.first().step as TextStep.Search).search
+
+		/**
+		 * The search whose lines are listed: what says what a line's number is, how its file is shown, and what opens
+		 * it. The first step's, where no lines are.
+		 */
+		val search: TextSearch get() = shown.source ?: first
+
+		/** What is typed for the step it is typed for. */
+		val query: String get() = step.typed
+
+		/** The options on, of the step what is typed is for. */
+		val on: Set<String> get() = (step as? TextStep.Search)?.on.orEmpty()
+
+		/** The run of a command under way, where one is. */
+		val running: TextRun? get() = under?.run
+
+		/** Whether any step is under way, or waits to be. */
+		val busy: Boolean get() = under != null
+
+		/** The first step that failed, and why: nothing after it is run. */
+		val failed: Pair<Int, String>? get() =
+			stages.withIndex().firstNotNullOfOrNull { (index, stage) ->
+				stage.done?.failure?.let { index to it }
+			}
+
+		/** How the last step ended, once it has. */
+		val ending: TextEnding? get() = stages.last().done?.ending
 
 		/** What its list shows: the files, and the lines under those not folded. */
-		val rows: TextRows get() =
-			listed.of(results.hits, folded, narrowing, filter?.takeIf { it.narrows }?.admitted)
+		val rows: TextRows get() = listed.of(shown.hits, folded)
 
 		/** Every place what is looked for in the file shown is at. */
 		val occurrences: List<Occurrence> get() =
@@ -924,7 +971,7 @@ sealed interface Location {
 		fun valuesOf(id: TextRowId, position: Long? = null): Map<String, String> {
 			val hit =
 				(id as? TextRowId.Line)?.let {
-					results.hits[it.path]?.hits?.getOrNull(it.index)
+					shown.hits[it.path]?.hits?.getOrNull(it.index)
 				}
 			val at = position ?: hit?.position
 
@@ -1712,11 +1759,14 @@ data class BrowserState(
 			when (val at = at) {
 				is Location.Folder -> crumbs.last().label
 				is Location.Results ->
-					"results for ${at.searches.joinToString(" › ") { "“$it”" }}"
+					if (at.found != null)
+						"the files found"
+					else
+						"results for ${at.searches.joinToString(" › ") { "“$it”" }}"
 				is Location.Place -> at.within.lastOrNull() ?: at.placed.title
 				Location.Trash -> "Trash"
 				is Location.System -> "System"
-				is Location.Text -> at.search.label.removeSuffix("…")
+				is Location.Text -> at.first.label.removeSuffix("…")
 				Location.Recents -> "Recents"
 			}
 

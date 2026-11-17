@@ -110,15 +110,29 @@ sealed interface BrowserEvent : Input {
 	/** The text search's command, under way, stopped. */
 	data object TextStopped : BrowserEvent
 
-	/** The field that narrows the files found by a query of their names opened, or put away, which empties it. */
-	data class TextFiltering(
-		val open: Boolean,
+	/**
+	 * A step added after those the text search shown has, and made the one typed for: [search], looking in what the
+	 * last gave; or, where null, a query of the files' names.
+	 */
+	data class TextStepAdded(
+		val search: TextSearch?,
 	) : BrowserEvent
 
-	/** What narrows the files found typed, to be [text]. */
-	data class TextFilterTyped(
-		val text: String,
+	/** The step at [index] made the one what is typed is for. */
+	data class TextStepChosen(
+		val index: Int,
 	) : BrowserEvent
+
+	/** The step at [index] taken out: those after it are given what the one before it gives. */
+	data class TextStepRemoved(
+		val index: Int,
+	) : BrowserEvent
+
+	/** The step typed for turned about, or back: giving what it finds nothing in, or what it finds. */
+	data object TextWithout : BrowserEvent
+
+	/** The files the text search shown lists, shown as a listing of files: what any folder's rows are. */
+	data object TextListed : BrowserEvent
 
 	/** What looks in the file shown beside the list opened (Ctrl+F), or put away. */
 	data class PreviewFinding(
@@ -763,6 +777,13 @@ sealed interface Answer : Input {
 		val admitted: Reading<Set<Path>>,
 	) : Answer
 
+	/** [ask]'s files as a place of them ([tree]), and every file of it as a search of that place finds them. */
+	data class FoundListed(
+		val ask: FoundAsk,
+		val tree: PlaceTree,
+		val finding: Finding,
+	) : Answer
+
 	/**
 	 * prism itself went wrong answering [asking]: not what the disk, the desktop or a command refused, which each
 	 * answer says in its own way, but a mistake of prism's ([fault]). There is no answer, and none is made up: what
@@ -1380,6 +1401,11 @@ sealed interface Effect {
 	 */
 	data class FilterText(
 		val ask: FilterAsk,
+	) : Asking
+
+	/** [ask]'s files read, to be shown as a listing of them, sent back as [Answer.FoundListed]. */
+	data class ListFound(
+		val ask: FoundAsk,
 	) : Asking
 
 	/**

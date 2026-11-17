@@ -198,8 +198,11 @@ private fun did(state: BrowserState, event: BrowserEvent): Step =
 		is BrowserEvent.TextOpened -> state.textOpened(event.row, event.at)
 		BrowserEvent.TextStopped -> state.textStopped()
 		is BrowserEvent.TextRevealed -> state.textRevealed(event.path)
-		is BrowserEvent.TextFiltering -> state.textFiltering(event.open)
-		is BrowserEvent.TextFilterTyped -> state.textFilterTyped(event.text)
+		is BrowserEvent.TextStepAdded -> state.textStepAdded(event.search)
+		is BrowserEvent.TextStepChosen -> state.textStepChosen(event.index)
+		is BrowserEvent.TextStepRemoved -> state.textStepRemoved(event.index)
+		BrowserEvent.TextWithout -> state.textWithout()
+		BrowserEvent.TextListed -> state.textListed()
 		is BrowserEvent.PreviewFinding -> state.previewFinding(event.open)
 		is BrowserEvent.PreviewFindTyped -> state.previewFindTyped(event.text)
 		is BrowserEvent.PreviewFindStepped -> state.previewFindStepped(event.by)
@@ -656,8 +659,13 @@ internal fun BrowserState.reread(landing: Landing? = null): Step =
 				),
 			)
 		}
-		// A place is listed again, what it shows staying until the new listing arrives.
-		is Location.Place -> copy(landing = landing ?: this.landing).listing(at.placed)
+		// A place is listed again, what it shows staying until the new listing arrives; but for the files a text
+		// search found, which no command lists: they are what they were found to be.
+		is Location.Place ->
+			if (at.placed.type === FOUND_FILES)
+				Step(this)
+			else
+				copy(landing = landing ?: this.landing).listing(at.placed)
 		Location.Trash ->
 			Step(
 				copy(landing = landing ?: this.landing),
@@ -665,11 +673,8 @@ internal fun BrowserState.reread(landing: Landing? = null): Step =
 			)
 		// What it shows stays until the new read arrives.
 		is Location.System -> Step(this, listOf(Effect.ReadStorage))
-		// Its command is run again; what it found stays until that finds something.
-		is Location.Text ->
-			textShown(
-				at.copy(running = null, results = at.results.copy(of = null)),
-			)
+		// Its steps are run again; what it found stays until the last of them gives something.
+		is Location.Text -> textReran()
 		Location.Recents -> Step(this, listOf(readingRecents()))
 	}
 
@@ -1380,6 +1385,7 @@ private fun answered(state: BrowserState, answer: Answer): Step =
 		is Answer.TextEnded -> state.textEnded(answer.run, answer.ending)
 		is Answer.Previewed -> state.previewed(answer.ask, answer.preview)
 		is Answer.TextFiltered -> state.textFiltered(answer.ask, answer.admitted)
+		is Answer.FoundListed -> state.foundListed(answer.ask, answer.tree, answer.finding)
 		// What was read of results, or an order of them, for results no longer shown, is too late too.
 		is Answer.Stated ->
 			when (val listing = state.listing) {
@@ -1454,8 +1460,9 @@ private fun BrowserState.broke(asking: Effect.Asking, fault: Fault): Step {
 		is Effect.ListPlace -> listed(asking.placed, PlaceListing.Failed(fault.said))
 		// Said where the file would have been shown.
 		is Effect.Preview -> previewed(asking.ask, Preview.Unshown(fault.said))
-		// Said under the filter's field.
+		// Its step has failed, and says so.
 		is Effect.FilterText -> textFiltered(asking.ask, Reading.Wrong(fault.said))
+		is Effect.ListFound -> Step(this).said()
 		is Effect.Look ->
 			if (asking.lookup == waiting)
 				Step(copy(waiting = null)).said()
@@ -1523,6 +1530,7 @@ internal fun failingOf(asking: Effect.Asking): String =
 		is Effect.Search -> "Couldn't search for “${asking.text}”"
 		is Effect.Preview -> "Couldn't show “${asking.ask.path.fileName ?: asking.ask.path}”"
 		is Effect.FilterText -> "Couldn't filter the files by “${asking.ask.text}”"
+		is Effect.ListFound -> "Couldn't list the files found"
 		is Effect.Stat -> "Couldn't read the sizes and dates of the results"
 		is Effect.ReadEntries ->
 			"Couldn't read what changed in “${asking.folder.fileName ?: asking.folder}”"

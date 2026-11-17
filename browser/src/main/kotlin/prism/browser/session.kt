@@ -605,6 +605,7 @@ private fun refusedOf(asking: Effect.Asking, why: String): Answer? =
 		is Effect.Temp -> Answer.Ran(Job(asking.carried.pending.action.label, emptyList()), why)
 		is Effect.Preview -> Answer.Previewed(asking.ask, Preview.Unshown(why))
 		is Effect.FilterText -> Answer.TextFiltered(asking.ask, Reading.Wrong(why))
+		is Effect.ListFound -> null
 		is Effect.Look, is Effect.Locate, Effect.ReadStorage, is Effect.Search, is Effect.Stat,
 		is Effect.ReadEntries,
 		is Effect.Order, is Effect.ReadClip, is Effect.ReadRecents,

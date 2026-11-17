@@ -292,6 +292,25 @@ fun textMenuOf(
 }
 
 /**
+ * What can be added as a step to the text search [text] shows: each search there is, to look in the files its last
+ * step gave, or, of those that take lines, in the lines it gave, where it gave any; and a query of the files' names.
+ */
+fun stepMenuOf(state: BrowserState, text: Location.Text): Menu<BrowserEvent> =
+	menu {
+		val lines = text.lined(text.stages.size) != null
+
+		state.actions.searches
+			.filter { it.id !in state.actions.hidden && (it.takes == Takes.Files || lines) }
+			.forEach { item(it.label, BrowserEvent.TextStepAdded(it), id = it.id) }
+		separator()
+		item(
+			"Filter files by name…",
+			BrowserEvent.TextStepAdded(null),
+			id = "builtin.filter-names",
+		)
+	}
+
+/**
  * The menu of line [at] of [path], shown beside the lines a text search found in it: any line of the file, which need
  * be none that was found, opened in the editor.
  */

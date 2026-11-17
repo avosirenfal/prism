@@ -2671,6 +2671,107 @@
 					]
 				}
 			]
+		},
+		{
+			"id": "text.lines",
+			"label": "Search in these lines…",
+			"takes": "lines",
+			"query": "typed",
+			"options": {
+				"case": {
+					"label": "Match case",
+					"off": [
+						"--ignore-case"
+					]
+				},
+				"word": {
+					"label": "Whole word",
+					"on": [
+						"--word-regexp"
+					]
+				},
+				"regex": {
+					"label": "Regex",
+					"off": [
+						"--fixed-strings"
+					]
+				}
+			},
+			"ways": [
+				{
+					"programs": [
+						"rg"
+					],
+					"run": [
+						"rg",
+						"--json",
+						"--line-number",
+						"{options}",
+						"-e",
+						"{query}",
+						"-"
+					],
+					"read": "rg-json"
+				},
+				{
+					"programs": [
+						"grep"
+					],
+					"run": [
+						"grep",
+						"-n",
+						"--color=always",
+						"{options}",
+						"-e",
+						"{query}"
+					],
+					"read": "lines"
+				}
+			]
+		},
+		{
+			"id": "text.files",
+			"label": "List files…",
+			"when": {
+				"target": "folder",
+				"programs": [
+					"xargs"
+				]
+			},
+			"query": "narrows",
+			"ways": [
+				{
+					"programs": [
+						"rg"
+					],
+					"run": [
+						"xargs",
+						"-0",
+						"-r",
+						"rg",
+						"--files",
+						"-0",
+						"--"
+					]
+				},
+				{
+					"programs": [
+						"find",
+						"sh"
+					],
+					"run": [
+						"xargs",
+						"-0",
+						"-r",
+						"sh",
+						"-c",
+						"find \"$@\" -type f -print0",
+						"sh"
+					]
+				}
+			],
+			"read": "paths",
+			"nul": true
 		}
 	]
 }

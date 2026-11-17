@@ -334,11 +334,20 @@ class TextTest {
 		)
 		// Typed, it narrows what was found, without case, by every word; the command is not run again.
 		assertEquals(listOf("tool.bin (1)", "  27: error: no such option"), narrowed.lines())
-		assertTrue(narrowed.text!!.results === found.text!!.results)
-		assertEquals("1 line in 1 file of 2", textStatus(narrowed.text!!))
+		assertTrue(
+			narrowed.text!!
+				.stages[0]
+				.done!!
+				.raw ===
+				found.text!!
+					.stages[0]
+					.done!!
+					.raw,
+		)
+		assertEquals("1 line in 1 file", textStatus(narrowed.text!!))
 		// A place in a file that is a byte of it is what its preview is given.
 		assertEquals("27", narrowed.text!!.valuesOf(narrowed.text!!.cursor!!)["offset"])
-		assertEquals("1 line in 1 file of 2", textStatus(narrowed.text!!))
+		assertEquals("1 line in 1 file", textStatus(narrowed.text!!))
 	}
 
 	// ---- the reducer -------------------------------------------------------------------------------------------------
@@ -581,24 +590,153 @@ class TextTest {
 		assertEquals(Effect.Open(listOf(root.resolve("a b.txt"))), opening({ null }))
 	}
 
-	// ---- narrowing the files, and finding in the file shown -----------------------------------------------------------
+	// ---- steps, one after another -------------------------------------------------------------------------------------
+
+	/** A step added: the search called [id], or a query of the files' names where it is null. */
+	private fun BrowserState.adding(id: String?): BrowserState =
+		then(BrowserEvent.TextStepAdded(id?.let { actions.search(it)!! }))
+
+	private fun BrowserState.typing(text: String): BrowserState =
+		then(BrowserEvent.TextTyped(text))
+
+	private fun BrowserState.files(): List<String> =
+		text!!
+			.rows.paths
+			.map { root.relativize(it).toString() }
+			.sorted()
+
+	/** How many files each step gave, in order. */
+	private fun BrowserState.gave(): List<Int> =
+		text!!.stages.map {
+			it.done!!
+				.out.hits.groups.size
+		}
+
+	@Test
+	fun aSecondSearchLooksInTheFilesTheFirstFound_WhichIsTheFilesThatHaveBoth() {
+		has("rg", "xargs")
+		project()
+
+		// Every file with "class" in it; and then, of those, the ones with "Forever" in them, on whatever line.
+		val first = exploring().searching("class")
+		val both = first.adding("text.search").typing("Forever")
+
+		assertEquals(
+			listOf("launcher/actions.kt", "launcher/step.kt", "linux/epoll.kt"),
+			first.files(),
+		)
+		assertEquals(listOf("linux/epoll.kt"), both.files())
+		// What is listed is what the last step found: its lines, in the files that passed the first.
+		assertEquals(
+			listOf("linux/epoll.kt (1)", "  19: data object Forever : Wait {"),
+			both.lines(),
+		)
+		assertEquals(listOf(3, 1), both.gave())
+		assertEquals("“class” › “Forever”", both.text!!.said)
+
+		// Just added, with nothing typed for it, a step gives what it was given: the list is not emptied.
+		assertEquals(first.lines(), first.adding("text.search").lines())
+		// The search's own key, beside what one found, is that step added.
+		assertEquals(
+			2,
+			first
+				.then(
+					BrowserEvent.SearchedText(first.actions.search("text.search")!!),
+				).text!!
+				.stages.size,
+		)
+	}
+
+	@Test
+	fun aStepTurnedAboutGivesTheFilesItFoundNothingIn_WithTheLinesTheyCameWith() {
+		has("rg", "xargs")
+		project()
+
+		val without =
+			exploring()
+				.searching("class")
+				.adding("text.search")
+				.typing("Forever")
+				.then(BrowserEvent.TextWithout)
+
+		// The files with "class" and no "Forever": and what is listed of them is still where "class" is.
+		assertEquals(listOf("launcher/actions.kt", "launcher/step.kt"), without.files())
+		assertEquals(6, without.text!!.rows.lines)
+		assertTrue(without.lines().all { !it.startsWith("  ") || "class" in it })
+		assertEquals("“class” › not “Forever”", without.text!!.said)
+		assertEquals("text.search", without.text!!.search.id)
+
+		// The first step is given what the window showed, folders among it: it cannot be turned about.
+		val first = exploring().searching("class")
+
+		assertEquals(first.text!!.stages, first.then(BrowserEvent.TextWithout).text!!.stages)
+	}
+
+	@Test
+	fun aStepChangedIsRunAgainWithThoseAfterIt_AndOneTakenOutLeavesTheRestToFollow() {
+		has("rg", "xargs")
+		project()
+
+		val chained =
+			exploring()
+				.searching("class")
+				.adding(null)
+				.typing("dir:launcher")
+				.adding("text.search")
+				.typing("Typed")
+
+		// Lines with "class"; of those files, the ones under `launcher`; and in those, "Typed".
+		assertEquals(listOf(3, 2, 1), chained.gave())
+		assertEquals(listOf("launcher/step.kt"), chained.files())
+		assertEquals(2, chained.text!!.at)
+
+		// The first step chosen, what is typed is typed for it: it and those after it are run again.
+		val edited = chained.then(BrowserEvent.TextStepChosen(0)).typing("Epoll")
+
+		assertEquals("Epoll", edited.text!!.query)
+		assertEquals(listOf(1, 0, 0), edited.gave())
+		assertEquals(emptyList<String>(), edited.files())
+		assertEquals("No results", textStatus(edited.text!!))
+
+		// The step of names taken out, the last is given what the first gives.
+		val removed = chained.then(BrowserEvent.TextStepRemoved(1))
+
+		assertEquals(listOf(3, 1), removed.gave())
+		assertEquals(1, removed.text!!.at)
+		assertEquals("“class” › “Typed”", removed.text!!.said)
+		// And the last taken out, what the one before it gave is what is listed.
+		assertEquals(
+			chained
+				.then(BrowserEvent.TextStepChosen(0))
+				.text!!
+				.stages[0]
+				.done!!
+				.out.hits.count,
+			removed
+				.then(BrowserEvent.TextStepRemoved(1))
+				.text!!
+				.rows.lines,
+		)
+		// The first is what the search is of: it is not taken out.
+		assertEquals(
+			3,
+			chained
+				.then(BrowserEvent.TextStepRemoved(0))
+				.text!!
+				.stages.size,
+		)
+	}
 
 	@Test
 	fun theFilesFoundAreNarrowedByAQueryOfTheirNames_AsASearchOfTheIndexIsTyped() {
 		has("rg", "xargs")
 		project()
 
-		val found = exploring().searching("class").then(BrowserEvent.TextFiltering(true))
+		val found = exploring().searching("class").adding(null)
 
-		fun BrowserState.files(): List<String> =
-			text!!
-				.rows.paths
-				.map { root.relativize(it).toString() }
-				.sorted()
+		fun narrowed(query: String) = found.typing(query)
 
-		fun narrowed(query: String) = found.then(BrowserEvent.TextFilterTyped(query))
-
-		// Open and empty, it narrows nothing.
+		// Added and empty, it narrows nothing.
 		assertEquals(
 			listOf("launcher/actions.kt", "launcher/step.kt", "linux/epoll.kt"),
 			found.files(),
@@ -611,80 +749,321 @@ class TextTest {
 			narrowed("*o*.kt").files(),
 		)
 		assertEquals(emptyList<String>(), narrowed("ext:md").files())
-		// The lines are those of the files left, and the status line says of how many.
+		// The lines are those of the files left: it runs no command, and looks for nothing.
 		assertEquals(3, narrowed("step").text!!.rows.lines)
-		assertEquals("3 lines in 1 file of 8", textStatus(narrowed("step").text!!))
-		// Emptied, or put away, every file is listed again.
-		assertEquals(3, narrowed("step").then(BrowserEvent.TextFilterTyped("")).files().size)
-		assertEquals(3, narrowed("step").then(BrowserEvent.TextFiltering(false)).files().size)
+		assertEquals("3 lines in 1 file", textStatus(narrowed("step").text!!))
+		assertEquals(3, narrowed("step").typing("").files().size)
+		// Asked for again with the last step that already, and empty, none is added.
 		assertEquals(
-			null,
-			narrowed("step").then(BrowserEvent.TextFiltering(false)).text!!.filter,
+			2,
+			found
+				.adding(null)
+				.text!!
+				.stages.size,
 		)
 	}
 
 	@Test
-	fun theFilterIsAskedAgainOfWhatIsFoundSince_AndALateAnswerIsDropped() {
-		val opened = step(texting(), BrowserEvent.TextTyped("a"))
-		val run = opened.state.text!!.running!!
-		val one = step(opened.state, Answer.TextFound(run, listOf(hit("x.txt", 1)))).state
-		val open = step(one, BrowserEvent.TextFiltering(true))
-
-		// Nothing typed asks nothing.
-		assertEquals(emptyList<Effect>(), open.effects)
-
-		val typed = step(open.state, BrowserEvent.TextFilterTyped("y"))
-		val first =
-			typed.effects
-				.filterIsInstance<Effect.FilterText>()
-				.single()
-				.ask
-
-		// Every file stays listed until the first answer comes.
-		assertEquals(listOf("x.txt (1)", "  1: line 1"), typed.state.lines())
-
-		val more = step(typed.state, Answer.TextFound(run, listOf(hit("y.txt", 2))))
-		val second =
-			more.effects
-				.filterIsInstance<Effect.FilterText>()
-				.single()
-				.ask
-
-		assertTrue(second !== first && second.text == "y" && second.hits.count == 2)
-
-		// The answer to the question overtaken is of files that are no longer all there are.
-		val late = step(more.state, Answer.TextFiltered(first, Reading.Right(emptySet())))
-
-		assertEquals(
-			2,
-			late.state.text!!
-				.rows.files,
+	fun whatAProgramPrintedIsLookedThroughByAnother_EachLineStillOfItsFileAndAtItsPlace() {
+		has("strings", "xargs")
+		assumeTrue(world.installed("rg") || world.installed("grep"), "needs rg or grep")
+		Files.write(
+			root.resolve("tool.bin"),
+			byteArrayOf(0, 1, 2) + "usage: tool [options]".toByteArray() + byteArrayOf(0, 7, 0) +
+				"error: no such option".toByteArray() + byteArrayOf(0) +
+				"tool version 1.2.3".toByteArray() + byteArrayOf(0),
 		)
 
-		val answered = step(late.state, Answer.TextFiltered(second, filtered(second))).state
+		// Every string of the binary; and then, of those lines, the ones a pattern finds.
+		val strings =
+			exploring().let {
+				it.then(BrowserEvent.SearchedText(it.actions.search("text.strings")!!))
+			}
 
-		assertEquals(listOf("y.txt (1)", "  2: line 2"), answered.lines())
-		// The cursor was on a line that is no longer listed: it goes to the first that is.
-		assertEquals(TextRowId.Line(root.resolve("y.txt"), 0), answered.text!!.cursor)
+		val versions =
+			strings
+				.adding("text.lines")
+				.then(BrowserEvent.TextOptioned("regex"))
+				.typing("[0-9]+\\.[0-9]+")
 
-		// A query that cannot be run says why, and what was listed stays.
-		val refused =
+		assertEquals(3, strings.text!!.rows.lines)
+		// A line kept is the line it was: of its binary, at the byte it starts at, which is no number `rg` counted.
+		assertEquals(listOf("tool.bin (1)", "  49: tool version 1.2.3"), versions.lines())
+
+		val text = versions.text!!
+		val line = text.rows[text.cursor!!] as TextRow.Line
+
+		assertEquals(
+			listOf("1.2"),
+			line.hit.marks.map {
+				line.hit.text.substring(
+					it.first,
+					it.last + 1,
+				)
+			},
+		)
+		// Whose lines they are is the search that found them in files: what a line's number is, and how its file is shown.
+		assertEquals(
+			"text.strings" to Positions.Offsets,
+			text.search.id to text.search.positions,
+		)
+		assertEquals("49", text.valuesOf(line.id)["offset"])
+		// Turned about, it gives the lines it was given and did not keep.
+		assertEquals(
+			listOf("tool.bin (2)", "  3: usage: tool [options]", "  27: error: no such option"),
+			versions.then(BrowserEvent.TextWithout).lines(),
+		)
+		// A search of lines follows lines: it is no step where none have been found, and no search to open on files.
+		assertTrue(
+			"Search in these lines…" in
+				stepMenuOf(strings, strings.text!!).entries.mapNotNull {
+					(it as? MenuEntry.Item)?.label
+				},
+		)
+		assertTrue(
+			"Search in these lines…" !in
+				contextMenuOf(exploring(), Target.Folder, world = world).labels(),
+		)
+	}
+
+	@Test
+	fun theLinesThatLackSomethingAreFound_AsTheTodosThatNameNobody() {
+		has("rg", "xargs")
+		root.resolve("a.kt").writeText("// TODO(avery): one\nval a = 1\n// TODO: two\n")
+		root.resolve("b.kt").writeText("// TODO(sam): three\n")
+
+		val unowned =
+			exploring()
+				.searching("TODO")
+				.adding("text.lines")
+				.then(BrowserEvent.TextOptioned("regex"))
+				.typing("TODO\\(\\w+\\)")
+				.then(BrowserEvent.TextWithout)
+
+		// Each still at its line of its file, though what was looked through was three lines of text.
+		assertEquals(listOf("a.kt (1)", "  3: // TODO: two"), unowned.lines())
+	}
+
+	@Test
+	fun theFilesThatLackSomethingAreFound_AsThoseWithNoLicence() {
+		has("rg", "xargs")
+		root.resolve("src").createDirectories()
+		root.resolve("src/a.kt").writeText("// Licensed under the MIT license\nval a = 1\n")
+		root.resolve("src/b.kt").writeText("val b = 2\n")
+		root.resolve("src/c.kt").writeText("// licensed under Apache-2.0\n")
+		root.resolve("notes.md").writeText("nothing\n")
+
+		// Every file under what is shown, as the program that searches would look in them; then those with no licence.
+		val listed =
+			exploring().let {
+				it.then(BrowserEvent.SearchedText(it.actions.search("text.files")!!))
+			}
+
+		val bare =
+			listed
+				.adding(
+					"text.search",
+				).typing("licensed under")
+				.then(BrowserEvent.TextWithout)
+
+		assertEquals(listOf("notes.md", "src/a.kt", "src/b.kt", "src/c.kt"), listed.files())
+		// Files, and no lines of them.
+		assertEquals(0, listed.text!!.rows.lines)
+		assertEquals("0 lines in 4 files", textStatus(listed.text!!))
+		assertEquals(listOf("notes.md", "src/b.kt"), bare.files())
+		// What is typed for a list of files narrows it by where each is.
+		assertEquals(
+			listOf("src/a.kt", "src/b.kt", "src/c.kt"),
+			listed.typing("src kt").files(),
+		)
+		// With no lines found anywhere, nothing can look through lines.
+		assertTrue(
+			"Search in these lines…" !in
+				stepMenuOf(listed, listed.text!!).entries.mapNotNull {
+					(it as? MenuEntry.Item)?.label
+				},
+		)
+	}
+
+	@Test
+	fun aProgramRunOnceFeedsItselfAgain_AsTheStringsOfTheBinariesThatNameALibrary() {
+		has("strings", "xargs")
+
+		fun binary(name: String, vararg strings: String) =
+			Files.write(
+				root.resolve(name),
+				strings.fold(byteArrayOf(0, 1)) { bytes, each ->
+					bytes + each.toByteArray() +
+						byteArrayOf(0, 2, 0)
+				},
+			)
+
+		binary("client", "libssl.so.3", "OpenSSL 3.0.2 built", "connect failed")
+		binary("packer", "libz.so.1", "zlib 1.2.13", "inflate failed")
+
+		// The strings that name the library, which are in one binary; and then every string of that binary with "failed".
+		val linked =
+			exploring()
+				.let {
+					it.then(BrowserEvent.SearchedText(it.actions.search("text.strings")!!))
+				}.typing("libssl")
+		val theirs = linked.adding("text.strings").typing("failed")
+
+		assertEquals(listOf("client"), linked.files())
+		assertEquals(listOf("client (1)", "  38: connect failed"), theirs.lines())
+		// The first step's command was run once, and typing for it narrows what it found; the second was given one file.
+		assertEquals(listOf(1, 1), theirs.gave())
+		assertEquals(
+			6,
+			theirs.text!!
+				.stages[0]
+				.done!!
+				.raw.count,
+		)
+		assertEquals(
+			3,
+			theirs.text!!
+				.stages[1]
+				.done!!
+				.raw.count,
+		)
+	}
+
+	@Test
+	fun theFilesFoundAreShownAsAListingOfFiles_WhereTheyAreFilesToChooseAndActOn() {
+		has("rg", "xargs")
+		project()
+
+		val own =
+			prism.preferences.ActionsFile.parse(
+				"""{"actions": [{"id": "count", "label": "Count lines", "run": ["wc", "-l", "{paths}"]}]}""",
+			)
+
+		val actions = Actions.read(listOf(Actions.SHIPPED, own), installed = world::installed)
+
+		val both =
+			exploring(
+				actions = actions,
+			).searching("class").adding("text.search").typing("data class")
+
+		val listed = both.then(BrowserEvent.TextListed)
+
+		// Every file found, all together, each the file it is on disk: with a size, and where it is.
+		assertEquals(null, listed.text)
+		assertEquals(
+			listOf("actions.kt", "epoll.kt", "step.kt"),
+			listed.rows.list
+				.map { it.name }
+				.sorted(),
+		)
+		assertTrue(listed.rows.list.all { it.item is Item.OnDisk && it.size != null })
+		assertEquals("“class” › “data class”", listed.inPlace!!.placed.title)
+
+		// Chosen, they are given to whatever is done to files, every one.
+		val menu = contextMenuOf(listed, Target.Rows(listed.rows.list), world = world)
+		val count =
+			menu.entries.filterIsInstance<MenuEntry.Item<BrowserEvent>>().single {
+				it.id ==
+					"count"
+			}
+
+		assertEquals(
+			listOf("wc", "-l") +
+				listed.rows.list.map { it.path.toString() },
+			(step(listed, count.action).effects.single() as Effect.Launch)
+				.job.invocations
+				.single()
+				.words,
+		)
+		assertTrue(menu.labels().containsAll(listOf("Copy", "Move to trash", "Properties")))
+		// Read again, it is what it was: no command lists it. And Back is the search, as it was left.
+		assertEquals(3, listed.then(BrowserEvent.Refreshed).rows.size)
+		assertEquals(both.lines(), listed.then(BrowserEvent.Back).lines())
+	}
+
+	@Test
+	fun aStepThatFailsSaysSo_AndNothingAfterItIsRun() {
+		has("rg", "xargs")
+		project()
+
+		val failed =
+			exploring()
+				.searching("class")
+				.adding("text.search")
+				.then(BrowserEvent.TextOptioned("regex"))
+				.typing("Forever(")
+				.adding(null)
+				.typing("epoll")
+
+		assertEquals(1, failed.text!!.failed!!.first)
+		assertTrue("unclosed group" in failed.text!!.failed!!.second)
+		assertEquals(null, failed.text!!.stages[2].done)
+		assertEquals(0, failed.text!!.rows.size)
+		assertEquals("“Search in files” failed", textStatus(failed.text!!))
+
+		// Put right, it and the step after it run.
+		val mended = failed.then(BrowserEvent.TextStepChosen(1)).typing("Forever")
+
+		assertEquals(null, mended.text!!.failed)
+		assertEquals(listOf(3, 1, 1), mended.gave())
+	}
+
+	@Test
+	fun whatARunOvertakenFoundIsDropped_AtWhicheverStepItWas() {
+		val opened = step(texting(), BrowserEvent.TextTyped("a"))
+		val first = opened.state.text!!.running!!
+		val found = step(opened.state, Answer.TextFound(first, listOf(hit("x.txt", 1)))).state
+		val ended = step(found, Answer.TextEnded(first, TextEnding.Done()))
+		val added = step(ended.state, BrowserEvent.TextStepAdded(ended.state.text!!.first))
+		val typed = step(added.state, BrowserEvent.TextTyped("b"))
+		val second = (typed.effects.single { it is Effect.FindText } as Effect.FindText).run!!
+
+		// The second step's run looks in the file the first gave, and nowhere else.
+		assertEquals(listOf(root.resolve("x.txt")), second.scope.paths.toList())
+		assertEquals(
+			1,
+			typed.state.text!!
+				.under!!
+				.index,
+		)
+		// What the first found stays listed while the second has found nothing yet.
+		assertEquals(listOf("x.txt (1)", "  1: line 1"), typed.state.lines())
+
+		// The first step typed for again: the second's run is stopped, and what it finds late is dropped.
+		val again =
 			step(
-				step(answered, BrowserEvent.TextFilterTyped("y z"))
-					.let { again ->
-						again.state to
-							again.effects
-								.filterIsInstance<Effect.FilterText>()
-								.single()
-								.ask
-					}.let { (state, ask) ->
-						step(state, Answer.TextFiltered(ask, Reading.Wrong("No such alias"))).state
-					},
-				BrowserEvent.TextMoved(Move.First),
-			).state
+				step(typed.state, BrowserEvent.TextStepChosen(0)).state,
+				BrowserEvent.TextTyped("ab"),
+			)
 
-		assertEquals("No such alias", refused.text!!.filter!!.refused)
-		assertEquals(1, refused.text!!.rows.files)
+		val rerun = (again.effects.last { it is Effect.FindText } as Effect.FindText).run!!
+
+		assertEquals(1, again.effects.count { it is Effect.FindText })
+		assertEquals(
+			0 to "ab",
+			again.state.text!!
+				.under!!
+				.index to rerun.query,
+		)
+		assertEquals(
+			again.state.text!!.shown,
+			step(
+				again.state,
+				Answer.TextFound(second, listOf(hit("y.txt", 9))),
+			).state.text!!.shown,
+		)
+
+		// It ends, and the second is run again with what it now gives.
+		val onward =
+			step(
+				step(again.state, Answer.TextFound(rerun, listOf(hit("z.txt", 3)))).state,
+				Answer.TextEnded(rerun, TextEnding.Done()),
+			)
+
+		val third = (onward.effects.single { it is Effect.FindText } as Effect.FindText).run!!
+
+		assertEquals(listOf(root.resolve("z.txt")), third.scope.paths.toList())
+		assertEquals("b", third.query)
 	}
 
 	@Test
@@ -986,6 +1365,111 @@ class TextTest {
 	}
 
 	@Test
+	fun filesAloneAreRead_AndLinesKeptAreReadByTheirNumbers() {
+		val esc = "\u001B"
+		val paths = HitReader(HitRead.Paths, nul = true, root)
+		val lines = HitReader(HitRead.Lines, nul = false, root)
+		val json = HitReader(HitRead.RgJson, nul = false, root)
+
+		assertEquals(FileHit(root.resolve("src/a.kt"), null), paths.read("src/a.kt"))
+		assertEquals(null, paths.read(" "))
+		// As `grep -n --color=always` prints a line of its standard input: its number among them, and the line.
+		assertEquals(
+			3L to Hit(3, "a TODO here", listOf(2..5)),
+			lines.kept(
+				"$esc[32m$esc[K3$esc[m$esc[K$esc[36m$esc[K:$esc[m$esc[Ka $esc[01;31m$esc[KTODO$esc[m$esc[K here",
+			),
+		)
+		assertEquals(null, lines.kept("no number"))
+		// As `rg --json` says one, of a file it calls its standard input.
+		assertEquals(
+			7L to Hit(7, "a TODO here", listOf(2..5)),
+			json.kept(
+				"""{"type":"match","data":{"path":{"text":"<stdin>"},""" +
+					""""lines":{"text":"a TODO here\n"},"line_number":7,"absolute_offset":0,""" +
+					""""submatches":[{"match":{"text":"TODO"},"start":2,"end":6}]}}""",
+			),
+		)
+	}
+
+	@Test
+	fun aRunGivenLinesKeepsSomeOfThem_AndRunWithoutGivesWhatItDidNotFind() {
+		fun search(takes: String, read: String) =
+			Actions
+				.read(
+					listOf(
+						prism.preferences.ActionsFile.parse(
+							"""{"textSearches": [{"id": "t", "label": "T", "takes": "$takes", "read": "$read",
+							   "run": ["keep", "{query}"]}]}""",
+						),
+					),
+				).search("t")!!
+
+		val scope =
+			TextScope(
+				"here",
+				root,
+				listOf(root.resolve("a"), root.resolve("b"), root.resolve("c")),
+			)
+
+		val given =
+			listOf(
+				FileHit(root.resolve("a"), Hit(10, "one")),
+				FileHit(root.resolve("a"), Hit(20, "two")),
+				FileHit(root.resolve("b"), Hit(5, "three")),
+			)
+
+		fun ran(run: TextRun, printed: Ran): Pair<TextEnding, List<FileHit>> {
+			val told = ArrayList<FileHit>()
+
+			return found(run, { _, _ -> printed }, found = told::add) to told
+		}
+
+		val lines = search("lines", "lines")
+		val kept = Ran(0, "1:one\n3:three\n9:nothing was given ninth\n", "")
+
+		// Kept lines are the lines they were, by their numbers; a number of none given is no line.
+		assertEquals(
+			TextEnding.Done() to listOf(given[0], given[2]),
+			ran(TextRun(lines, scope, "x", emptySet(), given), kept),
+		)
+		assertEquals(
+			TextEnding.Done() to listOf(given[1]),
+			ran(TextRun(lines, scope, "x", emptySet(), given, without = true), kept),
+		)
+
+		// Of files: those it found nothing in, of those it was given.
+		val files = search("files", "lines")
+
+		assertEquals(
+			TextEnding.Done() to
+				listOf(FileHit(root.resolve("a"), null), FileHit(root.resolve("c"), null)),
+			ran(TextRun(files, scope, "x", emptySet(), without = true), Ran(0, "b:1:found\n", "")),
+		)
+
+		// A command that failed found nothing because it failed: that is not every file being without.
+		val failed =
+			ran(TextRun(files, scope, "x", emptySet(), without = true), Ran(2, "", "bad pattern"))
+
+		assertEquals(TextEnding.Failed("bad pattern") to emptyList<FileHit>(), failed)
+		// And what it is, declared, is checked: lines are not kept by a list of files.
+		assertTrue(
+			"paths" in
+				Actions
+					.read(
+						listOf(
+							prism.preferences.ActionsFile.parse(
+								"""{"textSearches": [{"id": "t", "label": "T", "takes": "lines", "read": "paths",
+								   "run": ["keep"]}]}""",
+							),
+						),
+					).broken
+					.single()
+					.why,
+		)
+	}
+
+	@Test
 	fun aTerminalsColoursAreReadOutOfTheText() {
 		val esc = "\u001B"
 		val (line, left) = inked("$esc[1;34mfun$esc[0m main() $esc[38;5;208m{$esc[38;2;1;2;3m}")
@@ -1177,12 +1661,35 @@ class TextTest {
 		kept(
 			"text-filtered",
 			renderedPng(
-				found
-					.then(BrowserEvent.TextFiltering(true))
-					.then(BrowserEvent.TextFilterTyped("dir:linux *.kt")),
+				found.adding(null).typing("dir:linux *.kt"),
 				1280,
 				600,
 				Palette.Light,
+				scale = 2f,
+			),
+		)
+		kept(
+			"text-as-files",
+			renderedPng(
+				found.adding("text.search").typing("data class").then(BrowserEvent.TextListed),
+				1100,
+				420,
+				Palette.Light,
+				scale = 2f,
+			),
+		)
+		kept(
+			"text-steps",
+			renderedPng(
+				found
+					.adding("text.search")
+					.typing("Forever")
+					.then(BrowserEvent.TextWithout)
+					.adding(null)
+					.typing("dir:launcher"),
+				1280,
+				600,
+				Palette.Dark,
 				scale = 2f,
 			),
 		)
@@ -1282,6 +1789,21 @@ class TextTest {
 			)
 
 		val narrowed = found.then(BrowserEvent.TextTyped("version"))
+
+		if (world.installed("rg") || world.installed("grep"))
+			kept(
+				"strings-searched",
+				renderedPng(
+					found
+						.adding("text.lines")
+						.then(BrowserEvent.TextOptioned("regex"))
+						.typing("GLIBC_[0-9.]+"),
+					1280,
+					600,
+					Palette.Light,
+					scale = 2f,
+				),
+			)
 
 		assertTrue(found.text!!.rows.lines > 20)
 		kept("strings-light", renderedPng(found, 1280, 700, Palette.Light, scale = 2f))

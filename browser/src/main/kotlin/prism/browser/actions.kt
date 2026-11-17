@@ -977,9 +977,14 @@ data class Actions(
 	/** What opens a file at a line: the user's editor. */
 	val editor: Editor = Editor.Application,
 ) {
-	/** The text searches offered for [subject], in the order they are written, those hidden left out. */
+	/**
+	 * The text searches offered for [subject], in the order they are written, those hidden left out: those that look
+	 * in files. One that takes lines is offered only after something that found some.
+	 */
 	fun searching(subject: Subject, world: World): List<TextSearch> =
-		searches.filter { it.id !in hidden && it.offered(subject, world) }
+		searches.filter {
+			it.id !in hidden && it.takes == Takes.Files && it.offered(subject, world)
+		}
 
 	/** The text search called [id], where there is one. */
 	fun search(id: String): TextSearch? = searches.firstOrNull { it.id == id }
@@ -1334,6 +1339,26 @@ data class Actions(
 									Positions::word,
 									"a valid kind of position",
 								).then { positions ->
+									val takes =
+										when (
+											val said =
+												word(
+													spec.takes ?: Takes.Files.word,
+													Takes.entries,
+													Takes::word,
+													"something a search can take",
+												)
+										) {
+											is Reading.Right -> said.value
+											is Reading.Wrong -> return@then said
+										}
+
+									// Lines are kept by their numbers, which a list of files does not have.
+									if (takes == Takes.Lines && read == HitRead.Paths)
+										return@then Reading.Wrong(
+											"A search that takes lines keeps lines: it can't be read as “paths”",
+										)
+
 									// What is said of a line found, which a command for it can name beside the file itself.
 									val named = setOf(positions.hole, TextSearch.TEXT, TextSearch.QUERY)
 
@@ -1353,6 +1378,7 @@ data class Actions(
 																TextOption(name, option.label, option.on, option.off)
 															},
 														run = command,
+														takes = takes,
 														read = read,
 														nul = way?.nul ?: spec.nul,
 														positions = positions,

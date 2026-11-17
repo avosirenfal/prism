@@ -1,6 +1,7 @@
 package prism.browser
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.horizontalScroll
@@ -160,7 +161,7 @@ internal fun TextPane(
 	Column(modifier.fillMaxHeight().background(palette.surface).testTag("text")) {
 		// What is typed is the window's own text, as a toolbar's is, whatever size the listing is drawn at.
 		CompositionLocalProvider(LocalType provides LocalTypes.current.general) {
-			TextHeader(text, stops, onEvent) { key ->
+			TextHeader(state, text, stops, onEvent) { key ->
 				when {
 					key.type != KeyEventType.KeyDown -> false
 					key.key == Key.Enter || key.key == Key.NumPadEnter ->
@@ -170,9 +171,10 @@ internal fun TextPane(
 			}
 		}
 		Divider()
-		// With nothing found at all there is no file to show beside it: what is said of that has all the room. What
-		// a filter of the files leaves none of stays beside the filter's field, which is where it is typed over.
-		if (text.results.hits.count == 0 && text.filter == null)
+		// With nothing found by its one step there is no file to show beside it: what is said of that has all the room.
+		if (text.shown.hits.groups
+				.isEmpty() && text.stages.size == 1
+		)
 			// It is where the list would be, and takes the keyboard as the list does.
 			TextNothing(
 				text,
@@ -193,7 +195,7 @@ internal fun TextPane(
 				Row(Modifier.fillMaxSize()) {
 					Column(Modifier.width(left).fillMaxHeight().testTag("text-list")) {
 						CompositionLocalProvider(LocalType provides LocalTypes.current.general) {
-							ListHeader(text, rows, state.aliases, stops, onEvent)
+							ListHeader(text, rows, stops, onEvent)
 						}
 						Box(
 							Modifier
@@ -242,18 +244,34 @@ internal fun TextPane(
 	ContextMenuHost(menus, onEvent)
 }
 
-/** What is looked for, typed; the search's options; and, while its command runs, what stops it. */
+/**
+ * The search's steps, one after another; and, under them, what is typed for the step chosen among them, that step's
+ * options, and, while a command runs, what stops it.
+ */
+@Suppress("DEPRECATION") // What colours a value-based field, as Field is.
 @Composable
 private fun TextHeader(
+	state: BrowserState,
 	text: Location.Text,
 	stops: Stops,
 	onEvent: (BrowserEvent) -> Unit,
 	onKey: (KeyEvent) -> Boolean,
 ) {
+	val palette = LocalPalette.current
 	val type = LocalType.current
+	val step = text.step
+	val search = (step as? TextStep.Search)?.search
 
+	val colouring =
+		remember(step, state.aliases, palette) {
+			(step as? TextStep.Names)?.let {
+				QueryColouring(QueryText.read(it.text, state.aliases), palette)
+			}
+		}
+
+	StepStrip(state, text, stops, onEvent)
 	Row(
-		Modifier.fillMaxWidth().padding(horizontal = Space.m, vertical = Space.s),
+		Modifier.fillMaxWidth().padding(start = Space.m, end = Space.m, bottom = Space.s),
 		verticalAlignment = Alignment.CenterVertically,
 		horizontalArrangement = Arrangement.spacedBy(Space.s),
 	) {
@@ -263,13 +281,19 @@ private fun TextHeader(
 				{ onEvent(BrowserEvent.TextTyped(it)) },
 				Modifier.fillMaxWidth().testTag("text-query"),
 				hint =
-					when (text.search.query) {
-						QueryUse.Typed -> "Text to find"
-						QueryUse.Narrows -> "Filter the lines found"
+					when {
+						search == null -> "*.kt, dir:src, ext:md…"
+						search.query == QueryUse.Typed -> "Text to find"
+						else -> "Filter the lines found"
 					},
-				leading = Glyph.Search,
+				leading =
+					if (search == null)
+						Glyph.Filter
+					else
+						Glyph.Search,
 				focus = stops.search,
 				onKey = onKey,
+				colouring = colouring ?: androidx.compose.ui.text.input.VisualTransformation.None,
 				onClear = {
 					onEvent(BrowserEvent.TextTyped(""))
 					stops.search.requestFocus()
@@ -280,13 +304,167 @@ private fun TextHeader(
 			if (text.running != null)
 				Stopper(Modifier.padding(end = type.control)) { onEvent(BrowserEvent.TextStopped) }
 		}
-		if (text.search.options.isNotEmpty())
+		if (search != null && search.options.isNotEmpty())
 			Toggles(
-				text.search.options,
-				text.search.options.filterTo(LinkedHashSet()) { it.name in text.on },
+				search.options,
+				search.options.filterTo(LinkedHashSet()) { it.name in text.on },
 				{ it.label },
 				tag = "text-option",
 			) { onEvent(BrowserEvent.TextOptioned(it.name)) }
+		// A step after the first can be turned about, to give what it finds nothing in.
+		if (step is TextStep.Search && text.at > 0)
+			Toggles(
+				listOf(WITHOUT),
+				if (step.without) setOf(WITHOUT) else emptySet(),
+				{ it },
+				tag = "text-without",
+			) { onEvent(BrowserEvent.TextWithout) }
+	}
+}
+
+/** What turns a step about is called. */
+private const val WITHOUT = "Without"
+
+/** What a step's chip calls it: the search it is, without the dots a menu's entry ends in; or that it is of names. */
+private fun TextStep.label(): String =
+	when (this) {
+		is TextStep.Search -> search.label.removeSuffix("…")
+		is TextStep.Names -> "File names"
+	}
+
+/**
+ * The steps of the search, in the order they are run: where it looks; then each step, as a chip that says what it is,
+ * what is typed for it, and how many files it gave. The one what is typed is for is lit, and any is made that one by
+ * a click. Each but the first has a cross that takes it out. After them, what adds a step.
+ */
+@Composable
+private fun StepStrip(
+	state: BrowserState,
+	text: Location.Text,
+	stops: Stops,
+	onEvent: (BrowserEvent) -> Unit,
+) {
+	val palette = LocalPalette.current
+	val type = LocalType.current
+	val scroll = rememberScrollState()
+
+	// A step added is at the end, which is brought into sight.
+	LaunchedEffect(text.stages.size) { scroll.scrollTo(scroll.maxValue) }
+	Row(
+		Modifier
+			.fillMaxWidth()
+			.padding(horizontal = Space.m, vertical = Space.s)
+			.testTag("text-steps"),
+		verticalAlignment = Alignment.CenterVertically,
+		horizontalArrangement = Arrangement.spacedBy(Space.xs),
+	) {
+		Row(
+			Modifier.weight(1f, fill = false).horizontalScroll(scroll),
+			verticalAlignment = Alignment.CenterVertically,
+			horizontalArrangement = Arrangement.spacedBy(Space.xs),
+		) {
+			Text(
+				"In ${text.scope.said}",
+				style = type.muted,
+				maxLines = 1,
+				softWrap = false,
+				modifier = Modifier.padding(end = Space.xxs),
+			)
+			text.stages.forEachIndexed { index, stage ->
+				GlyphIcon(Glyph.Chevron, palette.textFaint, type.icon * 0.6f)
+				StepChip(text, index, stage) { event ->
+					onEvent(event)
+					stops.search.requestFocus()
+				}
+			}
+		}
+		MenuButton(
+			Glyph.Plus,
+			"Add a step",
+			{ stepMenuOf(state, text) },
+			{ event ->
+				onEvent(event)
+				stops.search.requestFocus()
+			},
+			Modifier.testTag("text-step-add"),
+		)
+	}
+}
+
+/** One step of the search, as its chip. */
+@Composable
+private fun StepChip(
+	text: Location.Text,
+	index: Int,
+	stage: Stage,
+	onEvent: (BrowserEvent) -> Unit,
+) {
+	val palette = LocalPalette.current
+	val type = LocalType.current
+	val chosen = index == text.at
+	val step = stage.step
+	val failed = stage.done?.failure != null
+	val shape = RoundedCornerShape(Radius.medium)
+	val source = remember { MutableInteractionSource() }
+	val felt = source.felt()
+
+	Row(
+		Modifier
+			.height(type.row - Space.xs)
+			.background(
+				when {
+					chosen -> palette.chosen
+					felt.hovered -> palette.hover
+					else -> palette.sunken
+				},
+				shape,
+			).border(1.dp, if (chosen) palette.accent else palette.border, shape)
+			.clickable(source, indication = null, onClickLabel = "Edit this step") {
+				onEvent(BrowserEvent.TextStepChosen(index))
+			}.focusProperties { canFocus = false }
+			.padding(start = Space.s, end = if (index > 0) Space.xxs else Space.s)
+			.semantics { selected = chosen }
+			.testTag("text-step:$index"),
+		verticalAlignment = Alignment.CenterVertically,
+		horizontalArrangement = Arrangement.spacedBy(Space.xs),
+	) {
+		if ((step as? TextStep.Search)?.without == true)
+			Text("without", style = type.muted.copy(color = palette.dangerText), maxLines = 1)
+		Text(step.label(), style = type.muted, maxLines = 1, softWrap = false)
+		if (step.typed.isNotBlank())
+			Text(
+				"“${step.typed.trim()}”",
+				style = type.body,
+				maxLines = 1,
+				softWrap = false,
+				overflow = TextOverflow.Ellipsis,
+				modifier = Modifier.widthIn(max = type.line * 12),
+			)
+		// How many files it gave; or that it is still looking, or failed.
+		when {
+			failed -> GlyphIcon(Glyph.Warning, palette.dangerText, type.icon * 0.8f)
+			text.under?.index == index -> Spinner(palette.textMuted, type.icon * 0.7f, 2.dp)
+			else ->
+				stage.done?.let { done ->
+					Text(
+						"%,d".format(done.out.hits.groups.size) +
+							"+".takeIf { done.ending == TextEnding.Capped }.orEmpty(),
+						style = type.muted.copy(color = palette.textFaint).tabular(),
+						maxLines = 1,
+						softWrap = false,
+						modifier = Modifier.testTag("text-step-count:$index"),
+					)
+				}
+		}
+		if (index > 0)
+			ToolButton(
+				Glyph.Close,
+				"Remove this step",
+				enabled = true,
+				Modifier.testTag("text-step-remove:$index"),
+				size = type.row - Space.s,
+				icon = type.icon * 0.55f,
+			) { onEvent(BrowserEvent.TextStepRemoved(index)) }
 	}
 }
 
@@ -378,22 +556,36 @@ private fun Splitter(modifier: Modifier, onDrag: (Dp) -> Unit) {
 // ---- the lines found ---------------------------------------------------------------------------------------------
 
 /**
- * What is over the list: how much it lists; what narrows its files by a query of their names, and what folds them
- * all; and, while the first is open, the field the query is typed in, with what is wrong with it under that.
+ * What is over the list: how much it lists; and what folds every file or unfolds them, what adds a step that narrows
+ * the files by a query of their names, and what shows the files as a listing of files.
  */
 @Composable
 private fun ListHeader(
 	text: Location.Text,
 	rows: TextRows,
-	aliases: prism.index.query.Aliases,
 	stops: Stops,
 	onEvent: (BrowserEvent) -> Unit,
 ) {
 	val palette = LocalPalette.current
 	val type = LocalType.current
-	val filter = text.filter
 	val everyFolded = rows.files > 0 && rows.paths.all { it in text.folded }
-	val focus = remember { FocusRequester() }
+
+	@Composable
+	fun Tool(
+		glyph: Glyph,
+		says: String,
+		tag: String,
+		enabled: Boolean = true,
+		onClick: () -> Unit,
+	) = ToolButton(
+		glyph,
+		says,
+		enabled,
+		Modifier.testTag(tag),
+		size = type.row - Space.xs,
+		icon = type.icon * 0.8f,
+		onClick = onClick,
+	)
 
 	Row(
 		Modifier
@@ -411,7 +603,7 @@ private fun ListHeader(
 			overflow = TextOverflow.Ellipsis,
 			modifier = Modifier.weight(1f).testTag("text-count"),
 		)
-		ToolButton(
+		Tool(
 			if (everyFolded)
 				Glyph.ChevronDown
 			else
@@ -420,71 +612,24 @@ private fun ListHeader(
 				"Expand all files"
 			else
 				"Collapse all files",
+			"text-fold-all",
 			enabled = rows.files > 0,
-			Modifier.testTag("text-fold-all"),
-			size = type.row - Space.xs,
-			icon = type.icon * 0.8f,
 		) { onEvent(BrowserEvent.TextFoldedAll(!everyFolded)) }
-		ToolButton(
-			Glyph.Filter,
-			"Filter files by name",
-			enabled = true,
-			Modifier.testTag("text-filter"),
-			selected = filter != null,
-			size = type.row - Space.xs,
-			icon = type.icon * 0.8f,
-		) { onEvent(BrowserEvent.TextFiltering(filter == null)) }
+		Tool(Glyph.Filter, "Filter files by name", "text-filter") {
+			onEvent(BrowserEvent.TextStepAdded(null))
+			stops.search.requestFocus()
+		}
+		Tool(
+			Glyph.ViewList,
+			"Show these files as a listing",
+			"text-as-files",
+			enabled =
+				rows.files > 0,
+		) {
+			onEvent(BrowserEvent.TextListed)
+		}
 	}
 	Divider()
-	if (filter != null) {
-		val colouring =
-			remember(filter.text, aliases, palette) {
-				QueryColouring(QueryText.read(filter.text, aliases), palette)
-			}
-
-		// The keyboard goes to it as it opens: it is opened to be typed in.
-		LaunchedEffect(Unit) { focus.requestFocus() }
-		Column(
-			Modifier.fillMaxWidth().padding(horizontal = Space.s, vertical = Space.xs),
-			verticalArrangement = Arrangement.spacedBy(Space.xs),
-		) {
-			Field(
-				filter.text,
-				{ onEvent(BrowserEvent.TextFilterTyped(it)) },
-				Modifier.fillMaxWidth().testTag("text-filter-field"),
-				hint = "*.kt, dir:src, ext:md…",
-				leading = Glyph.Filter,
-				focus = focus,
-				colouring = colouring,
-				onKey = { key ->
-					when {
-						key.type != KeyEventType.KeyDown -> false
-						// Escape puts it away, and every file is listed again; Enter and Down go to what it left.
-						key.key == Key.Escape ->
-							true.also {
-								onEvent(BrowserEvent.TextFiltering(false))
-								stops.search.requestFocus()
-							}
-						key.key == Key.Enter || key.key == Key.NumPadEnter ||
-							key.key == Key.DirectionDown -> true.also { stops.listing.requestFocus() }
-						else -> false
-					}
-				},
-				onClear = {
-					onEvent(BrowserEvent.TextFilterTyped(""))
-					focus.requestFocus()
-				},
-			)
-			filter.refused?.let {
-				Text(
-					it,
-					style = type.muted.copy(color = palette.dangerText),
-					modifier = Modifier.testTag("text-filter-refused"),
-				)
-			}
-		}
-		Divider()
-	}
 }
 
 /** How tall a row of the list is: a line of its text, and a little room. */
@@ -600,23 +745,30 @@ private fun TextList(
 /** How far in a line found starts: under its file's name, past what folds the file and its icon. */
 private val Type.lineInset: Dp get() = Space.s + icon * 1.8f + Space.s
 
-/** What the list says where it has no lines: what to do, that nothing was found, or why its command failed. */
+/** What the list says where it has nothing: what to do, that nothing was found, or which step failed and why. */
 @Composable
 private fun TextNothing(text: Location.Text, modifier: Modifier) {
-	val ending = text.results.ending
 	val scope = text.scope.said
-	val label = text.search.label.removeSuffix("…")
+	val failed = text.failed
+	val first = text.stages.first().step as TextStep.Search
 
 	Box(modifier.testTag("text-nothing"), contentAlignment = Alignment.Center) {
 		when {
+			failed != null -> TextFailed(text.stages[failed.first].step.label(), failed.second)
 			// Still looking: nothing is said of what has not been found yet.
-			text.running != null -> Unit
-			ending is TextEnding.Failed -> TextFailed(label, ending.why)
-			text.search.query == QueryUse.Typed && text.query.isBlank() ->
-				EmptyState(Glyph.Search, label, "Type what to look for in $scope.")
-			text.results.hits.count > 0 ->
-				EmptyState(Glyph.Search, "No lines have “${text.query.trim()}”", null)
-			else -> EmptyState(Glyph.Search, "Nothing found", "Nothing in $scope matches.")
+			text.busy -> Unit
+			text.stages.size == 1 && first.idle ->
+				EmptyState(Glyph.Search, first.label(), "Type what to look for in $scope.")
+			text.stages.size == 1 && first.search.query == QueryUse.Narrows &&
+				first.query.isNotBlank() ->
+				EmptyState(Glyph.Search, "No lines have “${first.query.trim()}”", null)
+			text.stages.size == 1 ->
+				EmptyState(
+					Glyph.Search,
+					"Nothing found",
+					"Nothing in $scope matches.",
+				)
+			else -> EmptyState(Glyph.Search, "Nothing found", "No file passes every step.")
 		}
 	}
 }
@@ -1043,9 +1195,9 @@ private fun PreviewLines(
 
 	// What was found in each line of this file, where places in it are lines: marked wherever it is in sight.
 	val matched =
-		remember(text.results.hits, path, text.search.positions) {
+		remember(text.shown.hits, path, text.search.positions) {
 			if (text.search.positions == Positions.Lines)
-				text.results.hits[path]
+				text.shown.hits[path]
 					?.hits
 					.orEmpty()
 					.mapNotNull { hit -> hit.position?.let { it to hit.marks } }
@@ -1269,26 +1421,23 @@ private fun drawnLine(
 	}
 }
 
-/** What the status line says of [text]: how many lines in how many files, and how its command ended, or that it runs. */
+/** What the status line says of [text]: how many lines in how many files, and how its last step ended, or that it runs. */
 internal fun textStatus(text: Location.Text): String {
 	val rows = text.rows
-	val found = text.results.hits.count
+	val failed = text.failed
+	val first = text.stages.first().step as TextStep.Search
 
 	val counted =
 		when {
-			rows.lines == 0 && text.running != null -> "Searching…"
-			text.results.ending is TextEnding.Failed -> "The search failed"
-			text.search.query == QueryUse.Typed && text.query.isBlank() ->
-				"Nothing searched for yet"
-			rows.lines == 0 -> "No results"
-			else ->
-				"${counted(rows.lines, "line")} in ${counted(rows.files, "file")}" +
-					// Narrowed, of how many found.
-					" of ${"%,d".format(found)}".takeIf { rows.lines != found }.orEmpty()
+			failed != null -> "“${text.stages[failed.first].step.label()}” failed"
+			rows.size == 0 && text.busy -> "Searching…"
+			text.stages.size == 1 && first.idle -> "Nothing searched for yet"
+			rows.size == 0 -> "No results"
+			else -> "${counted(rows.lines, "line")} in ${counted(rows.files, "file")}"
 		}
 
 	val ended =
-		when (val ending = text.results.ending.takeIf { text.running == null }) {
+		when (val ending = text.ending.takeIf { !text.busy && failed == null }) {
 			TextEnding.Capped -> "stopped at the first ${"%,d".format(Hits.LIMIT)}"
 			TextEnding.Stopped -> "stopped"
 			// What it said beside what it found: a file it could not read, say. Its last line, which is the latest.
@@ -1300,7 +1449,7 @@ internal fun textStatus(text: Location.Text): String {
 			is TextEnding.Failed, null -> null
 		}
 
-	val searching = "searching…".takeIf { text.running != null && rows.lines > 0 }
+	val searching = "searching…".takeIf { text.busy && rows.size > 0 }
 
 	return listOfNotNull(counted, ended, searching).joinToString(" · ")
 }

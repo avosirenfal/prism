@@ -327,17 +327,12 @@ class TextViewTest {
 					.query,
 			)
 
-			// The search's own key, while it is shown, takes the keyboard to what it looks for.
-			onNode(isFocused()).performKeyInput {
-				withKeyDown(Key.CtrlLeft) { withKeyDown(Key.ShiftLeft) { pressKey(Key.G) } }
-			}
+			// Ctrl+L, which elsewhere is where a path is typed, takes the keyboard to what the search looks for.
+			onNodeWithTag("text-line:one.kt:5").performMouseInput { click() }
+			waitForIdle()
+			onNode(isFocused()).performKeyInput { withKeyDown(Key.CtrlLeft) { pressKey(Key.L) } }
 			waitForIdle()
 			focusIsIn("text-query")
-			assertEquals(
-				0,
-				session.state.value.history.back
-					.count { it is Location.Text },
-			)
 		}
 	}
 
@@ -354,13 +349,12 @@ class TextViewTest {
 			searching(session, "class", 4)
 			onNode(hasTestTag("text-count") and hasText("3 files, 4 lines")).assertExists()
 
-			// Its button opens a field, which has the keyboard; a query of the index's language narrows the files.
+			// Its button adds a step, which what is typed is then for; a query of the index's language narrows the files.
 			onNodeWithTag("text-filter").performMouseInput { click() }
-			until(session) { it.filter != null }
-			focusIsIn("text-filter-field")
-			onNode(hasSetTextAction() and hasAnyAncestor(hasTestTag("text-filter-field")))
-				.performTextInput("^w*.kt")
-			until(session) { it.rows.files == 1 }
+			until(session) { it.stages.size == 2 && it.step is TextStep.Names }
+			focusIsIn("text-query")
+			type("^w*.kt")
+			until(session) { it.rows.files == 1 && !it.busy }
 			onNode(hasTestTag("text-count") and hasText("1 file, 1 line")).assertExists()
 			onNodeWithTag("text-file:wide.kt").assertExists()
 			assertEquals(0, onAllNodes(hasTestTag("text-file:one.kt")).fetchSemanticsNodes().size)
@@ -382,10 +376,76 @@ class TextViewTest {
 			assertTrue(leftOf("text-line:wide.kt:1") < line - 20f, "the line moved across")
 			assertEquals(file, leftOf("text-file:wide.kt"), 1f)
 
-			// Escape in the field puts the filter away, and every file is listed again.
-			onNode(hasSetTextAction() and hasAnyAncestor(hasTestTag("text-filter-field")))
-				.performKeyInput { pressKey(Key.Escape) }
-			until(session) { it.filter == null && it.rows.files == 3 }
+			// The step's cross takes it out, and every file is listed again.
+			onNodeWithTag("text-step-remove:1").performMouseInput { click() }
+			until(session) { it.stages.size == 1 && it.rows.files == 3 }
+		}
+	}
+
+	@Test
+	fun stepsAreAddedChosenTurnedAboutAndTakenOut_AndTheFilesShownAsAListing() {
+		assumeTrue(
+			listOf("rg", "xargs").all(SystemWorld(work, null)::installed),
+			"needs rg and xargs",
+		)
+		project()
+
+		exploring { session ->
+			searching(session, "class", 3)
+			onNodeWithTag("text-step:0").assertIsSelected()
+			// Its chip says what it is, what is typed for it, and how many files it gave.
+			onNode(
+				hasTestTag("text-step:0") and hasText("“class”") and hasText("2"),
+			).assertExists()
+
+			// The search's key, beside what it found, adds a step that looks in those files; what is typed is for it.
+			onNode(isFocused()).performKeyInput {
+				withKeyDown(Key.CtrlLeft) { withKeyDown(Key.ShiftLeft) { pressKey(Key.G) } }
+			}
+			until(session) { it.stages.size == 2 }
+			focusIsIn("text-query")
+			onNodeWithTag("text-step:1").assertIsSelected()
+			type("Uno")
+			until(session) { !it.busy && it.rows.files == 1 && it.rows.lines == 1 }
+			onNodeWithTag("text-file:one.kt").assertExists()
+
+			// Turned about, it gives the file with "class" and no "Uno", with its line of "class".
+			onNodeWithTag("text-without:Without").performMouseInput { click() }
+			until(session) {
+				!it.busy &&
+					it.rows.paths.map { path -> path.fileName.toString() } == listOf("two.kt")
+			}
+			onNodeWithTag("text-line:two.kt:2").assertExists()
+
+			// The first step's chip clicked, the field holds what it looks for, and typing there runs both again.
+			onNodeWithTag("text-step:0").performMouseInput { click() }
+			until(session) { it.at == 0 }
+			focusIsIn("text-query")
+			assertEquals(
+				"class",
+				session.state.value.text!!
+					.query,
+			)
+
+			// A step added from the menu of steps; and taken out by its cross.
+			onNodeWithTag("text-step-add").performMouseInput { click() }
+			waitForIdle()
+			onNode(hasText("Filter files by name…")).performMouseInput { click() }
+			until(session) { it.stages.size == 3 && it.at == 2 }
+			onNodeWithTag("text-step-remove:2").performMouseInput { click() }
+			until(session) { it.stages.size == 2 && !it.busy }
+
+			// The files it lists, shown as files: the window is no longer on the search, and Back is the search again.
+			onNodeWithTag("text-as-files").performMouseInput { click() }
+			waitUntil(timeoutMillis = TIMEOUT) {
+				session.state.value.let { it.text == null && it.rows.size == 1 }
+			}
+			waitForIdle()
+			onNodeWithTag("row:two.kt").assertExists()
+			onNode(isFocused()).performKeyInput {
+				withKeyDown(Key.AltLeft) { pressKey(Key.DirectionLeft) }
+			}
+			until(session) { it.stages.size == 2 && it.rows.files == 1 }
 		}
 	}
 
@@ -426,7 +486,7 @@ class TextViewTest {
 			assertEquals(
 				TextEnding.Stopped,
 				session.state.value.text!!
-					.results.ending,
+					.ending,
 			)
 			assertEquals(
 				1,

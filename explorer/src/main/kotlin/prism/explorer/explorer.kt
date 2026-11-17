@@ -792,7 +792,7 @@ class Explorer(
 						is Location.Place -> at.placed.title
 						Location.Trash -> "Trash"
 						is Location.System -> "System"
-						is Location.Text -> at.search.label.removeSuffix("…")
+						is Location.Text -> at.first.label.removeSuffix("…")
 						Location.Recents -> "Recents"
 					}
 				is ExplorerWindow.Picking -> window.title

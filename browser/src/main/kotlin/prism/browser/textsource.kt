@@ -14,9 +14,16 @@ import java.util.concurrent.atomic.AtomicReference
  */
 
 /**
- * [run]'s command run by [commands] and waited for: the files it looks in written to its standard input, each ended
- * by a NUL character; each line it finds given to [found] as it prints it; and how it ended. Having found as many
- * lines as are kept ([Hits.LIMIT]), it is stopped. [watch] is told how to stop it.
+ * [run]'s command run by [commands] and waited for: what it looks in written to its standard input; what it finds
+ * given to [found] as it prints it; and how it ended. Having found as many lines as are kept ([Hits.LIMIT]), it is
+ * stopped. [watch] is told how to stop it.
+ *
+ * What it looks in is the files of the run, each ended by a NUL character; or, for a search that takes lines, the
+ * lines it is given, a line each, of which it prints those it keeps with the number each had among them. A line it
+ * keeps is still of the file it was found in, at the place it was found at.
+ *
+ * Run without, what it finds is not what is given: what is, once it has ended, is what it was given and did not find,
+ * which is the files it found no line in, or the lines it did not keep.
  *
  * How it ended is read from what it found and said, and not from its status: `grep` and `rg` end with 1 for nothing
  * found, and `xargs` with 123 where any command it ran did, which are not failures. A command that found nothing and
@@ -35,10 +42,28 @@ fun found(
 			?: return TextEnding.Failed("Its command uses a value that isn't available here.")
 
 	val reader = run.reader
-	val count = AtomicInteger(0)
+	val given = run.lines
+	val told = AtomicInteger(0)
 	val capped = AtomicBoolean(false)
 	// How to stop it, once it has started: told to whoever watches it, and used here when it has found enough.
 	val stopping = AtomicReference<(() -> Unit)?>(null)
+	// What it printed that was read, where that is not what is given: the lines it kept, by their places among those
+	// it was given, and the files it found something in. Filled by the one thread that reads what it prints.
+	val kept = java.util.BitSet()
+	val within = HashSet<Path>()
+	val printed = AtomicInteger(0)
+
+	/** [hit] given, unless as many as are kept have been: then the command is stopped. */
+	fun tell(hit: FileHit) {
+		if (!capped.get()) {
+			if (told.incrementAndGet() > Hits.LIMIT) {
+				capped.set(true)
+				stopping.get()?.invoke()
+			} else {
+				found(hit)
+			}
+		}
+	}
 
 	val ran =
 		commands.stream(
@@ -50,10 +75,21 @@ fun found(
 			{ input ->
 				val written = input.buffered()
 
-				run.scope.paths.forEach {
-					written.write(it.toString().encodeToByteArray())
-					written.write(0)
-				}
+				if (given != null)
+					given.forEach {
+						written.write(
+							it.hit
+								?.text
+								.orEmpty()
+								.encodeToByteArray(),
+						)
+						written.write('\n'.code)
+					}
+				else
+					run.scope.paths.forEach {
+						written.write(it.toString().encodeToByteArray())
+						written.write(0)
+					}
 				written.flush()
 			},
 			object : Watch {
@@ -65,26 +101,62 @@ fun found(
 				override fun said(line: String, error: Boolean) = watch.said(line, error)
 			},
 		) { line ->
-			if (!capped.get())
-				reader.read(line)?.let { hit ->
-					if (count.incrementAndGet() > Hits.LIMIT) {
-						capped.set(true)
-						stopping.get()?.invoke()
-					} else {
-						found(hit)
+			if (given != null)
+				reader.kept(line)?.let { (number, hit) ->
+					val place = (number - 1).toInt()
+
+					given.getOrNull(place)?.let { was ->
+						printed.incrementAndGet()
+						if (run.without)
+							kept.set(place)
+						else
+							// Still the line it was: of its file, at its place there, whatever number it had here.
+							tell(FileHit(was.path, hit.copy(position = was.hit?.position)))
 					}
+				}
+			else
+				// Paths ended by NUL characters come as one line of them all.
+				(
+					if (run.search.read == HitRead.Paths && run.search.nul)
+						line.split('\u0000')
+					else
+						listOf(line)
+				).mapNotNull(reader::read).forEach { hit ->
+					printed.incrementAndGet()
+					if (run.without)
+						within.add(hit.path)
+					else
+						tell(hit)
 				}
 		}
 
 	val wrote = ran.errors.trim()
+	val stopped = ran.status == null && ran.errors == ProcessCommands.STOPPED
+
+	// What it did not find of what it was given, where that is what is wanted: once it has said all it found.
+	val failed =
+		!stopped &&
+			(ran.status == null || (printed.get() == 0 && !ran.worked && wrote.isNotEmpty()))
+
+	if (run.without && !stopped && !failed) {
+		if (given != null)
+			given.forEachIndexed { place, was ->
+				if (!kept[place])
+					tell(was)
+			}
+		else
+			run.scope.paths
+				.filter { it !in within }
+				.forEach { tell(FileHit(it, null)) }
+	}
 
 	return when {
 		capped.get() -> TextEnding.Capped
 		// Stopped by whoever watched it.
-		ran.status == null && ran.errors == ProcessCommands.STOPPED -> TextEnding.Stopped
+		stopped -> TextEnding.Stopped
 		ran.status == null -> TextEnding.Failed(ran.why)
 		// What it wrote is why, as it wrote it: how it ended says nothing more (and through `xargs`, nothing of its own).
-		count.get() == 0 && !ran.worked && wrote.isNotEmpty() -> TextEnding.Failed(wrote)
+		failed -> TextEnding.Failed(wrote)
 		else -> TextEnding.Done(wrote.ifEmpty { null })
 	}
 }

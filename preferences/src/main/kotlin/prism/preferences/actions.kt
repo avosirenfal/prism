@@ -214,9 +214,14 @@ data class TextSearchSpec(
 	val run: List<String>? = null,
 	/** Several commands that find the same with different programs, the most to be preferred first. */
 	val ways: List<WaySpec> = emptyList(),
-	/** How what it prints is read: `lines` (unless said), `rg-json`, or `json`. */
+	/**
+	 * What it is given on its standard input: `files` (unless said), each ended by a NUL character, to find lines in;
+	 * or `lines`, the lines found already, to keep some of, saying which by the number each has among them.
+	 */
+	val takes: String? = null,
+	/** How what it prints is read: `lines` (unless said), `rg-json`, `json`, or `paths` (files, and no lines of them). */
 	val read: String? = null,
-	/** For `lines`: whether a NUL character ends each path, as `grep -Z` and `rg -0` print them, and not a colon. */
+	/** Whether a NUL character ends each path, as `grep -Z` and `rg -0` print them, and not a colon or a line's end. */
 	val nul: Boolean = false,
 	/** What the number printed with each line is: `lines` (unless said), a line of the file; or `offsets`, a byte of it. */
 	val positions: String? = null,

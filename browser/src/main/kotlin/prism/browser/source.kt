@@ -386,6 +386,10 @@ fun Services.answer(
 		is Effect.Scratch -> Answer.ScratchMade(temps.make(), asking.pending)
 		is Effect.Preview -> Answer.Previewed(asking.ask, previewOf(asking.ask, commands))
 		is Effect.FilterText -> Answer.TextFiltered(asking.ask, filtered(asking.ask))
+		is Effect.ListFound ->
+			found(asking.ask).let { (tree, finding) ->
+				Answer.FoundListed(asking.ask, tree, finding)
+			}
 	}
 
 /** [job]'s commands started on the desktop, each a process of its own, or in a terminal: the first that fails, or the last. */

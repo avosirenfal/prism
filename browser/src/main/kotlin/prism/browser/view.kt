@@ -220,11 +220,12 @@ fun FileBrowser(
 				}?.let(bindings::searching)
 				?.let { current.actions.search(it.id) }
 
-		// The search shown already has its field: its key takes the keyboard there, to look for something else.
-		if (search != null && search.id == current.text?.search?.id)
-			stops.search.requestFocus()
-		else
-			search?.let { latest(BrowserEvent.SearchedText(it)) }
+		// Opened beside what a text search found, it is a step more of that search, and what is typed is for it.
+		search?.let {
+			latest(BrowserEvent.SearchedText(it))
+			if (current.text != null)
+				stops.search.requestFocus()
+		}
 
 		return search != null
 	}
@@ -381,7 +382,15 @@ private fun windowAction(
 			Action.Back -> BrowserEvent.Back
 			Action.Forward -> BrowserEvent.Forward
 			Action.Up -> BrowserEvent.Up
-			Action.EditAddress -> BrowserEvent.EditedAddress
+			// What a text search found is on no path: where it is, is what it looks for, and that is typed in its field.
+			Action.EditAddress ->
+				if (state.text != null) {
+					stops.search.requestFocus()
+
+					return true
+				} else {
+					BrowserEvent.EditedAddress
+				}
 			Action.SearchIndex -> BrowserEvent.OpenedSearch
 			Action.GoTo -> BrowserEvent.OpenedGoTo
 			Action.ToggleThumbnails -> BrowserEvent.ToggledThumbnails
@@ -603,7 +612,11 @@ private fun AddressBar(
 		Address.Crumbs ->
 			when (val at = state.at) {
 				is Location.Folder -> Crumbs(state.crumbs, modifier, onEvent)
-				is Location.Results -> ResultsBar(at, modifier, onEvent)
+				is Location.Results ->
+					when (val found = at.found) {
+						null -> ResultsBar(at, modifier, onEvent)
+						else -> FoundBar(found, modifier)
+					}
 				is Location.Place -> PlaceBar(at, modifier, onEvent)
 				Location.Trash -> TrashBar(modifier)
 				is Location.System -> SystemBar(modifier)
@@ -809,6 +822,17 @@ private fun TrashBar(modifier: Modifier) {
 private fun SystemBar(modifier: Modifier) {
 	Bar(Glyph.System, modifier.testTag("system-bar")) {
 		Text("System", style = LocalType.current.strong, maxLines = 1)
+	}
+}
+
+/** In place of the path, that the window shows the files a text search found, and what that search looked for. */
+@Composable
+private fun FoundBar(found: String, modifier: Modifier) {
+	val type = LocalType.current
+
+	Bar(Glyph.Search, modifier.testTag("found-bar")) {
+		Text("Files found", style = type.strong, maxLines = 1, softWrap = false)
+		Text(found, style = type.muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
 	}
 }
 

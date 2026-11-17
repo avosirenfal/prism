@@ -59,6 +59,23 @@ enum class HitRead(
 
 	/** An object a line: `path`, `at`, `text`, and `marks`, each a pair of where a match starts and ends. */
 	Json("json"),
+
+	/** A path a line, and no line of it: a file found, as `rg --files-with-matches` and `git ls-files` print them. */
+	Paths("paths"),
+}
+
+/** What a text search is given to look in. */
+enum class Takes(
+	val word: String,
+) {
+	/** Files, each ended by a NUL character, on its standard input: it finds lines in them. */
+	Files("files"),
+
+	/**
+	 * Lines found already, each a line of its standard input: it keeps some of them, and says which by each one's
+	 * number among those it was given, as `grep -n` does. It can only follow something that found lines.
+	 */
+	Lines("lines"),
 }
 
 /** What the number a command prints with each line is. */
@@ -105,6 +122,8 @@ data class TextSearch(
 	val query: QueryUse,
 	val options: List<TextOption>,
 	val run: Command,
+	/** What it is given to look in: files, or lines found already. */
+	val takes: Takes,
 	val read: HitRead,
 	/** For [HitRead.Lines]: whether a NUL character ends each path printed, and not a colon. */
 	val nul: Boolean,
@@ -233,11 +252,14 @@ data class Hit(
 	val marks: List<IntRange> = emptyList(),
 )
 
-/** A line found, with the file it was found in: what reading a line of a command's output gives. */
+/**
+ * A line found, with the file it was found in: what reading a line of a command's output gives. A file found with no
+ * line of it said ([HitRead.Paths]) has no [hit].
+ */
 @Immutable
 data class FileHit(
 	val path: Path,
-	val hit: Hit,
+	val hit: Hit?,
 )
 
 /** A file's lines found, in the order they were. */
@@ -261,14 +283,35 @@ class Hits private constructor(
 ) {
 	operator fun get(path: Path): HitGroup? = places[path]?.let(groups::get)
 
-	/** These, and [found] after them: each line under its file, a file not seen before after those that were. */
+	/** The files, in order. */
+	val paths: List<Path> get() = groups.map { it.path }
+
+	/** Every line, with its file, in the order they are listed. */
+	val lines: Sequence<FileHit> get() =
+		groups.asSequence().flatMap { group ->
+			group.hits.asSequence().map { FileHit(group.path, it) }
+		}
+
+	/**
+	 * These, and [found] after them: each line under its file, a file not seen before after those that were. A file
+	 * found with no line is listed with none.
+	 */
 	operator fun plus(found: List<FileHit>): Hits {
 		if (found.isEmpty())
 			return this
 
-		val added = found.groupBy({ it.path }, { it.hit })
-		val known = added.keys.filter { it in places }.associateWith { places.getValue(it) }
-		val grown = known.entries.associate { (path, at) -> at to added.getValue(path) }
+		val added =
+			found
+				.groupBy(
+					{ it.path },
+					{ it.hit },
+				).mapValues { it.value.filterNotNull() }
+
+		val grown =
+			added.entries
+				.filter { it.key in places && it.value.isNotEmpty() }
+				.associate { places.getValue(it.key) to it.value }
+
 		val fresh =
 			added.filterKeys { it !in places }.map { (path, hits) ->
 				HitGroup(path, hits)
@@ -284,14 +327,70 @@ class Hits private constructor(
 					}
 			) + fresh,
 			places + fresh.mapIndexed { at, group -> group.path to groups.size + at },
-			count + found.size,
+			count + added.values.sumOf { it.size },
 		)
 	}
+
+	/** These, of the files among [files] alone. This itself, where that is all of them. */
+	fun restricted(files: Set<Path>): Hits =
+		if (groups.all { it.path in files })
+			this
+		else
+			of(groups.filter { it.path in files })
+
+	/**
+	 * These, narrowed to the lines that have every one of [words] in them, without case, and the files that have
+	 * such a line: each word's first place in a line a mark of it. A file listed with no line is kept where the words
+	 * are in where it is. This itself, with no words.
+	 */
+	fun narrowed(words: List<String>): Hits =
+		if (words.isEmpty())
+			this
+		else
+			of(
+				groups.mapNotNull { group ->
+					if (group.hits.isEmpty())
+						group.takeIf {
+							words.all { word ->
+								group.path.toString().contains(word, ignoreCase = true)
+							}
+						}
+					else
+						group.hits
+							.filter { it.has(words) }
+							.takeIf { it.isNotEmpty() }
+							?.let { kept -> HitGroup(group.path, kept.map { it.marked(words) }) }
+				},
+			)
 
 	override fun toString(): String = "Hits($count in ${groups.size} files)"
 
 	companion object {
 		val NONE = Hits(emptyList(), emptyMap(), 0)
+
+		/** [groups], each file's lines under it; a file given twice is listed once, with the lines of both. */
+		fun of(groups: List<HitGroup>): Hits =
+			if (groups.map { it.path }.toSet().size == groups.size)
+				Hits(
+					groups,
+					groups.withIndex().associate { (at, group) -> group.path to at },
+					groups.sumOf { it.hits.size },
+				)
+			else
+				NONE +
+					groups.flatMap { group ->
+						group.hits
+							.map {
+								FileHit(
+									group.path,
+									it,
+								)
+							}.ifEmpty { listOf(FileHit(group.path, null)) }
+					}
+
+		/** What typed to narrow lines is, as the words each must have. */
+		fun wordsOf(narrowing: String): List<String> =
+			narrowing.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }
 
 		/** The most lines kept of one run of a command: one that prints more is stopped there, and said to have been. */
 		const val LIMIT = 100_000
@@ -315,7 +414,56 @@ class HitReader(
 		when (read) {
 			HitRead.Lines -> plain(line)
 			HitRead.RgJson -> objectOf(line)?.let(::ripgrep)
-			HitRead.Json -> objectOf(line)?.let(::written)
+			// A line found is found in a file: an object that names none says nothing found.
+			HitRead.Json -> objectOf(line)?.takeIf { it.text("path") != null }?.let(::written)
+			HitRead.Paths ->
+				line
+					.takeIf {
+						it.isNotBlank()
+					}?.let(::resolved)
+					?.let { FileHit(it, null) }
+		}
+
+	/**
+	 * A line of what a command that was given lines printed, read as one it kept: which of the lines it was given
+	 * (their number, from 1, as `grep -n` counts its standard input), and that line as it now is, with what matched in
+	 * it. Whatever file the command says it is of is not said: it was given no file.
+	 */
+	fun kept(line: String): Pair<Long, Hit>? =
+		when (read) {
+			HitRead.Lines ->
+				inked(line).first.let { read ->
+					NUMBERED.matchAt(read.text, 0)?.let { numbered ->
+						val from = numbered.range.last + 1
+
+						numbered.groupValues[1].toLongOrNull()?.let {
+							it to
+								Hit(
+									it,
+									read.text.substring(from),
+									read.runs
+										.filter { run -> run.range.last >= from }
+										.map { run -> maxOf(run.range.first, from) - from..run.range.last - from }
+										.merged(),
+								)
+						}
+					}
+				}
+			HitRead.RgJson ->
+				objectOf(line)?.let(::ripgrep)?.hit?.let { hit ->
+					hit.position?.let {
+						it to
+							hit
+					}
+				}
+			HitRead.Json ->
+				objectOf(line)?.let(::written)?.hit?.let { hit ->
+					hit.position?.let {
+						it to
+							hit
+					}
+				}
+			HitRead.Paths -> null
 		}
 
 	/**
@@ -383,7 +531,8 @@ class HitReader(
 
 	/** An object as a script writes one: `path`, and any of `at`, `text` and `marks`. */
 	private fun written(said: JsonObject): FileHit? {
-		val path = said.text("path") ?: return null
+		// A line kept of those it was given is of no file it knows.
+		val path = said.text("path") ?: "-"
 		val text = said.text("text").orEmpty()
 
 		val marks =
@@ -498,28 +647,23 @@ sealed interface TextRow {
 }
 
 /**
- * What a text search's list shows of [hits]: each file, and under it, unless it is among [folded], its lines; of a
- * search whose query narrows, only the lines that have every word of [narrowing] in them, without case, and only the
- * files that have such a line, each word's first place in a line a mark of it.
+ * What a text search's list shows of [hits]: each file, and under it, unless it is among [folded], its lines.
  *
  * Equal only to itself.
  */
 class TextRows(
 	hits: Hits,
 	folded: Set<Path>,
-	narrowing: String = "",
-	/** The files listed, where only some are: those a query of their names found. Every file, where null. */
-	admitted: Set<Path>? = null,
 ) {
-	/** A file listed: its lines listed, each by its place among the file's, and where its own row is. */
+	/** A file listed: its lines, and where its own row is. */
 	private class Listed(
 		val path: Path,
-		val indices: IntArray?,
 		val hits: List<Hit>,
 		val folded: Boolean,
 		val start: Int,
 	) {
-		val lines: Int get() = indices?.size ?: hits.size
+		val lines: Int get() = hits.size
+
 		val rows: Int get() =
 			if (folded)
 				1
@@ -527,34 +671,20 @@ class TextRows(
 				1 + lines
 	}
 
-	private val words = narrowing.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }
-
 	private val listed: List<Listed> =
-		hits.groups
-			.filter { admitted == null || it.path in admitted }
-			.mapNotNull { group ->
-				val kept =
-					if (words.isEmpty())
-						null
-					else
-						group.hits.indices
-							.filter { group.hits[it].has(words) }
-							.toIntArray()
-
-				if (kept?.isEmpty() == true)
-					null
-				else
-					Triple(group, kept, group.path in folded)
-			}.let { kept ->
-				val starts =
-					kept.runningFold(0) { at, (group, indices, away) ->
-						at + 1 + (indices?.size ?: group.hits.size).takeUnless { away }.let { it ?: 0 }
-					}
-
-				kept.mapIndexed { at, (group, indices, away) ->
-					Listed(group.path, indices, group.hits, away, starts[at])
+		hits.groups.let { groups ->
+			val starts =
+				groups.runningFold(0) { at, group ->
+					at + 1 +
+						group.hits.size
+							.takeUnless { group.path in folded }
+							.let { it ?: 0 }
 				}
+
+			groups.mapIndexed { at, group ->
+				Listed(group.path, group.hits, group.path in folded, starts[at])
 			}
+		}
 
 	private val byPath: Map<Path, Listed> by lazy { listed.associateBy { it.path } }
 
@@ -572,11 +702,7 @@ class TextRows(
 	 * list is as wide as, where that is wider than its room. Worked out when it is first asked for.
 	 */
 	val longest: Int by lazy {
-		listed.maxOfOrNull { file ->
-			(file.indices?.asSequence()?.map(file.hits::get) ?: file.hits.asSequence())
-				.maxOfOrNull { it.shownLength }
-				?: 0
-		} ?: 0
+		listed.maxOfOrNull { file -> file.hits.maxOfOrNull { it.shownLength } ?: 0 } ?: 0
 	}
 
 	fun isEmpty(): Boolean = size == 0
@@ -588,22 +714,18 @@ class TextRows(
 		return if (within < 0)
 			TextRow.File(TextRowId.File(file.path), file.lines, file.folded)
 		else
-			(file.indices?.get(within) ?: within).let { at ->
-				TextRow.Line(TextRowId.Line(file.path, at), file.hits[at].marked(words))
-			}
+			TextRow.Line(TextRowId.Line(file.path, within), file.hits[within])
 	}
 
-	/** Where [id]'s row is; nowhere, for one not listed (a line under a folded file, or narrowed away). */
+	/** Where [id]'s row is; nowhere, for one not listed (a line under a folded file, or of a file that is not there). */
 	fun indexOf(id: TextRowId): Int? {
 		val file = byPath[id.path] ?: return null
 
 		return when (id) {
 			is TextRowId.File -> file.start
 			is TextRowId.Line ->
-				(
-					file.indices?.binarySearch(id.index)
-						?: id.index.takeIf { it in file.hits.indices }
-				)?.takeIf { it >= 0 && !file.folded }
+				id.index
+					.takeIf { it in file.hits.indices && !file.folded }
 					?.let { file.start + 1 + it }
 		}
 	}
@@ -704,14 +826,21 @@ class TextScope(
 }
 
 /**
- * One run of a text search's command: what it looks in, what for, and with which options on. Equal only to itself, so
- * that what a run found is never taken for what another did, however alike the two were asked.
+ * One run of a text search's command: what it looks in, what for, and with which options on. What it looks in is the
+ * files of [scope]; or, for a search that takes lines, the [lines] it is given, of which it says which it keeps. Run
+ * [without], what it gives is what it did not find of what it was given: the files it found no line in, or the lines
+ * it did not keep.
+ *
+ * Equal only to itself, so that what a run found is never taken for what another did, however alike the two were
+ * asked.
  */
 class TextRun(
 	val search: TextSearch,
 	val scope: TextScope,
 	val query: String,
 	val on: Set<String>,
+	val lines: List<FileHit>? = null,
+	val without: Boolean = false,
 ) {
 	/** What reads what its command prints. */
 	val reader: HitReader get() = HitReader(search, scope.folder)
@@ -737,18 +866,6 @@ sealed interface TextEnding {
 	data class Failed(
 		val why: String,
 	) : TextEnding
-}
-
-/** What a run found, so far or in all: [of] is the run, none before any has found anything; [ending] how it ended, once it has. */
-@Immutable
-data class TextResults(
-	val of: TextRun?,
-	val hits: Hits,
-	val ending: TextEnding?,
-) {
-	companion object {
-		val NONE = TextResults(null, Hits.NONE, null)
-	}
 }
 
 /**
@@ -813,27 +930,16 @@ class TextListed {
 	private class Kept(
 		val hits: Hits,
 		val folded: Set<Path>,
-		val narrowing: String,
-		val admitted: Set<Path>?,
 		val rows: TextRows,
 	)
 
 	private val last = prism.shared.Published<Kept?>(null)
 
-	internal fun of(
-		hits: Hits,
-		folded: Set<Path>,
-		narrowing: String,
-		admitted: Set<Path>?,
-	): TextRows =
+	internal fun of(hits: Hits, folded: Set<Path>): TextRows =
 		last.now
-			?.takeIf {
-				it.hits === hits && it.folded == folded && it.narrowing == narrowing &&
-					it.admitted === admitted
-			}?.rows
-			?: TextRows(hits, folded, narrowing, admitted).also {
-				last.set(Kept(hits, folded, narrowing, admitted, it))
-			}
+			?.takeIf { it.hits === hits && it.folded == folded }
+			?.rows
+			?: TextRows(hits, folded).also { last.set(Kept(hits, folded, it)) }
 
 	override fun equals(other: Any?): Boolean = other is TextListed
 
@@ -861,25 +967,6 @@ class FilterAsk(
 	override fun toString(): String = "FilterAsk(“$text”, $hits)"
 }
 
-/**
- * The files a text search found narrowed to those a query finds among them, by their names and where they are: the
- * query as typed ([text]), in the language a search of the index is typed in (`*.kt`, `dir:src`, `ext:md`). Which
- * files it finds is asked off the window's thread ([asked], while it is), and [admitted] is the answer to
- * [answered], the last question that was: until the first is, every file is listed. A query that cannot be run says
- * why ([refused]).
- */
-@Immutable
-data class FileFilter(
-	val text: String = "",
-	val asked: FilterAsk? = null,
-	val answered: FilterAsk? = null,
-	val admitted: Set<Path>? = null,
-	val refused: String? = null,
-) {
-	/** Whether it narrows anything: something is typed. */
-	val narrows: Boolean get() = text.isNotBlank()
-}
-
 /** The files [ask]'s query finds among those it asks of; or why it could not be run. */
 fun filtered(ask: FilterAsk): Reading<Set<Path>> {
 	val paths = ask.hits.groups.mapTo(HashSet()) { it.path }
@@ -902,6 +989,92 @@ fun filtered(ask: FilterAsk): Reading<Set<Path>> {
 					.apply { retainAll(paths) },
 			)
 	}
+}
+
+/**
+ * The files a text search found, asked to be shown as a listing of files, under [title]. Equal only to itself.
+ */
+class FoundAsk(
+	val title: String,
+	val paths: List<Path>,
+) {
+	override fun toString(): String = "FoundAsk($title, ${paths.size} files)"
+
+	companion object {
+		/** What the place of them is opened with: what it is called. */
+		const val TITLE = "title"
+
+		/** What finds every file of the place, and none of the folders they are under. */
+		const val EVERY_FILE = "is:file"
+	}
+}
+
+/**
+ * The place the files a text search found are shown as: files on disk, each where it is, listed by nothing but what
+ * found them. It is declared nowhere and runs no command; what it holds is given to it as it is made ([found]).
+ */
+val FOUND_FILES: PlaceType =
+	PlaceType(
+		id = "text.found",
+		title = Phrase(listOf(Piece.Filled(Hole.Value(FoundAsk.TITLE, Part.Whole)))),
+		takes = listOf(FoundAsk.TITLE),
+		window = false,
+		list = Command(listOf(Word.One(Phrase(listOf(Piece.Text("true")))))),
+		folder = null,
+		read = PlaceRead.Paths,
+		tree = true,
+		nul = false,
+		out = null,
+		into = null,
+	)
+
+/**
+ * [ask]'s files as a place of them, each under the folders it is in on disk, with its size and when it was changed
+ * as they are now; and every file of it, as a search of the place finds them, which is how they are shown: all
+ * together, as a search's results are.
+ */
+fun found(ask: FoundAsk): Pair<PlaceTree, Finding> {
+	val tree =
+		PlaceTree(
+			ask.paths.map { path ->
+				val read =
+					try {
+						java.nio.file.Files.readAttributes(
+							path,
+							java.nio.file.attribute.BasicFileAttributes::class.java,
+						)
+					} catch (gone: java.io.IOException) {
+						null
+					}
+
+				PlaceEntry(
+					key = path.toString(),
+					at = path.map { it.toString() },
+					path = path,
+					folder = false,
+					size = read?.size(),
+					modified = read?.lastModifiedTime()?.toInstant(),
+				)
+			},
+		)
+
+	val text = FoundAsk.EVERY_FILE
+	val query =
+		prism.index.query.QueryText
+			.read(text, prism.index.query.Aliases.NONE)
+			.query
+
+	return tree to
+		when (
+			val searched =
+				tree.index.search(
+					query,
+					prism.index.SearchContext(home = Path.of("/")),
+				)
+		) {
+			is prism.index.Searched.Found -> Finding.Matched(text, Matches(searched.results, tree))
+			is prism.index.Searched.Refused -> Finding.Refused(text, searched.why)
+		}
 }
 
 /** One place what is looked for in the file shown is at: which of the lines shown, and where in the line. */
