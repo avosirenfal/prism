@@ -10,6 +10,7 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import prism.index.query.QueryText
+import prism.platform.Os
 
 /**
  * What the index leaves out, as the user says it: rules that name a folder by its path or entries by a query, each
@@ -368,5 +369,45 @@ class ExclusionsTest {
 			index.found("$root/games/ x", rules),
 		)
 		assertEquals(setOf("games/b/x.txt"), index.found("$root/games/b/ x", rules))
+	}
+
+	@Test
+	fun eachPlatformHasItsOwnDefaultsAndNoneOfAnothers() {
+		val linux = Exclusions.defaultsOn(Os.Linux)
+		val mac = Exclusions.defaultsOn(Os.MacOS)
+
+		assertTrue(
+			"/proc" in linux && "lost+found/" in linux && "/proc" !in mac && "lost+found/" !in mac,
+		)
+		assertTrue("Library/Caches/" in mac && "/System" in mac && "Library/Caches/" !in linux)
+		// What is named the same everywhere is every platform's.
+		assertTrue(
+			".git/" in linux && ".git/" in mac &&
+				"node_modules/" in Exclusions.defaultsOn(Os.Windows),
+		)
+		assertTrue("/nix" in linux && "/nix" in mac)
+
+		// Every one of a Mac's reads as a rule, and as one a scan never goes into: none is looked for after.
+		val rules = Exclusions.of(home = Path.of("/Users/a"), defaults = mac)
+
+		assertEquals(mac, rules.rules.map { it.written })
+		assertEquals(mac.size, rules.ignore.directories.size, "${rules.ignore.directories}")
+		assertTrue(
+			Ignored.Anywhere(listOf(Name.of("Library"), Name.of("Application Support"))) in
+				rules.ignore.directories,
+			"${rules.ignore.directories}",
+		)
+		assertTrue(Ignored.At(Path.of("/private/var")) in rules.ignore.directories)
+
+		val scanned = rules.ignore
+
+		fun out(path: String) = scanned.matching(Where.of(Path.of(path))).isNotEmpty()
+
+		assertTrue(out("/Users/a/Library/Application Support"))
+		assertTrue(out("/Library/Caches"))
+		assertTrue(out("/Applications/Safari.app/Contents/MacOS"))
+		assertFalse(out("/Applications/Safari.app"))
+		assertFalse(out("/Users/a/Library/Mobile Documents"))
+		assertFalse(out("/Users/a/Documents"))
 	}
 }

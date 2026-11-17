@@ -3,6 +3,7 @@ package prism.index
 import java.nio.file.Path
 import kotlin.io.path.Path
 import prism.platform.Mount
+import prism.platform.Os
 
 /**
  * A directory the index leaves out, with everything in it, written as a person writes one:
@@ -133,7 +134,19 @@ data class IgnoreRules(
 		/** The defaults ([Exclusions.DEFAULTS]), with nothing of the user's. */
 		val DEFAULT: IgnoreRules by lazy { Exclusions.DEFAULT.ignore }
 
-		/** File systems left out wherever they are mounted: the kernel's views of itself, and memory that is not files. */
+		/**
+		 * The file systems left out wherever they are mounted, on [os]: Linux's kernel's views of itself, and memory
+		 * that is not files; a Mac's devices and its automounter's stand-ins (what else a Mac keeps from its user is
+		 * said of each mount, [FileSystems.hidden]).
+		 */
+		fun fileSystemsOn(os: Os): Set<String> =
+			when (os) {
+				Os.Linux -> FILE_SYSTEMS
+				Os.MacOS -> setOf("devfs", "autofs")
+				Os.Windows -> emptySet()
+			}
+
+		/** Linux's file systems left out: the kernel's views of itself, and memory that is not files. */
 		val FILE_SYSTEMS: Set<String> =
 			setOf(
 				"proc",

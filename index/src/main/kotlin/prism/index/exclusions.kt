@@ -19,6 +19,7 @@ import prism.index.query.Test
 import prism.index.query.TextPattern
 import prism.platform.Dev
 import prism.platform.KernelDev
+import prism.platform.Os
 import prism.shared.Guarded
 
 /*
@@ -374,7 +375,7 @@ class Exclusions private constructor(
 
 		IgnoreRules(
 			plain.values.toSet(),
-			IgnoreRules.FILE_SYSTEMS,
+			IgnoreRules.fileSystemsOn(Os.current),
 			Seeking(ignored.filterNot { it in plain }.map { it.itself }, home),
 		)
 	}
@@ -389,13 +390,13 @@ class Exclusions private constructor(
 
 	companion object {
 		/**
-		 * The defaults, as they are written. Each is a tree that can hold more entries than everything a person
-		 * made, and that nobody picks a file from: version control's history, package managers' downloads, build
-		 * tools' output and caches, browsers' caches, file system snapshots, the system's own stores, and temporary
-		 * files. Generic names that people also give their own folders (`build`, `target`, `dist`, `vendor`) are not
-		 * among them.
+		 * The defaults every platform has, as they are written. Each is a tree that can hold more entries than
+		 * everything a person made, and that nobody picks a file from: version control's history, package managers'
+		 * downloads, build tools' output and caches, and browsers' caches, which are named the same wherever they are.
+		 * Generic names that people also give their own folders (`build`, `target`, `dist`, `vendor`) are not among
+		 * them.
 		 */
-		val DEFAULTS: List<String> =
+		private val COMMON: List<String> =
 			listOf(
 				// Version control.
 				".git/",
@@ -468,7 +469,6 @@ class Exclusions private constructor(
 				".ccache/",
 				".sccache/",
 				"CMakeFiles/",
-				".flatpak-builder/",
 				".vagrant/",
 				".serverless/",
 				".aws-sam/",
@@ -483,16 +483,22 @@ class Exclusions private constructor(
 				"DawnWebGPUCache/",
 				"CacheStorage/",
 				"cache2/",
-				// Containers' images and layers.
-				".local/share/containers/",
-				".local/share/flatpak/repo/",
 				// A Wine prefix's copy of Windows.
 				"drive_c/windows/",
-				// File system snapshots, and what fsck found.
+			)
+
+		/**
+		 * Linux's own: containers' images, file system snapshots and what fsck found, and the system's own stores,
+		 * temporary files, and what is not files at all.
+		 */
+		private val LINUX: List<String> =
+			listOf(
+				".flatpak-builder/",
+				".local/share/containers/",
+				".local/share/flatpak/repo/",
 				".zfs/",
 				".snapshots/",
 				"lost+found/",
-				// The system's own stores, temporary files, and what is not files at all.
 				"/nix",
 				"/boot",
 				"/proc",
@@ -511,6 +517,98 @@ class Exclusions private constructor(
 				"/snap",
 			)
 
+		/**
+		 * macOS's own. The Library's folders that are applications' own data, caches and records, in the user's
+		 * Library and the computer's alike (each named by how its path ends, which is both); what is inside an
+		 * application's or a framework's bundle, which is the application's and not a file anyone picks, the bundle
+		 * itself still being found; what the system keeps on every volume for itself (Spotlight's index, FSEvents'
+		 * record, versions, the trash); Xcode's and its package managers' output; and the system's own trees. iCloud
+		 * Drive (`~/Library/Mobile Documents`) and other clouds' folders (`~/Library/CloudStorage`) are a person's
+		 * files, and are not among them.
+		 */
+		private val MACOS: List<String> =
+			listOf(
+				// Applications' own data, caches and records.
+				"\"Library/Application Support/\"",
+				"\"Library/Application Scripts/\"",
+				"\"Library/Saved Application State/\"",
+				"\"Library/Group Containers/\"",
+				"\"Library/Daemon Containers/\"",
+				"\"Library/Autosave Information/\"",
+				"Library/Containers/",
+				"Library/Caches/",
+				"Library/Logs/",
+				"Library/Developer/",
+				"Library/Metadata/",
+				"Library/Preferences/",
+				"Library/Mail/",
+				"Library/Messages/",
+				"Library/Safari/",
+				"Library/Calendars/",
+				"Library/Cookies/",
+				"Library/HTTPStorages/",
+				"Library/WebKit/",
+				"Library/Keychains/",
+				"Library/Biome/",
+				"Library/Suggestions/",
+				"Library/Assistant/",
+				"Library/IdentityServices/",
+				"Library/Trial/",
+				"Library/DuetExpertCenter/",
+				// What is inside a bundle (an application, a framework, a plug-in).
+				"Contents/MacOS/",
+				"Contents/Resources/",
+				"Contents/Frameworks/",
+				"Contents/PlugIns/",
+				"Contents/Library/",
+				"Contents/Helpers/",
+				"Contents/XPCServices/",
+				"Contents/SharedSupport/",
+				"Contents/_CodeSignature/",
+				"Versions/A/",
+				// What the system keeps on a volume for itself.
+				".Spotlight-V100/",
+				".fseventsd/",
+				".DocumentRevisions-V100/",
+				".TemporaryItems/",
+				".MobileBackups/",
+				"Backups.backupdb/",
+				".Trashes/",
+				".Trash/",
+				// Xcode's and its package managers' output.
+				"DerivedData/",
+				".build/",
+				".swiftpm/",
+				"Pods/",
+				"Carthage/Build/",
+				// The system's own trees, package managers' stores, and temporary files.
+				"/System",
+				"/private/var",
+				"/private/tmp",
+				"/cores",
+				"/dev",
+				"/nix",
+				"/opt/homebrew",
+				"/usr/local/Cellar",
+				"/usr/local/Homebrew",
+			)
+
+		/**
+		 * The defaults on [os], as they are written: those every platform has, then its own. One platform's are not
+		 * another's: a Mac is not told of `/proc`, nor Linux of `Library/Caches`.
+		 */
+		fun defaultsOn(os: Os): List<String> =
+			COMMON +
+				when (os) {
+					Os.Linux -> LINUX
+					Os.MacOS -> MACOS
+					// Windows' own are to be written with the rest of Windows.
+					Os.Windows -> emptyList()
+				}
+
+		/** The defaults of the platform this runs on. */
+		val DEFAULTS: List<String> = defaultsOn(Os.current)
+
 		/** The rules with nothing of the user's: prism's own, every one on, and not indexed. */
 		val DEFAULT: Exclusions by lazy { of(home = Path.of(System.getProperty("user.home"))) }
 
@@ -528,9 +626,10 @@ class Exclusions private constructor(
 			changed: Map<String, Exclusion> = emptyMap(),
 			own: Map<String, Exclusion> = emptyMap(),
 			home: Path,
+			defaults: List<String> = DEFAULTS,
 		): Exclusions {
 			val builtIn =
-				DEFAULTS.map { written ->
+				defaults.map { written ->
 					val naming = (Naming.read(written, home) as Naming.Read.Fit).naming
 
 					Rule(
