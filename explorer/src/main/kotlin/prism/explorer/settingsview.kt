@@ -831,8 +831,8 @@ private fun ActionsPage(actions: Actions) {
 
 	PageLayout(
 		"Actions",
-		"Custom context menu actions and places, defined under “actions” and “places” in the " +
-			"preferences file.",
+		"Custom context menu actions, places and text searches, defined under “actions”, " +
+			"“places” and “textSearches” in the preferences file.",
 	) {
 		if (actions.broken.isNotEmpty())
 			Section(
@@ -870,8 +870,54 @@ private fun ActionsPage(actions: Actions) {
 				}
 			}
 		}
+		Section(
+			"Text searches",
+			description =
+				"Commands that find lines in the files a window shows, defined under “textSearches”.",
+		) {
+			Card(Modifier.testTag("text-searches")) {
+				actions.searches.forEach { search ->
+					SettingRow(
+						(search.submenu + search.label).joinToString(" ▸ "),
+						description =
+							search.id + " (hidden)".takeIf { search.id in actions.hidden }.orEmpty(),
+					) {}
+				}
+				SettingRow(
+					"Editor",
+					description =
+						"Opens a line found. Set under “editor”; otherwise \$VISUAL or \$EDITOR is used.",
+				) {
+					Text(
+						editorSaid(actions.editor),
+						style = type.mono.copy(color = palette.textMuted),
+						maxLines = 1,
+						modifier = Modifier.testTag("editor"),
+					)
+				}
+			}
+		}
 	}
 }
+
+/** What opens a line a text search found, as the Actions page says it. */
+internal fun editorSaid(editor: prism.browser.Editor): String =
+	when (editor) {
+		prism.browser.Editor.Application -> "The file's default application"
+		is prism.browser.Editor.Program ->
+			editor.opener.command.words
+				.filterIsInstance<prism.browser.Word.One>()
+				.firstOrNull()
+				?.phrase
+				?.pieces
+				?.filterIsInstance<prism.browser.Piece.Text>()
+				?.joinToString("") { it.text }
+				.orEmpty() +
+				if (editor.opener.terminal)
+					", in the terminal"
+				else
+					""
+	}
 
 /**
  * The terminal "Open terminal here" opens, and the one actions and applications that run in a terminal open in: chosen

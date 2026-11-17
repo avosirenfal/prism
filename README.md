@@ -147,6 +147,7 @@ daemon in your session and makes it your file chooser and file manager: `program
 | docs/window.md | prism's windows: SDL3's, native on Wayland and X11 alike; why not AWT; how a frame is drawn on the GPU or the CPU with nothing copied, how keys, the pointer, the clipboard and drag and drop reach Compose; and what is not done yet |
 | docs/platform.md | what is the same on every platform and what is Linux's; drag and drop followed through every toolkit; what macOS and Windows need, and the command-line picker that is prism's picker there |
 | docs/menus.md | a plan for context menus the user configures: actions declared with conditions and commands as words, run detached, in a terminal or watched; the menu's layout; items made as it opens; an editor that shows what an action would do |
+| docs/text.md | text searches: a declared command given the files a window shows, whose lines of output are shown under their files with the file beside them; how its output is read, the preview, and the editor a line is opened in |
 | docs/inprogress.md | where the work stands, what is not verified, what is next |
 | docs/ebpf.md | the eBPF DSL: what its types refuse, what it reports, what it checks against the kernel, the C it emits |
 | docs/scanning.md | how a directory is read, and the measurement that chose getdents64 over the JVM |

@@ -5,6 +5,9 @@ trash, properties, a terminal here. Those are prism's own, and are written in Ko
 document is about what the user adds to them: **actions**, which a menu offers and a key does, and **places**, which
 are what a window shows when it is not showing a folder on disk. Both are declared in the preferences file, as JSON.
 
+A third thing is declared the same way, in the same file, and has a page of its own: **text searches**, which look
+inside the files a window shows (docs/text.md).
+
 To show that the two are enough, prism's archive support is made of nothing else. There is no archive code in
 prism: viewing a `.zip` or a `.tar.gz`, extracting from it by a menu or by dragging, adding to it and removing from it
 are declarations in one file (`browser/src/main/resources/prism/browser/actions.json`), which run `tar`, `zip` and
@@ -96,7 +99,7 @@ Every condition named must hold, and each is optional.
 | `inside` | each is, or is under, a folder that holds one of these names (`.git`, `Cargo.toml`) |
 | `programs` | every one of these is on the `PATH`; `7zz|7z` is either |
 | `target` | the menu is of rows (`files`, unless said), of the folder shown itself (`folder`), or of a sidebar place (`place`) |
-| `in` | the window is in a `folder`, in a search's `results`, or in the place with one of these ids |
+| `in` | the window is in a `folder`, in a search's `results`, in the place with one of these ids, or on a line found by the text search with one of them |
 | `elsewhere` | each is a file on disk shown somewhere other than the folder it is in (a search's results, a place) |
 | `real` | each is a file on disk (`true`), or an entry only its place knows (`false`) |
 | `with` | the place shown was opened with values matching these globs: `{"archive": ["*.tar"]}` |
