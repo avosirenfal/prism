@@ -26,6 +26,8 @@ enum class FsFlag(
 	MustScanSubDirs(0x1),
 	UserDropped(0x2),
 	KernelDropped(0x4),
+	EventIdsWrapped(0x8),
+	HistoryDone(0x10),
 	RootChanged(0x20),
 	Mount(0x40),
 	Unmount(0x80),

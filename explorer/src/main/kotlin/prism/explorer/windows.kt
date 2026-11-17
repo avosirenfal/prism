@@ -38,6 +38,7 @@ import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.withContext
 import prism.browser.Bindings
@@ -46,6 +47,8 @@ import prism.browser.Chord
 import prism.browser.Edits
 import prism.browser.HostedBrowser
 import prism.browser.HostedWindow
+import prism.browser.IndexReading
+import prism.browser.LocalIndexReading
 import prism.browser.LocalPalette
 import prism.browser.LocalType
 import prism.browser.Palette
@@ -124,6 +127,9 @@ private fun InTheDock(windows: List<ExplorerWindow>) {
 	}
 }
 
+/** How often the index is asked how far its reading has got. */
+private const val INDEX_LOOKED_AT = 500L
+
 /** prism's icon, as the Dock shows it: the one the Linux package installs, kept beside the classes. */
 private val PRISM_ICON: ByteArray? by lazy {
 	ExplorerWindow::class.java
@@ -140,6 +146,15 @@ fun ExplorerWindows(explorer: Explorer, palette: Palette, alwaysDecorated: Boole
 
 	InTheDock(windows)
 
+	// How far a reading of the whole index has got, looked at twice a second: said in every window that searches it
+	// and on the Indexing page, and nothing at all while there is none.
+	val reading by produceState<IndexReading?>(null, explorer) {
+		while (true) {
+			value = explorer.finder?.reading()
+			delay(INDEX_LOOKED_AT)
+		}
+	}
+
 	// A title bar where the preferences ask for one, or the command line did (`--decorated`); read as each window
 	// opens.
 	val decorated = alwaysDecorated || preferences.titlebar
@@ -150,164 +165,166 @@ fun ExplorerWindows(explorer: Explorer, palette: Palette, alwaysDecorated: Boole
 			explorer.preferences.update { copy(scales = scales.with(kind, scale)) }
 		}
 
-	for (window in windows)
-		key(window.id) {
-			when (window) {
-				is ExplorerWindow.Browsing -> {
-					// Read so that the title is made again as the browser goes from one folder to another.
-					val state by window.session.state.collectAsState()
+	CompositionLocalProvider(LocalIndexReading provides reading) {
+		for (window in windows)
+			key(window.id) {
+				when (window) {
+					is ExplorerWindow.Browsing -> {
+						// Read so that the title is made again as the browser goes from one folder to another.
+						val state by window.session.state.collectAsState()
 
-					Window(
-						onCloseRequest = { explorer.close(window) },
-						title = state.let { Explorer.titleOf(window) },
-						size = DpSize(1100.dp, 680.dp),
-						decorated = decorated,
-						onFailure = { explorer.failed(window, it) },
-						activation = window.activation,
-					) {
-						HostedBrowser(this.window, window.session, explorer.preferences, palette)
-					}
-				}
-				// A folder chosen for an action: a picker, as any application's, closed as one is cancelled.
-				is ExplorerWindow.Picking ->
-					Window(
-						onCloseRequest = { window.session.send(BrowserEvent.Cancelled) },
-						title = window.title,
-						size = DpSize(900.dp, 600.dp),
-						decorated = decorated,
-						onFailure = { explorer.failed(window, it) },
-					) {
-						// A dialog of the application that asked, where it is an X11 window prism can name; and in
-						// front, where the window manager lets it be, since it was asked for from elsewhere.
-						TransientFor(this.window, window.parent)
-						LaunchedEffect(Unit) { this@Window.window.raise() }
-						HostedBrowser(this.window, window.session, explorer.preferences, palette)
-					}
-				is ExplorerWindow.Properties ->
-					Dialog(
-						propertiesTitleOf(window.paths),
-						DpSize(560.dp, 520.dp),
-						palette,
-						decorated,
-						{
-							explorer.close(window)
-						},
-						onFailure = { explorer.failed(window, it) },
-						typography = preferences.typography,
-						dates = preferences.dates,
-						zoom =
-							zoomOf(
-								WindowKind.Properties,
-							),
-					) {
-						PropertiesView(window.paths, explorer) { explorer.close(window) }
-					}
-				is ExplorerWindow.OpenWith ->
-					Dialog(
-						openWithTitleOf(window.choice),
-						DpSize(620.dp, 560.dp),
-						palette,
-						decorated,
-						{
-							explorer.close(window)
-						},
-						onFailure = { explorer.failed(window, it) },
-						typography = preferences.typography,
-						dates = preferences.dates,
-						zoom =
-							zoomOf(
-								WindowKind.OpenWith,
-							),
-					) {
-						OpenWithView(window.choice, explorer) { explorer.close(window) }
-					}
-				is ExplorerWindow.Settings ->
-					Dialog(
-						"Preferences",
-						DpSize(980.dp, 680.dp),
-						palette,
-						decorated,
-						{ explorer.close(window) },
-						onFailure = { explorer.failed(window, it) },
-						raised = window.raised,
-						typography = preferences.typography,
-						dates = preferences.dates,
-						zoom = zoomOf(WindowKind.Preferences),
-					) {
-						SettingsWindow(explorer, window) { explorer.close(window) }
-					}
-				is ExplorerWindow.Launching ->
-					LauncherWindow(
-						explorer,
-						window,
-						window.activation,
-						LauncherDims.sizeOf(preferences.launcher),
-						palette,
-						preferences,
-					) {
-						LauncherView(window.session, launcherBindings(preferences.launcher))
-					}
-				// Lines to choose one of, in the launcher's window: of the size its lines ask for, where they do.
-				is ExplorerWindow.Dmenu ->
-					LauncherWindow(
-						explorer,
-						window,
-						window.activation,
-						window.session.state.value.asked.let { asked ->
-							LauncherDims.sizeOf(preferences.launcher).let { (width, height) ->
-								(asked.width?.dp ?: width) to (asked.height?.dp ?: height)
-							}
-						},
-						palette,
-						preferences,
-					) {
-						DmenuView(window.session, launcherBindings(preferences.launcher))
-					}
-				is ExplorerWindow.LauncherSettings ->
-					Dialog(
-						Explorer.titleOf(window),
-						DpSize(900.dp, 680.dp),
-						palette,
-						decorated,
-						{ explorer.close(window) },
-						onFailure = { explorer.failed(window, it) },
-						raised = window.raised,
-						typography = preferences.typography,
-						dates = preferences.dates,
-						zoom = zoomOf(WindowKind.Preferences),
-					) {
-						CompositionLocalProvider(LocalIconImages provides explorer.icons) {
-							LauncherSettingsWindow(explorer, window.asked, window.raised) {
-								explorer.close(window)
-							}
+						Window(
+							onCloseRequest = { explorer.close(window) },
+							title = state.let { Explorer.titleOf(window) },
+							size = DpSize(1100.dp, 680.dp),
+							decorated = decorated,
+							onFailure = { explorer.failed(window, it) },
+							activation = window.activation,
+						) {
+							HostedBrowser(this.window, window.session, explorer.preferences, palette)
 						}
 					}
-				is ExplorerWindow.Failed ->
-					Dialog(
-						Explorer.titleOf(window),
-						DpSize(720.dp, 520.dp),
-						palette,
-						decorated,
-						{ explorer.close(window) },
-						onFailure = { explorer.failed(window, it) },
-						typography = preferences.typography,
-						dates = preferences.dates,
-					) {
-						FailedView(
+					// A folder chosen for an action: a picker, as any application's, closed as one is cancelled.
+					is ExplorerWindow.Picking ->
+						Window(
+							onCloseRequest = { window.session.send(BrowserEvent.Cancelled) },
+							title = window.title,
+							size = DpSize(900.dp, 600.dp),
+							decorated = decorated,
+							onFailure = { explorer.failed(window, it) },
+						) {
+							// A dialog of the application that asked, where it is an X11 window prism can name; and in
+							// front, where the window manager lets it be, since it was asked for from elsewhere.
+							TransientFor(this.window, window.parent)
+							LaunchedEffect(Unit) { this@Window.window.raise() }
+							HostedBrowser(this.window, window.session, explorer.preferences, palette)
+						}
+					is ExplorerWindow.Properties ->
+						Dialog(
+							propertiesTitleOf(window.paths),
+							DpSize(560.dp, 520.dp),
+							palette,
+							decorated,
+							{
+								explorer.close(window)
+							},
+							onFailure = { explorer.failed(window, it) },
+							typography = preferences.typography,
+							dates = preferences.dates,
+							zoom =
+								zoomOf(
+									WindowKind.Properties,
+								),
+						) {
+							PropertiesView(window.paths, explorer) { explorer.close(window) }
+						}
+					is ExplorerWindow.OpenWith ->
+						Dialog(
+							openWithTitleOf(window.choice),
+							DpSize(620.dp, 560.dp),
+							palette,
+							decorated,
+							{
+								explorer.close(window)
+							},
+							onFailure = { explorer.failed(window, it) },
+							typography = preferences.typography,
+							dates = preferences.dates,
+							zoom =
+								zoomOf(
+									WindowKind.OpenWith,
+								),
+						) {
+							OpenWithView(window.choice, explorer) { explorer.close(window) }
+						}
+					is ExplorerWindow.Settings ->
+						Dialog(
+							"Preferences",
+							DpSize(980.dp, 680.dp),
+							palette,
+							decorated,
+							{ explorer.close(window) },
+							onFailure = { explorer.failed(window, it) },
+							raised = window.raised,
+							typography = preferences.typography,
+							dates = preferences.dates,
+							zoom = zoomOf(WindowKind.Preferences),
+						) {
+							SettingsWindow(explorer, window) { explorer.close(window) }
+						}
+					is ExplorerWindow.Launching ->
+						LauncherWindow(
+							explorer,
 							window,
-							onAgain =
-								window.again?.let { again ->
-									{
-										explorer.close(window)
-										explorer.browse(again)
-									}
-								},
-							onCopy = ::toClipboard,
-							onClose = { explorer.close(window) },
-						)
-					}
+							window.activation,
+							LauncherDims.sizeOf(preferences.launcher),
+							palette,
+							preferences,
+						) {
+							LauncherView(window.session, launcherBindings(preferences.launcher))
+						}
+					// Lines to choose one of, in the launcher's window: of the size its lines ask for, where they do.
+					is ExplorerWindow.Dmenu ->
+						LauncherWindow(
+							explorer,
+							window,
+							window.activation,
+							window.session.state.value.asked.let { asked ->
+								LauncherDims.sizeOf(preferences.launcher).let { (width, height) ->
+									(asked.width?.dp ?: width) to (asked.height?.dp ?: height)
+								}
+							},
+							palette,
+							preferences,
+						) {
+							DmenuView(window.session, launcherBindings(preferences.launcher))
+						}
+					is ExplorerWindow.LauncherSettings ->
+						Dialog(
+							Explorer.titleOf(window),
+							DpSize(900.dp, 680.dp),
+							palette,
+							decorated,
+							{ explorer.close(window) },
+							onFailure = { explorer.failed(window, it) },
+							raised = window.raised,
+							typography = preferences.typography,
+							dates = preferences.dates,
+							zoom = zoomOf(WindowKind.Preferences),
+						) {
+							CompositionLocalProvider(LocalIconImages provides explorer.icons) {
+								LauncherSettingsWindow(explorer, window.asked, window.raised) {
+									explorer.close(window)
+								}
+							}
+						}
+					is ExplorerWindow.Failed ->
+						Dialog(
+							Explorer.titleOf(window),
+							DpSize(720.dp, 520.dp),
+							palette,
+							decorated,
+							{ explorer.close(window) },
+							onFailure = { explorer.failed(window, it) },
+							typography = preferences.typography,
+							dates = preferences.dates,
+						) {
+							FailedView(
+								window,
+								onAgain =
+									window.again?.let { again ->
+										{
+											explorer.close(window)
+											explorer.browse(again)
+										}
+									},
+								onCopy = ::toClipboard,
+								onClose = { explorer.close(window) },
+							)
+						}
+				}
 			}
-		}
+	}
 }
 
 /**
@@ -507,6 +524,7 @@ private fun SettingsWindow(
 			terminals = terminals,
 			graphics = graphics,
 			onCopy = ::toClipboard,
+			onRebuild = explorer.finder?.takeIf { it.rebuilds }?.let { it::rebuild },
 			world = explorer.world,
 			onUndo = { stepped(edits.undo(settings)) },
 			onRedo = { stepped(edits.redo(settings)) },

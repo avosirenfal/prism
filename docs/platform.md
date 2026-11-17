@@ -69,9 +69,9 @@ whether it is on the same volume, is known only once it is dropped.
 | part | Linux | macOS | Windows |
 |---|---|---|---|
 | which platform this is, and where prism keeps its own files | `Os`, `OwnFolders` (platform module): the XDG folders | the same: `~/Library/Application Support/prism`, `~/Library/Caches/prism`, the socket in the temporary folder the system names for the user (under /var/folders) | the same: `%APPDATA%`, `%LOCALAPPDATA%` |
-| keeping the index current | the eBPF watcher | FSEvents (`Feed.fsEvents`): each entry made, removed or renamed, by its folder's device and inode; a folder to read again, or events dropped, counted as lost and the roots read again | the USN journal, or `ReadDirectoryChangesW` |
+| keeping the index current | the eBPF watcher | FSEvents (`Feed.fsEvents`): each entry made, removed or renamed, by its folder's device and inode; a folder to read again, or events dropped, counted as lost and the roots read again. A daemon keeps its place in FSEvents' record beside the index (`History`), and the next one takes up from it, so what changed while none ran is told and the roots are not read again | the USN journal, or `ReadDirectoryChangesW` |
 | a folder shown kept current | the JVM's watch service (inotify) | FSEvents (`FsEventsFolderWatcher`), since the JVM's only polls there | the JVM's (`ReadDirectoryChangesW`) |
-| reading folders | getdents64 through FFM | the JVM's reader (`FileSystems.MacOS`); `getattrlistbulk` through FFM for speed, later | the JVM's reader; `FindFirstFileEx` for speed |
+| reading folders | getdents64 through FFM | `getattrlistbulk` through FFM (`Backend.Bulk`, macos/bulk.kt): a buffer of entries a call, each with its kind and number | the JVM's reader; `FindFirstFileEx` for speed |
 | what is mounted, and what is left out | mountinfo's pseudo file systems (`FileSystems.Linux`) | getfsstat; what Finder does not show (`nobrowse`: the system's own volumes, devfs, and the data volume, whose files are reached from `/` through its firmlinks) | the drives' types |
 | knowing a file system again | udev's UUIDs, the file systems' own ids | each volume's UUID (getattrlist's `ATTR_VOL_UUID`); one under /Volumes comes and goes | the volume's GUID |
 | permission to read | none asked | Full Disk Access, known by reading what only it lets a program read (`fullDiskAccess`); without it, the index leaves out the folders macOS would ask about one by one (`protectedFolders`), so reading it asks nothing, System Settings' page is opened once, and they are read the moment it is given; a folder the explorer cannot read says how to allow it | none asked |
@@ -323,6 +323,5 @@ since it is not signed, Full Disk Access is given again after an update, as abov
 Run by `./gradlew :app:run`, prism is `java` to the Dock and to the system's permissions, since the program running
 is java's and no application's: that is for working on prism, and Prism.app is for using it.
 
-Not written yet: resuming FSEvents from the last event id a daemon saw;
-`getattrlistbulk` for reading folders; `UF_HIDDEN`; IOKit's and DiskArbitration's drives; a Developer ID to sign
+Not written yet: `UF_HIDDEN`; IOKit's and DiskArbitration's drives; a Developer ID to sign
 with, and notarizing.

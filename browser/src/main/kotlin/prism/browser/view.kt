@@ -3189,8 +3189,14 @@ private fun StatusLine(state: BrowserState, modifier: Modifier = Modifier) {
 			Box(Modifier.testTag("waiting")) {
 				Spinner(LocalPalette.current.textMuted, STATUS_SPINNER, stroke = 2.dp)
 			}
+
+		// What a search finds while the index is being read through is what has been read so far: said beside it,
+		// and not said at all while the index is as the disk is.
+		val reading = LocalIndexReading.current.takeIf { state.listing is Listing.Found }
+
 		Text(
-			statusOf(state, waited),
+			statusOf(state, waited) +
+				(reading?.let { "  ·  ${it.said()}; results may be incomplete" } ?: ""),
 			style = type.muted,
 			maxLines = 1,
 			overflow = TextOverflow.Ellipsis,

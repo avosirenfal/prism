@@ -11,10 +11,12 @@ import kotlin.io.path.createDirectories
 import kotlin.io.path.writeText
 import kotlin.time.Duration.Companion.milliseconds
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import prism.index.FileId
+import prism.index.IgnoreRules
 import prism.index.Index
 import prism.index.IndexFile
 import prism.index.IndexRead
@@ -106,7 +108,7 @@ class DaemonTest {
 		val go = CountDownLatch(1)
 
 		Daemon
-			.start(settings(), feed) {
+			.start(settings(), feed, null) {
 				feed.order += "read"
 				read.countDown()
 				go.await()
@@ -301,5 +303,54 @@ class DaemonTest {
 			listOf(Changed(FileId(dev, 10), null), Changed(FileId(dev, 20), null)),
 			changedOf(seen(Done.Moved(FileId(dev, 20), swapped = true, entry))),
 		)
+	}
+
+	@Test
+	fun aFeedsPlaceIsKeptOnceTheIndexIsSettledAndReadAsItWasKept() {
+		made("docs/a.txt")
+
+		val history = History.beside(state.resolve("index.prism"))
+		val at = AtomicLong(7)
+
+		val feed =
+			Feed {
+				Feeding.On(
+					stop = AutoCloseable { },
+					lost = { 0 },
+					stopped = { null },
+					at = at::get,
+				)
+			}
+
+		Daemon.start(settings(), feed, history) {}.use { daemon ->
+			daemon.live.opened.get()
+			eventually { history.read()?.id == 7L }
+
+			// A place is of the rules and the volumes it was kept with.
+			assertEquals(recordOf(daemon.live.rules, settings().live.mounts()), history.read()?.of)
+
+			at.set(9)
+			eventually { history.read()?.id == 9L }
+		}
+	}
+
+	@Test
+	fun aPlaceIsOfItsRulesWhateverOrderTheyAreIn() {
+		val one = IgnoreRules.DEFAULT
+		val other = one.copy(directories = one.directories.reversed().toSet())
+
+		assertEquals(recordOf(one, emptyList()), recordOf(other, emptyList()))
+		assertNotEquals(
+			recordOf(one, emptyList()),
+			recordOf(one.copy(directories = emptySet()), emptyList()),
+		)
+
+		val history = History.beside(state.resolve("index.prism"))
+
+		assertEquals(null, history.read())
+		history.write(Place("abc", 42))
+		assertEquals(Place("abc", 42), history.read())
+		history.forget()
+		assertEquals(null, history.read())
 	}
 }

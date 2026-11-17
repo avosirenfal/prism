@@ -283,7 +283,7 @@ class Explorer(
 	val recents: RecentStore = MemoryRecents(),
 ) {
 	/** What a search is asked of: the launcher's, as every window's. */
-	private val finder = finder
+	internal val finder = finder
 
 	/** The pictures applications are known by, drawn once and kept for every launcher shown. */
 	val icons = IconImages(desktop.icons)

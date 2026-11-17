@@ -1,6 +1,7 @@
 package prism.browser
 
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.staticCompositionLocalOf
 import java.nio.file.Path
 import java.time.Instant
 import java.util.stream.IntStream
@@ -45,7 +46,44 @@ import prism.index.Kind as EntryKind
  */
 
 /** What the picker searches: an index the daemon keeps current, or one read from a file and kept as it was. */
+
+/**
+ * How far a reading of the whole index has got: how many items it has [listed], and how many the index [held] as
+ * that was asked, which is about how many there are where the index was read before. While there is one, a search
+ * finds what has been read so far.
+ */
+data class IndexReading(
+	val listed: Long,
+	val held: Long,
+) {
+	/** How far it has got, between nothing and all, where what the index held says how many there are. */
+	val fraction: Float? get() =
+		if (held > 0)
+			(listed.toFloat() / held).coerceIn(0f, 1f)
+		else
+			null
+
+	/** As it is said: "Indexing: 120,000 of about 240,000 items read". */
+	fun said(): String =
+		if (held > 0)
+			"Indexing: %,d of about %,d items read".format(minOf(listed, held), held)
+		else
+			"Indexing: %,d items read".format(listed)
+}
+
+/** The reading of the index there is now, for whatever shows it; null while the index is as the disk is. */
+val LocalIndexReading = staticCompositionLocalOf<IndexReading?> { null }
+
 interface Finder {
+	/** The reading of the whole index now in hand; null while there is none, and for an index nothing keeps current. */
+	fun reading(): IndexReading? = null
+
+	/** Whether the index can be read anew ([rebuild]): one a daemon keeps can. */
+	val rebuilds: Boolean get() = false
+
+	/** Every root of the index read again, as the disk is now: [reading] says how far it has got. */
+	fun rebuild() = Unit
+
 	/** What [query] finds, best first, or why it cannot be run. */
 	fun find(query: Query): Searched
 

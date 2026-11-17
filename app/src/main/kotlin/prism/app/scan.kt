@@ -121,19 +121,23 @@ object ScanCommand : Command(
 				)
 		}
 
-		val getdents = best[Backend.Getdents]
+		// The platform's own way of reading a folder, beside the JVM's.
+		val own = best.entries.firstOrNull { it.key != Backend.Jvm }
 		val jvm = best[Backend.Jvm]
 
-		if (getdents != null && jvm != null) {
+		if (own != null && jvm != null) {
+			val (backend, fastest) = own
+
 			lines += ""
 			lines +=
-				"getdents64 took %.2fx the JVM's time (%s vs %s)".format(
-					getdents.elapsed / jvm.elapsed,
-					millis(getdents.elapsed),
+				"%s took %.2fx the JVM's time (%s vs %s)".format(
+					backend.name,
+					fastest.elapsed / jvm.elapsed,
+					millis(fastest.elapsed),
 					millis(jvm.elapsed),
 				)
-			if (getdents.counts != jvm.counts)
-				lines += "the backends read different trees: ${getdents.counts} vs ${jvm.counts}"
+			if (fastest.counts != jvm.counts)
+				lines += "the backends read different trees: ${fastest.counts} vs ${jvm.counts}"
 		}
 
 		return lines.joinToString("\n")

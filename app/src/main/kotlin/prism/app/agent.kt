@@ -285,10 +285,15 @@ private val SET_UP_ELSEWHERE = listOf("/Volumes/", "/AppTranslocation/", "/nix/s
  * gone: the daemon ends well, and launchd leaves it ended.
  */
 
-/** A program's file as it is: what tells one build of an application from the next. */
+/**
+ * A program's file as it is: what tells one build of an application from the next. Which file it is on its volume
+ * ([file]) is what tells apart two that Nix built, whose files all say they were made at the same moment in 1970 and
+ * whose program is the same size: an application copied over another is new files, whatever they say of themselves.
+ */
 internal data class Build(
 	val modified: FileTime,
 	val size: Long,
+	val file: String? = null,
 )
 
 /** What a daemon does about its own application, having looked at it. */
@@ -329,7 +334,7 @@ private const val STARTED_AGAIN = 75
 private fun buildAt(program: Path): Build? =
 	try {
 		Files.readAttributes(program, BasicFileAttributes::class.java).let {
-			Build(it.lastModifiedTime(), it.size())
+			Build(it.lastModifiedTime(), it.size(), it.fileKey()?.toString())
 		}
 	} catch (gone: IOException) {
 		null

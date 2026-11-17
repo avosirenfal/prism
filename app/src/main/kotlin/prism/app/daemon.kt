@@ -365,7 +365,12 @@ object DaemonCommand : Command(
 			if (reading.isEmpty())
 				""
 			else
-				"; reading ${reading.joinToString()} now"
+				"; reading ${reading.joinToString()} now" +
+					(
+						daemon.live.indexing?.let {
+							" (%,d entries read so far)".format(it.listed)
+						} ?: ""
+					)
 	}
 
 	/** How many rules leave things out, as `prism status` says it. */

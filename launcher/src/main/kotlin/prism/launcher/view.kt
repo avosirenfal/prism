@@ -72,6 +72,7 @@ import prism.browser.EmptyState
 import prism.browser.Glyph
 import prism.browser.GlyphIcon
 import prism.browser.KeyHint
+import prism.browser.LocalIndexReading
 import prism.browser.LocalPalette
 import prism.browser.LocalType
 import prism.browser.MenuLine
@@ -632,8 +633,11 @@ internal fun FooterBar(
 			.padding(horizontal = Space.l),
 		verticalAlignment = Alignment.CenterVertically,
 	) {
+		// What the launcher finds of files while the index is being read through is what has been read so far.
+		val reading = LocalIndexReading.current?.said()?.takeUnless { wrong }
+
 		Text(
-			said,
+			listOfNotNull(said.takeIf { it.isNotBlank() }, reading).joinToString("  ·  "),
 			style =
 				if (wrong)
 					type.muted.copy(color = palette.dangerText)

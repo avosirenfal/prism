@@ -68,7 +68,7 @@ interface FileSystems {
 
 		override fun hidden(mount: Mount): Boolean = MountFlag.NoBrowse in mount
 
-		override val backend: Backend get() = Backend.Jvm
+		override val backend: Backend get() = Backend.Bulk
 
 		private val VOLUMES = Path.of("/Volumes")
 

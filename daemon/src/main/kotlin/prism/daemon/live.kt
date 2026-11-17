@@ -9,6 +9,7 @@ import java.util.concurrent.Executors
 import java.util.concurrent.ThreadFactory
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.LongAdder
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.days
 import kotlin.time.Duration.Companion.minutes
@@ -37,6 +38,15 @@ import prism.index.search
 import prism.platform.Mount
 import prism.shared.Guarded
 import prism.shared.Published
+
+/**
+ * How far a reading of the index's roots has got: how many entries it has [listed], and how many the index [held]
+ * as it was asked, which is about how many there are to list where the index was read before.
+ */
+data class Indexing(
+	val listed: Long,
+	val held: Long,
+)
 
 /**
  * A change something saw on the disk, as a live index takes it: the [folder] it happened in, by the kernel's device and
@@ -117,6 +127,8 @@ sealed interface LiveSearch {
 class LiveIndex private constructor(
 	private val store: IndexStore,
 	indexer: Indexer,
+	/** How many entries [indexer] has listed, in every reading since it was made ([Indexer.counting]). */
+	private val listed: LongAdder,
 	private val settings: LiveSettings,
 	private val away: Away,
 	/** Called with what a scan read before what it read is made: for a test to hold a scan, and change the disk meanwhile. */
@@ -148,10 +160,16 @@ class LiveIndex private constructor(
 		}
 	}
 
-	/** A scan in flight: the [places] it reads, and what was [changed] while it read. */
+	/**
+	 * A scan in flight: the [places] it reads, and what was [changed] while it read. One of [whole] roots is the
+	 * index being read through, which is said to whoever searches it meanwhile; [from] is how many entries had been
+	 * listed when it began.
+	 */
 	private data class Scan(
 		val places: Set<Where>,
 		val changed: Meanwhile,
+		val whole: Boolean,
+		val from: Long,
 	)
 
 	/** A place read for searches alone: its own [indexer] (its rules set aside), its [index] once read, and when it was last [used]. */
@@ -287,8 +305,24 @@ class LiveIndex private constructor(
 	/** How the index's store was opened: from its file, or empty, or in memory alone. */
 	val origin: IndexStore.Origin get() = store.origin
 
+	/** The rules of what the index leaves out, as they are now. */
+	val rules: IgnoreRules get() = indexer.rules
+
+	/**
+	 * How far the reading of the index's roots has got, while they are read through (as the index opens, read again,
+	 * or after its rules changed): null while none is, which is nearly always.
+	 */
+	val indexing: Indexing?
+		get() =
+			changing.guarded {
+				scans.values.filter { it.whole }.minOfOrNull { it.from }?.let {
+					Indexing(listed.sum() - it, store.index.size.toLong())
+				}
+			}
+
 	/** Completes once the roots read as the index opened are made. */
-	val opened: CompletableFuture<Unit> = scan(read) { read.map(indexer::index) }
+	val opened: CompletableFuture<Unit> =
+		scan(read, whole = true) { read.map(indexer::index) }
 
 	/** What is being read now: places scanned again, roots, and places read for searches alone. */
 	val reading: Set<Where>
@@ -431,7 +465,7 @@ class LiveIndex private constructor(
 
 	/** Every root read again, as it is now: what is done where changes may have been missed. */
 	fun rescanRoots(): CompletableFuture<Unit> =
-		scan(index.roots) {
+		scan(index.roots, whole = true) {
 			index.roots.map(indexer::index)
 		}
 
@@ -534,13 +568,19 @@ class LiveIndex private constructor(
 	 * A scan of [places] that [read]s them without holding the index, then makes what it read, and then what was
 	 * changed while it read; written to the file once made, where no file holds an index yet.
 	 */
-	private fun scan(places: Set<Where>, read: () -> List<Change>): CompletableFuture<Unit> {
+	private fun scan(
+		places: Set<Where>,
+		whole: Boolean = false,
+		read: () -> List<Change>,
+	): CompletableFuture<Unit> {
 		if (places.isEmpty())
 			return CompletableFuture.completedFuture(Unit)
 
 		val id = scanIds.incrementAndGet()
 
-		changing.guarded { scans = scans + (id to Scan(places, Meanwhile.NONE)) }
+		changing.guarded {
+			scans = scans + (id to Scan(places, Meanwhile.NONE, whole, listed.sum()))
+		}
 
 		return CompletableFuture
 			.supplyAsync({
@@ -608,9 +648,12 @@ class LiveIndex private constructor(
 				else
 					wanted - held
 
+			val listed = LongAdder()
+
 			return LiveIndex(
 				store,
-				indexer.mounted(indexer.mounts, wanted),
+				indexer.counting(listed).mounted(indexer.mounts, wanted),
+				listed,
 				settings,
 				Away.beside(file),
 				beforeMaking,

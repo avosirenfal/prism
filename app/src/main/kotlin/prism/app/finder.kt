@@ -10,6 +10,7 @@ import java.util.concurrent.atomic.AtomicReference
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 import prism.browser.Finder
+import prism.browser.IndexReading
 import prism.daemon.LiveIndex
 import prism.daemon.LiveSearch
 import prism.index.Hiding
@@ -69,6 +70,18 @@ internal class LiveFinder(
 		return when (found) {
 			is LiveSearch.Refused -> Searched.Refused(found.why)
 			is LiveSearch.Found -> Searched.Found(found.results)
+		}
+	}
+
+	override fun reading(): IndexReading? =
+		live.indexing?.let { IndexReading(it.listed, it.held) }
+
+	override val rebuilds: Boolean get() = true
+
+	override fun rebuild() {
+		live.rescanRoots().whenComplete { _, failed ->
+			if (failed != null)
+				Report.problem("reading the index anew failed", failed)
 		}
 	}
 

@@ -62,24 +62,43 @@ fun interface Feed {
 		 * FSEvents' changes under [roots], on a Mac: each entry made, removed or renamed, said of its folder and its
 		 * name ([changedOf]). Where the stream could not keep up (it says to read a folder again, or that events were
 		 * dropped), what was lost is counted, and the daemon reads its roots again, as for a watcher whose ring was full.
+		 *
+		 * The changes are those [since] an event's id, where one is given ([History]): what FSEvents recorded while
+		 * no daemon ran is told first. Where its record no longer goes back that far, it says to read everything
+		 * again, which is counted as lost.
 		 */
-		fun fsEvents(roots: List<Path>) =
+		fun fsEvents(roots: List<Path>, since: Long = EventStream.SINCE_NOW) =
 			Feed { seen ->
 				val lost = AtomicLong(0)
+				val last = AtomicLong(since)
 				val stopped = Published<String?>(null)
 
 				val stream =
 					EventStream.start(
 						roots,
 						latency = FSEVENTS_LATENCY,
+						since = since,
 						failed = { stopped.set("FSEvents' changes could not be read: $it") },
 					) { batch ->
 						if (batch.any { event -> event.flags.any { it in FSEVENTS_LOST } })
 							lost.incrementAndGet()
 						seen(batch.mapNotNull(::changedOf))
+						// Once given: a place kept is one whose changes were at least handed on.
+						batch.maxOfOrNull { it.id }?.let { id -> last.accumulateAndGet(id, ::maxOf) }
 					}
 
-				stream?.let { Feeding.On(it, lost::get, stopped::now, "FSEvents") }
+				stream?.let {
+					Feeding.On(
+						it,
+						lost::get,
+						stopped::now,
+						if (since == EventStream.SINCE_NOW)
+							"FSEvents"
+						else
+							"FSEvents, from where the last daemon left off",
+						at = { last.get().takeIf { id -> id > 0 } },
+					)
+				}
 					?: Feeding.Off("macOS would not start a stream of FSEvents")
 			}
 
@@ -94,9 +113,14 @@ fun interface Feed {
 		/** How long FSEvents gathers a burst of changes into one batch, in seconds. */
 		private const val FSEVENTS_LATENCY = 0.2
 
-		/** What FSEvents says when it has lost changes: a folder to read again, or events dropped. */
+		/** What FSEvents says when it has lost changes: a folder to read again, events dropped, or its ids begun again. */
 		private val FSEVENTS_LOST =
-			setOf(FsFlag.MustScanSubDirs, FsFlag.UserDropped, FsFlag.KernelDropped)
+			setOf(
+				FsFlag.MustScanSubDirs,
+				FsFlag.UserDropped,
+				FsFlag.KernelDropped,
+				FsFlag.EventIdsWrapped,
+			)
 	}
 }
 
@@ -109,6 +133,11 @@ sealed interface Feeding {
 		val stopped: () -> String?,
 		/** What the changes come through, as it is said of a daemon: "the watcher pinned at ...". */
 		val through: String = "a feed",
+		/**
+		 * The feed's place in the system's record of changes: the last one it gave. Null for a feed of no such
+		 * record, which can only say what happens while it watches.
+		 */
+		val at: () -> Long? = { null },
 	) : Feeding
 
 	/** Not feeding, and [why]. */
@@ -222,6 +251,8 @@ class Daemon private constructor(
 	feeding: Feeding,
 	private val relay: Relay,
 	private val settings: DaemonSettings,
+	/** Where the feed's place is kept, for the daemon started next; null where the feed has none to keep. */
+	private val history: History?,
 ) : AutoCloseable {
 	/** Whether the watcher is running, and where it is not, why. */
 	sealed interface Watching {
@@ -266,6 +297,12 @@ class Daemon private constructor(
 	/** When the index was last written, or the daemon started, in nanoseconds of [System.nanoTime]. */
 	private var wrote: Long = System.nanoTime()
 
+	/**
+	 * The feed's place as it last was with the index settled: every change up to it made. Kept beside the index's
+	 * file each time that is written, so that the place kept is never ahead of what the file holds.
+	 */
+	private var settledAt: Long? = null
+
 	init {
 		val every = settings.tick.inWholeMilliseconds
 
@@ -286,11 +323,29 @@ class Daemon private constructor(
 		}, 0, settings.expiry.inWholeMilliseconds, TimeUnit.MILLISECONDS)
 	}
 
+	/**
+	 * The feed's place noted, where the index holds every change up to it: nothing is being read, and nothing waits
+	 * to be made (a reading in flight holds changes that are in no index yet). Where it does not, the place noted
+	 * before stands, which the index still holds everything up to.
+	 */
+	private fun noted() {
+		if (relay.idle && live.reading.isEmpty())
+			(feeding as? Feeding.On)?.at?.invoke()?.let { settledAt = it }
+	}
+
+	/** The place noted kept beside the index ([History]), the index's file having just been written. */
+	private fun placed() {
+		val history = history ?: return
+
+		settledAt?.let { history.write(Place(recordOf(live.rules, settings.live.mounts()), it)) }
+	}
+
 	private fun tick() {
 		// Written once an hour; at once, where the roots have been read and no file holds an index yet, since reading
 		// them is what takes long; and again at the next tick, where a write failed, until one does not.
 		val first = live.unwritten && live.opened.isDone
 
+		carrying("noting the place in the record of changes", ::noted)
 		if (first || unwritten != null ||
 			System.nanoTime() - wrote >= settings.write.inWholeNanoseconds
 		)
@@ -332,6 +387,7 @@ class Daemon private constructor(
 			live.write()
 			wrote = System.nanoTime()
 			unwritten = null
+			carrying("keeping the place in the record of changes", ::placed)
 		} catch (failed: Throwable) {
 			val why = failed.toString()
 
@@ -368,7 +424,11 @@ class Daemon private constructor(
 		ticks.shutdownNow()
 		carrying("stopping the watcher") { (feeding as? Feeding.On)?.stop?.close() }
 		carrying("making the last changes") { relay.close() }
-		carrying("writing the index") { live.close() }
+		carrying("writing the index") {
+			noted()
+			live.close()
+			placed()
+		}
 	}
 
 	/**
@@ -380,6 +440,12 @@ class Daemon private constructor(
 	) : AutoCloseable {
 		private val queue = LinkedBlockingQueue<List<Changed>>()
 
+		/** How many batches have been given and not yet made. */
+		private val waiting = AtomicLong(0)
+
+		/** Whether everything given has been made. */
+		val idle: Boolean get() = waiting.get() == 0L
+
 		// A flag or a number of one word, set by one thread and read by others: volatile is all it needs, unboxed.
 		@Volatile
 		private var running = true
@@ -387,7 +453,10 @@ class Daemon private constructor(
 		/** The thread that makes what is queued: begun once ([into]), and waited for by whoever closes this. */
 		private val thread = Once<Thread>()
 
-		fun seen(batch: List<Changed>) = queue.put(batch)
+		fun seen(batch: List<Changed>) {
+			waiting.incrementAndGet()
+			queue.put(batch)
+		}
 
 		/** Begins making what is queued, and what will be, in [live]. */
 		fun into(live: LiveIndex) {
@@ -395,9 +464,13 @@ class Daemon private constructor(
 				Thread.ofPlatform().name("prism-changes").daemon().start {
 					while (running) {
 						val first = queue.poll(100, TimeUnit.MILLISECONDS) ?: continue
+						var taken = 1L
 						val batch =
 							ArrayList(first).also { all ->
-								generateSequence { queue.poll() }.forEach(all::addAll)
+								generateSequence { queue.poll() }.forEach {
+									taken++
+									all.addAll(it)
+								}
 							}
 
 						// Changes that could not be made are made up for as lost ones are: which were made cannot be
@@ -411,6 +484,8 @@ class Daemon private constructor(
 							} catch (again: Throwable) {
 								report("reading the roots again", again)
 							}
+						} finally {
+							waiting.addAndGet(-taken)
 						}
 					}
 				},
@@ -428,12 +503,38 @@ class Daemon private constructor(
 		 * A daemon started: its [feed] first, then its index opened (read from its file, or built, in the background),
 		 * and the feed's changes made in it.
 		 */
-		fun start(settings: DaemonSettings, feed: Feed = Feed.of(settings.roots)): Daemon =
-			start(settings, feed) {}
+		fun start(settings: DaemonSettings, feed: Feed): Daemon = start(settings, feed, null) {}
+
+		/**
+		 * A daemon started with the platform's own feed. On a Mac, where the index's file has a place kept beside it
+		 * that is of the volumes and rules there are now ([History]), the feed takes up from that place, and the
+		 * roots the file holds are not read again: what changed while no daemon ran is told by FSEvents.
+		 */
+		fun start(settings: DaemonSettings): Daemon {
+			val history =
+				settings.file?.takeIf { Os.current == Os.MacOS }?.let(History::beside)
+					?: return start(settings, Feed.of(settings.roots), null) {}
+			val record = recordOf(settings.indexer.rules, settings.live.mounts())
+			val kept =
+				history.read()?.takeIf { it.of == record && Files.exists(settings.file) }
+
+			// Whatever is kept is of the daemon before: this one keeps its own, once it is settled.
+			history.forget()
+
+			return if (kept == null)
+				start(settings, Feed.of(settings.roots), history) {}
+			else
+				start(
+					settings.copy(live = settings.live.copy(readRootsOnOpen = false)),
+					Feed.fsEvents(settings.roots, kept.id),
+					history,
+				) {}
+		}
 
 		internal fun start(
 			settings: DaemonSettings,
 			feed: Feed,
+			history: History?,
 			beforeMaking: (Set<Where>) -> Unit,
 		): Daemon {
 			val relay = Relay(settings.report)
@@ -459,7 +560,11 @@ class Daemon private constructor(
 
 			relay.into(live)
 
-			return Daemon(live, feeding, relay, settings)
+			// A feed that did not start told nothing of what changed before: the roots are read after all.
+			if (feeding is Feeding.Off && !settings.live.readRootsOnOpen)
+				live.rescanRoots()
+
+			return Daemon(live, feeding, relay, settings, history)
 		}
 	}
 }

@@ -163,6 +163,8 @@ fun SettingsView(
 	onUndo: () -> Unit = {},
 	onRedo: () -> Unit = {},
 	commands: Commands = ProcessCommands,
+	/** What reads the index anew, from the Indexing page; null where there is no index kept to read. */
+	onRebuild: (() -> Unit)? = null,
 ) {
 	// The keys as they are applied, not as the bindings page is changing them.
 	val bindings = remember(settings.base) { Bindings.of(settings.base) }
@@ -201,6 +203,7 @@ fun SettingsView(
 			Page.Indexing ->
 				ExcludingPage(
 					settings.excluding,
+					onRebuild,
 				) { onChange(settings.copy(excluding = it)) }
 			Page.Actions -> ScriptsPage(ScriptKind.Action, settings, world, filter, onChange)
 			Page.Searches -> SearchesPage(settings, world, filter, onChange)

@@ -11,6 +11,7 @@ import java.nio.file.attribute.FileTime
 import java.util.concurrent.ForkJoinPool
 import java.util.concurrent.ForkJoinTask
 import java.util.concurrent.RecursiveTask
+import java.util.concurrent.atomic.LongAdder
 import kotlin.time.Duration
 import kotlin.time.measureTimedValue
 import prism.linux.AtFlags
@@ -21,6 +22,7 @@ import prism.linux.Sys
 import prism.linux.close
 import prism.linux.openat
 import prism.linux.statx
+import prism.macos.BulkFolder
 import prism.platform.Dev
 import prism.platform.FileKind
 import prism.platform.Os
@@ -267,7 +269,7 @@ sealed interface Backend {
 		}
 
 		/** What the link at [link] leads to: a stat that follows it; null where it leads nowhere. */
-		private fun targetOf(link: Path): FileKind? =
+		internal fun targetOf(link: Path): FileKind? =
 			try {
 				FileKind.ofMode(Files.readAttributes(link, "unix:mode")["mode"] as Int)
 			} catch (nowhere: IOException) {
@@ -278,7 +280,7 @@ sealed interface Backend {
 		 * The JVM's `unix:dev`, which is the platform's `dev_t`: on Linux, glibc's encoding (its `gnu_dev_major` and
 		 * `gnu_dev_minor`); on macOS, Darwin's.
 		 */
-		private fun devOf(dev: Long): Dev {
+		internal fun devOf(dev: Long): Dev {
 			if (Os.current == Os.MacOS)
 				return prism.macos.devOf(dev.toInt())
 
@@ -420,8 +422,71 @@ sealed interface Backend {
 		private const val PATH_MAX = 4096
 	}
 
+	/**
+	 * A Mac's `getattrlistbulk` through FFM (macos/bulk.kt): a folder read a buffer at a time, each entry's kind and
+	 * number taken from what the kernel wrote beside its name, as [Getdents] does on Linux. Only a symbolic link is
+	 * asked about again, to learn what it leads to, and an entry whose file system did not say what it is. A folder
+	 * that cannot be read so is read by [Jvm], which says why where it cannot either.
+	 */
+	data object Bulk : Backend {
+		override val name: String get() = "bulk"
+
+		override fun list(where: Where): Listing {
+			val path = where.path ?: return Jvm.list(where)
+			val read = BulkFolder.entries(where.bytes) ?: return Jvm.list(where)
+
+			return try {
+				val own = Files.readAttributes(path, "unix:dev,ino", LinkOption.NOFOLLOW_LINKS)
+
+				Listing.Read(
+					Jvm.devOf(own["dev"] as Long),
+					own["ino"] as Long,
+					read.map { entry ->
+						val name = Name.of(entry.name)
+						val kind = entry.kind ?: Jvm.stat(where.child(name), follow = false)?.kind
+
+						Listed(
+							name,
+							kind,
+							entry.id,
+							if (kind == FileKind.Symlink)
+								Jvm.targetOf(path.resolve(name.toString()))
+							else
+								null,
+						)
+					},
+				)
+			} catch (failed: IOException) {
+				Listing.Unreadable(failed.toString())
+			}
+		}
+
+		override fun stat(where: Where, follow: Boolean): Stat? = Jvm.stat(where, follow)
+	}
+
+	/** [inner], with every entry it lists counted in [read]: how far a long reading has got, for whoever shows it. */
+	class Counted(
+		private val inner: Backend,
+		private val read: LongAdder,
+	) : Backend {
+		override val name: String get() = inner.name
+
+		override fun list(where: Where): Listing =
+			inner.list(where).also {
+				if (it is Listing.Read)
+					read.add(it.entries.size.toLong())
+			}
+
+		override fun stat(where: Where, follow: Boolean): Stat? = inner.stat(where, follow)
+	}
+
 	companion object {
-		val ALL: List<Backend> = listOf(Getdents, Jvm)
+		/** The backends that read this platform's folders: its own, then the JVM's, which reads any. */
+		val ALL: List<Backend> =
+			when (Os.current) {
+				Os.MacOS -> listOf(Bulk, Jvm)
+				Os.Linux, Os.Windows -> listOf(Getdents, Jvm)
+			}
 	}
 }
 

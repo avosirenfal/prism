@@ -58,6 +58,10 @@ class Indexer(
 	fun mounted(mounts: List<Mount>, asked: Set<Where> = this.asked): Indexer =
 		Indexer(rules, mounts, backend, threads, clock, portable, asked)
 
+	/** This indexer, with every entry it lists from now on counted in [read] ([Backend.Counted]). */
+	fun counting(read: java.util.concurrent.atomic.LongAdder): Indexer =
+		Indexer(rules, mounts, Backend.Counted(backend, read), threads, clock, portable, asked)
+
 	/** This indexer with [rules] in place of its own. */
 	fun ruled(rules: IgnoreRules): Indexer =
 		Indexer(rules, mounts, backend, threads, clock, portable, asked)

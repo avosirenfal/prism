@@ -1,17 +1,23 @@
 package prism.explorer
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -24,6 +30,7 @@ import prism.browser.Card
 import prism.browser.Emphasis
 import prism.browser.Field
 import prism.browser.Glyph
+import prism.browser.LocalIndexReading
 import prism.browser.LocalPalette
 import prism.browser.LocalType
 import prism.browser.Palette
@@ -80,7 +87,12 @@ private fun shown(
 
 /** The page of the rules over [edits], each change reported to [onChange]. */
 @Composable
-internal fun ExcludingPage(edits: ExcludingEdits, onChange: (ExcludingEdits) -> Unit) {
+internal fun ExcludingPage(
+	edits: ExcludingEdits,
+	/** What reads the index anew; null where the index is not one that can be (none is kept here). */
+	onRebuild: (() -> Unit)? = null,
+	onChange: (ExcludingEdits) -> Unit,
+) {
 	val type = LocalType.current
 
 	PageLayout(
@@ -88,6 +100,8 @@ internal fun ExcludingPage(edits: ExcludingEdits, onChange: (ExcludingEdits) -> 
 		"Ignored items aren't indexed. Hidden items are indexed, but found only when a search " +
 			"includes their path. A rule also applies to everything inside what it matches.",
 	) {
+		if (onRebuild != null)
+			Rebuilding(onRebuild)
 		Column(verticalArrangement = Arrangement.spacedBy(Space.s)) {
 			Text("Your rules", style = type.heading)
 			Card {
@@ -118,6 +132,69 @@ internal fun ExcludingPage(edits: ExcludingEdits, onChange: (ExcludingEdits) -> 
 		}
 	}
 }
+
+/**
+ * The index itself: whether it is being read, how far that has got, and a button that reads it anew. The index keeps
+ * itself current, so the button is for when something seems missing from it all the same.
+ */
+@Composable
+private fun Rebuilding(onRebuild: () -> Unit) {
+	val palette = LocalPalette.current
+	val type = LocalType.current
+	val reading = LocalIndexReading.current
+
+	Column(verticalArrangement = Arrangement.spacedBy(Space.s)) {
+		Text("Index", style = type.heading)
+		Card {
+			Row(
+				Modifier.fillMaxWidth().padding(Space.m),
+				horizontalArrangement = Arrangement.spacedBy(Space.m),
+				verticalAlignment = Alignment.CenterVertically,
+			) {
+				Column(
+					Modifier.weight(1f),
+					verticalArrangement = Arrangement.spacedBy(Space.s),
+				) {
+					Text(
+						reading?.said() ?: "The index is up to date.",
+						style = type.body,
+						modifier = Modifier.testTag("index-state"),
+					)
+					if (reading != null)
+						Box(
+							Modifier
+								.fillMaxWidth()
+								.height(PROGRESS_HEIGHT)
+								.clip(RoundedCornerShape(PROGRESS_HEIGHT))
+								.background(palette.border)
+								.testTag("index-progress"),
+						) {
+							Box(
+								Modifier
+									.fillMaxWidth(reading.fraction ?: 0f)
+									.fillMaxHeight()
+									.background(palette.accent),
+							)
+						}
+					else
+						Text(
+							"Changes are followed as they happen. Rebuilding reads every folder again.",
+							style = type.muted,
+						)
+				}
+				PushButton(
+					"Rebuild index",
+					Emphasis.Secondary,
+					enabled = reading == null,
+					Modifier.testTag("index-rebuild"),
+					onClick = onRebuild,
+				)
+			}
+		}
+	}
+}
+
+private val PROGRESS_HEIGHT = 4.dp
 
 /** The field a rule is typed into, what it is to do, and what adds it; under them, how it reads, or why it does not. */
 @Composable
