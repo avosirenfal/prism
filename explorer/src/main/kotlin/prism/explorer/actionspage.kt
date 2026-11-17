@@ -92,6 +92,7 @@ private class Wording(
 	val many: String,
 	val new: String,
 	val hint: String,
+	val article: String,
 )
 
 private val ScriptKind<*>.wording: Wording get() =
@@ -99,22 +100,22 @@ private val ScriptKind<*>.wording: Wording get() =
 		ScriptKind.Action ->
 			Wording(
 				"File actions",
-				"Commands the context menus offer for files and folders, beyond prism's own. Turn off the ones " +
-					"you don't use, change them, or add your own.",
+				"Custom commands in context menus.",
 				"action",
 				"actions",
 				"New action",
-				"Filter by name, id, extension or program (Ctrl+F)",
+				"Filter by name, extension or program (Ctrl+F)",
+				"an",
 			)
 		ScriptKind.Search ->
 			Wording(
 				"Text searches",
-				"Commands that look inside the files a window shows and list the lines they find. Turn off the " +
-					"ones you don't use, change them, or add your own.",
+				"Commands that search inside files.",
 				"search",
 				"searches",
 				"New search",
-				"Filter by name, id or program (Ctrl+F)",
+				"Filter by name or program (Ctrl+F)",
+				"a",
 			)
 	}
 
@@ -193,26 +194,24 @@ internal fun <S : Declared> ScriptsPage(
 				// are many. Where everything is offered in the same one, there is none to choose.
 				if (catalog.offeredIn.size > 1)
 					Tip(
-						"Show only what is offered in one kind of view: ordinary folders, search results, or a " +
-							"place (a view a command lists, such as the inside of an archive).",
+						"Show only items for one kind of view.",
 					) {
 						Select(
 							listOf<Scene?>(null) + catalog.offeredIn,
 							narrowing.scene,
-							{ scene -> scene?.let(catalog.scenes::titled) ?: "All windows" },
+							{ scene -> scene?.let(catalog.scenes::titled) ?: "All views" },
 							Modifier.width(190.dp).testTag("scripts-scene"),
 						) { narrow(narrowing.copy(scene = it)) }
 					}
 				if (kind == ScriptKind.Action)
 					Tip(
-						"Show only what a file with this name would be offered. Type an extension (zip) or a " +
-							"whole name (notes.tar.gz).",
+						"Show only actions offered for a file with this name or extension.",
 					) {
 						Field(
 							narrowing.named,
 							{ narrow(narrowing.copy(named = it)) },
 							Modifier.width(170.dp).testTag("scripts-named"),
-							hint = "For a file: zip",
+							hint = "File name or extension",
 							leading = Glyph.File,
 							onClear = { narrow(narrowing.copy(named = "")) },
 						)
@@ -284,7 +283,7 @@ internal fun <S : Declared> ScriptsPage(
 			Card {
 				catalog.unread.forEach { unread ->
 					Notice(
-						"One of your ${wording.many} in the preferences file can't be read" +
+						"The preferences file has ${wording.article} ${wording.one} that can't be read" +
 							unread.id
 								?.let { " (“$it”)" }
 								.orEmpty(),
@@ -293,7 +292,7 @@ internal fun <S : Declared> ScriptsPage(
 						detail = unread.why,
 					) {
 						PushButton(
-							"Remove it",
+							"Remove",
 							Emphasis.Secondary,
 							enabled = true,
 							Modifier.testTag("unread-remove:${unread.at}"),
@@ -306,13 +305,10 @@ internal fun <S : Declared> ScriptsPage(
 				EmptyState(
 					Glyph.Search,
 					if (narrowing.narrowed)
-						"No ${wording.many} match"
+						"No matching ${wording.many}"
 					else
 						"No ${wording.many}",
-					if (narrowing.narrowed)
-						"Change or clear the filters above."
-					else
-						null,
+					null,
 					Modifier.fillMaxSize(),
 				)
 			else
@@ -439,9 +435,9 @@ private fun briefOf(spec: Declared, catalog: Catalog<*>): String =
 		is TextSearchSpec ->
 			listOfNotNull(
 				if (spec.takes == Takes.Lines.word)
-					"A further step, on lines already found"
+					"Refines previous results"
 				else
-					"Looks in files",
+					"Searches files",
 				offeredBrief(spec.conditions, null).takeIf { it.isNotEmpty() },
 				doesBrief(spec) { null },
 			)
@@ -512,18 +508,18 @@ private fun <S : Declared> EntryRow(
 				when (entry.source) {
 					is Source.Own ->
 						Pill(
-							"Yours",
+							"Custom",
 							palette.accentText,
 							Modifier.testTag("own:${entry.id}"),
 						)
 					is Source.Changed ->
-						Pill("Changed", palette.accentText, Modifier.testTag("changed:${entry.id}"))
+						Pill("Modified", palette.accentText, Modifier.testTag("changed:${entry.id}"))
 					is Source.Shipped -> Unit
 				}
 			}
 			Text(
 				when (trouble) {
-					is Trouble.Missing -> "Not available here: needs ${trouble.needs}"
+					is Trouble.Missing -> "Unavailable: requires ${trouble.needs}"
 					is Trouble.Wrong -> trouble.why
 					null -> briefOf(spec, catalog).ifEmpty { spec.id }
 				},
@@ -613,7 +609,7 @@ internal fun ScenesPicker(
 	) {
 		if (within.isEmpty())
 			Text(
-				"Any window",
+				"Any view",
 				style = type.body,
 				modifier = Modifier.align(Alignment.CenterVertically).padding(end = Space.s),
 			)
@@ -631,7 +627,7 @@ internal fun ScenesPicker(
 				null,
 				{ word ->
 					word?.let { scenes.titled(Scene.In(it)) }
-						?: if (within.isEmpty()) "Only in…" else "Also in…"
+						?: "Add view…"
 				},
 				Modifier.width(220.dp).testTag("scene-add"),
 			) { added -> added?.let { onChange(within + it) } }
@@ -698,8 +694,7 @@ internal fun MoveModal(
 		},
 	) {
 		Labelled(
-			"Offered in",
-			help = "The kinds of window whose menus offer it.",
+			"Views",
 		) {
 			ScenesPicker(
 				modal.to.within,
@@ -707,8 +702,8 @@ internal fun MoveModal(
 			) { typed(modal.to.copy(within = it)) }
 		}
 		Labelled(
-			"For files ending in",
-			help = "Extensions without the dot, separated by commas. Leave empty for any file.",
+			"Extensions",
+			help = "Comma-separated, without the dot. Empty matches any file.",
 		) {
 			Field(
 				modal.to.ext,
@@ -727,10 +722,10 @@ internal fun MoveModal(
 		}
 		Text(
 			when (entry.source) {
-				is Source.Own -> "Move changes this ${modal.kind.wording.one}. Copy leaves it and adds another."
+				is Source.Own -> "Move changes this ${modal.kind.wording.one}. Copy creates a new one."
 				else ->
-					"Move changes this built-in ${modal.kind.wording.one}, which you can reset later. " +
-						"Copy leaves it and adds one of your own."
+					"Move modifies this built-in ${modal.kind.wording.one}; you can reset it later. " +
+						"Copy creates a new one."
 			},
 			style = type.muted,
 		)

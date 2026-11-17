@@ -51,7 +51,6 @@ data class Explained(
 internal fun RendererPage(report: GraphicsReport?, onCopy: (String) -> Unit) {
 	PageLayout(
 		"Renderer",
-		"How prism's windows are rendered, and the graphics devices on this computer.",
 	) {
 		if (report == null) {
 			Section("Rendering") {

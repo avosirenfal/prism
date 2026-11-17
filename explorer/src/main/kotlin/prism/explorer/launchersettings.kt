@@ -335,7 +335,7 @@ private fun ApplicationsPage(
 
 	PageLayout(
 		"Applications",
-		"Applications that are turned off are hidden from the launcher.",
+		"Turn an application off to hide it from the launcher.",
 		scrolls = false,
 	) {
 		Field(

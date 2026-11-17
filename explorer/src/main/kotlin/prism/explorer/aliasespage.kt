@@ -68,7 +68,7 @@ internal fun AliasesPage(edits: AliasEdits, onChange: (AliasEdits) -> Unit) {
 
 	PageLayout(
 		"Aliases",
-		"Short names for searches. Type a name followed by @ in any search to use it.",
+		"Short names for searches. Use one in a search as name@.",
 	) {
 		if (edits.drafts.isEmpty())
 			NoAliases { onChange(edits.added(it)) }

@@ -85,9 +85,8 @@ internal fun ExcludingPage(edits: ExcludingEdits, onChange: (ExcludingEdits) -> 
 
 	PageLayout(
 		"Indexing",
-		"Rules for what the index leaves out. A rule covers what it names and " +
-			"everything inside it. Ignored items are not indexed. Hidden items are " +
-			"indexed, and found only by a search that includes their path.",
+		"Ignored items aren't indexed. Hidden items are indexed, but found only when a search " +
+			"includes their path. A rule also applies to everything inside what it matches.",
 	) {
 		Column(verticalArrangement = Arrangement.spacedBy(Space.s)) {
 			Text("Your rules", style = type.heading)

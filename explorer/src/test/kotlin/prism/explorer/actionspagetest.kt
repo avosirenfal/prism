@@ -223,7 +223,7 @@ class ActionsPageTest {
 
 			// What cannot be run here says what it wants, and is still listed.
 			type("scripts-filter", "archive.rar.remove")
-			assertEquals("Not available here: needs rar", said("script-note:archive.rar.remove"))
+			assertEquals("Unavailable: requires rar", said("script-note:archive.rar.remove"))
 			onNodeWithTag("scripts-count").assertTextEquals("1 of 60 actions shown")
 
 			// Ctrl+F, from wherever the keyboard is, goes to the filter; a word of a name leaves the rest out.
@@ -280,12 +280,12 @@ class ActionsPageTest {
 			onNodeWithTag("editor-wrong").assertDoesNotExist()
 
 			// A label says what it means when the pointer rests on it: a submenu is a word of prism's, not everyone's.
-			onNodeWithText("Puts it inside a submenu", substring = true).assertDoesNotExist()
+			onNodeWithText("Places the item in a submenu", substring = true).assertDoesNotExist()
 			onNodeWithText("Submenu").performMouseInput { moveTo(center) }
 			mainClock.advanceTimeBy(1_000)
 			waitForIdle()
-			onNodeWithText("Puts it inside a submenu", substring = true).assertExists()
-			onNodeWithText("Name in the menu").performMouseInput { moveTo(center) }
+			onNodeWithText("Places the item in a submenu", substring = true).assertExists()
+			onNodeWithText("Name").performMouseInput { moveTo(center) }
 			waitForIdle()
 
 			// Named, its id follows; a command typed wrong is said to be, and why.
@@ -302,9 +302,9 @@ class ActionsPageTest {
 			// What a command can name is in a menu at its corner, and is put after the rest of it; and so is a
 			// question, whose answer it then names.
 			click("command-insert")
-			click("menu:{parent}   the folder a file is in")
+			click("menu:{parent}   Containing folder")
 			click("command-insert")
-			click("menu:Ask for text, and use the answer…")
+			click("menu:Prompt for text…")
 			(edited.settings.modal as ActingModal.EditingAction).form.let {
 				assertEquals(
 					listOf("magick", "{paht}", "{stem}.png", "{parent}", "{value}"),
@@ -322,7 +322,7 @@ class ActionsPageTest {
 			click("menu:Edit as separate arguments")
 			onNodeWithTag("command:1").assertExists()
 			click("command-more")
-			click("menu:Edit as one line")
+			click("menu:Edit as command line")
 
 			// Typed right, what it would run for an example is shown, and that its program is not here.
 			type("command", "magick {path} {stem}.png")
@@ -332,7 +332,7 @@ class ActionsPageTest {
 			onNodeWithTag("editor-unfound").assertExists()
 
 			// When it is offered is another part of the form, and is said over the conditions as they are set.
-			click("tab:When it's offered")
+			click("tab:Conditions")
 			onNodeWithTag("command").assertDoesNotExist()
 			type("when-ext", "jpg, webp")
 			onNodeWithText("For any items ending in .jpg, .webp.").assertExists()
@@ -340,14 +340,14 @@ class ActionsPageTest {
 			onNodeWithText("For one item ending in .jpg, .webp.").assertExists()
 
 			// For some extensions, the example is a file of the first.
-			click("tab:What it does")
+			click("tab:Action")
 			onNodeWithTag(
 				"example",
 			).assertTextEquals("magick /home/someone/example.jpg example.png")
 
 			// Watched, with the listing read again after; then added.
-			click("tab:How it runs")
-			click("running:Watched")
+			click("tab:Run options")
+			click("running:Monitored")
 			click("then-reread")
 			click("editor-save")
 			assertNull(edited.settings.modal)
@@ -420,7 +420,7 @@ class ActionsPageTest {
 			click("scene-add")
 			click("option:Search results")
 			onNodeWithTag("move-said").assertExists()
-			onNodeWithText("In the menu of the items selected, in search results.").assertExists()
+			onNodeWithText("In the menu for selected items, in search results.").assertExists()
 			click("move-apply")
 			edited.actions.single { it.id == "mine.png" }.conditions.let {
 				assertEquals(listOf("tiff", "bmp"), it.ext)
@@ -486,7 +486,7 @@ class ActionsPageTest {
 					),
 					ran,
 				)
-				onNodeWithTag("tried-status:0").assertTextEquals("Failed, with exit status 2.")
+				onNodeWithTag("tried-status:0").assertTextEquals("Failed (exit status 2)")
 				onNodeWithTag("tried-output:0").assertTextEquals("half done")
 				onNodeWithTag("tried-errors:0").assertTextEquals("magick: no decode delegate")
 				// Trying it changed nothing that would be applied; closed, the form is there as it was, with what was
@@ -524,7 +524,7 @@ class ActionsPageTest {
 				type("command", "xargs -0 grep -Hn -e {query} --")
 				onNodeWithTag("example").assertTextEquals("xargs -0 grep -Hn -e ‹query› --")
 				// What it must print is said, with a line of it, and follows what is chosen.
-				click("tab:What it prints")
+				click("tab:Output")
 				onNodeWithTag("prints-example").assertTextEquals("src/main.kt:12:val answer = 42")
 				click("read:JSON")
 				onNodeWithTag("prints-example").assertTextContains("\"marks\"", substring = true)
@@ -535,7 +535,7 @@ class ActionsPageTest {
 				type("trial-query", "word")
 				click("trial-run")
 				waitUntil { onAllNodesWithTag("tried-found").fetchSemanticsNodes().isNotEmpty() }
-				onNodeWithTag("tried-found").assertTextEquals("Found 1 lines in 1 file.")
+				onNodeWithTag("tried-found").assertTextEquals("Found 1 line in 1 file.")
 				onNodeWithTag("tried-hits").assertTextEquals("notes.txt:3:the word is here")
 				onNodeWithTag("tried-unread").assertTextEquals("warming up\nnotes.txt:oops")
 

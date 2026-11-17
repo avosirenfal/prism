@@ -194,10 +194,10 @@ data class WhenForm(
 enum class Does(
 	val label: String,
 ) {
-	Run("Run a command"),
-	Folder("Open a folder"),
-	Place("Open a place"),
-	Like("Like another"),
+	Run("Run command"),
+	Folder("Open folder"),
+	Place("Open place"),
+	Like("Based on another"),
 }
 
 /** How an action's command is run. */
@@ -206,16 +206,16 @@ enum class Running(
 	val help: String,
 ) {
 	Detached(
-		"In the background",
-		"Started and left alone. Nothing is shown, even if it fails. For opening other applications.",
+		"In background",
+		"Starts the command and ignores its result. Use for launching applications.",
 	),
 	Terminal(
-		"In a terminal",
-		"Opens your terminal and runs it there, so you can see what it prints and type into it.",
+		"In terminal",
+		"Runs the command in your terminal.",
 	),
 	Watched(
-		"Watched",
-		"Prism runs it, shows that it is running, lets you stop it, and shows its error output if it fails.",
+		"Monitored",
+		"Shows that the command is running, lets you stop it, and reports errors.",
 	),
 }
 
@@ -553,9 +553,9 @@ private fun thingsSaid(spec: WhenSpec): String {
 fun offeredSaid(spec: WhenSpec, unsaid: On?, scenes: Scenes): List<String> {
 	val menu =
 		when (spec.target ?: unsaid?.word) {
-			On.Files.word -> "In the menu of the items selected"
-			On.Folder.word -> "In the menu of empty space in a folder"
-			On.Place.word -> "In the menu of a sidebar entry"
+			On.Files.word -> "In the menu for selected items"
+			On.Folder.word -> "In the menu for a folder's background"
+			On.Place.word -> "In the menu for a sidebar item"
 			else -> "In any menu"
 		}
 
@@ -563,7 +563,7 @@ fun offeredSaid(spec: WhenSpec, unsaid: On?, scenes: Scenes): List<String> {
 		spec.within
 			?.takeIf { it.isNotEmpty() }
 			?.joinToString(" or ") { scenes.said(Scene.In(it)) }
-			?: "any window"
+			?: "any view"
 
 	fun dotted(ext: List<String>) = few(ext.map { ".$it" })
 
@@ -582,7 +582,7 @@ fun offeredSaid(spec: WhenSpec, unsaid: On?, scenes: Scenes): List<String> {
 			named.isNotEmpty() || spec.count != null || spec.kind != null -> "For ${thingsSaid(
 				spec,
 			)}"
-			(spec.target ?: unsaid?.word) == On.Files.word -> "For anything selected"
+			(spec.target ?: unsaid?.word) == On.Files.word -> "For any selection"
 			else -> null
 		}
 
@@ -602,18 +602,18 @@ fun offeredSaid(spec: WhenSpec, unsaid: On?, scenes: Scenes): List<String> {
 		},
 		not
 			?.takeIf { it.copy(ext = null) != WhenSpec() }
-			?.let { "With further exceptions, set in the preferences file." },
+			?.let { "More exceptions are set in the preferences file." },
 		spec.real?.let {
 			if (it)
 				"Only for files on disk."
 			else
-				"Only for entries of a place, which are not files on disk."
+				"Only for items inside a place."
 		},
 		spec.elsewhere?.let {
 			if (it)
-				"Only where they are shown outside their own folder, as in search results."
+				"Only for items listed outside their own folder, as in search results."
 			else
-				"Only where they are shown in their own folder."
+				"Only for items listed in their own folder."
 		},
 		spec.under?.takeIf { it.isNotEmpty() }?.let { "Only under ${few(it)}." },
 		spec.inside?.takeIf { it.isNotEmpty() }?.let {
@@ -623,10 +623,10 @@ fun offeredSaid(spec: WhenSpec, unsaid: On?, scenes: Scenes): List<String> {
 			"Only when ${few(programs.map { it.replace("|", " or ") })} is installed."
 		},
 		spec.with?.takeIf { it.isNotEmpty() }?.let { with ->
-			"Only where the place's " +
+			"Only when the place's " +
 				with.entries.joinToString(
 					" and ",
-				) { (name, globs) -> "$name is like ${few(globs)}" } +
+				) { (name, globs) -> "$name matches ${few(globs)}" } +
 				"."
 		},
 	)
@@ -636,8 +636,8 @@ fun offeredSaid(spec: WhenSpec, unsaid: On?, scenes: Scenes): List<String> {
 fun offeredBrief(spec: WhenSpec, unsaid: On?): String {
 	val target =
 		when (spec.target ?: unsaid?.word) {
-			On.Folder.word -> "Empty space in a folder"
-			On.Place.word -> "Sidebar entry"
+			On.Folder.word -> "Folder background"
+			On.Place.word -> "Sidebar item"
 			else -> null
 		}
 
@@ -661,7 +661,7 @@ fun offeredBrief(spec: WhenSpec, unsaid: On?): String {
 /** What [spec] does, in a few words, for a list's row: the programs it runs, or what it opens. */
 fun doesBrief(spec: Declared, labelOf: (String) -> String?): String? =
 	when {
-		spec is ActionSpec && spec.like != null -> "Same as “${labelOf(
+		spec is ActionSpec && spec.like != null -> "Based on “${labelOf(
 			spec.like!!,
 		) ?: spec.like}”"
 		spec is ActionSpec && spec.show?.place != null -> "Opens the place ${spec.show?.place}"

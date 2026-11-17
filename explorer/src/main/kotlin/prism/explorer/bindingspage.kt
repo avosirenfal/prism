@@ -97,7 +97,7 @@ internal fun BindingsPage(
 ) {
 	PageLayout(
 		"Key bindings",
-		"Click a shortcut to change it, then press the new key or mouse button. Escape cancels.",
+		"Click a shortcut, then press a key or mouse button. Escape cancels.",
 		scrolls = false,
 	) {
 		above()

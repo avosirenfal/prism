@@ -278,8 +278,8 @@ private fun TextHeader(
 				hint =
 					when {
 						search == null -> "*.kt, dir:src, ext:md…"
-						search.query == QueryUse.Typed -> "Text to find"
-						else -> "Filter the lines found"
+						search.query == QueryUse.Typed -> "Search text"
+						else -> "Filter results"
 					},
 				leading =
 					if (search == null)
@@ -616,7 +616,7 @@ private fun ListHeader(
 		}
 		Tool(
 			Glyph.ViewList,
-			"Show these files as a listing",
+			"Show as file list",
 			"text-as-files",
 			enabled =
 				rows.files > 0,
@@ -753,17 +753,17 @@ private fun TextNothing(text: Location.Text, modifier: Modifier) {
 			// Still looking: nothing is said of what has not been found yet.
 			text.busy -> Unit
 			text.stages.size == 1 && first.idle ->
-				EmptyState(Glyph.Search, first.label(), "Type what to look for in $scope.")
+				EmptyState(Glyph.Search, first.label(), "Type to search in $scope.")
 			text.stages.size == 1 && first.search.query == QueryUse.Narrows &&
 				first.query.isNotBlank() ->
-				EmptyState(Glyph.Search, "No lines have “${first.query.trim()}”", null)
+				EmptyState(Glyph.Search, "No lines contain “${first.query.trim()}”", null)
 			text.stages.size == 1 ->
 				EmptyState(
 					Glyph.Search,
 					"Nothing found",
 					"Nothing in $scope matches.",
 				)
-			else -> EmptyState(Glyph.Search, "Nothing found", "No file passes every step.")
+			else -> EmptyState(Glyph.Search, "Nothing found", "No file matches every step.")
 		}
 	}
 }
@@ -1459,7 +1459,7 @@ internal fun textStatus(text: Location.Text): String {
 		when {
 			failed != null -> "“${text.stages[failed.first].step.label()}” failed"
 			rows.size == 0 && text.busy -> "Searching…"
-			text.stages.size == 1 && first.idle -> "Nothing searched for yet"
+			text.stages.size == 1 && first.idle -> "Enter a search"
 			rows.size == 0 -> "No results"
 			else -> "${counted(rows.lines, "line")} in ${counted(rows.files, "file")}"
 		}

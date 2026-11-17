@@ -141,8 +141,8 @@ fun <S : Declared> ScriptKind<S>.checked(
 	val named =
 		listOfNotNull(
 			when {
-				spec.label.isBlank() -> "Give it a name."
-				spec.id.isBlank() -> "Give it an id."
+				spec.label.isBlank() -> "Enter a name."
+				spec.id.isBlank() -> "Enter an id."
 				else -> null
 			},
 		)
@@ -154,9 +154,9 @@ fun <S : Declared> ScriptKind<S>.checked(
 		when {
 			!ID.matches(
 				spec.id,
-			) -> "The id can only have letters, digits, dots, hyphens and underscores."
+			) -> "An id can contain only letters, digits, dots, hyphens and underscores."
 			fresh && spec.id in catalog(acting, installed).ids ->
-				"The id “${spec.id}” is already used. Choose another."
+				"The id “${spec.id}” is already in use."
 			else -> null
 		}
 
@@ -350,7 +350,7 @@ fun tried(
 		actions[spec.id]
 			?: return Tried.Refused(
 				actions.broken.firstOrNull { it.id == spec.id }?.why
-					?: "It can't be run on this computer: a program it needs isn't installed.",
+					?: "A required program isn't installed.",
 			)
 
 	val place =
@@ -366,7 +366,7 @@ fun tried(
 			} else {
 				val path =
 					pathOf(line, world.home, world.home)
-						?: return Tried.Refused("“$line” isn't a path.")
+						?: return Tried.Refused("“$line” isn't a valid path.")
 
 				if (!Files.exists(path))
 					return Tried.Refused("$path doesn't exist.")
@@ -405,9 +405,9 @@ fun tried(
 	if (!action.fits(subject))
 		return Tried.Refused(
 			if (things.isEmpty())
-				"Name at least one file to try it on."
+				"Enter at least one file."
 			else
-				"It can't be run for these: its command needs something they don't have.",
+				"The command can't be filled in for these files.",
 		)
 
 	val unanswered =
@@ -417,7 +417,7 @@ fun tried(
 		}
 
 	if (unanswered.isNotEmpty())
-		return Tried.Refused("Fill in ${unanswered.joinToString { "“${it.name}”" }} first.")
+		return Tried.Refused("Enter a value for ${unanswered.joinToString { "“${it.name}”" }}.")
 
 	val asked =
 		action.questions.associate { question ->
@@ -435,7 +435,7 @@ fun tried(
 			try {
 				Files.createTempDirectory("prism-trial")
 			} catch (failed: IOException) {
-				return Tried.Refused("A temporary folder couldn't be made: ${failed.message}")
+				return Tried.Refused("Couldn't create a temporary folder: ${failed.message}")
 			}
 		else
 			null
@@ -443,10 +443,10 @@ fun tried(
 	try {
 		val filling =
 			filled(action, subject, asked + listOfNotNull(scratch?.let { TEMP to it.toString() }))
-				?: return Tried.Refused("Some of its values couldn't be filled in from these files.")
+				?: return Tried.Refused("The command can't be filled in for these files.")
 
 		val note =
-			"These files don't meet its conditions, so the menu wouldn't offer it for them. It was run anyway."
+			"These files don't match the conditions, so the menu wouldn't show this action. Ran it anyway."
 				.takeIf { !action.conditions.hold(subject, world) }
 
 		return when (val deed = action.deed) {
@@ -454,7 +454,7 @@ fun tried(
 			is Deed.Run -> {
 				val runs =
 					deed.command.fill(filling)
-						?: return Tried.Refused("Its command uses a value that isn't available here.")
+						?: return Tried.Refused("The command uses a placeholder that isn't available here.")
 				val within = filling.folder ?: world.home
 				val environment = filling.values + ("folder" to within.toString())
 
@@ -495,7 +495,7 @@ fun tried(
 		actions.search(spec.id)
 			?: return Tried.Refused(
 				actions.broken.firstOrNull { it.id == spec.id }?.why
-					?: "It can't be run on this computer: a program it needs isn't installed.",
+					?: "A required program isn't installed.",
 			)
 
 	val lines = search.takes == Takes.Lines
@@ -505,7 +505,8 @@ fun tried(
 			emptyList()
 		else
 			trial.lines.map {
-				pathOf(it, world.home, world.home) ?: return Tried.Refused("“$it” isn't a path.")
+				pathOf(it, world.home, world.home)
+					?: return Tried.Refused("“$it” isn't a valid path.")
 			}
 
 	paths
@@ -515,9 +516,9 @@ fun tried(
 	if (trial.lines.isEmpty())
 		return Tried.Refused(
 			if (lines)
-				"Type a few lines for it to look through."
+				"Enter some input lines."
 			else
-				"Name at least one file or folder to look in.",
+				"Enter at least one file or folder.",
 		)
 
 	val folder =
@@ -542,7 +543,7 @@ fun tried(
 
 	val words =
 		search.words(trial.query, trial.on, folder)
-			?: return Tried.Refused("Its command uses a value that isn't available here.")
+			?: return Tried.Refused("The command uses a placeholder that isn't available here.")
 
 	val printed = ArrayList<String>()
 	val hits = ArrayList<FileHit>()
@@ -613,19 +614,19 @@ fun searchRead(acting: Acting, spec: TextSearchSpec, world: World): TextSearch? 
 enum class ActionTab(
 	val label: String,
 ) {
-	Does("What it does"),
-	Runs("How it runs"),
-	Offered("When it's offered"),
+	Does("Action"),
+	Runs("Run options"),
+	Offered("Conditions"),
 }
 
 /** The parts a text search's form is in, one shown at a time. */
 enum class SearchTab(
 	val label: String,
 ) {
-	Does("What it does"),
-	Prints("What it prints"),
-	Shows("Preview and opening"),
-	Offered("When it's offered"),
+	Does("Search"),
+	Prints("Output"),
+	Shows("Preview"),
+	Offered("Conditions"),
 }
 
 /** The window open over the pages of actions and text searches. */

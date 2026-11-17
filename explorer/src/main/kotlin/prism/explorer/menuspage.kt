@@ -111,7 +111,6 @@ internal fun MenusPage(settings: Settings, world: World, onChange: (Settings) ->
 
 	PageLayout(
 		"Context menus",
-		"Choose the items each context menu shows, their order, and any modifier key they need.",
 		scrolls = false,
 	) {
 		Row(
@@ -297,10 +296,9 @@ private fun MenuSection(settings: Settings, world: World, onChange: (Settings) -
 	Section(
 		"Items",
 		description =
-			"Drag items to reorder them; Shift+click selects several. Right-click an item to " +
-				"add a separator. Turn on a key to show an item only while that key is held, or " +
-				"turn off its switch to hide it. Faded items need a key that isn't held in this " +
-				"preview; tinted items differ from the default." + following,
+			"Drag to reorder; Shift+click selects several. Right-click to add a separator. A key " +
+				"shows an item only while it is held; the switch hides it. Faded items need a key " +
+				"not held in this preview; tinted items differ from the default." + following,
 		trailing =
 			follows?.let {
 				{

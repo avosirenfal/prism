@@ -291,11 +291,11 @@ sealed interface Trouble {
 enum class Mark(
 	val label: String,
 ) {
-	Own("yours"),
-	Changed("changed"),
-	Off("off"),
+	Own("custom"),
+	Changed("modified"),
+	Off("disabled"),
 	Unavailable("unavailable"),
-	Wrong("with errors"),
+	Wrong("invalid"),
 }
 
 /** One action or text search in the catalogue: where it comes from, whether it is on, and what is the matter with it. */
@@ -357,13 +357,13 @@ data class Scenes(
 	/** What [scene] is called, after "in": "folders", "the place archive.zip". */
 	fun said(scene: Scene): String =
 		when (scene) {
-			Scene.Anywhere -> "any window"
+			Scene.Anywhere -> "any view"
 			is Scene.In ->
 				when (val word = scene.word) {
 					FOLDER -> "folders"
 					RESULTS -> "search results"
 					"trash" -> "the trash"
-					in searches -> "lines found by “${searches[word]}”"
+					in searches -> "results of “${searches[word]}”"
 					else -> "the place $word"
 				}
 		}
@@ -377,7 +377,7 @@ data class Scenes(
 					FOLDER -> "Folders"
 					RESULTS -> "Search results"
 					"trash" -> "Trash"
-					in searches -> "Lines found by “${searches[word]}”"
+					in searches -> "Results of “${searches[word]}”"
 					else -> "Place: $word"
 				}
 		}

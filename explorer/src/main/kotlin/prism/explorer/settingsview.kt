@@ -227,7 +227,7 @@ private fun ExplorerBindingsPage(
 			EmptyState(
 				Glyph.Keyboard,
 				"Pickers use the explorer's shortcuts",
-				"Turn on separate shortcuts to change them for file pickers only.",
+				"Turn on separate shortcuts to change them.",
 				Modifier.fillMaxSize(),
 			)
 		},
@@ -290,7 +290,6 @@ private fun DisplayPage(settings: Settings, onChange: (Settings) -> Unit) {
 
 	PageLayout(
 		"Display",
-		"Fonts, sizes and date format.",
 	) {
 		Section(
 			"Text",
@@ -468,7 +467,6 @@ private fun LayoutPage(settings: Settings, onChange: (Settings) -> Unit) {
 
 	PageLayout(
 		"Layout",
-		"Default sorting, columns and filters for each kind of view.",
 		scrolls = false,
 	) {
 		Row(
@@ -851,12 +849,14 @@ private fun SearchesPage(
 			SettingRow(
 				"Editor",
 				description =
-					"Opens a line found, as a command naming {path} and {line}. " +
+					"Command that opens a search result. Use {path} and {line}." +
 						when {
-							editor.spec() != null -> "Empty to use \$VISUAL or \$EDITOR."
+							editor.spec() != null -> ""
 							settings.actions.editor == prism.browser.Editor.Application ->
-								"Empty, and neither \$VISUAL nor \$EDITOR is set: the file's default application opens it."
-							else -> "Empty: ${editorSaid(settings.actions.editor)}, from \$VISUAL or \$EDITOR."
+								" Empty: uses the file's default application."
+							else -> " Empty: uses ${editorSaid(
+								settings.actions.editor,
+							)}, from \$VISUAL or \$EDITOR."
 						},
 			) {
 				Field(
@@ -867,7 +867,7 @@ private fun SearchesPage(
 					style = type.mono,
 					onClear = { edited(EditorForm()) },
 				)
-				CheckBox("In a terminal", editor.terminal, Modifier.testTag("editor-terminal")) {
+				CheckBox("Run in terminal", editor.terminal, Modifier.testTag("editor-terminal")) {
 					edited(editor.copy(terminal = it))
 				}
 			}

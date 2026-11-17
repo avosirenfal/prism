@@ -145,108 +145,77 @@ internal fun TextArea(
  */
 private val TIPS: Map<String, String> =
 	mapOf(
-		"Name in the menu" to "What the context menu calls it.",
+		"Name" to "The label shown in the context menu.",
 		"Submenu" to
-			"Puts it inside a submenu of the context menu, instead of in the menu itself. Type the submenu's " +
-			"name; use / for a submenu within a submenu, as in Image/Convert. Leave empty to list it in the " +
-			"menu directly.",
-		"It should" to
-			"Run a command: runs a program on what is selected. Open a folder: goes to a folder. Open a " +
-			"place: opens a view whose contents a command lists, such as the inside of an archive or a " +
-			"repository's changed files. Like another: does what another action does, with some of the " +
-			"things it asks already answered.",
+			"Places the item in a submenu instead of the top level. Use / to nest, as in Image/Convert.",
+		"Type" to
+			"Run command runs a program on the selection. Open folder and Open place navigate instead; a " +
+			"place is a view listed by a command, such as an archive's contents. Based on another reuses " +
+			"another action's command with some of its prompts already answered.",
 		"Command" to
-			"The program to run, then its arguments. It is run directly, not by a shell, so pipes, && and " +
-			"redirection only work inside sh -c. The {} button puts in a placeholder, which becomes the " +
-			"file's path, its name, an answer, and so on.",
-		"needs" to
-			"Programs that must be installed for this command to be used, separated by commas. Write a|b " +
-			"where either will do. If they are missing, the next command is tried; if none can run, the " +
-			"menus leave the action out.",
-		"It asks first" to
-			"Questions asked before it runs. The command uses each answer by the name given here, as " +
-			"{name}. Text is typed; Folder opens a folder picker.",
-		"Folder" to
-			"The folder to go to. It can use placeholders: {parent} is the folder the file is in.",
+			"The program and its arguments. It runs directly, not through a shell, so wrap pipes and " +
+			"redirection in sh -c. Use the {} button to insert placeholders such as the file's path.",
+		"requires" to
+			"Programs this command requires, separated by commas; a|b accepts either. If one is missing, " +
+			"the next fallback is used.",
+		"Prompts" to
+			"Questions asked before the command runs. Text asks for a line of text; Folder opens a folder " +
+			"picker.",
+		"Folder" to "The folder to open. Placeholders work here: {parent} is the file's folder.",
 		"Then select" to
-			"A name to put the cursor on once it is done, such as the file the command made: {stem}.png.",
-		"Open it in" to
-			"The window that shows it: this one, a new one, or whichever is usual for it.",
+			"The item to select afterwards, such as the file the command created: {stem}.png.",
+		"Open in" to "Where to open it. Default uses the place's own setting.",
 		"Place" to
-			"A place is a view that is not a folder on disk: its contents are whatever a command lists, such " +
-			"as the entries of an archive. Places are defined in the preferences file.",
-		"Action" to "The action whose command this one reuses.",
-		"Run it" to
-			"In the background: started and forgotten, for opening other applications. In a terminal: opens " +
-			"your terminal and runs there. Watched: prism runs it, shows that it is running, lets you stop " +
-			"it, and shows its error output if it fails.",
-		"Bring what it made from" to
-			"For a command that works in a temporary folder ({temp}): when it finishes, what it made there " +
-			"is moved from this folder into the one named beside it, and nothing already there is replaced.",
-		"Into" to "The folder that what the command made is moved into.",
-		"Confirm first" to "A warning shown before it is done, with the choice to go on or not.",
-		"In the menu of" to
-			"Which right-click menu offers it. Selected items: the menu of the files or folders clicked. " +
-			"Empty space in a folder: the menu of the background of a folder, where it is done to the folder " +
-			"shown. A sidebar entry: the menu of a location in the sidebar, such as Home or a drive.",
-		"In windows showing" to
-			"Limits it to one kind of view: ordinary folders, search results, or a place (a view a command " +
-			"lists, such as the inside of an archive). With none chosen, it is offered in every view.",
-		"How many" to "How many items must be selected for it to be offered.",
-		"Of what" to "Whether every selected item must be a file, a folder, or a link.",
+			"A view whose contents are listed by a command, such as an archive. Places are defined in the " +
+			"preferences file.",
+		"Based on" to "Runs that action's command, with the prompts below already answered.",
+		"Move results from" to
+			"After the command finishes, moves everything in this folder to the destination without " +
+			"overwriting. For commands that write to {temp}.",
+		"To" to "The destination for the moved results.",
+		"Confirmation message" to "Shown before running, with the option to cancel.",
+		"Menu" to
+			"Which context menu shows it: the one for selected items, for a folder's background, or for " +
+			"an item in the sidebar.",
+		"Views" to
+			"Limits it to certain views: folders, search results, or a place such as an archive. Empty " +
+			"means every view.",
+		"Selection" to "How many items must be selected.",
+		"Item type" to "Requires every selected item to be of this type.",
 		"Extensions" to
-			"Offered only when every selected file ends in one of these. Written without the dot and " +
-			"separated by commas: zip, tar.gz.",
-		"Names" to
-			"Offered only when every selected item's name matches one of these patterns, where * stands for " +
-			"anything: Makefile, *.min.js.",
-		"Types" to
-			"Offered only for files of these MIME types, which are decided by a file's content as well as " +
-			"its name: image/*, application/pdf.",
-		"But not extensions" to
-			"Extensions it is not for, even though they match the above: tar.gz, for something that is for gz.",
-		"Only if installed" to
-			"Programs that must be installed for it to be offered at all, separated by commas. Write a|b " +
-			"where either will do.",
-		"Under folders" to
-			"Offered only for items somewhere inside one of these folders. ~ is your home folder.",
-		"Inside a folder that has" to
-			"Offered only for items in a folder that contains one of these names, or in a folder below one: " +
-			".git, for anything inside a repository.",
-		"What they are" to
-			"Real files have a path on disk. Items inside a place exist only in that view, such as a file " +
-			"listed inside an archive, and are named to commands as {entry}.",
-		"Shown outside their folder" to
-			"Yes: only where items are listed apart from the folder they are in, as in search results. " +
-			"That is how “Open containing folder” is offered only there.",
-		"Shortcut" to
-			"A key that does it for what is selected, written as Ctrl+Shift+E. This is its default: the Key " +
-			"bindings page can change it.",
-		"Id" to
-			"A unique name that the preferences file, key bindings and menu arrangements know it by. It is " +
-			"never shown in a menu.",
-		"It looks through" to
-			"What the command is given to search. The files a window shows are every file listed, or the " +
-			"results of a search. Lines already found makes it a further step, run on what an earlier " +
-			"search found.",
-		"What is typed into it" to
-			"Whether the command does the searching, and is run again for each change to the query; or is " +
-			"run once, and prism filters what it printed as you type.",
-		"Its output is" to
-			"The format the command prints its results in, which is how prism reads them. Test shows any " +
-			"lines that did not fit it.",
-		"The number with each line is" to
-			"A line number lets the preview go to that line. A byte offset, as strings -t d prints, is " +
-			"shown as a position and not gone to by line.",
-		"Options beside the query" to
-			"Switches shown next to the search field, such as Match case. Each adds its words to the " +
-			"command, where the command says {options}, depending on whether it is on or off.",
+			"Requires every selected file to have one of these extensions. Comma-separated, without the dot.",
+		"Name patterns" to
+			"Requires every name to match one of these patterns. * matches anything.",
+		"MIME types" to
+			"Requires every file to have one of these MIME types. image/* matches any image.",
+		"Excluded extensions" to
+			"Extensions to skip even though they match above, such as tar.gz for an action on gz.",
+		"Required programs" to
+			"Hides it unless these programs are installed. Comma-separated; a|b accepts either.",
+		"Within folders" to
+			"Requires every item to be inside one of these folders. ~ is your home folder.",
+		"Inside a folder containing" to
+			"Requires an enclosing folder that contains one of these names, such as .git for files in a " +
+			"repository.",
+		"Location" to
+			"On disk means ordinary files. In a place means items that exist only in a view such as an " +
+			"archive, which commands receive as {entry}.",
+		"Listed outside own folder" to
+			"Yes limits it to views that list items from many folders together, such as search results.",
+		"Shortcut" to "The default keyboard shortcut. Change it later under Key bindings.",
+		"Id" to "A unique identifier, used in the preferences file and key bindings.",
+		"Input" to
+			"What the command receives. Files in view are the listed files or search results. Previous " +
+			"results makes it a refining step, which filters the lines an earlier step found.",
+		"Output format" to
+			"How to parse the command's output. Test lists any lines that don't parse.",
+		"Position" to
+			"Line numbers let the preview jump to the result. Byte offsets, as printed by strings -t d, " +
+			"are shown but not jumped to.",
 		"Preview command" to
-			"A command that prints the file to show beside the results, such as bat for syntax colours. " +
-			"Its colours are kept. Without one, the file's text is shown plain.",
-		"Opening command" to
-			"What a double click on a result runs, instead of your editor. It names the file as {path} and " +
-			"the line as {line}.",
+			"Prints the file for the preview pane, colors included. For example, bat for syntax highlighting.",
+		"Open command" to
+			"Runs when you double-click a result, instead of your editor. Use {path} and {line}.",
 	)
 
 /** A labelled control of these windows: as [Labelled], with what its label says under the pointer, where it says more. */
@@ -375,7 +344,7 @@ private fun CommandBody(
 						)
 						ToolButton(
 							Glyph.Close,
-							"Remove this argument",
+							"Remove argument",
 							enabled = command.words.size > 1,
 							Modifier.testTag("$tag-remove:$at"),
 						) {
@@ -449,18 +418,18 @@ private fun WaysEditor(
 					Caption(
 						when {
 							ways.size == 1 -> label
-							at == 0 -> "First choice"
-							else -> "Otherwise"
+							at == 0 -> label
+							else -> "Fallback"
 						},
 						TIPS[label],
 					)
 					if (several) {
-						Tip(TIPS.getValue("needs")) { Text("needs", style = type.muted) }
+						Tip(TIPS.getValue("requires")) { Text("requires", style = type.muted) }
 						Field(
 							way.programs,
 							{ changed(at, way.copy(programs = it)) },
 							Modifier.weight(1f).testTag("$tag-programs:$at"),
-							hint = "programs: unzip, 7zz|7z",
+							hint = "unzip, 7zz|7z",
 							style = type.mono,
 						)
 					} else {
@@ -476,8 +445,8 @@ private fun WaysEditor(
 								}
 								if (onAsk != null) {
 									separator()
-									item("Ask for text, and use the answer…", CommandDeed.Ask(folder = false))
-									item("Ask for a folder, and use it…", CommandDeed.Ask(folder = true))
+									item("Prompt for text…", CommandDeed.Ask(folder = false))
+									item("Prompt for a folder…", CommandDeed.Ask(folder = true))
 								}
 							}
 						},
@@ -500,13 +469,13 @@ private fun WaysEditor(
 						menu = {
 							menu {
 								if (way.command is CommandForm.Words)
-									item("Edit as one line", CommandDeed.Apart(false))
+									item("Edit as command line", CommandDeed.Apart(false))
 								else
 									item("Edit as separate arguments", CommandDeed.Apart(true))
 								if (fallbacks)
-									item("Add a fallback command", CommandDeed.Fallback)
+									item("Add fallback command", CommandDeed.Fallback)
 								if (ways.size > least)
-									item("Remove this command", CommandDeed.Remove)
+									item("Remove command", CommandDeed.Remove)
 							}
 						},
 						onAction = { deed ->
@@ -537,11 +506,11 @@ private fun WaysEditor(
 						verticalAlignment = Alignment.CenterVertically,
 						horizontalArrangement = Arrangement.spacedBy(Space.s),
 					) {
-						Text("Its output is read as", style = type.muted)
+						Text("Output format", style = type.muted)
 						Select(
 							listOf<HitRead?>(null) + HitRead.entries,
 							way.read,
-							{ it?.word ?: "the search says" },
+							{ it?.word ?: "Same as search" },
 							Modifier.weight(1f).testTag("$tag-read:$at"),
 						) { changed(at, way.copy(read = it)) }
 						Select(
@@ -549,9 +518,9 @@ private fun WaysEditor(
 							way.nul,
 							{
 								when (it) {
-									null -> "paths as the search says"
-									true -> "a NUL ends each path"
-									false -> "no NUL after paths"
+									null -> "NUL: same as search"
+									true -> "NUL after paths"
+									false -> "No NUL after paths"
 								}
 							},
 							Modifier.weight(1f).testTag("$tag-nul:$at"),
@@ -586,7 +555,7 @@ private fun ConditionsEditor(
 	var more by remember { mutableStateOf(form.more) }
 
 	Choice(
-		"In the menu of",
+		"Menu",
 		(if (search) listOf<On?>(null) else emptyList()) + On.entries,
 		form.target,
 		"when-target",
@@ -594,18 +563,18 @@ private fun ConditionsEditor(
 			when (it) {
 				null -> "Any"
 				On.Files -> "Selected items"
-				On.Folder -> "Empty space in a folder"
-				On.Place -> "A sidebar entry"
+				On.Folder -> "Folder background"
+				On.Place -> "Sidebar item"
 			}
 		},
 	) { onChange(form.copy(target = it)) }
-	Headed("In windows showing") {
+	Headed("Views") {
 		ScenesPicker(form.within, scenes) { onChange(form.copy(within = it)) }
 	}
 	Fields(
 		1f to {
 			Choice(
-				"How many",
+				"Selection",
 				listOf(null) + Count.entries,
 				form.count,
 				"when-count",
@@ -621,13 +590,13 @@ private fun ConditionsEditor(
 		},
 		1f to {
 			Choice(
-				"Of what",
+				"Item type",
 				listOf(null) + ThingKind.entries,
 				form.kind,
 				"when-kind",
 				{
 					when (it) {
-						null -> "Anything"
+						null -> "Any"
 						ThingKind.File -> "Files"
 						ThingKind.Folder -> "Folders"
 						ThingKind.Link -> "Links"
@@ -640,16 +609,16 @@ private fun ConditionsEditor(
 		"Extensions",
 		form.ext,
 		"when-ext",
-		hint = "zip, tar.gz (without the dot; empty for any name)",
+		hint = "zip, tar.gz",
 	) { onChange(form.copy(ext = it)) }
 	Fields(
 		1f to {
-			Typed("Names", form.names, "when-names", hint = "Makefile, *.min.js") {
+			Typed("Name patterns", form.names, "when-names", hint = "Makefile, *.min.js") {
 				onChange(form.copy(names = it))
 			}
 		},
 		1f to {
-			Typed("Types", form.types, "when-types", hint = "image/*, application/pdf") {
+			Typed("MIME types", form.types, "when-types", hint = "image/*, application/pdf") {
 				onChange(form.copy(types = it))
 			}
 		},
@@ -665,13 +634,13 @@ private fun ConditionsEditor(
 	} else {
 		Fields(
 			1f to {
-				Typed("But not extensions", form.notExt, "when-not-ext", hint = "tar.gz") {
+				Typed("Excluded extensions", form.notExt, "when-not-ext", hint = "tar.gz") {
 					onChange(form.copy(notExt = it))
 				}
 			},
 			1f to {
 				Typed(
-					"Only if installed",
+					"Required programs",
 					form.programs,
 					"when-programs",
 					hint = "git, magick|convert",
@@ -682,12 +651,12 @@ private fun ConditionsEditor(
 		)
 		Fields(
 			1f to {
-				Typed("Under folders", form.under, "when-under", hint = "~/Projects") {
+				Typed("Within folders", form.under, "when-under", hint = "~/Projects") {
 					onChange(form.copy(under = it))
 				}
 			},
 			1f to {
-				Typed("Inside a folder that has", form.inside, "when-inside", hint = ".git") {
+				Typed("Inside a folder containing", form.inside, "when-inside", hint = ".git") {
 					onChange(form.copy(inside = it))
 				}
 			},
@@ -695,28 +664,28 @@ private fun ConditionsEditor(
 		Fields(
 			1f to {
 				Choice(
-					"What they are",
+					"Location",
 					listOf(null, true, false),
 					form.real,
 					"when-real",
 					{
 						when (it) {
-							null -> "Either"
-							true -> "Real files"
-							false -> "Items inside a place"
+							null -> "Any"
+							true -> "On disk"
+							false -> "In a place"
 						}
 					},
 				) { onChange(form.copy(real = it)) }
 			},
 			1f to {
 				Choice(
-					"Shown outside their folder",
+					"Listed outside own folder",
 					listOf(null, true, false),
 					form.elsewhere,
 					"when-elsewhere",
 					{
 						when (it) {
-							null -> "Either"
+							null -> "Any"
 							true -> "Yes"
 							false -> "No"
 						}
@@ -778,10 +747,7 @@ private fun ExampleSaid(example: Example) {
 
 	when (example) {
 		Example.None ->
-			Text(
-				"It is run directly, without a shell: for pipes and redirection, run sh -c.",
-				style = type.muted,
-			)
+			Unit
 		is Example.Opens ->
 			Text(
 				example.what,
@@ -791,14 +757,10 @@ private fun ExampleSaid(example: Example) {
 		is Example.Runs -> {
 			Text(
 				when {
-					example.files.isEmpty() -> "It is run directly, without a shell, as:"
+					example.files.isEmpty() -> "Example:"
 					example.runs.size > 1 ->
-						"For ${example.files.joinToString(
-							" and ",
-						)}, it is run once for each, without a shell:"
-					else -> "For ${example.files.joinToString(
-						" and ",
-					)}, it is run directly, without a shell, as:"
+						"Example, once for each of ${example.files.joinToString(" and ")}:"
+					else -> "Example, for ${example.files.joinToString(" and ")}:"
 				},
 				style = type.muted,
 			)
@@ -841,12 +803,11 @@ private fun CheckedSaid(checked: Checked) {
 			checked.wrong.isNotEmpty() -> "editor-wrong" to checked.wrong.joinToString(" ")
 			checked.missing != null ->
 				"editor-missing" to
-					"Not available on this computer: it needs ${checked.missing}. It can be saved, and is " +
-					"offered once that is installed."
+					"Unavailable on this computer: requires ${checked.missing}. You can still save it."
 			checked.unfound != null ->
 				"editor-unfound" to
-					"“${checked.unfound}” wasn't found on this computer, so this would be offered and then " +
-					"fail. To hide it where it's missing, name it under “Only if installed”."
+					"“${checked.unfound}” isn't installed, so this will fail. Add it under Required programs " +
+					"to hide this when it's missing."
 			else -> return
 		}
 
@@ -884,6 +845,20 @@ private fun CheckedSaid(checked: Checked) {
 	}
 }
 
+/** How much a search's trial found, counted: "Found 3 lines in 2 files." */
+private fun found(tried: Tried.Found): String {
+	fun counted(count: Int, one: String) =
+		"$count ${if (count == 1)
+			one
+		else
+			"${one}s"}"
+
+	return if (tried.first.first().hit == null)
+		"Found ${counted(tried.lines, "file")}."
+	else
+		"Found ${counted(tried.lines, "line")} in ${counted(tried.files, "file")}."
+}
+
 /** How a trial went. */
 @Composable
 private fun TriedSaid(tried: Tried?, read: String = "") {
@@ -919,9 +894,9 @@ private fun TriedSaid(tried: Tried?, read: String = "") {
 				Printed(runSaid(run.words), "tried-command:$at")
 				Text(
 					when (run.status) {
-						null -> "It couldn't be started."
-						0 -> "Finished successfully (exit status 0)."
-						else -> "Failed, with exit status ${run.status}."
+						null -> "Couldn't start."
+						0 -> "Succeeded (exit status 0)"
+						else -> "Failed (exit status ${run.status})"
 					},
 					style =
 						type.strong.copy(
@@ -934,15 +909,15 @@ private fun TriedSaid(tried: Tried?, read: String = "") {
 					modifier = Modifier.testTag("tried-status:$at"),
 				)
 				if (run.output.isNotBlank()) {
-					Text("It printed:", style = type.muted)
+					Text("Output:", style = type.muted)
 					Printed(run.output, "tried-output:$at")
 				}
 				if (run.errors.isNotBlank()) {
-					Text("On its error output:", style = type.muted)
+					Text("Error output:", style = type.muted)
 					Printed(run.errors, "tried-errors:$at", bad = run.status != 0)
 				}
 				if (run.output.isBlank() && run.errors.isBlank())
-					Text("It printed nothing.", style = type.muted)
+					Text("No output.", style = type.muted)
 			}
 		}
 		is Tried.Found -> {
@@ -950,7 +925,7 @@ private fun TriedSaid(tried: Tried?, read: String = "") {
 			when (val ended = tried.ended) {
 				is TextEnding.Failed ->
 					Text(
-						"It failed: ${ended.why.ifBlank { "it printed nothing" }}",
+						"Failed: ${ended.why.ifBlank { "no output" }}",
 						style = type.body.copy(color = palette.dangerText),
 						modifier = Modifier.testTag("tried-failed"),
 					)
@@ -958,17 +933,13 @@ private fun TriedSaid(tried: Tried?, read: String = "") {
 					Text(
 						(
 							if (tried.first.isEmpty())
-								"It found nothing."
+								"No results."
 							else
-								"Found ${tried.lines} ${if (tried.first.first().hit == null)
-									"files"
-								else
-									"lines"}" +
-									" in ${tried.files} ${if (tried.files == 1) "file" else "files"}."
+								found(tried)
 						) +
 							(ended as? TextEnding.Done)
 								?.note
-								?.let { " It also wrote: $it" }
+								?.let { " Error output: $it" }
 								.orEmpty(),
 						style =
 							type.strong.copy(
@@ -994,7 +965,7 @@ private fun TriedSaid(tried: Tried?, read: String = "") {
 				)
 			if (tried.unread.isNotEmpty()) {
 				Text(
-					"These lines of its output aren't $read, so they were ignored:",
+					"Ignored output (not $read):",
 					style = type.body.copy(color = palette.dangerText),
 					modifier = Modifier.testTag("tried-unread-said"),
 				)
@@ -1082,7 +1053,7 @@ private fun Naming(
 	Fields(
 		1.5f to
 			{
-				Typed("Name in the menu", label, "form-label", hint = example.first, onText = onLabel)
+				Typed("Name", label, "form-label", hint = example.first, onText = onLabel)
 			},
 		1f to
 			{
@@ -1113,7 +1084,7 @@ private fun Knowing(
 				"Id",
 				id,
 				"form-id",
-				help = "Can't be changed once saved.".takeIf { !fresh },
+				help = "Can't be changed after saving.".takeIf { !fresh },
 				readOnly = !fresh,
 				mono = true,
 				onText = onId,
@@ -1133,23 +1104,23 @@ private fun actionNames(
 	placeValues: List<String>,
 ): List<Pair<String, String>> =
 	listOf(
-		"{path}" to "a file's full path; the command runs once per file",
-		"{paths}" to "every file's path; the command runs once",
-		"{name}" to "a file's name",
-		"{names}" to "every file's name",
-		"{stem}" to "a file's name without its extension",
-		"{ext}" to "a file's extension",
-		"{parent}" to "the folder a file is in",
-		"{folder}" to "the folder the window shows",
-		"{entry}" to "in a place, an entry as the place names it",
-		"{entries}" to "in a place, every entry",
-		"{temp}" to "an empty temporary folder, removed afterwards",
+		"{path}" to "File path (runs once per file)",
+		"{paths}" to "All file paths (runs once)",
+		"{name}" to "File name",
+		"{names}" to "All file names",
+		"{stem}" to "File name without extension",
+		"{ext}" to "Extension",
+		"{parent}" to "Containing folder",
+		"{folder}" to "Current folder",
+		"{entry}" to "Entry of a place",
+		"{entries}" to "All entries of a place",
+		"{temp}" to "Temporary folder, deleted afterwards",
 	) +
 		asks.filter { it.name.isNotBlank() }.map {
 			"{${it.name.trim()}}" to
-				"the answer to “${it.prompt}”"
+				"Answer to “${it.prompt}”"
 		} +
-		placeValues.map { "{$it}" to "what the place was opened with" }
+		placeValues.map { "{$it}" to "Value the place was opened with" }
 
 /** A name for a question's answer that none of [asks] has: `value`, `value2`; `dest` for a folder. */
 private fun answerName(asks: List<AskForm>, folder: Boolean): String {
@@ -1222,7 +1193,7 @@ internal fun ActionEditor(
 					onLabel = { typed(form.named(it, catalog.ids)) },
 					onSubmenu = { typed(form.copy(submenu = it)) },
 				)
-				Headed("It should") {
+				Headed("Type") {
 					Segmented(Does.entries, form.does, Does::label, tag = "does") {
 						typed(form.copy(does = it))
 					}
@@ -1269,8 +1240,8 @@ internal fun ActionEditor(
 						ExampleSaid(example)
 						if (form.asks.isNotEmpty())
 							Headed(
-								"It asks first",
-								help = "Each answer is used in the command by its name, and is in its environment.",
+								"Prompts",
+								help = "Use each answer in the command as {name}.",
 							) {
 								form.asks.forEachIndexed { at, ask ->
 									fun asking(to: AskForm) =
@@ -1307,17 +1278,17 @@ internal fun ActionEditor(
 											ask.prompt,
 											{ asking(ask.copy(prompt = it)) },
 											Modifier.weight(1f).testTag("ask-prompt:$at"),
-											hint = "What to ask",
+											hint = "Prompt",
 										)
 										Field(
 											ask.start,
 											{ asking(ask.copy(start = it)) },
 											Modifier.width(120.dp).testTag("ask-start:$at"),
-											hint = "Starts as",
+											hint = "Default",
 										)
 										ToolButton(
 											Glyph.Close,
-											"Remove this question",
+											"Remove prompt",
 											enabled = true,
 											Modifier.testTag("ask-remove:$at"),
 										) {
@@ -1335,7 +1306,6 @@ internal fun ActionEditor(
 							form.folder,
 							"show-folder",
 							hint = "{parent}",
-							help = "A path, which may name the file: {parent} is the folder it is in.",
 							mono = true,
 						) { typed(form.copy(folder = it)) }
 						Fields(
@@ -1367,7 +1337,7 @@ internal fun ActionEditor(
 						}
 						places[form.place]?.takes?.forEach { name ->
 							Typed(
-								"Its “$name”",
+								"Value for “$name”",
 								form.placeWith[name].orEmpty(),
 								"show-with:$name",
 								hint = "{path}",
@@ -1382,7 +1352,6 @@ internal fun ActionEditor(
 					Does.Like -> {
 						Headed(
 							"Action",
-							help = "This does what that one does, with some of its questions answered already.",
 						) {
 							Select(
 								listOf("") + bases.map { it.id },
@@ -1398,7 +1367,7 @@ internal fun ActionEditor(
 								"Answer to “${question.prompt}”",
 								form.given[question.name].orEmpty(),
 								"given:${question.name}",
-								hint = "Leave empty to be asked",
+								hint = "Empty: ask",
 								mono = true,
 							) { typed(form.copy(given = form.given + (question.name to it))) }
 						}
@@ -1411,14 +1380,14 @@ internal fun ActionEditor(
 			}
 			ActionTab.Runs -> {
 				if (form.does == Does.Run) {
-					Headed("Run it", help = form.running.help) {
+					Headed("Run", help = form.running.help) {
 						Segmented(Running.entries, form.running, Running::label, tag = "running") {
 							typed(form.copy(running = it))
 						}
 					}
 					if (form.running == Running.Watched) {
 						CheckBox(
-							"Refresh the listing when it finishes",
+							"Refresh when finished",
 							form.reread,
 							Modifier.testTag("then-reread"),
 						) { typed(form.copy(reread = it)) }
@@ -1427,13 +1396,12 @@ internal fun ActionEditor(
 							form.choose,
 							"then-choose",
 							hint = "{stem}.png",
-							help = "The name the cursor lands on afterwards.",
 							mono = true,
 						) { typed(form.copy(choose = it)) }
 						Fields(
 							1f to {
 								Typed(
-									"Bring what it made from",
+									"Move results from",
 									form.bringFrom,
 									"then-from",
 									hint = "{temp}",
@@ -1441,20 +1409,20 @@ internal fun ActionEditor(
 								) { typed(form.copy(bringFrom = it)) }
 							},
 							1f to {
-								Typed("Into", form.bringTo, "then-to", hint = "{dest}", mono = true) {
+								Typed("To", form.bringTo, "then-to", hint = "{dest}", mono = true) {
 									typed(form.copy(bringTo = it))
 								}
 							},
 						)
 					}
 				} else {
-					Text("It opens something, so there is nothing to run.", style = type.muted)
+					Text("This type has no run options.", style = type.muted)
 				}
 				Typed(
-					"Confirm first",
+					"Confirmation message",
 					form.confirm,
 					"confirm",
-					hint = "A warning to agree to before it is done (optional)",
+					hint = "Optional",
 				) { typed(form.copy(confirm = it)) }
 			}
 			ActionTab.Offered -> {
@@ -1463,7 +1431,7 @@ internal fun ActionEditor(
 					typed(form.copy(conditions = it))
 				}
 				CheckBox(
-					"A double click does this instead of opening the file",
+					"Run on double-click instead of opening",
 					form.default,
 					Modifier.testTag("form-default"),
 				) { typed(form.copy(default = it)) }
@@ -1485,42 +1453,40 @@ internal fun ActionEditor(
 private fun givenSaid(takes: Takes): String =
 	when (takes) {
 		Takes.Files ->
-			"On its standard input, it gets the path of every file the window shows, each ended by a NUL " +
-				"character, as xargs -0 reads them."
+			"Receives file paths on standard input, NUL-separated (as for xargs -0)."
 		Takes.Lines ->
-			"On its standard input, it gets the lines found so far, one per line. It is offered as a further " +
-				"step, once something has found lines."
+			"Receives the found lines on standard input, one per line."
 	}
 
 /** What a search's command must print, in a sentence, and a line of it. */
 private fun printsSaid(form: SearchForm): Pair<String, String> {
 	val position =
 		when (form.positions) {
-			Positions.Lines -> "the line's number"
-			Positions.Offsets -> "its byte offset in the file"
+			Positions.Lines -> "line number"
+			Positions.Offsets -> "byte offset"
 		}
 
 	return when (form.read) {
 		HitRead.Lines ->
 			if (form.takes == Takes.Lines)
-				"For each line it keeps: its number among the lines it was given, a colon, and the line." to
+				"One kept line per line: its number in the input, a colon, and the text." to
 					"3:val answer = 42"
 			else if (form.nul)
-				"For each line found: the file's path, a NUL character, $position, a colon, and the line." to
+				"One result per line: path, NUL, $position, a colon, and the text." to
 					"src/main.kt␀12:val answer = 42"
 			else
-				"For each line found: the file's path, $position, and the line, with colons between." to
+				"One result per line: path, $position and text, separated by colons." to
 					"src/main.kt:12:val answer = 42"
-		HitRead.RgJson -> "ripgrep's own --json output." to """{"type":"match","data":{…}}"""
+		HitRead.RgJson -> "The output of rg --json." to """{"type":"match","data":{…}}"""
 		HitRead.Json ->
-			"A JSON object on each line: path, at ($position), text, and marks, the start and end of each match." to
+			"One JSON object per line: path, at ($position), text, and marks (match ranges)." to
 				"""{"path":"src/main.kt","at":12,"text":"val answer = 42","marks":[[4,10]]}"""
 		HitRead.Paths ->
 			(
 				if (form.nul)
-					"The path of each file found, each ended by a NUL character."
+					"File paths, NUL-separated."
 				else
-					"The path of each file found, one per line."
+					"One file path per line."
 			) to "src/main.kt"
 	}
 }
@@ -1555,16 +1521,19 @@ internal fun SearchEditor(
 	// What a command for one line found can name.
 	val ofLine =
 		listOf(
-			"{path}" to "the file the line is in",
+			"{path}" to "File path",
 			(
 				if (form.positions == Positions.Lines)
 					"{line}"
 				else
 					"{offset}"
 			) to
-				"where in it the line is",
-			"{text}" to "the line's text",
-			"{query}" to "what was typed",
+				if (form.positions == Positions.Lines)
+					"Line number"
+				else
+					"Byte offset",
+			"{text}" to "Line text",
+			"{query}" to "Search text",
 		)
 
 	EditorModal(
@@ -1595,14 +1564,14 @@ internal fun SearchEditor(
 					onLabel = { typed(form.named(it, catalog.ids)) },
 					onSubmenu = { typed(form.copy(submenu = it)) },
 				)
-				Headed("It looks through", help = givenSaid(form.takes)) {
+				Headed("Input", help = givenSaid(form.takes)) {
 					Segmented(
 						Takes.entries,
 						form.takes,
 						{
 							when (it) {
-								Takes.Files -> "The files a window shows"
-								Takes.Lines -> "Lines already found"
+								Takes.Files -> "Files in view"
+								Takes.Lines -> "Previous results"
 							}
 						},
 						tag = "takes",
@@ -1613,21 +1582,21 @@ internal fun SearchEditor(
 					"command",
 					"xargs -0 rg --json {options} -e {query} --",
 					listOf(
-						"{query}" to "what is typed",
-						"{options}" to "the words of its options, as each is on or off",
-						"{folder}" to "the folder it runs in, which paths are shown from",
+						"{query}" to "Search text",
+						"{options}" to "Arguments from the options",
+						"{folder}" to "Folder the command runs in",
 					),
 					reads = true,
 				) { typed(form.copy(ways = it)) }
 				ExampleSaid(example)
 				Headed(
-					"What is typed into it",
+					"Query",
 					help =
 						when (form.query) {
 							QueryUse.Typed ->
-								"The command is run again as the query changes, and names it as {query}."
+								"Reruns the command with {query} as you type."
 							QueryUse.Narrows ->
-								"The command is run once, without the query; what is typed filters what it printed."
+								"Runs the command once; typing filters its output."
 						},
 				) {
 					Segmented(
@@ -1635,8 +1604,8 @@ internal fun SearchEditor(
 						form.query,
 						{
 							when (it) {
-								QueryUse.Typed -> "Is given to the command"
-								QueryUse.Narrows -> "Filters its output"
+								QueryUse.Typed -> "Passed to command"
+								QueryUse.Narrows -> "Filters output"
 							}
 						},
 						tag = "query-use",
@@ -1644,7 +1613,7 @@ internal fun SearchEditor(
 				}
 			}
 			SearchTab.Prints -> {
-				Headed("Its output is", help = prints) {
+				Headed("Output format", help = prints) {
 					Segmented(
 						HitRead.entries,
 						form.read,
@@ -1662,26 +1631,26 @@ internal fun SearchEditor(
 				Printed(printed, "prints-example")
 				if (form.read == HitRead.Lines || form.read == HitRead.Paths)
 					CheckBox(
-						"A NUL character ends each path, as grep -Z and rg -0 print them",
+						"Paths end with NUL (grep -Z, rg -0)",
 						form.nul,
 						Modifier.testTag("nul"),
 					) { typed(form.copy(nul = it)) }
 				if (form.read != HitRead.Paths)
 					Choice(
-						"The number with each line is",
+						"Position",
 						Positions.entries,
 						form.positions,
 						"positions",
 						{
 							when (it) {
-								Positions.Lines -> "A line number"
-								Positions.Offsets -> "A byte offset"
+								Positions.Lines -> "Line number"
+								Positions.Offsets -> "Byte offset"
 							}
 						},
 					) { typed(form.copy(positions = it)) }
 				Headed(
-					"Options beside the query",
-					help = "Each is a switch, and adds its words where the command says {options}.",
+					"Options",
+					help = "Toggles next to the search field. Each adds arguments at {options}.",
 				) {
 					form.options.forEachIndexed { at, option ->
 						fun opting(to: OptionForm) =
@@ -1718,19 +1687,19 @@ internal fun SearchEditor(
 								option.on,
 								{ opting(option.copy(on = it)) },
 								Modifier.weight(1f).testTag("option-on:$at"),
-								hint = "When on: -s",
+								hint = "On: -s",
 								style = type.mono,
 							)
 							Field(
 								option.off,
 								{ opting(option.copy(off = it)) },
 								Modifier.weight(1f).testTag("option-off:$at"),
-								hint = "When off: -i",
+								hint = "Off: -i",
 								style = type.mono,
 							)
 							ToolButton(
 								Glyph.Close,
-								"Remove this option",
+								"Remove option",
 								enabled = true,
 								Modifier.testTag("option-remove:$at"),
 							) {
@@ -1741,7 +1710,7 @@ internal fun SearchEditor(
 						}
 					}
 					PushButton(
-						"Add an option",
+						"Add option",
 						Emphasis.Quiet,
 						enabled = true,
 						Modifier.testTag("option-add"),
@@ -1751,13 +1720,12 @@ internal fun SearchEditor(
 			}
 			SearchTab.Shows -> {
 				Text(
-					"Beside a line found, prism shows the file's text. A command here is run instead, and what " +
-						"it prints is shown, colours and all.",
+					"Without a preview command, files are shown as plain text.",
 					style = type.muted,
 				)
 				if (form.previews.isEmpty())
 					PushButton(
-						"Use a preview command",
+						"Add preview command",
 						Emphasis.Secondary,
 						enabled = true,
 						Modifier.testTag("preview-way-add"),
@@ -1773,7 +1741,7 @@ internal fun SearchEditor(
 						least = 0,
 					) { typed(form.copy(previews = it)) }
 				CheckBox(
-					"Open a line with a command of its own, instead of your editor",
+					"Open results with a custom command",
 					form.opening,
 					Modifier.testTag("opening"),
 				) { typed(form.copy(opening = it)) }
@@ -1783,11 +1751,11 @@ internal fun SearchEditor(
 						"open",
 						"code --goto {path}:{line}",
 						ofLine,
-						label = "Opening command",
+						label = "Open command",
 						fallbacks = false,
 					) { ways -> typed(form.copy(open = ways.first().command)) }
 					CheckBox(
-						"Run it in a terminal",
+						"Run in terminal",
 						form.openInTerminal,
 						Modifier.testTag("open-terminal"),
 					) {
@@ -1803,7 +1771,7 @@ internal fun SearchEditor(
 					}
 				} else {
 					OfferedSaid(
-						listOf("As a further step in a text search, once something has found lines."),
+						listOf("Available as a later step of a search, once lines have been found."),
 					)
 				}
 				Knowing(
@@ -1905,13 +1873,12 @@ private fun ActionTrial(
 	TrialModal(
 		modal,
 		"Test “${spec.label}”",
-		"Runs the command for real on the files you name here, and shows everything it printed. " +
-			"Nothing is saved by testing.",
+		"Runs the command on the files below and shows its output. Nothing is saved.",
 		settings,
 		onChange,
 		work = { tried(acting, spec, it, world, commands) },
 	) { trying ->
-		Headed("Files to run it on", help = "One per line. ~ is your home folder.") {
+		Headed("Files", help = "One path per line.") {
 			TextArea(
 				trial.given,
 				{ trying(trial.copy(given = it)) },
@@ -1950,8 +1917,7 @@ private fun SearchTrial(
 	TrialModal(
 		modal,
 		"Test “${spec.label}”",
-		"Runs the command for real and shows what it found, and any of its output that couldn't be read. " +
-			"Nothing is saved by testing.",
+		"Runs the command and shows the results, and any output that couldn't be parsed. Nothing is saved.",
 		settings,
 		onChange,
 		work = { tried(acting, spec, it, world, commands) },
@@ -1959,19 +1925,19 @@ private fun SearchTrial(
 			when (form.read) {
 				HitRead.Lines ->
 					if (lines)
-						"a number, a colon and a line"
+						"number:text"
 					else
-						"a path, a number and a line"
-				HitRead.RgJson -> "ripgrep's JSON"
-				HitRead.Json -> "JSON objects"
+						"path:number:text"
+				HitRead.RgJson -> "ripgrep JSON"
+				HitRead.Json -> "JSON"
 				HitRead.Paths -> "paths"
 			},
 	) { trying ->
 		Headed(
 			if (lines)
-				"Lines for it to look through"
+				"Input lines"
 			else
-				"Files or folders to look in",
+				"Files or folders",
 			help = "One per line.",
 		) {
 			TextArea(
@@ -1985,7 +1951,7 @@ private fun SearchTrial(
 						"~/Projects",
 			)
 		}
-		Headed("What to look for") {
+		Headed("Query") {
 			Field(
 				trial.query,
 				{ trying(trial.copy(query = it)) },

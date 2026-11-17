@@ -289,13 +289,13 @@ class ActingTest {
 			ScriptKind.Action.checked(Acting(), form.spec(), form.fresh, installed)
 
 		assertTrue(checked(form).savable)
-		assertEquals(listOf("Give it a name."), checked(form.copy(label = " ")).wrong)
+		assertEquals(listOf("Enter a name."), checked(form.copy(label = " ")).wrong)
 		assertTrue(checked(form.copy(label = " ")).unfinished)
 		// A program nothing says it needs, and that is not here, is said: it would be offered, and fail.
 		assertEquals("mail", checked(form) { it != "mail" }.unfound)
 		assertNull(checked(form).unfound)
 		assertTrue(
-			checked(form.copy(id = "compress.zip")).wrong.single().contains("already used"),
+			checked(form.copy(id = "compress.zip")).wrong.single().contains("already in use"),
 		)
 		assertTrue(checked(form.copy(id = "compress.zip", fresh = false)).savable)
 		assertTrue(
@@ -322,7 +322,7 @@ class ActingTest {
 
 		assertEquals(
 			listOf(
-				"In the menu of the items selected, in any window.",
+				"In the menu for selected items, in any view.",
 				"For any files ending in .gz, but not .tar.gz.",
 			),
 			offeredSaid(gz, On.Files, scenes),
@@ -330,7 +330,7 @@ class ActingTest {
 		assertEquals("Files · .gz · not .tar.gz", offeredBrief(gz, On.Files))
 		assertEquals(
 			listOf(
-				"In the menu of empty space in a folder, in the place archive.zip.",
+				"In the menu for a folder's background, in the place archive.zip.",
 			),
 			offeredSaid(
 				ScriptKind.Action.shipped
@@ -345,7 +345,7 @@ class ActingTest {
 			offeredSaid(WhenSpec(within = listOf("folder", "results")), null, scenes),
 		)
 		assertEquals(
-			listOf("In the menu of the items selected, in any window.", "For anything selected."),
+			listOf("In the menu for selected items, in any view.", "For any selection."),
 			offeredSaid(WhenSpec(), On.Files, scenes),
 		)
 		assertEquals(
@@ -353,7 +353,7 @@ class ActingTest {
 			doesBrief(ScriptKind.Action.shipped.getValue("archive.zip.unpack")) { null },
 		)
 		assertEquals(
-			"Same as “Extract to…”",
+			"Based on “Extract to…”",
 			doesBrief(ScriptKind.Action.shipped.getValue("archive.zip.unpack-here")) {
 				ScriptKind.Action.shipped[it]?.label
 			},
@@ -400,9 +400,9 @@ class ActingTest {
 		fun tried(trial: Trial, of: ActionSpec = spec) =
 			tried(Acting(), of, trial, world, ProcessCommands)
 
-		assertEquals(Tried.Refused("Name at least one file to try it on."), tried(Trial()))
+		assertEquals(Tried.Refused("Enter at least one file."), tried(Trial()))
 		assertEquals(
-			Tried.Refused("Fill in “word” first."),
+			Tried.Refused("Enter a value for “word”."),
 			tried(Trial("a.txt")),
 		)
 		assertEquals(
@@ -421,7 +421,7 @@ class ActingTest {
 				.words
 				.last(),
 		)
-		assertTrue(ran.note!!.contains("don't meet its conditions"))
+		assertTrue(ran.note!!.contains("don't match the conditions"))
 
 		// One that fails says so, with what it wrote; and nothing after it is run.
 		val failed =
@@ -460,7 +460,7 @@ class ActingTest {
 			exampleOf(Acting(), spec, world),
 		)
 		assertEquals(
-			Tried.Refused("Name at least one file or folder to look in."),
+			Tried.Refused("Enter at least one file or folder."),
 			tried(Acting(), spec, Trial(query = "alpha"), world, ProcessCommands),
 		)
 

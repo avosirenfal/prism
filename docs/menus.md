@@ -517,13 +517,13 @@ Edit, Duplicate and a menu. Nothing is left off the list for being unusable, sin
 
 | | |
 |---|---|
-| off | its switch is off. It is offered in no menu and done by no key or double click, and is still written, to be turned on again. Its id is in the preferences' `disabled`. A place's way out and in, and an action that is `like` it, still work: those are how something else works, not something offered |
-| unavailable | none of its ways can be run here, or a program its conditions name is not installed. The row says which: `Not available here: needs unzip, or 7zz or 7z or 7za or 7zr, or bsdtar`. An action like one that is unavailable, or that opens a place that cannot be listed, says what that one wants |
-| wrong | it does not read. The row says why, in red, as the browser would |
-| yours | the user wrote it |
-| changed | it is one of prism's, and the user wrote over it |
+| disabled | its switch is off. It is offered in no menu and done by no key or double click, and is still written, to be turned on again. Its id is in the preferences' `disabled`. A place's way out and in, and an action that is `like` it, still work: those are how something else works, not something offered |
+| unavailable | none of its ways can be run here, or a program its conditions name is not installed. The row says which: `Unavailable: requires unzip, or 7zz or 7z or 7za or 7zr, or bsdtar`. An action like one that is unavailable, or that opens a place that cannot be listed, says what that one wants |
+| invalid | it does not read. The row says why, in red, as the browser would |
+| custom | the user wrote it |
+| modified | it is one of prism's, and the user wrote over it |
 
-Each of those that is true of anything is a chip over the list with how many (`3 yours`, `11 unavailable`); a chip
+Each of those that is true of anything is a chip over the list with how many (`3 custom`, `11 unavailable`); a chip
 clicked shows only those. The list is also narrowed by words typed (Ctrl+F: a name, an id, an extension, a program),
 to one window, and to what a file of a given name would be offered: `zip` or `notes.tar.gz` typed there leaves the
 actions for that file, those for any file among them, and not what its name rules out. A window's heading clicked
@@ -533,7 +533,7 @@ are scrolled to.
 ![Five hundred actions, narrowed to one](actions-narrowed.png)
 
 **One of prism's, changed.** Changing one of prism's writes it into the preferences under the same id, which is how
-the file has always replaced one. It is then marked Changed, and its menu has Reset to default, which takes what was
+the file has always replaced one. It is then marked Modified, and its menu has Reset to default, which takes what was
 written away. One changed back to what prism has is not written at all. What is written is the whole action as it then
 was: a later version of prism that changes its own leaves the user's as they made it, until it is reset.
 
@@ -545,14 +545,14 @@ own, to be changed before it is added) all open the same window over the page.
 Its form is in three parts, one shown at a time, so that what is in sight is only what is being set. What a part
 comes to is said in that part as it is typed, and nowhere else:
 
-- **What it does**: the name and the submenu; then a command, a folder opened, a place opened, or what another action
+- **Action**: the name and the submenu; then a command, a folder opened, a place opened, or what another action
   does with some of its questions answered. Under a command is the command as it would be run for an example of what
   the action is for, filled in: for an action for `.jpg`, `magick /home/you/example.jpg example.png`; for one in an
   archive, an entry of it; an answer not yet given is `‹dest›`. It is the command as this machine would run it, the
-  first of its ways whose programs are here, and it says that no shell runs it.
-- **How it runs**: in the background, in a terminal, or watched; what follows a watched command; and a warning to
+  first of its ways whose programs are here.
+- **Run options**: in the background, in a terminal, or monitored; what follows a monitored command; and a warning to
   agree to first.
-- **When it's offered**: the conditions of "When it is offered", and over them what they come to, in sentences: `In
+- **Conditions**: the conditions of "When it is offered", and over them what they come to, in sentences: `In
   the menu of the files selected, in any window. For one file ending in .jpg, .webp.` The shortcut and the id are
   here too. The id is the user's to choose while the action is being made, and fixed after, since bindings and menus
   know it by that.
@@ -560,7 +560,7 @@ comes to is said in that part as it is typed, and nowhere else:
 ![When it is offered, said over the conditions](action-editor-offered.png)
 
 Each label says what it means when the pointer rests on it, or on the small mark after it: what a submenu is, which
-menu "Empty space in a folder" is, what a place is. The words for those are prism's, and are explained where they are
+menu "Folder background" is, what a place is. The words for those are prism's, and are explained where they are
 met rather than known beforehand.
 
 What is the matter with what is typed is one line over the buttons: what the browser would say of it (`Unknown
