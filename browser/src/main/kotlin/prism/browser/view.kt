@@ -3124,7 +3124,8 @@ private fun StatusBar(state: BrowserState) {
 @Composable
 private fun StatusLine(state: BrowserState, modifier: Modifier = Modifier) {
 	val type = LocalType.current
-	val waiting = state.wait != null
+	// What a text search's command is still finding is waited for too.
+	val waiting = state.wait != null || state.text?.running != null
 
 	val waited by produceState(false, waiting) {
 		value = false

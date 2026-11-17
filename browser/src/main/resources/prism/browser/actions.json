@@ -2596,7 +2596,9 @@
 						"-e",
 						"{query}",
 						"--"
-					]
+					],
+					"read": "lines",
+					"nul": true
 				}
 			],
 			"read": "rg-json",

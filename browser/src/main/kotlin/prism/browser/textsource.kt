@@ -83,7 +83,8 @@ fun found(
 		// Stopped by whoever watched it.
 		ran.status == null && ran.errors == ProcessCommands.STOPPED -> TextEnding.Stopped
 		ran.status == null -> TextEnding.Failed(ran.why)
-		count.get() == 0 && !ran.worked && wrote.isNotEmpty() -> TextEnding.Failed(ran.why)
+		// What it wrote is why, as it wrote it: how it ended says nothing more (and through `xargs`, nothing of its own).
+		count.get() == 0 && !ran.worked && wrote.isNotEmpty() -> TextEnding.Failed(wrote)
 		else -> TextEnding.Done(wrote.ifEmpty { null })
 	}
 }

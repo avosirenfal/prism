@@ -79,9 +79,9 @@ fun contextMenuOf(
 				1
 		}
 
-	// What looks into the files shown: an explorer's to offer, as the actions are.
+	// What looks into the files shown: an explorer's to offer, as the actions are, where there are files to look in.
 	val searching =
-		if (acting)
+		if (acting && state.searchable(target.takeUnless { it == Target.Folder }))
 			state.actions.searching(subject, world)
 		else
 			emptyList()
@@ -258,9 +258,15 @@ fun textMenuOf(
 			).forEach(::add)
 		}
 		separator()
-		item("Show in folder", BrowserEvent.TextRevealed(path), id = "builtin.show-in-folder")
-		if (row is TextRow.Line)
+		// A file is offered this by the action that ships for a file shown elsewhere than its folder; a line is not.
+		if (row is TextRow.Line) {
+			item(
+				"Open containing folder",
+				BrowserEvent.TextRevealed(path),
+				id = "builtin.containing-folder",
+			)
 			item("Copy line", BrowserEvent.CopiedText(row.hit.text), id = "builtin.copy-line")
+		}
 		item(
 			"Copy path",
 			BrowserEvent.CopiedPaths(listOf(path)),

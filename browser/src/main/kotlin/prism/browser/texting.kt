@@ -49,13 +49,23 @@ internal fun BrowserState.textScope(target: Target?): TextScope {
 	}
 }
 
-/** [search] opened on [target]: shown in place of what is, which goes behind it in the history. */
+/**
+ * Whether [target] holds anything on disk for a text search to look in: not the entries of an archive, which are
+ * nowhere on disk, nor a place's own groupings of them, nor a folder that shows nothing.
+ */
+fun BrowserState.searchable(target: Target?): Boolean = textScope(target).paths.any()
+
+/**
+ * [search] opened on [target]: shown in place of what is, which goes behind it in the history. Nothing, where there
+ * is nothing on disk there to look in.
+ */
 internal fun BrowserState.searchingText(search: TextSearch, target: Target?): Step =
-	shown(
-		Location.Text(search, textScope(target)),
-		History(history.back + at, emptyList()),
-		null,
-	)
+	textScope(target).let { scope ->
+		if (scope.paths.none())
+			Step(this)
+		else
+			shown(Location.Text(search, scope), History(history.back + at, emptyList()), null)
+	}
 
 /**
  * [text] shown, the window just come to it: its command run, where it has found nothing yet or was stopped by
@@ -204,12 +214,13 @@ internal fun BrowserState.textFolded(path: Path, folded: Boolean?): Step =
 	texting {
 		val away = folded ?: (path !in it.folded)
 
+		// A path is its names, one after another, to whatever adds or takes away several: one is added, here.
 		it.copy(
 			folded =
 				if (away)
-					it.folded + path
+					it.folded.plusElement(path)
 				else
-					it.folded - path,
+					it.folded.minusElement(path),
 			cursor =
 				it.cursor?.let { at ->
 					if (away &&

@@ -1179,19 +1179,27 @@ data class Actions(
 			ways: List<Pair<List<String>, List<String>>>,
 			named: Set<String>,
 			installed: (String) -> Boolean,
-		): Reading<Command> {
+		): Reading<Command> = wayAt(ways, named, installed).map { it.value }
+
+		/** As [wayOf], with which of [ways] it is: its place among them. */
+		private fun wayAt(
+			ways: List<Pair<List<String>, List<String>>>,
+			named: Set<String>,
+			installed: (String) -> Boolean,
+		): Reading<IndexedValue<Command>> {
 			ways.forEach { (_, words) ->
 				(Command.read(words, named) as? Reading.Wrong)?.let { return it }
 			}
 
 			val runnable =
-				ways.firstOrNull { (programs, words) ->
-					programs.all { any -> any.split('|').any { installed(it.trim()) } } &&
-						Command.read(words, named, installed) is Reading.Right
+				ways.withIndex().firstOrNull { (_, way) ->
+					way.first.all { any -> any.split('|').any { installed(it.trim()) } } &&
+						Command.read(way.second, named, installed) is Reading.Right
 				}
 
-			return runnable?.let { Command.read(it.second, named, installed) }
-				?: Reading.Wrong("None of the programs it can use is installed", missing = true)
+			return runnable?.let { (at, way) ->
+				Command.read(way.second, named, installed).map { IndexedValue(at, it) }
+			} ?: Reading.Wrong("None of the programs it can use is installed", missing = true)
 		}
 
 		private fun placeOf(
@@ -1267,17 +1275,27 @@ data class Actions(
 			val ways = spec.ways.map { way -> way.run?.let { way.programs to it } }
 			val asked = setOf(TextSearch.QUERY, TextSearch.OPTIONS)
 
-			val finding =
+			// The command, and the way it is, where it is one of several: which may say how its own output is read.
+			val finding: Reading<Pair<Command, prism.preferences.WaySpec?>> =
 				when {
 					run != null && ways.isNotEmpty() ->
 						Reading.Wrong("It has both “run” and “ways”. Use one or the other")
-					run != null -> Command.read(run, asked, installed)
+					run != null -> Command.read(run, asked, installed).map { it to null }
 					null in ways -> Reading.Wrong("Each of its ways needs a “run”")
-					ways.isNotEmpty() -> wayOf(ways.filterNotNull(), asked, installed)
+					ways.isNotEmpty() ->
+						// Every way's reading is checked, so that one written wrong is said to be on any machine.
+						spec.ways
+							.mapNotNull { it.read }
+							.map { word(it, HitRead.entries, HitRead::word, "a valid way to read") }
+							.filterIsInstance<Reading.Wrong>()
+							.firstOrNull()
+							?: wayAt(ways.filterNotNull(), asked, installed).map {
+								it.value to spec.ways[it.index]
+							}
 					else -> Reading.Wrong("It needs a “run” command")
 				}
 
-			return finding.then { command ->
+			return finding.then { (command, way) ->
 				val options =
 					command.words
 						.filterIsInstance<Word.One>()
@@ -1305,7 +1323,7 @@ data class Actions(
 							"a valid use of the query",
 						).then { query ->
 							word(
-								spec.read ?: HitRead.Lines.word,
+								way?.read ?: spec.read ?: HitRead.Lines.word,
 								HitRead.entries,
 								HitRead::word,
 								"a valid way to read",
@@ -1336,7 +1354,7 @@ data class Actions(
 															},
 														run = command,
 														read = read,
-														nul = spec.nul,
+														nul = way?.nul ?: spec.nul,
 														positions = positions,
 														preview = preview,
 														open = open,

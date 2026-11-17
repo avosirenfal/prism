@@ -329,7 +329,7 @@ class HitReader(
 			else
 				POSITIONED.find(text)?.let { it.groupValues[1] to it.groupValues[1].length }
 		val (path, rest) = parted ?: return null
-		val placed = PLACE.matchAt(text, rest)
+		val placed = (if (nul) NUMBERED else PLACE).matchAt(text, rest)
 
 		if (placed == null && !nul)
 			return null
@@ -409,6 +409,9 @@ class HitReader(
 
 		/** A position, after the path: a number, and the colon or the space that parts it from the text. */
 		val PLACE = Regex("""\s*:?\s*(\d+)(?::|\s)""")
+
+		/** A position after a path a NUL ended: a number and a colon, which text that starts with a number is not. */
+		val NUMBERED = Regex("""(\d+):""")
 
 		fun objectOf(line: String): JsonObject? =
 			try {

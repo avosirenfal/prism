@@ -151,6 +151,10 @@ data class WaySpec(
 	val run: List<String>? = null,
 	/** The command, for a place's listing. */
 	val list: List<String>? = null,
+	/** For a text search: how what this way's command prints is read, where that is not as the search says. */
+	val read: String? = null,
+	/** For a text search: whether a NUL character ends each path this way's command prints, where that is not as the search says. */
+	val nul: Boolean? = null,
 )
 
 /** A place as it is written. */
