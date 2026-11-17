@@ -306,7 +306,7 @@ class DaemonTest {
 	}
 
 	@Test
-	fun aFeedsPlaceIsKeptOnceTheIndexIsSettledAndReadAsItWasKept() {
+	fun aFeedsPlaceIsKeptEachTimeTheIndexIsWritten() {
 		made("docs/a.txt")
 
 		val history = History.beside(state.resolve("index.prism"))
@@ -322,7 +322,8 @@ class DaemonTest {
 				)
 			}
 
-		Daemon.start(settings(), feed, history) {}.use { daemon ->
+		// Written at every tick, here, where a daemon left to itself writes once an hour.
+		Daemon.start(settings().copy(write = 100.milliseconds), feed, history) {}.use { daemon ->
 			daemon.live.opened.get()
 			eventually { history.read()?.id == 7L }
 
@@ -331,8 +332,10 @@ class DaemonTest {
 			assertEquals(rulesOf(daemon.live.rules), history.read()?.rules)
 
 			at.set(9)
-			eventually { history.read()?.id == 9L }
 		}
+
+		// Closing writes the index, and the place with it.
+		assertEquals(9L, history.read()?.id)
 	}
 
 	@Test

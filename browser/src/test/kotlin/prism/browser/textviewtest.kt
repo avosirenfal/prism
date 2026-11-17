@@ -31,6 +31,7 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Assumptions.assumeTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
+import prism.desktop.freedesktop.FreedesktopTrash
 import prism.desktop.freedesktop.XdgPlaces
 import prism.preferences.MemoryPreferences
 import prism.preferences.Preferences
@@ -78,7 +79,7 @@ class TextViewTest {
 						),
 						// No editor is the environment's, whatever the machine the tests run on says.
 						Services(
-							JvmDisk(trash = Trash(bin)),
+							JvmDisk(trash = FreedesktopTrash(bin)),
 							preferences = store,
 							home = work,
 							environment = { null },
