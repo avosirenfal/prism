@@ -18,6 +18,7 @@ import kotlin.math.pow
  * - How much the user has used it, by picking it, and how much they have used the folder it is in ([Usage]).
  * - How new it is: when the index first saw it, if that was after its root was first indexed.
  * - Where it is: under the home folder; shallow rather than deep; not hidden (no name on its path starts with a dot).
+ *   Among results named exactly what was asked for, the shallower comes first, before how new or how used.
  *
  * The weights are [Ranking]'s, in one place, to be tuned.
  */
@@ -42,6 +43,13 @@ data class Ranking(
 	/** Taken away for each level of a result's path, up to [mostForDepth]. */
 	val perLevel: Int = 12,
 	val mostForDepth: Int = 150,
+	/**
+	 * Taken away for each level of the path of a result named exactly what was asked for, for up to [levelsCounted]
+	 * of them: among such results the one nearer the top comes first, whatever else there is to say of where they
+	 * are ([Ranker.score]). Less in all than [perTier], so that none of them falls below a lesser match of the name.
+	 */
+	val perLevelExact: Int = 32,
+	val levelsCounted: Int = 12,
 	/** Taken away where any name on a result's path starts with a dot. */
 	val hidden: Int = 250,
 ) {
@@ -133,9 +141,14 @@ internal class Ranker private constructor(
 	 */
 	fun score(entry: Int, levels: Int, hiddenAbove: Boolean): Int {
 		var name = 0
+		var exact = words.isNotEmpty()
 
-		for (word in words)
-			name += tierOf(word, entry) * ranking.perTier
+		for (word in words) {
+			val tier = tierOf(word, entry)
+
+			name += tier * ranking.perTier
+			exact = exact && tier == Tier.Whole.steps
+		}
 
 		val folder =
 			if (entry == 0)
@@ -154,11 +167,26 @@ internal class Ranker private constructor(
 				(ranking.new * 0.5.pow(age.toDouble() / ranking.newHalfLife.seconds)).toInt()
 			}
 
-		val score =
-			Ranking.BASE + name + used[entry] + folder + new +
-				(if (entry in home) ranking.underHome else 0) -
-				minOf(ranking.mostForDepth, ranking.perLevel * levels) -
+		val place =
+			(if (entry in home) ranking.underHome else 0) -
 				(if (hidden) ranking.hidden else 0)
+
+		// Named exactly what was asked for (`prism/`, of every folder named prism): many are, and the one meant is
+		// the one nearest the top. So each level counts for more than all there is to say of how new an entry is
+		// and how used its folder: those are pressed into less than one level is worth, and only tell apart
+		// entries as deep as each other.
+		val score =
+			if (exact) {
+				val within =
+					(folder + new) * (ranking.perLevelExact - 1) /
+						(ranking.mostForFolderUse + ranking.new)
+
+				Ranking.BASE + name + used[entry] + place + minOf(within, ranking.perLevelExact - 1) -
+					ranking.perLevelExact * minOf(levels, ranking.levelsCounted)
+			} else {
+				Ranking.BASE + name + used[entry] + folder + new + place -
+					minOf(ranking.mostForDepth, ranking.perLevel * levels)
+			}
 
 		return score.coerceIn(0, Ranking.MOST)
 	}

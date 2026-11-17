@@ -106,6 +106,27 @@ class FoldersTest {
 
 	private fun found(text: String): Set<String> = found(read(text))
 
+	/** What [text] finds, the best first. */
+	private fun ranked(text: String): List<String> =
+		when (val searched = index.search(read(text), SearchContext(home = root))) {
+			is Searched.Found ->
+				searched.results.map {
+					it.where.toString().removePrefix(
+						"$root/",
+					)
+				}
+			is Searched.Refused -> error("refused: ${searched.why}")
+		}
+
+	@Test
+	fun ofFoldersNamedExactlyWhatIsAskedTheNearestTheTopIsFirst() {
+		val order = ranked("funny/")
+
+		// One level down before two: the folder meant is the one with the shortest way to it.
+		assertEquals("funny", order.first())
+		assertEquals(setOf("funny/funny", "x/funny", "draft/funny"), order.drop(1).toSet())
+	}
+
 	private val funnies = setOf("funny", "funny/funny", "x/funny", "draft/funny")
 
 	private val inFunny =
