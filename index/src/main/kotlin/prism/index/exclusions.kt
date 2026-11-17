@@ -600,11 +600,29 @@ class Exclusions private constructor(
 		fun defaultsOn(os: Os): List<String> =
 			COMMON +
 				when (os) {
-					Os.Linux -> LINUX
+					Os.Linux -> LINUX + linuxTrashes()
 					Os.MacOS -> MACOS
 					// Windows' own are to be written with the rest of Windows.
 					Os.Windows -> emptyList()
 				}
+
+		/**
+		 * The trashes of a Linux desktop, which are found by nobody looking for a file: the home trash, the one an
+		 * administrator makes at a drive's top for every user, and the user's own at a drive's top, which is named
+		 * with their number (`.Trash-1000`).
+		 */
+		private fun linuxTrashes(): List<String> =
+			listOf(".local/share/Trash/", ".Trash/") +
+				listOfNotNull(
+					try {
+						".Trash-${java.nio.file.Files.getAttribute(
+							Path.of(System.getProperty("user.home")),
+							"unix:uid",
+						)}/"
+					} catch (unknown: Exception) {
+						null
+					},
+				)
 
 		/** The defaults of the platform this runs on. */
 		val DEFAULTS: List<String> = defaultsOn(Os.current)

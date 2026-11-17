@@ -18,9 +18,11 @@ import prism.desktop.TrashFor
 import prism.desktop.Trashed
 import prism.desktop.erased
 import prism.macos.Binned
+import prism.macos.FOLDER_REFUSED
 import prism.macos.MacMounts
 import prism.macos.MountFlag
 import prism.macos.contains
+import prism.macos.keptByMacOS
 import prism.macos.trashItem
 import prism.platform.Mount
 
@@ -28,8 +30,8 @@ import prism.platform.Mount
  * The system's trash, as Finder shows it: NSFileManager moves an item into the trash of its volume (`~/.Trash`, or the
  * volume's `.Trashes/<uid>`) under a name free there, and says where. Finder keeps where each item came from in a file
  * of its own that is not for other programs to read, so prism keeps it on the item itself, as an extended attribute
- * written before the move ([ORIGIN]), which goes with it: what prism trashed it can put back, and lists; what Finder
- * trashed has no such record, and is left to Finder. A network volume has no trash, and is said to have none.
+ * written before the move ([ORIGIN]), which goes with it: what prism trashed it can put back. What Finder trashed is
+ * listed too, as in the trash, and is moved out by hand. A network volume has no trash, and is said to have none.
  */
 
 /** The system's trash, of the user whose home is [home]. */
@@ -86,6 +88,12 @@ class SystemTrash(
 
 		if (!Files.exists(kept, LinkOption.NOFOLLOW_LINKS))
 			throw IOException("“${entry.original.fileName}” is no longer in the trash.")
+		// Its place in the trash, for what does not say where it came from.
+		if (entry.original == kept)
+			throw IOException(
+				"“${entry.name}” was put in the trash by another program, which doesn't say where it was. " +
+					"Move it out of the trash to where you want it.",
+			)
 		if (Files.exists(entry.original, LinkOption.NOFOLLOW_LINKS))
 			throw FileAlreadyExistsException(entry.original.toString())
 
@@ -97,13 +105,17 @@ class SystemTrash(
 
 	override fun erase(entry: Trashed) = erased(entry.bin.resolve(entry.name))
 
-	/** What prism put in each trash there is now, as each item's record says; what Finder put there is Finder's. */
+	/**
+	 * What each trash there is holds now, as Finder shows it. What prism put there says where it came from, and is put
+	 * back there; what Finder or another program put there does not say so to prism (Finder keeps that to itself),
+	 * and is shown as in the trash, to be moved out by hand.
+	 */
 	override fun entries(zone: ZoneId): List<TrashEntry> =
 		bins().flatMap { bin ->
-			bin
-				.listDirectoryEntries()
+			listed(bin)
+				.filterNot { it.fileName.toString() == DS_STORE }
 				.mapNotNull { kept ->
-					recorded(kept)?.let { original ->
+					try {
 						val attributes =
 							Files.readAttributes(
 								kept,
@@ -111,19 +123,41 @@ class SystemTrash(
 								LinkOption.NOFOLLOW_LINKS,
 							)
 
+						val folder = Files.isDirectory(kept, LinkOption.NOFOLLOW_LINKS)
+
 						TrashEntry(
-							trashed = Trashed(Path.of(original), kept.fileName.toString(), bin),
+							trashed =
+								Trashed(
+									recorded(kept)?.let(Path::of) ?: kept,
+									kept.fileName.toString(),
+									bin,
+								),
 							// Moving it into the trash changed it last: when it was trashed, near enough.
 							deleted = (attributes["ctime"] as? FileTime)?.toInstant(),
-							folder = Files.isDirectory(kept, LinkOption.NOFOLLOW_LINKS),
-							size =
-								(attributes["size"] as Long).takeUnless {
-									Files.isDirectory(kept, LinkOption.NOFOLLOW_LINKS)
-								},
+							folder = folder,
+							size = (attributes["size"] as Long).takeUnless { folder },
 							modified = (attributes["lastModifiedTime"] as FileTime).toInstant(),
 						)
+					} catch (gone: IOException) {
+						null
 					}
 				}
+		}
+
+	/**
+	 * What is in the trash at [bin]: nothing, where it has not been made yet; and where macOS keeps it from prism (the
+	 * trash is among what it asks about), that is said, with how to allow it.
+	 */
+	private fun listed(bin: Path): List<Path> =
+		try {
+			bin.listDirectoryEntries()
+		} catch (none: java.nio.file.NoSuchFileException) {
+			emptyList()
+		} catch (refused: IOException) {
+			throw if (keptByMacOS(refused))
+				IOException(FOLDER_REFUSED)
+			else
+				refused
 		}
 
 	/** The user's trash, and each volume's under /Volumes that has one for them. */
@@ -182,5 +216,8 @@ class SystemTrash(
 		const val ORIGIN = "dev.prism.trashed-from"
 
 		private val VOLUMES: Path = Path.of("/Volumes")
+
+		/** Finder's own record of how a folder is shown, which is in every folder it has shown, the trash among them. */
+		private const val DS_STORE = ".DS_Store"
 	}
 }
