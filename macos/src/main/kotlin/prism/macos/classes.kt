@@ -131,7 +131,22 @@ data object NSApplication : ObjCClass("NSApplication", Frameworks.appKit) {
 	val setActivationPolicy = message("setActivationPolicy:", Int64, Bool)
 	val setApplicationIconImage = message("setApplicationIconImage:", Obj, NoValue)
 	val delegate = message("delegate", Obj)
+	val currentEvent = message("currentEvent", Obj)
 	val activateIgnoringOtherApps = message("activateIgnoringOtherApps:", Bool, NoValue)
+}
+
+data object NSEvent : ObjCClass("NSEvent", Frameworks.appKit) {
+	val type = message("type", Int64)
+}
+
+data object NSMutableArray : ObjCClass("NSMutableArray") {
+	val array = static("array", Obj)
+	val addObject = message("addObject:", Obj, NoValue)
+}
+
+data object NSDraggingItem : ObjCClass("NSDraggingItem", Frameworks.appKit) {
+	val initWithPasteboardWriter = message("initWithPasteboardWriter:", Obj, Obj)
+	val setDraggingFrame = message("setDraggingFrame:contents:", Rect, Obj, NoValue)
 }
 
 data object NSMenu : ObjCClass("NSMenu", Frameworks.appKit) {
@@ -151,12 +166,15 @@ data object NSResponder : ObjCClass("NSResponder", Frameworks.appKit) {
 
 data object NSView : ObjCClass("NSView", Frameworks.appKit) {
 	val initWithFrame = message("initWithFrame:", Rect, Obj)
+	val beginDraggingSession =
+		message("beginDraggingSessionWithItems:event:source:", Obj, Obj, Obj, Obj)
 }
 
 data object NSWindow : ObjCClass("NSWindow", Frameworks.appKit) {
 	val initWithContentRect =
 		message("initWithContentRect:styleMask:backing:defer:", Rect, Int64, Int64, Bool, Obj)
 	val setContentView = message("setContentView:", Obj, NoValue)
+	val contentView = message("contentView", Obj)
 	val setLevel = message("setLevel:", Int64, NoValue)
 	val setCollectionBehavior = message("setCollectionBehavior:", Int64, NoValue)
 	val setHidesOnDeactivate = message("setHidesOnDeactivate:", Bool, NoValue)

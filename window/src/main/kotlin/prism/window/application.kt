@@ -120,7 +120,18 @@ internal class Application(
 
 		val seat =
 			display.takeIf { it != 0L }?.let { WaylandSeat.of(MemorySegment.ofAddress(it)) }
-		val made = Beside(seat, NativeDrags.of(seat))
+
+		// A Mac's drags are AppKit's; Wayland's are spoken on prism's own connection; elsewhere, this process's alone.
+		val made =
+			Beside(
+				seat,
+				if (sdl.video ==
+					Video.Cocoa
+				)
+					CocoaDrags
+				else
+					NativeDrags.of(seat),
+			)
 
 		beside = made
 		Log.say { "drags: ${made.drags?.javaClass?.simpleName ?: "this process's own alone"}" }

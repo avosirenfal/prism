@@ -118,6 +118,7 @@ import org.lwjgl.sdl.SDLVideo.SDL_GetWindowDisplayScale
 import org.lwjgl.sdl.SDLVideo.SDL_GetWindowID
 import org.lwjgl.sdl.SDLVideo.SDL_GetWindowPixelDensity
 import org.lwjgl.sdl.SDLVideo.SDL_GetWindowProperties
+import org.lwjgl.sdl.SDLVideo.SDL_GetWindowSize
 import org.lwjgl.sdl.SDLVideo.SDL_GetWindowSizeInPixels
 import org.lwjgl.sdl.SDLVideo.SDL_PROP_DISPLAY_WAYLAND_WL_OUTPUT_POINTER
 import org.lwjgl.sdl.SDLVideo.SDL_PROP_WINDOW_CREATE_COCOA_WINDOW_POINTER
@@ -978,6 +979,26 @@ class NativeWindow internal constructor(
 
 	/** The pointer's position in the window, in its pixels. */
 	internal val pointerPosition: Offset get() = pointer
+
+	/**
+	 * Where the pointer is in the platform's points, across from the window's left and up from its bottom: how a
+	 * Mac's AppKit measures a view. A point is a pixel but where the display is dense, when it is several.
+	 */
+	internal fun pointerInPoints(): Pair<Double, Double> =
+		MemoryStack.stackPush().use { stack ->
+			val width = stack.mallocInt(1)
+			val height = stack.mallocInt(1)
+
+			SDL_GetWindowSize(sdl, width, height)
+
+			val pixelsAPoint =
+				if (height[0] > 0)
+					pixelSize.height.toDouble() / height[0]
+				else
+					1.0
+
+			pointer.x / pixelsAPoint to height[0] - pointer.y / pixelsAPoint
+		}
 
 	/** How many of the window's pixels a point of the platform's is: more than one on a screen scaled up. */
 	internal val pixelsPerPoint: Float get() =
