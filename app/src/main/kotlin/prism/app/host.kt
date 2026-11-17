@@ -10,6 +10,7 @@ import java.nio.file.Path
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.io.path.Path
+import kotlin.system.exitProcess
 import kotlin.time.Duration.Companion.minutes
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
@@ -286,7 +287,17 @@ internal class Windows(
 					if (stopping.isCompleted || !staying)
 						return
 
-					// Ended by the platform, with nothing asking it to: the display went away.
+					// Ended by the platform, with nothing asking it to. On a Mac that is macOS asking the
+					// application to quit: the user logging out, or System Settings having it "Quit & Reopen" for
+					// a permission just given, which a process has only from its start. There the process ends,
+					// and well, so that launchd leaves it ended: what reopens Prism.app starts its daemon again
+					// (agent.kt), and so does logging in.
+					if (Os.current == Os.MacOS) {
+						Report.say("macOS asked prism to quit: ending")
+						exitProcess(0)
+					}
+
+					// Anywhere else, the display went away.
 					standing.set(Standing.Without("the display is gone"))
 					Report.say("the display is gone; windows will open again on the next request")
 				} catch (none: NoDisplay) {
