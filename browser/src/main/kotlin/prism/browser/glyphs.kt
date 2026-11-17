@@ -125,6 +125,9 @@ enum class Glyph {
 
 	/** An arrow round to where it set out from: something put back. */
 	Revert,
+
+	/** A pair of braces: something that stands for something else, to be put in. */
+	Braces,
 }
 
 /** [glyph] at [size], in [tint]; a file's icon is marked with [category]'s colour. */
@@ -439,6 +442,34 @@ fun DrawScope.drawGlyph(
 				style = line(unit),
 			)
 			stroked(unit, tint, listOf(5.2f to 4.2f, 5.6f to 9.2f, 10.6f to 8.6f))
+		}
+		Glyph.Braces -> {
+			stroked(
+				unit,
+				tint,
+				listOf(
+					9.5f to 4.5f,
+					8f to 5.5f,
+					8f to 10f,
+					6f to 12f,
+					8f to 14f,
+					8f to 18.5f,
+					9.5f to 19.5f,
+				),
+			)
+			stroked(
+				unit,
+				tint,
+				listOf(
+					14.5f to 4.5f,
+					16f to 5.5f,
+					16f to 10f,
+					18f to 12f,
+					16f to 14f,
+					16f to 18.5f,
+					14.5f to 19.5f,
+				),
+			)
 		}
 		Glyph.Pin ->
 			rotate(45f) {

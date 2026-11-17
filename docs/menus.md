@@ -542,30 +542,37 @@ own, to be changed before it is added) all open the same window over the page.
 
 ![An action being edited](action-editor.png)
 
-Its left side is the form: the name, the submenu, the id (the user's to choose while the action is being made, and
-fixed after, since bindings and menus know it by that) and the default shortcut; what it does (a command, a folder
-opened, a place opened, or what another action does with some of its questions answered); and when it is offered.
-Its right side is what the form comes to, as it is typed:
+Its form is in three parts, one shown at a time, so that what is in sight is only what is being set. What a part
+comes to is said in that part as it is typed, and nowhere else:
 
-- **When it's offered**, in sentences: `In the menu of the files selected, in any window. For one file ending in
-  .jpg, .webp.`
-- **What it does**: the command it would run for an example of what it is for, filled in. For an action for `.jpg`
-  that is `magick /home/you/example.jpg example.png`; for one in an archive, an entry of it; an answer not yet given
-  is `‹dest›`. It is the command as this machine would run it: the first of its ways whose programs are here.
-- **What is wrong**, where anything is: what the browser would say of it (`Unknown placeholder “{paht}”. Available
-  here: …`), and Save waits until it reads. A program its ways need that is not installed is said, and does not stop
-  it being saved. A command whose program is not found, and that nothing says it needs, is said too: it would be
-  offered, and fail.
+- **What it does**: the name and the submenu; then a command, a folder opened, a place opened, or what another action
+  does with some of its questions answered. Under a command is the command as it would be run for an example of what
+  the action is for, filled in: for an action for `.jpg`, `magick /home/you/example.jpg example.png`; for one in an
+  archive, an entry of it; an answer not yet given is `‹dest›`. It is the command as this machine would run it, the
+  first of its ways whose programs are here, and it says that no shell runs it.
+- **How it runs**: in the background, in a terminal, or watched; what follows a watched command; and a warning to
+  agree to first.
+- **When it's offered**: the conditions of "When it is offered", and over them what they come to, in sentences: `In
+  the menu of the files selected, in any window. For one file ending in .jpg, .webp.` The shortcut and the id are
+  here too. The id is the user's to choose while the action is being made, and fixed after, since bindings and menus
+  know it by that.
 
-A command is typed as one line, split at spaces as a shell would split it, though no shell runs it; or, by the switch
-under it, as its arguments, each in a box of its own. A command with a script in it (`sh -c '…'`) opens that way, so
-that the script is read as it is and not through a layer of quotes.
+![When it is offered, said over the conditions](action-editor-offered.png)
+
+What is the matter with what is typed is one line over the buttons: what the browser would say of it (`Unknown
+placeholder “{paht}”. Available here: …`), and Save waits until it reads. A program its ways need that is not
+installed is said there, and does not stop it being saved. A command whose program is not found, and that nothing
+says it needs, is said too: it would be offered, and fail.
+
+A command is typed as one line, split at spaces as a shell would split it. What is done to it rather than typed into
+it is in two small menus at its corner, which take no room until they are used. One puts in something it can name,
+each listed with what it becomes; or adds a question (for text, or for a folder) and puts its answer in, after which
+the question is listed under the command to be worded. The other sets the command's arguments apart, each in a box
+of its own, which is how a command with a script in it (`sh -c '…'`) opens, so that the script is read as it is and
+not through a layer of quotes; and adds a fallback command, which makes the command the first of several ways, each
+with the programs it needs.
 
 ![A command as its arguments](action-editor-arguments.png)
-
-Add a fallback command makes the command the first of several ways, each with the programs it needs. Show
-placeholders lists what a command can name. The conditions are those of "When it is offered": the menu, the windows,
-how many of what, extensions, names and types, and under More conditions the rest.
 
 **Test.** The window's Test button opens another over it, which runs the action for real: on the files typed there, a
 line each, with the answers to what it asks. It is run and waited for, whatever the action says of how it runs, and

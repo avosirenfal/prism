@@ -357,9 +357,11 @@ reset, one is duplicated, and each is made and changed in a window over the page
 
 ![The Text searches page](searches-page.png)
 
-That window says, beside the form, what a search's author most needs said. What the command is given: the files a
-window shows on its standard input, each ended by a NUL character, or the lines found so far. What it must print, for
-the form of output chosen, with a line of it (`src/main.kt:12:val answer = 42`). And the command as it would be run.
+That window's form is in four parts: what it does (the command, with what it is given said over it: the files a
+window shows on its standard input, each ended by a NUL character, or the lines found so far), what it prints, the
+preview and opening a line, and when it is offered. What it prints is chosen from the forms of output there are, each
+said in a sentence with a line of it under (`src/main.kt:12:val answer = 42`), which is what a search's author most
+needs said.
 
 ![A text search being edited](search-editor.png)
 

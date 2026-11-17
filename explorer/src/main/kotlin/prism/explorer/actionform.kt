@@ -51,6 +51,16 @@ sealed interface CommandForm {
 		override val words: List<String>,
 	) : CommandForm
 
+	/** This, with [word] after the rest of it: a placeholder chosen from a list, not typed. */
+	fun with(word: String): CommandForm =
+		when (this) {
+			is Line ->
+				Line(
+					listOf(text.trimEnd(), word).filter { it.isNotEmpty() }.joinToString(" "),
+				)
+			is Words -> Words(words.dropLastWhile { it.isEmpty() } + word)
+		}
+
 	/** This as one line. */
 	fun line(): Line = this as? Line ?: Line(textOf(words))
 

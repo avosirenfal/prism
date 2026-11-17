@@ -286,14 +286,33 @@ class ActionsPageTest {
 			)
 			type("command", "magick {paht} {stem}.png")
 			onNodeWithTag("editor-wrong").assertExists()
-			onNodeWithText("Unknown placeholder “{paht}”").assertExists()
+			onNodeWithText("Unknown placeholder “{paht}”", substring = true).assertExists()
 			onNodeWithTag("editor-save").assertIsNotEnabled()
 
-			// What a command can name is folded away until it is asked for.
-			onNodeWithTag("legend").assertDoesNotExist()
-			click("legend-toggle")
-			onNodeWithTag("legend").assertExists()
-			click("legend-toggle")
+			// What a command can name is in a menu at its corner, and is put after the rest of it; and so is a
+			// question, whose answer it then names.
+			click("command-insert")
+			click("menu:{parent}   the folder a file is in")
+			click("command-insert")
+			click("menu:Ask for text, and use the answer…")
+			(edited.settings.modal as ActingModal.EditingAction).form.let {
+				assertEquals(
+					listOf("magick", "{paht}", "{stem}.png", "{parent}", "{value}"),
+					it.ways
+						.single()
+						.command.words,
+				)
+				assertEquals(listOf(AskForm("value", false, "Enter a value")), it.asks)
+			}
+			onNodeWithTag("ask-prompt:0").assertExists()
+			click("ask-remove:0")
+
+			// Its other menu sets its arguments apart, each in a box of its own, and back.
+			click("command-more")
+			click("menu:Edit as separate arguments")
+			onNodeWithTag("command:1").assertExists()
+			click("command-more")
+			click("menu:Edit as one line")
 
 			// Typed right, what it would run for an example is shown, and that its program is not here.
 			type("command", "magick {path} {stem}.png")
@@ -302,16 +321,22 @@ class ActionsPageTest {
 			).assertTextEquals("magick /home/someone/example.txt example.png")
 			onNodeWithTag("editor-unfound").assertExists()
 
-			// For some extensions, the example is a file of the first, and when it is offered is said.
+			// When it is offered is another part of the form, and is said over the conditions as they are set.
+			click("tab:When it's offered")
+			onNodeWithTag("command").assertDoesNotExist()
 			type("when-ext", "jpg, webp")
-			onNodeWithTag(
-				"example",
-			).assertTextEquals("magick /home/someone/example.jpg example.png")
 			onNodeWithText("For any items ending in .jpg, .webp.").assertExists()
 			click("when-count:One")
 			onNodeWithText("For one item ending in .jpg, .webp.").assertExists()
 
+			// For some extensions, the example is a file of the first.
+			click("tab:What it does")
+			onNodeWithTag(
+				"example",
+			).assertTextEquals("magick /home/someone/example.jpg example.png")
+
 			// Watched, with the listing read again after; then added.
+			click("tab:How it runs")
 			click("running:Watched")
 			click("then-reread")
 			click("editor-save")
@@ -489,6 +514,7 @@ class ActionsPageTest {
 				type("command", "xargs -0 grep -Hn -e {query} --")
 				onNodeWithTag("example").assertTextEquals("xargs -0 grep -Hn -e ‹query› --")
 				// What it must print is said, with a line of it, and follows what is chosen.
+				click("tab:What it prints")
 				onNodeWithTag("prints-example").assertTextEquals("src/main.kt:12:val answer = 42")
 				click("read:JSON")
 				onNodeWithTag("prints-example").assertTextContains("\"marks\"", substring = true)
@@ -557,6 +583,40 @@ class ActionsPageTest {
 				"actions-edit" to
 					base.copy(
 						modal = ActingModal.editing(catalog["mine.png"]!!.spec),
+					),
+				"actions-edit-runs" to
+					base.copy(
+						modal =
+							ActingModal.EditingAction(
+								ActionForm.of(catalog["mine.png"]!!.spec),
+								tab = ActionTab.Runs,
+							),
+					),
+				"actions-edit-offered" to
+					base.copy(
+						modal =
+							ActingModal.EditingAction(
+								ActionForm.of(catalog["mine.png"]!!.spec),
+								tab = ActionTab.Offered,
+							),
+					),
+				"actions-edit-asks" to
+					base.copy(modal = ActingModal.editing(catalog["mine.mail"]!!.spec)),
+				"searches-edit-prints" to
+					searches.copy(
+						modal =
+							ActingModal.EditingSearch(
+								SearchForm.of(ScriptKind.Search.shipped.getValue("text.search")),
+								tab = SearchTab.Prints,
+							),
+					),
+				"searches-edit-shows" to
+					searches.copy(
+						modal =
+							ActingModal.EditingSearch(
+								SearchForm.of(ScriptKind.Search.shipped.getValue("text.search")),
+								tab = SearchTab.Shows,
+							),
 					),
 				"actions-edit-script" to
 					base.copy(modal = ActingModal.editing(catalog["archive.zip.unpack"]!!.spec)),

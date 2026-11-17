@@ -609,6 +609,25 @@ fun searchRead(acting: Acting, spec: TextSearchSpec, world: World): TextSearch? 
 
 // ---- the window over the pages -----------------------------------------------------------------------------------------
 
+/** The parts an action's form is in, one shown at a time. */
+enum class ActionTab(
+	val label: String,
+) {
+	Does("What it does"),
+	Runs("How it runs"),
+	Offered("When it's offered"),
+}
+
+/** The parts a text search's form is in, one shown at a time. */
+enum class SearchTab(
+	val label: String,
+) {
+	Does("What it does"),
+	Prints("What it prints"),
+	Shows("Preview and opening"),
+	Offered("When it's offered"),
+}
+
 /** The window open over the pages of actions and text searches. */
 sealed interface ActingModal {
 	/**
@@ -627,18 +646,20 @@ sealed interface ActingModal {
 			}
 	}
 
-	/** An action being made or changed. */
+	/** An action being made or changed, and which part of its form is shown. */
 	data class EditingAction(
 		val form: ActionForm,
 		override val trial: Trial = Trial(),
 		override val trying: Boolean = false,
+		val tab: ActionTab = ActionTab.Does,
 	) : Editing
 
-	/** A text search being made or changed. */
+	/** A text search being made or changed, and which part of its form is shown. */
 	data class EditingSearch(
 		val form: SearchForm,
 		override val trial: Trial = Trial(),
 		override val trying: Boolean = false,
+		val tab: SearchTab = SearchTab.Does,
 	) : Editing
 
 	/** What is called [id], of [kind], being moved or copied [to] other windows and extensions. */

@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
@@ -21,6 +22,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -31,6 +33,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -44,10 +47,12 @@ import prism.browser.Divider
 import prism.browser.Emphasis
 import prism.browser.Field
 import prism.browser.Glyph
+import prism.browser.GlyphIcon
 import prism.browser.HitRead
 import prism.browser.Labelled
 import prism.browser.LocalPalette
 import prism.browser.LocalType
+import prism.browser.MenuButton
 import prism.browser.Modal
 import prism.browser.ModalWidth
 import prism.browser.Notice
@@ -61,6 +66,7 @@ import prism.browser.Segmented
 import prism.browser.Select
 import prism.browser.Space
 import prism.browser.Spinner
+import prism.browser.Tabs
 import prism.browser.Takes
 import prism.browser.TextEnding
 import prism.browser.ThingKind
@@ -68,41 +74,24 @@ import prism.browser.Tone
 import prism.browser.ToolButton
 import prism.browser.World
 import prism.browser.felt
+import prism.browser.menu
 import prism.browser.ring
 import prism.preferences.Declared
 import prism.preferences.WhenSpec
 
 /*
- * The windows that make and change an action and a text search, over the preferences' window. Each is a form on the
- * left and, on the right, what the form comes to, as it is typed: when the thing is offered, in a person's words;
- * the command it would run for an example of what it is for, filled in; and what is wrong with it, where anything
- * is. Test opens a window over it that runs it for real on files the user names, and shows everything it printed.
+ * The windows that make and change an action and a text search, over the preferences' window. Each is one column of
+ * a form, in a few parts shown one at a time, so that what is in sight is only what is being set: what it does, how
+ * it runs, when it is offered.
  *
- * So what is asked of someone writing a command is answered where they write it: what will be run (the example),
- * what the command is given and must give back (said beside it, with a line of each form of output), where it will
- * be offered (the sentences), and whether it works (the trial).
+ * What a part comes to is said in that part, as it is typed, and not beside the form: under a command, the command as
+ * it would be run for an example of what the action is for; over the conditions, when they offer it, in a person's
+ * words. What is wrong with what is typed is one line over the buttons. What is done to a command rather than typed
+ * into it (a placeholder put in, a fallback added, its arguments set apart) is in two small menus at its corner, and
+ * takes no room until it is used. Test opens a window over this one that runs it for real.
  */
 
 // ---- parts of a form -------------------------------------------------------------------------------------------------
-
-/** A part of a form: its [title] over what it holds. */
-@Composable
-private fun FormSection(
-	title: String,
-	help: String? = null,
-	content: @Composable ColumnScope.() -> Unit,
-) {
-	val type = LocalType.current
-
-	Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(Space.m)) {
-		Column(verticalArrangement = Arrangement.spacedBy(Space.xs)) {
-			Text(title, style = type.title)
-			Divider()
-			help?.let { Text(it, style = type.muted) }
-		}
-		content()
-	}
-}
 
 /** Several lines to type into, in a field's look: as many lines tall as it holds, [lines] at least. */
 @Suppress("DEPRECATION") // The window feeds value-based fields.
@@ -192,12 +181,32 @@ private fun Typed(
 	}
 }
 
-/**
- * A command, edited as a line or as its words apart: the line typed as a shell would be given it; the words each in a
- * field of its own, added to and taken from, for a command with a script in it.
- */
+/** What a command's two menus do. */
+private sealed interface CommandDeed {
+	/** [text] put after the rest of the command. */
+	data class Insert(
+		val text: String,
+	) : CommandDeed
+
+	/** A question added, for text or for a [folder], and its answer put into the command. */
+	data class Ask(
+		val folder: Boolean,
+	) : CommandDeed
+
+	/** The command edited as its arguments apart, or as one line. */
+	data class Apart(
+		val apart: Boolean,
+	) : CommandDeed
+
+	/** Another command added after this one, for where this one's programs are not installed. */
+	data object Fallback : CommandDeed
+
+	data object Remove : CommandDeed
+}
+
+/** A command as it is typed: a line, or its arguments each in a box of its own, added to and taken from. */
 @Composable
-private fun CommandEditor(
+private fun CommandBody(
 	command: CommandForm,
 	tag: String,
 	hint: String,
@@ -205,16 +214,16 @@ private fun CommandEditor(
 ) {
 	val type = LocalType.current
 
-	Column(verticalArrangement = Arrangement.spacedBy(Space.s)) {
-		when (command) {
-			is CommandForm.Line ->
-				TextArea(
-					command.text,
-					{ onChange(CommandForm.Line(it)) },
-					Modifier.fillMaxWidth().testTag(tag),
-					hint = hint,
-				)
-			is CommandForm.Words ->
+	when (command) {
+		is CommandForm.Line ->
+			TextArea(
+				command.text,
+				{ onChange(CommandForm.Line(it)) },
+				Modifier.fillMaxWidth().testTag(tag),
+				hint = hint,
+			)
+		is CommandForm.Words ->
+			Column(verticalArrangement = Arrangement.spacedBy(Space.s)) {
 				command.words.forEachIndexed { at, word ->
 					Row(
 						verticalAlignment = Alignment.Top,
@@ -249,24 +258,11 @@ private fun CommandEditor(
 							Modifier.testTag("$tag-remove:$at"),
 						) {
 							onChange(
-								CommandForm.Words(
-									command.words.filterIndexed {
-										index,
-										_,
-										->
-										index != at
-									},
-								),
+								CommandForm.Words(command.words.filterIndexed { index, _ -> index != at }),
 							)
 						}
 					}
 				}
-		}
-		Row(
-			verticalAlignment = Alignment.CenterVertically,
-			horizontalArrangement = Arrangement.spacedBy(Space.s),
-		) {
-			if (command is CommandForm.Words)
 				PushButton(
 					"Add argument",
 					Emphasis.Quiet,
@@ -274,50 +270,28 @@ private fun CommandEditor(
 					Modifier.testTag("$tag-add"),
 					glyph = Glyph.Plus,
 				) { onChange(CommandForm.Words(command.words + "")) }
-			Text(
-				if (command is CommandForm.Words)
-					"Each box is one argument, passed as written."
-				else
-					"Split at spaces; quote what has spaces in it. No shell runs it.",
-				style = type.muted,
-				maxLines = 2,
-				modifier = Modifier.weight(1f),
-			)
-			Segmented(
-				listOf(false, true),
-				command is CommandForm.Words,
-				{ apart ->
-					if (apart)
-						"Arguments"
-					else
-						"One line"
-				},
-				tag = "$tag-as",
-			) { apart ->
-				onChange(
-					if (apart)
-						command.apart()
-					else
-						command.line(),
-				)
 			}
-		}
 	}
 }
 
 /**
- * The ways something is run, one after another: each the programs it needs and its command. The first whose programs
- * are installed is the one used; one way that needs none said is a command and no more. For a text search's
- * ([reads]), a way may say how its own output is read.
+ * The ways something is run, one after another: each its command, under a line that names it and holds its two menus.
+ * One menu puts in something the command can name ([names], each with what it becomes; and, where [onAsk] is given,
+ * a question whose answer it then names). The other sets its arguments apart, adds a way to fall back to, or takes
+ * this one away. A way that needs programs says which on the same line; the first whose programs are installed is the
+ * one that runs. For a text search's ([reads]), a way may say how its own output is read.
  */
 @Composable
 private fun WaysEditor(
 	ways: List<WayForm>,
 	tag: String,
 	hint: String,
+	names: List<Pair<String, String>>,
+	label: String = "Command",
 	reads: Boolean = false,
 	least: Int = 1,
-	another: String = "Add a fallback command",
+	fallbacks: Boolean = true,
+	onAsk: ((at: Int, folder: Boolean) -> Unit)? = null,
 	onChange: (List<WayForm>) -> Unit,
 ) {
 	val palette = LocalPalette.current
@@ -330,9 +304,14 @@ private fun WaysEditor(
 	Column(verticalArrangement = Arrangement.spacedBy(Space.m)) {
 		ways.forEachIndexed { at, way ->
 			val several = ways.size > 1 || way.programs.isNotBlank()
+			val its =
+				if (ways.size == 1)
+					tag
+				else
+					"$tag:$at"
 
 			Column(
-				if (several)
+				if (ways.size > 1)
 					Modifier
 						.fillMaxWidth()
 						.border(1.dp, palette.border, shape)
@@ -341,42 +320,96 @@ private fun WaysEditor(
 					Modifier.fillMaxWidth(),
 				verticalArrangement = Arrangement.spacedBy(Space.s),
 			) {
-				if (several)
-					Row(
-						verticalAlignment = Alignment.CenterVertically,
-						horizontalArrangement = Arrangement.spacedBy(Space.s),
-					) {
-						Text(
-							when {
-								ways.size == 1 -> "Needs"
-								at == 0 -> "First choice, needs"
-								else -> "Otherwise, needs"
-							},
-							style = type.strong,
-						)
+				Row(
+					verticalAlignment = Alignment.CenterVertically,
+					horizontalArrangement = Arrangement.spacedBy(Space.s),
+				) {
+					Text(
+						when {
+							ways.size == 1 -> label
+							at == 0 -> "First choice"
+							else -> "Otherwise"
+						},
+						style = type.strong,
+					)
+					if (several) {
+						Text("needs", style = type.muted)
 						Field(
 							way.programs,
 							{ changed(at, way.copy(programs = it)) },
 							Modifier.weight(1f).testTag("$tag-programs:$at"),
-							hint = "Programs: unzip, 7zz|7z",
+							hint = "programs: unzip, 7zz|7z",
 							style = type.mono,
 						)
-						if (ways.size > least)
-							ToolButton(
-								Glyph.Trash,
-								"Remove this command",
-								enabled = true,
-								Modifier.testTag("$tag-way-remove:$at"),
-							) { onChange(ways.filterIndexed { index, _ -> index != at }) }
+					} else {
+						Box(Modifier.weight(1f))
 					}
-				CommandEditor(
-					way.command,
-					if (ways.size == 1)
-						tag
-					else
-						"$tag:$at",
-					hint,
-				) { changed(at, way.copy(command = it)) }
+					MenuButton(
+						Glyph.Braces,
+						"Insert a placeholder",
+						menu = {
+							menu {
+								names.forEach { (name, meaning) ->
+									item("$name   $meaning", CommandDeed.Insert(name.substringBefore(' ')))
+								}
+								if (onAsk != null) {
+									separator()
+									item("Ask for text, and use the answer…", CommandDeed.Ask(folder = false))
+									item("Ask for a folder, and use it…", CommandDeed.Ask(folder = true))
+								}
+							}
+						},
+						onAction = { deed ->
+							when (deed) {
+								is CommandDeed.Insert ->
+									changed(
+										at,
+										way.copy(command = way.command.with(deed.text)),
+									)
+								is CommandDeed.Ask -> onAsk?.invoke(at, deed.folder)
+								else -> Unit
+							}
+						},
+						Modifier.testTag("$its-insert"),
+					)
+					MenuButton(
+						Glyph.More,
+						"More",
+						menu = {
+							menu {
+								if (way.command is CommandForm.Words)
+									item("Edit as one line", CommandDeed.Apart(false))
+								else
+									item("Edit as separate arguments", CommandDeed.Apart(true))
+								if (fallbacks)
+									item("Add a fallback command", CommandDeed.Fallback)
+								if (ways.size > least)
+									item("Remove this command", CommandDeed.Remove)
+							}
+						},
+						onAction = { deed ->
+							when (deed) {
+								is CommandDeed.Apart ->
+									changed(
+										at,
+										way.copy(
+											command =
+												if (deed.apart)
+													way.command.apart()
+												else
+													way.command.line(),
+										),
+									)
+								CommandDeed.Fallback ->
+									onChange(ways.take(at + 1) + WayForm() + ways.drop(at + 1))
+								CommandDeed.Remove -> onChange(ways.filterIndexed { index, _ -> index != at })
+								else -> Unit
+							}
+						},
+						Modifier.testTag("$its-more"),
+					)
+				}
+				CommandBody(way.command, its, hint) { changed(at, way.copy(command = it)) }
 				if (reads && ways.size > 1)
 					Row(
 						verticalAlignment = Alignment.CenterVertically,
@@ -404,92 +437,7 @@ private fun WaysEditor(
 					}
 			}
 		}
-		Row(
-			verticalAlignment = Alignment.CenterVertically,
-			horizontalArrangement = Arrangement.spacedBy(Space.s),
-		) {
-			PushButton(
-				another,
-				Emphasis.Quiet,
-				enabled = true,
-				Modifier.testTag("$tag-way-add"),
-				glyph = Glyph.Plus,
-			) {
-				onChange(
-					// The first is said to need something once there is another to fall back to.
-					ways + WayForm(),
-				)
-			}
-			if (ways.size > 1)
-				Text(
-					"The first whose programs are installed is the one that runs.",
-					style = type.muted,
-					modifier = Modifier.weight(1f),
-				)
-		}
 	}
-}
-
-/**
- * What a command can name, each with what it becomes: folded away under a button until it is asked for, since it is
- * looked up and not read each time.
- */
-@Composable
-private fun Legend(names: List<Pair<String, String>>, note: String? = null) {
-	val palette = LocalPalette.current
-	val type = LocalType.current
-	var open by remember { mutableStateOf(false) }
-
-	Column(verticalArrangement = Arrangement.spacedBy(Space.s)) {
-		PushButton(
-			if (open)
-				"Hide placeholders"
-			else
-				"Show placeholders",
-			Emphasis.Quiet,
-			enabled = true,
-			Modifier.testTag("legend-toggle"),
-			glyph =
-				if (open)
-					Glyph.ChevronDown
-				else
-					Glyph.Chevron,
-		) { open = !open }
-		if (open)
-			Column(
-				Modifier
-					.fillMaxWidth()
-					.background(palette.sunken, RoundedCornerShape(Radius.medium))
-					.padding(Space.m)
-					.testTag("legend"),
-				verticalArrangement = Arrangement.spacedBy(Space.xs),
-			) {
-				names.forEach { (name, meaning) ->
-					Row(horizontalArrangement = Arrangement.spacedBy(Space.m)) {
-						Text(name, style = type.mono, modifier = Modifier.width(150.dp))
-						Text(meaning, style = type.muted, modifier = Modifier.weight(1f))
-					}
-				}
-				note?.let { Text(it, style = type.muted) }
-			}
-	}
-}
-
-/**
- * A list a form adds to (questions, options): under its [label] and what it is for once it holds [any], and until
- * then only the button that adds the first, so that what is not used takes a line and no more.
- */
-@Composable
-private fun Listing(
-	label: String,
-	help: String,
-	any: Boolean,
-	content: @Composable ColumnScope.() -> Unit,
-) {
-	if (any)
-		Labelled(label, help = help, content = content)
-	else
-		Column(content = content)
 }
 
 /** A choice of a few, where none is one of them. */
@@ -659,31 +607,6 @@ private fun ConditionsEditor(
 
 // ---- what a form comes to --------------------------------------------------------------------------------------------
 
-/** A box of the panel beside a form: its [title] over what it says. */
-@Composable
-private fun Panel(
-	title: String,
-	tag: String,
-	content: @Composable ColumnScope.() -> Unit,
-) {
-	val palette = LocalPalette.current
-	val type = LocalType.current
-	val shape = RoundedCornerShape(Radius.large)
-
-	Column(
-		Modifier
-			.fillMaxWidth()
-			.background(palette.raised, shape)
-			.border(1.dp, palette.border, shape)
-			.padding(Space.l)
-			.testTag(tag),
-		verticalArrangement = Arrangement.spacedBy(Space.s),
-	) {
-		Text(title, style = type.heading)
-		content()
-	}
-}
-
 /** Text a program printed, or a command as it is run: fixed-width, selectable, in a box that scrolls where it is long. */
 @Composable
 private fun Printed(text: String, tag: String, bad: Boolean = false) {
@@ -723,7 +646,10 @@ internal fun runSaid(words: List<String>): String =
 	else
 		textOf(words)
 
-/** What would be run for an example, or what would be opened. */
+/**
+ * What a command comes to, under it: the command as it would be run for an example of what it is for, or what would
+ * be opened; and that no shell runs it, which is what is most often not known of a command typed as a line.
+ */
 @Composable
 private fun ExampleSaid(example: Example) {
 	val type = LocalType.current
@@ -731,22 +657,26 @@ private fun ExampleSaid(example: Example) {
 	when (example) {
 		Example.None ->
 			Text(
-				"Nothing to show until the command is complete.",
+				"It is run directly, without a shell: for pipes and redirection, run sh -c.",
 				style = type.muted,
 			)
 		is Example.Opens ->
 			Text(
 				example.what,
-				style = type.body,
+				style = type.muted,
 				modifier = Modifier.testTag("example"),
 			)
 		is Example.Runs -> {
 			Text(
 				when {
-					example.files.isEmpty() -> "It runs:"
+					example.files.isEmpty() -> "It is run directly, without a shell, as:"
 					example.runs.size > 1 ->
-						"For ${example.files.joinToString(" and ")}, it runs once for each:"
-					else -> "For ${example.files.joinToString(" and ")}, it runs:"
+						"For ${example.files.joinToString(
+							" and ",
+						)}, it is run once for each, without a shell:"
+					else -> "For ${example.files.joinToString(
+						" and ",
+					)}, it is run directly, without a shell, as:"
 				},
 				style = type.muted,
 			)
@@ -755,40 +685,79 @@ private fun ExampleSaid(example: Example) {
 	}
 }
 
-/** What is wrong with what is typed, and the programs it needs that this machine has not. */
+/** When something is offered, in a person's words, over the conditions that say so. */
+@Composable
+private fun OfferedSaid(sentences: List<String>) {
+	val palette = LocalPalette.current
+	val type = LocalType.current
+
+	Column(
+		Modifier
+			.fillMaxWidth()
+			.background(palette.sunken, RoundedCornerShape(Radius.medium))
+			.padding(horizontal = Space.m, vertical = Space.s)
+			.testTag("said-offered"),
+		verticalArrangement = Arrangement.spacedBy(Space.xxs),
+	) {
+		sentences.forEach { Text(it, style = type.body) }
+	}
+}
+
+/**
+ * What is the matter with what is typed, in a line over the buttons: what stops it being saved; or, where nothing
+ * does, the programs it needs that are not here, or the program it runs that was not found.
+ */
 @Composable
 private fun CheckedSaid(checked: Checked) {
-	if (checked.wrong.isNotEmpty())
-		if (checked.unfinished)
-			Notice(
-				"Not finished yet",
-				Tone.Plain,
-				Modifier.testTag("editor-unfinished"),
-				detail = checked.wrong.joinToString(" "),
-			)
-		else
-			Notice(
-				"This can't be saved yet",
-				Tone.Bad,
-				Modifier.testTag("editor-wrong"),
-				detail = checked.wrong.joinToString(" "),
-			)
-	checked.missing?.let {
-		Notice(
-			"Not available on this computer",
-			Tone.Plain,
-			Modifier.testTag("editor-missing"),
-			detail = "It needs $it, which isn't installed. It can be saved, and will be offered once it is.",
+	val palette = LocalPalette.current
+	val type = LocalType.current
+
+	val (tag, said) =
+		when {
+			checked.wrong.isNotEmpty() && checked.unfinished ->
+				"editor-unfinished" to checked.wrong.joinToString(" ")
+			checked.wrong.isNotEmpty() -> "editor-wrong" to checked.wrong.joinToString(" ")
+			checked.missing != null ->
+				"editor-missing" to
+					"Not available on this computer: it needs ${checked.missing}. It can be saved, and is " +
+					"offered once that is installed."
+			checked.unfound != null ->
+				"editor-unfound" to
+					"“${checked.unfound}” wasn't found on this computer, so this would be offered and then " +
+					"fail. To hide it where it's missing, name it under “Only if installed”."
+			else -> return
+		}
+
+	val bad = tag == "editor-wrong"
+
+	Row(
+		Modifier.fillMaxWidth().testTag(tag),
+		horizontalArrangement = Arrangement.spacedBy(Space.s),
+	) {
+		GlyphIcon(
+			if (bad)
+				Glyph.Warning
+			else
+				Glyph.Info,
+			if (bad)
+				palette.dangerText
+			else
+				palette.textMuted,
+			type.icon * 0.85f,
 		)
-	}
-	checked.unfound?.let {
-		Notice(
-			"“$it” wasn't found on this computer",
-			Tone.Plain,
-			Modifier.testTag("editor-unfound"),
-			detail =
-				"The menus will still offer this, and it will fail. To hide it where “$it” is missing, name " +
-					"it under “Only if installed”, in More conditions.",
+		Text(
+			said,
+			style =
+				type.muted.copy(
+					color =
+						if (bad)
+							palette.dangerText
+						else
+							palette.textMuted,
+				),
+			maxLines = 3,
+			overflow = TextOverflow.Ellipsis,
+			modifier = Modifier.weight(1f),
 		)
 	}
 }
@@ -916,18 +885,27 @@ private fun TriedSaid(tried: Tried?, read: String = "") {
 /** The room between what scrolls in one of these windows and the bar it scrolls by. */
 private val BAR_ROOM = PaddingValues(end = Space.m)
 
-/** The frame both windows share: the form at the left, what it comes to at the right, and Save under them. */
+/** How tall a form's part is, whichever is shown, so that the window does not change size from one to the next. */
+private val FORM_HEIGHT = 470.dp
+
+/**
+ * The frame both windows share: the form's parts named across the top, the one [shown] under them, what is the matter
+ * with what is typed over the buttons, and Test, Cancel and Save.
+ */
 @Composable
-private fun EditorModal(
+private fun <T> EditorModal(
 	title: String,
 	tag: String,
 	fresh: Boolean,
 	checked: Checked,
+	parts: List<T>,
+	shown: T,
+	named: (T) -> String,
+	onPart: (T) -> Unit,
 	onSave: () -> Unit,
 	onClose: () -> Unit,
 	onTest: () -> Unit,
-	form: @Composable ColumnScope.() -> Unit,
-	said: @Composable ColumnScope.() -> Unit,
+	content: @Composable ColumnScope.(T) -> Unit,
 ) {
 	Modal(
 		title,
@@ -949,58 +927,43 @@ private fun EditorModal(
 				secondary = listOf(Act("Cancel", "editor-cancel", onClick = onClose)),
 				// Tried out in a window of its own, once it is something that can be run.
 				aside = listOf(Act("Test…", "editor-test", checked.savable, onClick = onTest)),
-				// Why it cannot be saved, in as few words as say it: the whole of it is beside the form.
-				note =
-					checked.wrong
-						.firstOrNull()
-						?.takeIf { !checked.unfinished }
-						?.substringBefore(". ")
-						.orEmpty(),
 			)
 		},
 	) {
-		Row(
-			Modifier.fillMaxWidth().weight(1f, fill = false),
-			horizontalArrangement = Arrangement.spacedBy(Space.xl),
-		) {
-			// Each side keeps room between what it holds and its bar, so that no field's edge is against it.
-			ScrollArea(Modifier.weight(1.3f), padding = BAR_ROOM, tag = "editor-form") {
-				Column(verticalArrangement = Arrangement.spacedBy(Space.xl), content = form)
+		Tabs(parts, shown, named, Modifier.testTag("editor-tabs"), onPart)
+		// Each part scrolls from its own top, and keeps room between what it holds and its bar.
+		key(shown) {
+			ScrollArea(
+				Modifier.fillMaxWidth().weight(1f, fill = false).height(FORM_HEIGHT),
+				padding = BAR_ROOM,
+				tag = "editor-form",
+			) {
+				Column(verticalArrangement = Arrangement.spacedBy(Space.l)) { content(shown) }
 			}
-			ScrollArea(Modifier.weight(1f), padding = BAR_ROOM, tag = "editor-said") {
-				Column(verticalArrangement = Arrangement.spacedBy(Space.m), content = said)
-			}
+		}
+		// Room kept for what is the matter, whether or not anything is: the window does not move as it comes and goes.
+		Box(Modifier.fillMaxWidth().heightIn(min = LocalType.current.line * 2)) {
+			CheckedSaid(checked)
 		}
 	}
 }
 
-/** The name, submenu, id and shortcut every form begins with. */
+/** The name and the submenu a form begins with. */
 @Composable
 private fun Naming(
 	label: String,
 	submenu: String,
-	id: String,
-	key: String,
-	fresh: Boolean,
 	example: Pair<String, String>,
 	onLabel: (String) -> Unit,
 	onSubmenu: (String) -> Unit,
-	onId: (String) -> Unit,
-	onKey: (String) -> Unit,
 ) {
-	FormSection("Name") {
-		Fields(
-			1.4f to
-				{
-					Typed(
-						"Name in the menu",
-						label,
-						"form-label",
-						hint = example.first,
-						onText = onLabel,
-					)
-				},
-			1f to {
+	Fields(
+		1.5f to
+			{
+				Typed("Name in the menu", label, "form-label", hint = example.first, onText = onLabel)
+			},
+		1f to
+			{
 				Typed(
 					"Submenu",
 					submenu,
@@ -1009,30 +972,32 @@ private fun Naming(
 					onText = onSubmenu,
 				)
 			},
-		)
-		Fields(
-			1.4f to {
-				Typed(
-					"Id",
-					id,
-					"form-id",
-					help = "Can't be changed once saved.".takeIf { !fresh },
-					readOnly = !fresh,
-					mono = true,
-					onText = onId,
-				)
-			},
-			1f to {
-				Typed(
-					"Shortcut",
-					key,
-					"form-key",
-					hint = "Ctrl+Shift+E",
-					onText = onKey,
-				)
-			},
-		)
-	}
+	)
+}
+
+/** The shortcut and the id a form ends with. */
+@Composable
+private fun Knowing(
+	key: String,
+	id: String,
+	fresh: Boolean,
+	onKey: (String) -> Unit,
+	onId: (String) -> Unit,
+) {
+	Fields(
+		1f to { Typed("Shortcut", key, "form-key", hint = "Ctrl+Shift+E", onText = onKey) },
+		1.5f to {
+			Typed(
+				"Id",
+				id,
+				"form-id",
+				help = "Can't be changed once saved.".takeIf { !fresh },
+				readOnly = !fresh,
+				mono = true,
+				onText = onId,
+			)
+		},
+	)
 }
 
 // ---- an action -------------------------------------------------------------------------------------------------------
@@ -1040,26 +1005,42 @@ private fun Naming(
 /** A name and a submenu an action might have, shown where none is typed. */
 private val EXAMPLE_NAMES = "Convert to PNG" to "Image/Convert"
 
-/** What an action's command can name. */
-private fun actionLegend(
+/** What an action's command can name, each with what it becomes. */
+private fun actionNames(
 	asks: List<AskForm>,
 	placeValues: List<String>,
 ): List<Pair<String, String>> =
 	listOf(
-		"{path}" to "A file's full path. The command runs once for each file.",
-		"{paths}" to "Every file's path, each an argument. The command runs once.",
-		"{name}  {names}" to "The same, as names without their folders.",
-		"{stem}  {ext}" to "A file's name without its extension, and the extension.",
-		"{parent}" to "The folder a file is in.",
-		"{folder}" to "The folder the window shows.",
-		"{entry}  {entries}" to "In a place: its entries, as the place names them.",
-		"{temp}" to "An empty temporary folder, removed afterwards.",
+		"{path}" to "a file's full path; the command runs once per file",
+		"{paths}" to "every file's path; the command runs once",
+		"{name}" to "a file's name",
+		"{names}" to "every file's name",
+		"{stem}" to "a file's name without its extension",
+		"{ext}" to "a file's extension",
+		"{parent}" to "the folder a file is in",
+		"{folder}" to "the folder the window shows",
+		"{entry}" to "in a place, an entry as the place names it",
+		"{entries}" to "in a place, every entry",
+		"{temp}" to "an empty temporary folder, removed afterwards",
 	) +
 		asks.filter { it.name.isNotBlank() }.map {
 			"{${it.name.trim()}}" to
-				"The answer to “${it.prompt}”."
+				"the answer to “${it.prompt}”"
 		} +
-		placeValues.map { "{$it}" to "What the place was opened with." }
+		placeValues.map { "{$it}" to "what the place was opened with" }
+
+/** A name for a question's answer that none of [asks] has: `value`, `value2`; `dest` for a folder. */
+private fun answerName(asks: List<AskForm>, folder: Boolean): String {
+	val wanted = if (folder) "dest" else "value"
+
+	return generateSequence(1) { it + 1 }
+		.map {
+			if (it == 1)
+				wanted
+			else
+				"$wanted$it"
+		}.first { name -> asks.none { it.name == name } }
+}
 
 /** The window that makes or changes an action. */
 @Composable
@@ -1100,144 +1081,129 @@ internal fun ActionEditor(
 		"action-editor",
 		form.fresh,
 		checked,
+		ActionTab.entries,
+		modal.tab,
+		ActionTab::label,
+		onPart = { onChange(settings.copy(modal = modal.copy(tab = it))) },
 		onSave = {
 			onChange(settings.copy(acting = ScriptKind.Action.put(acting, spec), modal = null))
 		},
 		onClose = { close() },
 		onTest = { onChange(settings.copy(modal = modal.copy(trying = true))) },
-		form = {
-			Naming(
-				form.label,
-				form.submenu,
-				form.id,
-				form.key,
-				form.fresh,
-				EXAMPLE_NAMES,
-				onLabel = { typed(form.named(it, catalog.ids)) },
-				onSubmenu = { typed(form.copy(submenu = it)) },
-				onId = { typed(form.copy(id = it)) },
-				onKey = { typed(form.copy(key = it)) },
-			)
-			FormSection("What it does") {
+	) { part ->
+		when (part) {
+			ActionTab.Does -> {
+				Naming(
+					form.label,
+					form.submenu,
+					EXAMPLE_NAMES,
+					onLabel = { typed(form.named(it, catalog.ids)) },
+					onSubmenu = { typed(form.copy(submenu = it)) },
+				)
 				Segmented(Does.entries, form.does, Does::label, tag = "does") {
 					typed(form.copy(does = it))
 				}
 				when (form.does) {
 					Does.Run -> {
-						WaysEditor(form.ways, "command", "ffmpeg -i {path} {stem}.mp4") {
-							typed(form.copy(ways = it))
-						}
-						Legend(
-							actionLegend(
+						WaysEditor(
+							form.ways,
+							"command",
+							"ffmpeg -i {path} {stem}.mp4",
+							actionNames(
 								form.asks,
 								form.conditions.within
 									.flatMap { places[it]?.takes.orEmpty() }
 									.distinct(),
 							),
-							"Each named value is also in the command's environment (\$dest), which is the " +
-								"safe way to use one inside sh -c.",
-						)
-						Listing(
-							"Ask first",
-							"Each answer is used in the command by its name: {dest}.",
-							form.asks.isNotEmpty(),
-						) {
-							form.asks.forEachIndexed { at, ask ->
-								fun asking(to: AskForm) =
-									typed(
-										form.copy(
-											asks =
-												form.asks.mapIndexed { index, was ->
-													if (index ==
-														at
-													) to else was
-												},
-										),
-									)
+							// A question added from a command's menu is asked first, and its answer named there.
+							onAsk = { at, folder ->
+								val name = answerName(form.asks, folder)
 
-								Row(
-									verticalAlignment = Alignment.CenterVertically,
-									horizontalArrangement = Arrangement.spacedBy(Space.s),
-								) {
-									Field(
-										ask.name,
-										{ asking(ask.copy(name = it)) },
-										Modifier.width(110.dp).testTag("ask-name:$at"),
-										hint = "name",
-										style = type.mono,
-									)
-									Segmented(
-										listOf(false, true),
-										ask.folder,
-										{ if (it) "Folder" else "Text" },
-										tag = "ask-kind:$at",
-									) { asking(ask.copy(folder = it)) }
-									Field(
-										ask.prompt,
-										{ asking(ask.copy(prompt = it)) },
-										Modifier.weight(1f).testTag("ask-prompt:$at"),
-										hint = "What to ask",
-									)
-									Field(
-										ask.start,
-										{ asking(ask.copy(start = it)) },
-										Modifier.width(120.dp).testTag("ask-start:$at"),
-										hint = "Starts as",
-									)
-									ToolButton(
-										Glyph.Close,
-										"Remove this question",
-										enabled = true,
-										Modifier.testTag("ask-remove:$at"),
+								typed(
+									form.copy(
+										asks =
+											form.asks +
+												AskForm(
+													name,
+													folder,
+													if (folder)
+														"Choose a folder"
+													else
+														"Enter a value",
+												),
+										ways =
+											form.ways.mapIndexed { index, way ->
+												if (index == at)
+													way.copy(command = way.command.with("{$name}"))
+												else
+													way
+											},
+									),
+								)
+							},
+						) { typed(form.copy(ways = it)) }
+						ExampleSaid(example)
+						if (form.asks.isNotEmpty())
+							Labelled(
+								"It asks first",
+								help = "Each answer is used in the command by its name, and is in its environment.",
+							) {
+								form.asks.forEachIndexed { at, ask ->
+									fun asking(to: AskForm) =
+										typed(
+											form.copy(
+												asks =
+													form.asks.mapIndexed { index, was ->
+														if (index == at)
+															to
+														else
+															was
+													},
+											),
+										)
+
+									Row(
+										verticalAlignment = Alignment.CenterVertically,
+										horizontalArrangement = Arrangement.spacedBy(Space.s),
 									) {
-										typed(form.copy(asks = form.asks.filterIndexed { index, _ -> index != at }))
+										Field(
+											ask.name,
+											{ asking(ask.copy(name = it)) },
+											Modifier.width(100.dp).testTag("ask-name:$at"),
+											hint = "name",
+											style = type.mono,
+										)
+										Segmented(
+											listOf(false, true),
+											ask.folder,
+											{ if (it) "Folder" else "Text" },
+											tag = "ask-kind:$at",
+										) { asking(ask.copy(folder = it)) }
+										Field(
+											ask.prompt,
+											{ asking(ask.copy(prompt = it)) },
+											Modifier.weight(1f).testTag("ask-prompt:$at"),
+											hint = "What to ask",
+										)
+										Field(
+											ask.start,
+											{ asking(ask.copy(start = it)) },
+											Modifier.width(120.dp).testTag("ask-start:$at"),
+											hint = "Starts as",
+										)
+										ToolButton(
+											Glyph.Close,
+											"Remove this question",
+											enabled = true,
+											Modifier.testTag("ask-remove:$at"),
+										) {
+											typed(
+												form.copy(asks = form.asks.filterIndexed { index, _ -> index != at }),
+											)
+										}
 									}
 								}
 							}
-							PushButton(
-								"Add a question",
-								Emphasis.Quiet,
-								enabled = true,
-								Modifier.testTag("ask-add"),
-								glyph = Glyph.Plus,
-							) { typed(form.copy(asks = form.asks + AskForm())) }
-						}
-						Labelled("How it runs", help = form.running.help) {
-							Segmented(Running.entries, form.running, Running::label, tag = "running") {
-								typed(form.copy(running = it))
-							}
-						}
-						if (form.running == Running.Watched) {
-							CheckBox(
-								"Refresh the listing when it finishes",
-								form.reread,
-								Modifier.testTag("then-reread"),
-							) { typed(form.copy(reread = it)) }
-							Typed(
-								"Then select",
-								form.choose,
-								"then-choose",
-								hint = "{stem}.png",
-								help = "The name the cursor lands on afterwards.",
-								mono = true,
-							) { typed(form.copy(choose = it)) }
-							Fields(
-								1f to {
-									Typed(
-										"Bring what it made from",
-										form.bringFrom,
-										"then-from",
-										hint = "{temp}",
-										mono = true,
-									) { typed(form.copy(bringFrom = it)) }
-								},
-								1f to {
-									Typed("Into", form.bringTo, "then-to", hint = "{dest}", mono = true) {
-										typed(form.copy(bringTo = it))
-									}
-								},
-							)
-						}
 					}
 					Does.Folder -> {
 						Typed(
@@ -1248,18 +1214,23 @@ internal fun ActionEditor(
 							help = "A path, which may name the file: {parent} is the folder it is in.",
 							mono = true,
 						) { typed(form.copy(folder = it)) }
-						Typed(
-							"Then select",
-							form.folderChoose,
-							"show-choose",
-							hint = "{name}",
-							mono = true,
-						) {
-							typed(form.copy(folderChoose = it))
-						}
-						Choice("Open it in", Opens.entries, form.opens, "opens", Opens::label) {
-							typed(form.copy(opens = it))
-						}
+						Fields(
+							1f to {
+								Typed(
+									"Then select",
+									form.folderChoose,
+									"show-choose",
+									hint = "{name}",
+									mono = true,
+								) { typed(form.copy(folderChoose = it)) }
+							},
+							1f to {
+								Choice("Open it in", Opens.entries, form.opens, "opens", Opens::label) {
+									typed(form.copy(opens = it))
+								}
+							},
+						)
+						ExampleSaid(example)
 					}
 					Does.Place -> {
 						Labelled("Place") {
@@ -1282,11 +1253,12 @@ internal fun ActionEditor(
 						Choice("Open it in", Opens.entries, form.opens, "opens", Opens::label) {
 							typed(form.copy(opens = it))
 						}
+						ExampleSaid(example)
 					}
 					Does.Like -> {
 						Labelled(
 							"Action",
-							help = "This one does what that one does, with some of its questions answered already.",
+							help = "This does what that one does, with some of its questions answered already.",
 						) {
 							Select(
 								listOf("") + bases.map { it.id },
@@ -1309,7 +1281,50 @@ internal fun ActionEditor(
 						Typed("Then select", form.choose, "then-choose", hint = "{stem}", mono = true) {
 							typed(form.copy(choose = it))
 						}
+						ExampleSaid(example)
 					}
+				}
+			}
+			ActionTab.Runs -> {
+				if (form.does == Does.Run) {
+					Labelled("Run it", help = form.running.help) {
+						Segmented(Running.entries, form.running, Running::label, tag = "running") {
+							typed(form.copy(running = it))
+						}
+					}
+					if (form.running == Running.Watched) {
+						CheckBox(
+							"Refresh the listing when it finishes",
+							form.reread,
+							Modifier.testTag("then-reread"),
+						) { typed(form.copy(reread = it)) }
+						Typed(
+							"Then select",
+							form.choose,
+							"then-choose",
+							hint = "{stem}.png",
+							help = "The name the cursor lands on afterwards.",
+							mono = true,
+						) { typed(form.copy(choose = it)) }
+						Fields(
+							1f to {
+								Typed(
+									"Bring what it made from",
+									form.bringFrom,
+									"then-from",
+									hint = "{temp}",
+									mono = true,
+								) { typed(form.copy(bringFrom = it)) }
+							},
+							1f to {
+								Typed("Into", form.bringTo, "then-to", hint = "{dest}", mono = true) {
+									typed(form.copy(bringTo = it))
+								}
+							},
+						)
+					}
+				} else {
+					Text("It opens something, so there is nothing to run.", style = type.muted)
 				}
 				Typed(
 					"Confirm first",
@@ -1318,7 +1333,8 @@ internal fun ActionEditor(
 					hint = "A warning to agree to before it is done (optional)",
 				) { typed(form.copy(confirm = it)) }
 			}
-			FormSection("When it's offered") {
+			ActionTab.Offered -> {
+				OfferedSaid(offeredSaid(spec.conditions, On.Files, catalog.scenes))
 				ConditionsEditor(form.conditions, catalog.scenes, search = false) {
 					typed(form.copy(conditions = it))
 				}
@@ -1327,20 +1343,16 @@ internal fun ActionEditor(
 					form.default,
 					Modifier.testTag("form-default"),
 				) { typed(form.copy(default = it)) }
+				Knowing(
+					form.key,
+					form.id,
+					form.fresh,
+					onKey = { typed(form.copy(key = it)) },
+					onId = { typed(form.copy(id = it)) },
+				)
 			}
-		},
-		said = {
-			Panel("When it's offered", "said-offered") {
-				offeredSaid(spec.conditions, On.Files, catalog.scenes).forEach {
-					Text(it, style = type.body)
-				}
-			}
-			Panel("What it does", "said-does") {
-				ExampleSaid(example)
-			}
-			CheckedSaid(checked)
-		},
-	)
+		}
+	}
 }
 
 // ---- a text search -----------------------------------------------------------------------------------------------------
@@ -1416,11 +1428,20 @@ internal fun SearchEditor(
 
 	fun close() = onChange(settings.copy(modal = null))
 
-	val named =
-		if (form.positions == Positions.Lines)
-			"{line}"
-		else
-			"{offset}"
+	// What a command for one line found can name.
+	val ofLine =
+		listOf(
+			"{path}" to "the file the line is in",
+			(
+				if (form.positions == Positions.Lines)
+					"{line}"
+				else
+					"{offset}"
+			) to
+				"where in it the line is",
+			"{text}" to "the line's text",
+			"{query}" to "what was typed",
+		)
 
 	EditorModal(
 		when {
@@ -1431,37 +1452,50 @@ internal fun SearchEditor(
 		"search-editor",
 		form.fresh,
 		checked,
+		SearchTab.entries,
+		modal.tab,
+		SearchTab::label,
+		onPart = { onChange(settings.copy(modal = modal.copy(tab = it))) },
 		onSave = {
 			onChange(settings.copy(acting = ScriptKind.Search.put(acting, spec), modal = null))
 		},
 		onClose = { close() },
 		onTest = { onChange(settings.copy(modal = modal.copy(trying = true))) },
-		form = {
-			Naming(
-				form.label,
-				form.submenu,
-				form.id,
-				form.key,
-				form.fresh,
-				"Find TODOs…" to "Search",
-				onLabel = { typed(form.named(it, catalog.ids)) },
-				onSubmenu = { typed(form.copy(submenu = it)) },
-				onId = { typed(form.copy(id = it)) },
-				onKey = { typed(form.copy(key = it)) },
-			)
-			FormSection("What it looks through") {
-				Segmented(
-					Takes.entries,
-					form.takes,
-					{
-						when (it) {
-							Takes.Files -> "The files a window shows"
-							Takes.Lines -> "Lines already found"
-						}
-					},
-					tag = "takes",
-				) { typed(form.copy(takes = it)) }
-				Text(givenSaid(form.takes), style = type.muted)
+	) { part ->
+		when (part) {
+			SearchTab.Does -> {
+				Naming(
+					form.label,
+					form.submenu,
+					"Find TODOs…" to "Search",
+					onLabel = { typed(form.named(it, catalog.ids)) },
+					onSubmenu = { typed(form.copy(submenu = it)) },
+				)
+				Labelled("It looks through", help = givenSaid(form.takes)) {
+					Segmented(
+						Takes.entries,
+						form.takes,
+						{
+							when (it) {
+								Takes.Files -> "The files a window shows"
+								Takes.Lines -> "Lines already found"
+							}
+						},
+						tag = "takes",
+					) { typed(form.copy(takes = it)) }
+				}
+				WaysEditor(
+					form.ways,
+					"command",
+					"xargs -0 rg --json {options} -e {query} --",
+					listOf(
+						"{query}" to "what is typed",
+						"{options}" to "the words of its options, as each is on or off",
+						"{folder}" to "the folder it runs in, which paths are shown from",
+					),
+					reads = true,
+				) { typed(form.copy(ways = it)) }
+				ExampleSaid(example)
 				Labelled(
 					"What is typed into it",
 					help =
@@ -1485,27 +1519,45 @@ internal fun SearchEditor(
 					) { typed(form.copy(query = it)) }
 				}
 			}
-			FormSection("The command") {
-				WaysEditor(
-					form.ways,
-					"command",
-					"xargs -0 rg --json {options} -e {query} --",
-					reads = true,
-				) {
-					typed(form.copy(ways = it))
+			SearchTab.Prints -> {
+				Labelled("Its output is", help = prints) {
+					Segmented(
+						HitRead.entries,
+						form.read,
+						{
+							when (it) {
+								HitRead.Lines -> "Lines"
+								HitRead.RgJson -> "ripgrep JSON"
+								HitRead.Json -> "JSON"
+								HitRead.Paths -> "Paths only"
+							}
+						},
+						tag = "read",
+					) { typed(form.copy(read = it)) }
 				}
-				Legend(
-					listOf(
-						"{query}" to "What is typed. Also in the environment, as \$query.",
-						"{options}" to
-							"The words of the options below, as each is on or off. An argument of its own.",
-						"{folder}" to "The folder the command runs in, which paths are shown from.",
-					),
-				)
-				Listing(
-					"Options",
-					"Switches shown beside the query. Each adds its words where the command says {options}.",
-					form.options.isNotEmpty(),
+				Printed(printed, "prints-example")
+				if (form.read == HitRead.Lines || form.read == HitRead.Paths)
+					CheckBox(
+						"A NUL character ends each path, as grep -Z and rg -0 print them",
+						form.nul,
+						Modifier.testTag("nul"),
+					) { typed(form.copy(nul = it)) }
+				if (form.read != HitRead.Paths)
+					Choice(
+						"The number with each line is",
+						Positions.entries,
+						form.positions,
+						"positions",
+						{
+							when (it) {
+								Positions.Lines -> "A line number"
+								Positions.Offsets -> "A byte offset"
+							}
+						},
+					) { typed(form.copy(positions = it)) }
+				Labelled(
+					"Options beside the query",
+					help = "Each is a switch, and adds its words where the command says {options}.",
 				) {
 					form.options.forEachIndexed { at, option ->
 						fun opting(to: OptionForm) =
@@ -1513,9 +1565,10 @@ internal fun SearchEditor(
 								form.copy(
 									options =
 										form.options.mapIndexed { index, was ->
-											if (index ==
-												at
-											) to else was
+											if (index == at)
+												to
+											else
+												was
 										},
 								),
 							)
@@ -1557,7 +1610,9 @@ internal fun SearchEditor(
 								enabled = true,
 								Modifier.testTag("option-remove:$at"),
 							) {
-								typed(form.copy(options = form.options.filterIndexed { index, _ -> index != at }))
+								typed(
+									form.copy(options = form.options.filterIndexed { index, _ -> index != at }),
+								)
 							}
 						}
 					}
@@ -1570,78 +1625,43 @@ internal fun SearchEditor(
 					) { typed(form.copy(options = form.options + OptionForm())) }
 				}
 			}
-			FormSection("What it prints") {
-				Segmented(
-					HitRead.entries,
-					form.read,
-					{
-						when (it) {
-							HitRead.Lines -> "Lines"
-							HitRead.RgJson -> "ripgrep JSON"
-							HitRead.Json -> "JSON"
-							HitRead.Paths -> "Paths only"
-						}
-					},
-					tag = "read",
-				) { typed(form.copy(read = it)) }
-				Text(prints, style = type.muted, modifier = Modifier.testTag("prints-said"))
-				Printed(printed, "prints-example")
-				if (form.read == HitRead.Lines || form.read == HitRead.Paths)
-					CheckBox(
-						"A NUL character ends each path, as grep -Z and rg -0 print them",
-						form.nul,
-						Modifier.testTag("nul"),
-					) { typed(form.copy(nul = it)) }
-				if (form.read != HitRead.Paths)
-					Choice(
-						"The number with each line is",
-						Positions.entries,
-						form.positions,
-						"positions",
-						{
-							when (it) {
-								Positions.Lines -> "A line number"
-								Positions.Offsets -> "A byte offset"
-							}
-						},
-					) { typed(form.copy(positions = it)) }
-			}
-			FormSection(
-				"The file shown beside a line",
-				help =
-					"A command whose output is shown as the preview, colours and all. With none, prism shows " +
-						"the file's text itself.",
-			) {
-				WaysEditor(
-					form.previews,
-					"preview",
-					"bat --color=always --style=plain {path}",
-					least = 0,
-					another =
-						if (form.previews.isEmpty())
-							"Add a preview command"
-						else
-							"Add a fallback command",
-				) { typed(form.copy(previews = it)) }
-				if (form.previews.isNotEmpty())
-					Legend(
-						listOf(
-							"{path}" to "The file the line is in.",
-							named to "Where in it the line is.",
-							"{text}  {query}" to "The line's text, and what was typed.",
-						),
-					)
-			}
-			FormSection("Opening a line") {
+			SearchTab.Shows -> {
+				Text(
+					"Beside a line found, prism shows the file's text. A command here is run instead, and what " +
+						"it prints is shown, colours and all.",
+					style = type.muted,
+				)
+				if (form.previews.isEmpty())
+					PushButton(
+						"Use a preview command",
+						Emphasis.Secondary,
+						enabled = true,
+						Modifier.testTag("preview-way-add"),
+						glyph = Glyph.Plus,
+					) { typed(form.copy(previews = listOf(WayForm()))) }
+				else
+					WaysEditor(
+						form.previews,
+						"preview",
+						"bat --color=always --style=plain {path}",
+						ofLine,
+						label = "Preview command",
+						least = 0,
+					) { typed(form.copy(previews = it)) }
 				CheckBox(
-					"Open with a command of its own, instead of your editor",
+					"Open a line with a command of its own, instead of your editor",
 					form.opening,
 					Modifier.testTag("opening"),
 				) { typed(form.copy(opening = it)) }
 				if (form.opening) {
-					CommandEditor(form.open, "open", "code --goto {path}:{line}") {
-						typed(form.copy(open = it))
-					}
+					WaysEditor(
+						listOf(WayForm(command = form.open)),
+						"open",
+						"code --goto {path}:{line}",
+						ofLine,
+						label = "Opening command",
+						fallbacks = false,
+					) { ways -> typed(form.copy(open = ways.first().command)) }
 					CheckBox(
 						"Run it in a terminal",
 						form.openInTerminal,
@@ -1651,32 +1671,27 @@ internal fun SearchEditor(
 					}
 				}
 			}
-			if (form.takes == Takes.Files)
-				FormSection("When it's offered") {
+			SearchTab.Offered -> {
+				if (form.takes == Takes.Files) {
+					OfferedSaid(offeredSaid(spec.conditions, null, catalog.scenes))
 					ConditionsEditor(form.conditions, catalog.scenes, search = true) {
 						typed(form.copy(conditions = it))
 					}
-				}
-		},
-		said = {
-			Panel("When it's offered", "said-offered") {
-				if (form.takes == Takes.Files)
-					offeredSaid(spec.conditions, null, catalog.scenes).forEach {
-						Text(it, style = type.body)
-					}
-				else
-					Text(
-						"As a further step in a text search, once something has found lines.",
-						style = type.body,
+				} else {
+					OfferedSaid(
+						listOf("As a further step in a text search, once something has found lines."),
 					)
+				}
+				Knowing(
+					form.key,
+					form.id,
+					form.fresh,
+					onKey = { typed(form.copy(key = it)) },
+					onId = { typed(form.copy(id = it)) },
+				)
 			}
-			Panel("What it does", "said-does") {
-				ExampleSaid(example)
-				Text("It must print: $prints", style = type.muted)
-			}
-			CheckedSaid(checked)
-		},
-	)
+		}
+	}
 }
 
 // ---- trying it out ---------------------------------------------------------------------------------------------------
