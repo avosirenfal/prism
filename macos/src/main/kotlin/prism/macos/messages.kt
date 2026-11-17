@@ -306,6 +306,10 @@ internal fun interface ObjcRegisterClassPair {
 	operator fun invoke(cls: MemorySegment)
 }
 
+internal fun interface ObjectGetClass {
+	operator fun invoke(instance: MemorySegment): MemorySegment
+}
+
 internal fun interface ClassAddMethod {
 	operator fun invoke(
 		cls: MemorySegment,
@@ -341,6 +345,7 @@ internal object ObjCRuntime {
 		"objc_registerClassPair",
 	)
 	private val addMethod by Frameworks.objc.binding<ClassAddMethod>("class_addMethod")
+	private val objectGetClass by Frameworks.objc.binding<ObjectGetClass>("object_getClass")
 
 	/** The method [selector] of [cls], its own ([ofClass]) or its instances'; null where it has none. */
 	fun method(cls: Id, selector: String, ofClass: Boolean): MemorySegment? =
@@ -350,6 +355,20 @@ internal object ObjCRuntime {
 		).takeIf {
 			it.address() !=
 				0L
+		}
+
+	/** The class [instance] is of. */
+	fun classOf(instance: Id): Id = Id(objectGetClass(instance.address))
+
+	/** [method] given to [cls], where it has none of that selector itself; whether it was. */
+	fun add(cls: Id, method: Implemented): Boolean =
+		Arena.ofConfined().use { arena ->
+			addMethod(
+				cls.address,
+				ObjC.selector(method.selector),
+				method.function,
+				arena.allocateFrom(method.encoding),
+			)
 		}
 
 	fun encodingOf(method: MemorySegment): String =

@@ -22,6 +22,7 @@ private val Rect = Struct(NS_RECT)
 
 data object NSObject : ObjCClass("NSObject") {
 	val alloc = static("alloc", Obj)
+	val init = message("init", Obj)
 	val release = message("release", NoValue)
 	val isKindOfClass = message("isKindOfClass:", Obj, Bool)
 }
@@ -70,6 +71,7 @@ data object NSBundle : ObjCClass("NSBundle") {
 	val bundleWithPath = static("bundleWithPath:", Obj, Obj)
 	val infoDictionary = message("infoDictionary", Obj)
 	val bundleIdentifier = message("bundleIdentifier", Obj)
+	val executablePath = message("executablePath", Obj)
 }
 
 data object NSFileManager : ObjCClass("NSFileManager") {
@@ -128,6 +130,18 @@ data object NSApplication : ObjCClass("NSApplication", Frameworks.appKit) {
 	val sharedApplication = static("sharedApplication", Obj)
 	val setActivationPolicy = message("setActivationPolicy:", Int64, Bool)
 	val setApplicationIconImage = message("setApplicationIconImage:", Obj, NoValue)
+	val delegate = message("delegate", Obj)
+	val activateIgnoringOtherApps = message("activateIgnoringOtherApps:", Bool, NoValue)
+}
+
+data object NSMenu : ObjCClass("NSMenu", Frameworks.appKit) {
+	val initWithTitle = message("initWithTitle:", Obj, Obj)
+	val addItemWithTitle =
+		message("addItemWithTitle:action:keyEquivalent:", Obj, Sel, Obj, Obj)
+}
+
+data object NSMenuItem : ObjCClass("NSMenuItem", Frameworks.appKit) {
+	val setTarget = message("setTarget:", Obj, NoValue)
 }
 
 data object NSResponder : ObjCClass("NSResponder", Frameworks.appKit) {

@@ -92,8 +92,25 @@ compose.desktop {
 			)
 			packageName = "prism"
 			packageVersion = "0.1.0"
+			// A Mac's application: Prism.app, whose own program (Contents/MacOS/Prism) is what runs, the daemon too, so
+			// that the Dock, the menu bar and the system's permissions know it as Prism and not as java. It starts
+			// in no Dock (LSUIElement), as a daemon and a launcher are, and is put there while it has a window
+			// (macos/launcher.kt, Dock). A Mac's versions begin at 1.
 			macOS {
 				bundleID = "dev.prism"
+				packageName = "Prism"
+				dockName = "Prism"
+				packageVersion = "1.0.0"
+				iconFile.set(rootProject.layout.projectDirectory.file("nix/prism.icns"))
+				infoPlist {
+					extraKeysRawXml =
+						"""
+						<key>LSUIElement</key>
+						<true/>
+						<key>NSHumanReadableCopyright</key>
+						<string>prism</string>
+						"""
+				}
 			}
 		}
 	}

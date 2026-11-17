@@ -762,8 +762,10 @@ internal fun stayed(
 	}
 
 	// A Mac has no window manager to bind the launcher's key: the prism that stays holds it.
-	if (Os.current == Os.MacOS)
+	if (Os.current == Os.MacOS) {
 		holdLauncherKey(command, instance, closing)
+		answerMacApplication(command, instance, home)
+	}
 
 	val serving =
 		bus?.takeIf { names.any }?.let {

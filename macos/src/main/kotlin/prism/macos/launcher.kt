@@ -507,6 +507,13 @@ object Dock {
 	private const val REGULAR = 0L
 	private const val ACCESSORY = 1L
 
+	/** prism brought in front of the other applications, with the windows it has. */
+	fun forward() {
+		ObjC.pooled {
+			NSApplication.activateIgnoringOtherApps(NSApplication.sharedApplication(), true)
+		}
+	}
+
 	/** prism in the Dock, with [icon] (an image's bytes: SVG, PNG) as its icon, where [shown]; out of it where not. */
 	fun shown(shown: Boolean, icon: ByteArray?) {
 		ObjC.pooled {

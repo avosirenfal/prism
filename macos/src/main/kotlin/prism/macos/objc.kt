@@ -91,6 +91,17 @@ data object Ptr : Passed<MemorySegment> {
 	override fun out(raw: Any?): MemorySegment = raw as MemorySegment
 }
 
+/** A selector, by its name: what a menu's item is told to send. */
+data object Sel : Passed<String> {
+	override val layout: MemoryLayout get() = ValueLayout.ADDRESS
+	override val code get() = Code.Selector
+
+	override fun into(value: String): Any = ObjC.selector(value)
+
+	override fun out(raw: Any?): String =
+		throw UnsupportedOperationException("no method prism calls returns a selector")
+}
+
 /** `NSInteger`, `NSUInteger`, and the enumerations made of them. */
 data object Int64 : Passed<Long> {
 	override val layout: MemoryLayout get() = ValueLayout.JAVA_LONG

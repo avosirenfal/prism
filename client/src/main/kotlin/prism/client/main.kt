@@ -92,6 +92,9 @@ internal fun answered(words: List<String>, place: InstancePlace?, caller: Caller
  */
 const val JAVA_PRISM_INSTALLED = "libexec/prism/prism"
 
+/** What the Java prism is called in a Mac's application bundle, where this program is beside it (`prism-client`). */
+const val JAVA_PRISM_IN_BUNDLE = "Prism"
+
 /** The variable that names the Java prism, where it is not beside this program. */
 const val JAVA_PRISM = "PRISM_JAVA"
 
@@ -101,20 +104,27 @@ const val JAVA_PRISM = "PRISM_JAVA"
  */
 internal fun javaPrism(environment: Map<String, String>, program: Path?): Path? =
 	(
-		environment[JAVA_PRISM]?.takeIf { it.isNotEmpty() }?.let(::Path)
-			?: program?.parent?.parent?.resolve(JAVA_PRISM_INSTALLED)
-	)?.takeIf { Files.isExecutable(it) }
+		listOfNotNull(environment[JAVA_PRISM]?.takeIf { it.isNotEmpty() }?.let(::Path)) +
+			listOfNotNull(
+				program?.parent?.parent?.resolve(JAVA_PRISM_INSTALLED),
+				// In a Mac's application, the two are side by side: Prism.app/Contents/MacOS/Prism, and this beside it.
+				program?.resolveSibling(JAVA_PRISM_IN_BUNDLE)?.takeIf { it != program },
+			).filter { environment[JAVA_PRISM].isNullOrEmpty() }
+	).firstOrNull { Files.isExecutable(it) && !Files.isDirectory(it) }
 
 /** Where this program is, as the kernel has it. */
 private fun program(): Path? =
 	try {
 		Path("/proc/self/exe").toRealPath()
 	} catch (unknown: IOException) {
+		// Where there is no /proc (a Mac): what the system says this process's program is, its links followed, so
+		// that a link to this on the PATH finds what is beside the program itself.
 		ProcessHandle
 			.current()
 			.info()
 			.command()
 			.map(::Path)
+			.map { runCatching { it.toRealPath() }.getOrDefault(it) }
 			.orElse(null)
 	}
 

@@ -28,6 +28,8 @@ data class Bundle(
 	val opensMime: List<String>,
 	/** Whether it runs without a window or a place in the Dock (`LSUIElement`, `LSBackgroundOnly`): no one starts it. */
 	val background: Boolean,
+	/** The program that is it (`Contents/MacOS/Safari`), where it has one. */
+	val executable: Path? = null,
 )
 
 /** An application running, as NSWorkspace lists it. */
@@ -85,6 +87,7 @@ object Applications {
 				opens = words("LSItemContentTypes"),
 				opensMime = words("CFBundleTypeMIMETypes"),
 				background = flag("LSUIElement") || flag("LSBackgroundOnly"),
+				executable = NSBundle.executablePath(bundle).text()?.let(Path::of),
 			)
 		}
 

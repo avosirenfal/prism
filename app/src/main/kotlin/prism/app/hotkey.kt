@@ -6,6 +6,9 @@ import prism.browser.Keyboard
 import prism.browser.ModifierKey
 import prism.browser.Trigger
 import prism.cli.Command
+import prism.explorer.ExplorerWindow
+import prism.macos.AppEvents
+import prism.macos.Dock
 import prism.macos.HotKey
 import prism.macos.HotKeyModifier
 import prism.macos.HotKeyRegistered
@@ -115,5 +118,46 @@ internal fun holdLauncherKey(
 			is HotKeyRegistered.Refused ->
 				warn(command, "the launcher's key, ${held.second}, can't be had: ${registered.why}")
 		}
+	}
+}
+
+/**
+ * What a Mac asks of an application that is running, answered for [instance], on the windows' thread: opened again
+ * (its icon clicked while it runs), it shows a window on the home folder where it has none of the usual kind, and
+ * comes forward with those it has otherwise, as a Mac's applications do; and its Dock menu has "New Window".
+ */
+internal fun answerMacApplication(
+	command: Command,
+	instance: Instance,
+	home: java.nio.file.Path,
+) {
+	fun asked(work: (prism.explorer.Explorer) -> Unit) {
+		// Asked as another prism asks, from a thread of its own: the system's dispatch is left at once.
+		Thread.ofVirtual().start {
+			try {
+				runBlocking { instance.windows.with { work(it) } }
+			} catch (ended: NoWindows) {
+				// Nothing to show it in.
+			}
+		}
+	}
+
+	asked { _ ->
+		val reopening =
+			AppEvents.onReopen {
+				asked { explorer ->
+					if (explorer.windows.value.none { it is ExplorerWindow.Browsing })
+						explorer.browse(home)
+					else
+						Dock.forward()
+				}
+			}
+
+		if (!reopening)
+			warn(
+				command,
+				"macOS would not tell prism when it is opened again, so its icon opens no window",
+			)
+		AppEvents.dockItem("New Window") { asked { it.browse(home) } }
 	}
 }

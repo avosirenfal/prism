@@ -7,6 +7,7 @@ import kotlin.io.path.extension
 import kotlin.io.path.isDirectory
 import kotlin.io.path.listDirectoryEntries
 import prism.desktop.Application
+import prism.desktop.ApplicationAction
 import prism.desktop.Applications
 import prism.desktop.MimeType
 import prism.macos.Bundle
@@ -93,7 +94,11 @@ class LaunchServicesApplications(
 
 	/** The application of the bundle at [path]: none for one that is not, or runs with no window anyone starts. */
 	private fun applicationAt(path: Path): Application? =
-		LaunchServices.bundle(path)?.takeUnless { it.background }?.let(::applicationOf)
+		LaunchServices
+			.bundle(path)
+			?.takeUnless {
+				it.background && it.identifier != PRISM
+			}?.let(::applicationOf)
 
 	private fun applicationOf(bundle: Bundle): Application =
 		Application(
@@ -114,11 +119,28 @@ class LaunchServicesApplications(
 			icon = bundle.path.toString(),
 			source = bundle.path,
 			generic = bundle.category?.let(::categoryName),
+			actions = actionsOf(bundle),
 		)
+
+	/**
+	 * What else an application can be started to do. A Mac's bundles do not say, as a desktop entry does; prism knows
+	 * its own, which has "New Window": its program run with `explore`, which asks the prism running for a window.
+	 */
+	private fun actionsOf(bundle: Bundle): List<ApplicationAction> =
+		bundle.executable
+			?.takeIf { bundle.identifier == PRISM }
+			?.let {
+				listOf(
+					ApplicationAction("new-window", "New Window", listOf(it.toString(), "explore")),
+				)
+			}.orEmpty()
 
 	companion object {
 		/** What asks Launch Services to open: an application, or files with one. */
 		const val OPEN = "/usr/bin/open"
+
+		/** prism's own bundle, by its identifier: listed though it starts in no Dock, and known to have "New Window". */
+		const val PRISM = "dev.prism"
 
 		/** What a bundle's category says, as a person would: `public.app-category.developer-tools` is "Developer Tools". */
 		fun categoryName(category: String): String =

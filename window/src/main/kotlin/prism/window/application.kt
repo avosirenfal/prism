@@ -23,6 +23,8 @@ import java.util.concurrent.CompletableFuture
 import kotlin.coroutines.EmptyCoroutineContext
 import kotlinx.coroutines.CoroutineExceptionHandler
 import org.lwjgl.sdl.SDLEvents.SDL_EVENT_QUIT
+import org.lwjgl.sdl.SDLKeyboard.SDL_GetModState
+import org.lwjgl.sdl.SDLKeycode.SDL_KMOD_GUI
 import org.lwjgl.sdl.SDLMouse.SDL_DestroyCursor
 import org.lwjgl.sdl.SDLProperties.SDL_GetGlobalProperties
 import org.lwjgl.sdl.SDLProperties.SDL_GetPointerProperty
@@ -283,7 +285,17 @@ internal class Application(
 		when (event.type()) {
 			// The platform's own way of ending an application (a display that went away, macOS's Quit): closing the
 			// last window is not one (sdl.kt), since which windows are open is the application's to say.
-			SDL_EVENT_QUIT -> running = false
+			SDL_EVENT_QUIT ->
+				// On a Mac, Command and Q quits "the application", which to its user is the windows in front of them:
+				// each is asked to close, as its own button asks, and whether the process goes on without them is the
+				// application's to say, as it is when the last is closed. A daemon stays. Asked to quit any other way
+				// (its menu, the Dock, the user logging out), it ends.
+				if (sdl.video == Video.Cocoa && SDL_GetModState().toInt() and SDL_KMOD_GUI != 0 &&
+					open.isNotEmpty()
+				)
+					open.values.toList().forEach { window -> guarded(window) { it.onCloseRequest() } }
+				else
+					running = false
 			Ui.wakeType -> Unit
 			// Every event of a window's says which, in the same place.
 			else ->
