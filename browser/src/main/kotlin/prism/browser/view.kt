@@ -207,12 +207,37 @@ fun FileBrowser(
 		mouseChords.collect { chord -> bindings.window(chord)?.let(::act) }
 	}
 
+	/** The text search [key] opens, opened on everything shown: whether it opens one. */
+	fun searched(key: KeyEvent): Boolean {
+		val search =
+			Chord
+				.of(key)
+				?.takeIf {
+					key.type == KeyEventType.KeyDown && current.choosing is Choosing.Exploring
+				}?.let(bindings::searching)
+				?.let { current.actions.search(it.id) }
+
+		search?.let { latest(BrowserEvent.SearchedText(it)) }
+
+		return search != null
+	}
+
 	// The keyboard starts where a desktop's dialogs start it: at the name to save under, or at the listing.
 	LaunchedEffect(Unit) {
 		if (saving)
 			stops.name.requestFocus()
 		else
 			stops.listing.requestFocus()
+	}
+
+	// And it goes back to the listing when what a text search found, which had it, is left for one.
+	val texting = state.text != null
+	var texted by remember { mutableStateOf(false) }
+
+	LaunchedEffect(texting) {
+		if (texted && !texting)
+			stops.listing.requestFocus()
+		texted = texting
 	}
 
 	CompositionLocalProvider(
@@ -226,7 +251,7 @@ fun FileBrowser(
 				.background(palette.window)
 				.usedBy(keyboard)
 				.zoomedByWheel { latest(BrowserEvent.Zoomed(it)) }
-				.onPreviewKeyEvent { shortcut(it, bindings, ::act) }
+				.onPreviewKeyEvent { shortcut(it, bindings, ::act) || searched(it) }
 				.onKeyEvent { afterwards(it, bindings, ::act) },
 		) {
 			Column(Modifier.fillMaxSize()) {
@@ -240,11 +265,15 @@ fun FileBrowser(
 						Box(Modifier.width(1.dp).fillMaxHeight().background(palette.border))
 					}
 					// The listing in its own type: its own size and font, where the user chose them. The System page
-					// lists no files: its drives are drawn in their place.
+					// lists no files: its drives are drawn in their place. Nor does what a text search found.
 					CompositionLocalProvider(LocalType provides LocalTypes.current.listing) {
-						when (val system = state.system) {
-							null -> ListingPane(state, stops, Modifier.weight(1f), ::act, onEvent)
-							else -> SystemPane(state, system, stops, Modifier.weight(1f), onEvent)
+						val system = state.system
+						val text = state.text
+
+						when {
+							text != null -> TextPane(state, text, stops, Modifier.weight(1f), onEvent)
+							system != null -> SystemPane(state, system, stops, Modifier.weight(1f), onEvent)
+							else -> ListingPane(state, stops, Modifier.weight(1f), ::act, onEvent)
 						}
 					}
 				}
@@ -467,21 +496,24 @@ private fun Toolbar(state: BrowserState, stops: Stops, onEvent: (BrowserEvent) -
 		}
 		Spacer(Modifier.width(Space.s))
 		AddressBar(state, stops, Modifier.weight(1f), onEvent)
-		Spacer(Modifier.width(Space.s))
-		Field(
-			state.arrangement.query,
-			{ onEvent(BrowserEvent.Searched(it)) },
-			Modifier.width(260.dp).testTag("search"),
-			hint = "Search ${state.placeName}",
-			leading = Glyph.Search,
-			focus = stops.search,
-			onKey = { searchKey(it, stops) },
-			// Emptied, it has the keyboard: whoever empties it is about to type what to look for next.
-			onClear = {
-				onEvent(BrowserEvent.Searched(""))
-				stops.search.requestFocus()
-			},
-		)
+		// What a text search found has its own field, over what it found: there is no folder to narrow.
+		if (state.text == null) {
+			Spacer(Modifier.width(Space.s))
+			Field(
+				state.arrangement.query,
+				{ onEvent(BrowserEvent.Searched(it)) },
+				Modifier.width(260.dp).testTag("search"),
+				hint = "Search ${state.placeName}",
+				leading = Glyph.Search,
+				focus = stops.search,
+				onKey = { searchKey(it, stops) },
+				// Emptied, it has the keyboard: whoever empties it is about to type what to look for next.
+				onClear = {
+					onEvent(BrowserEvent.Searched(""))
+					stops.search.requestFocus()
+				},
+			)
+		}
 		Spacer(Modifier.width(Space.s))
 		// Every window's, and kept: so it is here in a list too, where no picture is drawn to be seen going.
 		ToolButton(
@@ -490,7 +522,7 @@ private fun Toolbar(state: BrowserState, stops: Stops, onEvent: (BrowserEvent) -
 			else
 				Glyph.PicturesOff,
 			"Thumbnails",
-			enabled = state.system == null,
+			enabled = state.listsFiles,
 			modifier = Modifier.testTag("thumbnails").semantics { selected = state.thumbnails },
 		) { onEvent(BrowserEvent.ToggledThumbnails) }
 		MenuButton(
@@ -500,8 +532,8 @@ private fun Toolbar(state: BrowserState, stops: Stops, onEvent: (BrowserEvent) -
 			onEvent,
 			Modifier.testTag("filters"),
 			selected = state.entryFilters.kinds.isNotEmpty(),
-			// The System page lists no files to filter, or to show as a list or a gallery.
-			enabled = state.system == null,
+			// The System page lists no files to filter, or to show as a list or a gallery; nor does a text search.
+			enabled = state.listsFiles,
 		)
 		Segmented(
 			Layout.entries,
@@ -509,7 +541,7 @@ private fun Toolbar(state: BrowserState, stops: Stops, onEvent: (BrowserEvent) -
 			{ it.name },
 			tag = "layout",
 			// Nor is the Recents page's list of sections drawn as a gallery.
-			enabled = state.system == null && state.at != Location.Recents,
+			enabled = state.listsFiles && state.at != Location.Recents,
 			focusable = false,
 			glyph = {
 				when (it) {
@@ -559,6 +591,7 @@ private fun AddressBar(
 				is Location.Place -> PlaceBar(at, modifier, onEvent)
 				Location.Trash -> TrashBar(modifier)
 				is Location.System -> SystemBar(modifier)
+				is Location.Text -> TextBar(at, modifier)
 				Location.Recents -> RecentsBar(state, modifier, onEvent)
 			}
 		is Address.Editing -> {
@@ -760,6 +793,27 @@ private fun TrashBar(modifier: Modifier) {
 private fun SystemBar(modifier: Modifier) {
 	Bar(Glyph.System, modifier.testTag("system-bar")) {
 		Text("System", style = LocalType.current.strong, maxLines = 1)
+	}
+}
+
+/** In place of the path, which text search the window shows what it found by, and where it looked. */
+@Composable
+private fun TextBar(text: Location.Text, modifier: Modifier) {
+	val type = LocalType.current
+
+	Bar(Glyph.Search, modifier.testTag("text-bar")) {
+		Text(
+			text.search.label.removeSuffix("…"),
+			style = type.strong,
+			maxLines = 1,
+			softWrap = false,
+		)
+		Text(
+			"in ${text.scope.said}",
+			style = type.muted,
+			maxLines = 1,
+			overflow = TextOverflow.Ellipsis,
+		)
 	}
 }
 
@@ -1422,6 +1476,16 @@ private fun ListingPane(
 						return true
 					} else if (rowAction(action) || act(action))
 						return true
+				// A text search, bound to a key a field would type: opened from the listing, on everything shown.
+				is Searching -> {
+					val own = state.actions.search(action.id)
+
+					if (exploring && own != null) {
+						onEvent(BrowserEvent.SearchedText(own))
+
+						return true
+					}
+				}
 				// One of the user's own, done to the rows chosen (or the folder shown), where it is offered for them.
 				is Custom -> {
 					val subject = subjectOf(targets())
@@ -3099,6 +3163,7 @@ private val STATUS_SPINNER = 14.dp
  */
 private fun statusOf(state: BrowserState, waited: Boolean): String {
 	state.system?.let { return statusOf(it) }
+	state.text?.let { return textStatus(it) }
 
 	val shown = state.rows.size
 	val chosen = state.choosing.rows.size

@@ -60,6 +60,13 @@ data class Preferences(
 	val actions: List<JsonElement> = emptyList(),
 	/** The user's own places: what a window shows that is not a folder, as a command lists it. */
 	val places: List<JsonElement> = emptyList(),
+	/** The user's own text searches: commands that find lines in the files a window shows (docs/text.md). */
+	val textSearches: List<JsonElement> = emptyList(),
+	/**
+	 * What opens a file at a line, from a text search: the user's editor. Where none is said, the editor the
+	 * environment names (`VISUAL`, then `EDITOR`), in the terminal; and where it names none, the file's application.
+	 */
+	val editor: OpenSpec? = null,
 	/** What of the menus is left out. */
 	val menu: MenuSpec = MenuSpec(),
 	/**
@@ -101,8 +108,8 @@ data class Preferences(
 	/** What the index leaves out, and what it holds that searches leave out. */
 	val excluding: Excluding = Excluding(),
 ) {
-	/** The actions and places written here. */
-	val written: ActionsFile get() = ActionsFile(actions, places)
+	/** The actions, places and text searches written here, and the editor. */
+	val written: ActionsFile get() = ActionsFile(actions, places, textSearches, editor)
 
 	/** These, with quick access as [quick]: what an older version kept in its place forgotten. */
 	fun arranging(quick: QuickAccess): Preferences = copy(quickAccess = quick, pinned = null)

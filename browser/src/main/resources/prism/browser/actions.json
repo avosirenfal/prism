@@ -2535,5 +2535,140 @@
 				}
 			}
 		}
+	],
+	"textSearches": [
+		{
+			"id": "text.search",
+			"label": "Search in files…",
+			"key": "Ctrl+Shift+G",
+			"query": "typed",
+			"options": {
+				"case": {
+					"label": "Match case",
+					"off": [
+						"--ignore-case"
+					]
+				},
+				"word": {
+					"label": "Whole word",
+					"on": [
+						"--word-regexp"
+					]
+				},
+				"regex": {
+					"label": "Regex",
+					"off": [
+						"--fixed-strings"
+					]
+				}
+			},
+			"ways": [
+				{
+					"programs": [
+						"rg",
+						"xargs"
+					],
+					"run": [
+						"xargs",
+						"-0",
+						"-r",
+						"rg",
+						"--json",
+						"{options}",
+						"-e",
+						"{query}",
+						"--"
+					]
+				},
+				{
+					"programs": [
+						"grep",
+						"xargs"
+					],
+					"run": [
+						"xargs",
+						"-0",
+						"-r",
+						"grep",
+						"-rIHnZ",
+						"--color=always",
+						"{options}",
+						"-e",
+						"{query}",
+						"--"
+					]
+				}
+			],
+			"read": "rg-json",
+			"previews": [
+				{
+					"programs": [
+						"bat|batcat"
+					],
+					"run": [
+						"{which:bat|batcat}",
+						"--color=always",
+						"--style=plain",
+						"--paging=never",
+						"--theme=ansi",
+						"--tabs=0",
+						"--",
+						"{path}"
+					]
+				}
+			]
+		},
+		{
+			"id": "text.strings",
+			"label": "Strings in files…",
+			"when": {
+				"target": "folder",
+				"programs": [
+					"strings",
+					"xargs"
+				]
+			},
+			"query": "narrows",
+			"run": [
+				"xargs",
+				"-0",
+				"-r",
+				"strings",
+				"--print-file-name",
+				"--radix=d",
+				"--"
+			],
+			"read": "lines",
+			"positions": "offsets",
+			"previews": [
+				{
+					"programs": [
+						"xxd"
+					],
+					"run": [
+						"xxd",
+						"-s",
+						"{offset}",
+						"-l",
+						"4096",
+						"{path}"
+					]
+				},
+				{
+					"programs": [
+						"hexdump"
+					],
+					"run": [
+						"hexdump",
+						"-C",
+						"-s",
+						"{offset}",
+						"-n",
+						"4096",
+						"{path}"
+					]
+				}
+			]
+		}
 	]
 }

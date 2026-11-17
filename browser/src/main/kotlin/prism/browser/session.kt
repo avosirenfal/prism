@@ -84,6 +84,12 @@ class Session(
 
 	private val stops = Guarded(Stops())
 
+	/** How to stop a text search's command ([how], once it has started), and whether it is to be stopped ([wanted]). */
+	private class Halt {
+		var how: (() -> Unit)? = null
+		var wanted = false
+	}
+
 	// The folders made for this browser, to open a place's entries from: gone when it is.
 	private val temps: MutableSet<java.nio.file.Path> = ConcurrentHashMap.newKeySet()
 	private val ending = CompletableDeferred<Outcome>()
@@ -96,6 +102,13 @@ class Session(
 			replay = 1,
 			onBufferOverflow = DROP_OLDEST,
 		)
+
+	// The latest run of a text search asked for, and the latest file asked to be shown beside its list: each takes
+	// the place of the one before it, which is stopped, or whose answer is dropped.
+	private val finds =
+		MutableSharedFlow<Effect.FindText>(replay = 1, onBufferOverflow = DROP_OLDEST)
+	private val shows =
+		MutableSharedFlow<Effect.Preview>(replay = 1, onBufferOverflow = DROP_OLDEST)
 
 	/** How the picker ended, once it has. */
 	val outcome: Deferred<Outcome> get() = ending
@@ -206,6 +219,7 @@ class Session(
 							Actions.read(
 								listOf(Actions.SHIPPED, written),
 								menu.hidden.toSet(),
+								services.environment,
 								services.world::installed,
 							),
 							terminal,
@@ -283,7 +297,95 @@ class Session(
 				inputs.send(answer)
 			}
 		}
+
+		scope.launch(io) {
+			shows.collectLatest { show ->
+				val answer = answerOf(show)
+
+				ensureActive()
+				inputs.send(answer)
+			}
+		}
+
+		// One run of a text search's command at a time: the next asked for stops the one under way, and so does
+		// the browser's ending.
+		scope.launch(io) {
+			finds.collectLatest { find -> find.run?.let { finding(it) } }
+		}
 	}
+
+	/**
+	 * [run]'s command run, a moment after it was asked for (what is typed next takes its place before it starts): the
+	 * lines it finds sent in as they come, a few times a second and not line by line, and then how it ended. Cancelled
+	 * (another run asked for, or the browser done with), its command is stopped, and nothing more is said of it.
+	 */
+	private suspend fun finding(run: TextRun) =
+		kotlinx.coroutines.coroutineScope {
+			delay(TYPING_MILLIS)
+
+			// How to stop the command, once it has started; and whether it was to be stopped before it had.
+			val halt = Guarded(Halt())
+			val waiting = Guarded(ArrayList<FileHit>())
+
+			fun flush() {
+				val hits =
+					waiting.guarded {
+						toList().also { clear() }
+					}
+
+				if (hits.isNotEmpty())
+					inputs.trySend(Answer.TextFound(run, hits))
+			}
+
+			val sending =
+				launch {
+					while (true) {
+						delay(BATCH_MILLIS)
+						flush()
+					}
+				}
+
+			val work =
+				launch(io) {
+					val ending =
+						try {
+							found(
+								run,
+								services.commands,
+								object : Watch {
+									override fun started(stop: () -> Unit) {
+										val unwanted =
+											halt.guarded {
+												how = stop
+												wanted
+											}
+
+										if (unwanted)
+											stop()
+									}
+								},
+							) { hit -> waiting.guarded { add(hit) } }
+						} catch (failed: RuntimeException) {
+							services.report("Searching for “${run.query}”", failed)
+							TextEnding.Failed(Fault.of(failed).said)
+						}
+
+					ensureActive()
+					flush()
+					inputs.send(Answer.TextEnded(run, ending))
+				}
+
+			try {
+				work.join()
+			} finally {
+				sending.cancel()
+				halt
+					.guarded {
+						wanted = true
+						how
+					}?.invoke()
+			}
+		}
 
 	/** What the conditions of the user's actions are decided by. */
 	val world: World get() = services.world
@@ -301,6 +403,12 @@ class Session(
 
 		/** How often the System page, while it is shown, is read again. */
 		const val STORAGE_MILLIS = 3000L
+
+		/** How long after a text search is asked for its command starts: what is typed meanwhile is searched for instead. */
+		const val TYPING_MILLIS = 120L
+
+		/** How often the lines a text search's command has found since are sent in to be shown. */
+		const val BATCH_MILLIS = 60L
 	}
 
 	/** What the user did, to be folded in after whatever came before it. */
@@ -315,6 +423,8 @@ class Session(
 					previews.tryEmit(effect)
 				else
 					scope.launch(io) { inputs.send(answerOf(effect)) }
+			is Effect.Preview -> shows.tryEmit(effect)
+			is Effect.FindText -> finds.tryEmit(effect)
 			is Effect.Asking -> scope.launch(io) { inputs.send(answerOf(effect)) }
 			is Effect.Copy -> clipboard(effect.text)
 			is Effect.Clip ->
@@ -481,6 +591,7 @@ private fun refusedOf(asking: Effect.Asking, why: String): Answer? =
 		// With no folder to bring them out into, nothing is opened: the action is let go.
 		is Effect.Scratch -> Answer.Ran(Job(asking.pending.action.label, emptyList()), why)
 		is Effect.Temp -> Answer.Ran(Job(asking.carried.pending.action.label, emptyList()), why)
+		is Effect.Preview -> Answer.Previewed(asking.ask, Preview.Unshown(why))
 		is Effect.Look, is Effect.Locate, Effect.ReadStorage, is Effect.Search, is Effect.Stat,
 		is Effect.ReadEntries,
 		is Effect.Order, is Effect.ReadClip, is Effect.ReadRecents,

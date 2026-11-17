@@ -249,6 +249,8 @@ data class Services(
 	val recents: RecentStore = MemoryRecents(),
 	/** What time it is: when a picker was answered, and what "5 minutes ago" is counted from. */
 	val clock: () -> java.time.Instant = java.time.Instant::now,
+	/** What prism's environment names: which editor is the user's, where the preferences say none. */
+	val environment: (String) -> String? = System::getenv,
 ) {
 	/** What conditions are decided by: the desktop's types, the `PATH`, and the disk. */
 	val world: World by lazy { SystemWorld(home, desktop?.types) }
@@ -382,6 +384,7 @@ fun Services.answer(
 		is Effect.Launch -> Answer.Started(launched(asking.job, asking.terminal))
 		is Effect.Temp -> Answer.TempMade(temps.make(), asking.carried)
 		is Effect.Scratch -> Answer.ScratchMade(temps.make(), asking.pending)
+		is Effect.Preview -> Answer.Previewed(asking.ask, previewOf(asking.ask, commands))
 	}
 
 /** [job]'s commands started on the desktop, each a process of its own, or in a terminal: the first that fails, or the last. */
@@ -690,6 +693,21 @@ tailrec fun Step.settled(services: Services): BrowserState {
 		services.preferences.update {
 			hidingRecent(hide.paths.map { it.toString() }, hide.hidden)
 		}
+	}
+
+	// A text search's command is run to its end, here, and what it found told all at once.
+	val finding = effects.filterIsInstance<Effect.FindText>().lastOrNull()?.run
+
+	if (finding != null) {
+		val hits = ArrayList<FileHit>()
+		val ending = found(finding, services.commands, found = hits::add)
+		val told = step(state, Answer.TextFound(finding, hits))
+		val ended = step(told.state, Answer.TextEnded(finding, ending))
+
+		return Step(
+			ended.state,
+			effects.filterNot { it is Effect.FindText } + told.effects + ended.effects,
+		).settled(services)
 	}
 
 	val asking = effects.filterIsInstance<Effect.Asking>()

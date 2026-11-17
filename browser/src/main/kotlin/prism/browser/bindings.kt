@@ -138,6 +138,25 @@ data class Custom(
 }
 
 /**
+ * One of the text searches, as something bound: opened on everything the window shows, from anywhere in it, by the
+ * chord the search names until the user binds another.
+ */
+@Immutable
+data class Searching(
+	val id: String,
+	override val label: String,
+	val default: Chord?,
+) : Scoped {
+	/** [search], as something bound: known by its id, whichever program's command it is read with here. */
+	constructor(search: TextSearch) : this(search.id, search.label, search.key)
+
+	override val key: String get() = "search:$id"
+	override val scope: Scope get() = Scope.Window
+	override val group: KeyGroup get() = KeyGroups.Finding
+	override val defaults: List<Chord> get() = listOfNotNull(default)
+}
+
+/**
  * Everything the browser does from the keyboard or a mouse button, with the chords that do it by default, in the
  * order the window that binds them lists them: each [group] together.
  */
@@ -457,6 +476,12 @@ class Bindings(
 	fun window(chord: Chord): Action? =
 		(find(chord) { it == Scope.Window } as? Action).takeIf { chord.typesNothing }
 
+	/** The text search [chord] opens from anywhere: one bound to a chord no text field types. */
+	fun searching(chord: Chord): Searching? =
+		byChord[chord]?.filterIsInstance<Searching>()?.firstOrNull().takeIf {
+			chord.typesNothing
+		}
+
 	/** What [chord] does from the listing: a row's action, or a window's, or one left to whatever has the keyboard. */
 	fun listing(chord: Chord): Bindable? = listings(chord).firstOrNull()
 
@@ -579,7 +604,11 @@ class Bindings(
 			val written = preferences.pickerBindings.takeIf { role == Role.Picker }
 
 			return if (written == null)
-				of(Action.entries + actions.actions.map(::Custom), preferences.bindings)
+				of(
+					Action.entries + actions.actions.map(::Custom) +
+						actions.searches.map(::Searching),
+					preferences.bindings,
+				)
 			else
 				of(Action.PICKING, written)
 		}

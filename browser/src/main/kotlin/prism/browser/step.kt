@@ -182,7 +182,22 @@ private fun did(state: BrowserState, event: BrowserEvent): Step =
 		BrowserEvent.Up -> state.folder?.parent?.let { state.went(it) } ?: state.upWithin()
 		BrowserEvent.Refreshed -> state.reread()
 		is BrowserEvent.Clicked -> Step(state.clicked(event.row, event.click))
-		BrowserEvent.ClickedNowhere -> Step(state.copy(chose = state.choosing.unchosen()))
+		// What a text search found is left as any place is, by going back: nothing is chosen in it to let go of.
+		BrowserEvent.ClickedNowhere ->
+			if (state.text != null)
+				state.back()
+			else
+				Step(state.copy(chose = state.choosing.unchosen()))
+		is BrowserEvent.SearchedText -> state.searchingText(event.search, event.target)
+		is BrowserEvent.TextTyped -> state.textTyped(event.text)
+		is BrowserEvent.TextOptioned -> state.textOptioned(event.name)
+		is BrowserEvent.TextMoved -> state.textMoved(event.move)
+		is BrowserEvent.TextPointed -> state.textPointed(event.row)
+		is BrowserEvent.TextFolded -> state.textFolded(event.path, event.folded)
+		is BrowserEvent.TextFoldedAll -> state.textFoldedAll(event.folded)
+		is BrowserEvent.TextOpened -> state.textOpened(event.row, event.at)
+		BrowserEvent.TextStopped -> state.textStopped()
+		is BrowserEvent.TextRevealed -> state.textRevealed(event.path)
 		is BrowserEvent.Activated -> state.activated(event.row)
 		// A row given as the answer, from its menu: saving, a file to save over, which is asked first as opening it
 		// asks; otherwise chosen, and accepted.
@@ -645,10 +660,15 @@ internal fun BrowserState.reread(landing: Landing? = null): Step =
 			)
 		// What it shows stays until the new read arrives.
 		is Location.System -> Step(this, listOf(Effect.ReadStorage))
+		// Its command is run again; what it found stays until that finds something.
+		is Location.Text ->
+			textShown(
+				at.copy(running = null, results = at.results.copy(of = null)),
+			)
 		Location.Recents -> Step(this, listOf(readingRecents()))
 	}
 
-private fun BrowserState.back(): Step =
+internal fun BrowserState.back(): Step =
 	history.back.lastOrNull()?.let {
 		shown(
 			it,
@@ -699,24 +719,33 @@ internal fun BrowserState.shown(to: Location, history: History, landing: Landing
 			rereading = null,
 		)
 
-	return when (to) {
-		is Location.Folder ->
-			Step(left.copy(rereading = Rereading(1)), listOf(Effect.Read(to.path)))
-		is Location.Results -> left.showingResults(to.finding)
-		// A place listed already is shown from what its listing gave; one that is not, once it is listed.
-		is Location.Place ->
-			to.tree?.let { Step(left.arrived(Listing.Shown(it.rows(to.within)))) }
-				?: left.listing(to.placed)
-		Location.Trash -> Step(left, listOf(Effect.ReadTrash))
-		// Read afresh: what it showed when it was left is not what is so now.
-		// Which kind it showed, and what was folded, are as they were.
-		is Location.System ->
-			Step(
-				left.copy(at = to.copy(storage = null)),
-				listOf(Effect.ReadStorage),
-			)
-		Location.Recents -> Step(left, listOf(left.readingRecents()))
-	}
+	val gone =
+		when (to) {
+			is Location.Folder ->
+				Step(left.copy(rereading = Rereading(1)), listOf(Effect.Read(to.path)))
+			is Location.Results -> left.showingResults(to.finding)
+			// A place listed already is shown from what its listing gave; one that is not, once it is listed.
+			is Location.Place ->
+				to.tree?.let { Step(left.arrived(Listing.Shown(it.rows(to.within)))) }
+					?: left.listing(to.placed)
+			Location.Trash -> Step(left, listOf(Effect.ReadTrash))
+			// Read afresh: what it showed when it was left is not what is so now.
+			// Which kind it showed, and what was folded, are as they were.
+			is Location.System ->
+				Step(
+					left.copy(at = to.copy(storage = null)),
+					listOf(Effect.ReadStorage),
+				)
+			// It lists no files, and waits for none to be read.
+			is Location.Text -> left.copy(listing = Listing.Shown(emptyList())).textShown(to)
+			Location.Recents -> Step(left, listOf(left.readingRecents()))
+		}
+
+	// A text search left stops looking: what it found so far is found again when it is come back to.
+	return if ((at as? Location.Text)?.running != null && to !is Location.Text)
+		Step(gone.state, listOf(Effect.FindText(null)) + gone.effects)
+	else
+		gone
 }
 
 /**
@@ -1342,6 +1371,9 @@ private fun answered(state: BrowserState, answer: Answer): Step =
 				)
 			} ?: Step(state)
 		is Answer.Searched -> state.searched(answer.finding, answer.purpose)
+		is Answer.TextFound -> state.textFound(answer.run, answer.hits)
+		is Answer.TextEnded -> state.textEnded(answer.run, answer.ending)
+		is Answer.Previewed -> state.previewed(answer.ask, answer.preview)
 		// What was read of results, or an order of them, for results no longer shown, is too late too.
 		is Answer.Stated ->
 			when (val listing = state.listing) {
@@ -1414,6 +1446,8 @@ private fun BrowserState.broke(asking: Effect.Asking, fault: Fault): Step {
 			else
 				Step(this)
 		is Effect.ListPlace -> listed(asking.placed, PlaceListing.Failed(fault.said))
+		// Said where the file would have been shown.
+		is Effect.Preview -> previewed(asking.ask, Preview.Unshown(fault.said))
 		is Effect.Look ->
 			if (asking.lookup == waiting)
 				Step(copy(waiting = null)).said()
@@ -1479,6 +1513,7 @@ internal fun failingOf(asking: Effect.Asking): String =
 		is Effect.ReadRecents -> "Couldn't read recent files and folders"
 		Effect.ReadStorage -> "Couldn't read this computer's storage"
 		is Effect.Search -> "Couldn't search for “${asking.text}”"
+		is Effect.Preview -> "Couldn't show “${asking.ask.path.fileName ?: asking.ask.path}”"
 		is Effect.Stat -> "Couldn't read the sizes and dates of the results"
 		is Effect.ReadEntries ->
 			"Couldn't read what changed in “${asking.folder.fileName ?: asking.folder}”"

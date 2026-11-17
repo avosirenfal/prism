@@ -90,6 +90,44 @@ data class Palette(
 	val pdf: Color,
 	val isDark: Boolean,
 ) {
+	/** What is drawn behind the part of a line that a text search matched. */
+	val match: Color get() =
+		if (isDark)
+			Color(0xFF6A5412)
+		else
+			Color(0xFFFFE08A)
+
+	/** What is drawn behind the line of a file that the line found under the cursor is. */
+	val matchLine: Color get() =
+		if (isDark)
+			Color(0xFF2A3350)
+		else
+			Color(0xFFEAF1FE)
+
+	/**
+	 * The colour a terminal's text is given ([colour]), as this palette draws it: its own eight and their bright ones,
+	 * dark enough to read on a light surface and light enough on a dark one, and the rest as xterm numbers them.
+	 */
+	fun ansi(colour: AnsiColor): Color =
+		when (colour) {
+			is AnsiColor.Rgb -> Color(colour.red, colour.green, colour.blue)
+			is AnsiColor.Indexed ->
+				when (val index = colour.index) {
+					in 0..15 -> (if (isDark) ANSI_DARK else ANSI_LIGHT)[index]
+					in 16..231 ->
+						(index - 16).let { cube ->
+							fun level(step: Int) =
+								if (step == 0)
+									0
+								else
+									55 + step * 40
+
+							Color(level(cube / 36), level(cube / 6 % 6), level(cube % 6))
+						}
+					else -> (8 + (index - 232).coerceIn(0, 23) * 10).let { Color(it, it, it) }
+				}
+		}
+
 	/** The colour [category]'s icon is marked with. */
 	fun mark(category: Category): Color =
 		when (category) {
@@ -106,6 +144,48 @@ data class Palette(
 		}
 
 	companion object {
+		/** A terminal's sixteen colours on a light surface: black, red, green, yellow, blue, magenta, cyan, white, and their bright ones. */
+		private val ANSI_LIGHT =
+			listOf(
+				0xFF1E1F22,
+				0xFFC42B2B,
+				0xFF1F7A4D,
+				0xFF8A6100,
+				0xFF2259C7,
+				0xFF9B3FB5,
+				0xFF0F7B8A,
+				0xFF6C707E,
+				0xFF5A5D6B,
+				0xFFD13B3B,
+				0xFF2E9E6B,
+				0xFFA36A2E,
+				0xFF3574F0,
+				0xFFB453CC,
+				0xFF1A94A6,
+				0xFF8C8F9C,
+			).map { Color(it) }
+
+		/** The same sixteen on a dark surface. */
+		private val ANSI_DARK =
+			listOf(
+				0xFF6F737A,
+				0xFFF07A7A,
+				0xFF6AAB73,
+				0xFFD9A23A,
+				0xFF6B9BFA,
+				0xFFC77DBB,
+				0xFF4CB5C4,
+				0xFFBCBEC4,
+				0xFF8C8F99,
+				0xFFFF8F8F,
+				0xFF7EC98A,
+				0xFFF0C25A,
+				0xFF8AB4FF,
+				0xFFDDA0D2,
+				0xFF6FD0DE,
+				0xFFDFE1E5,
+			).map { Color(it) }
+
 		/** Quiet greys, and one blue that is calm enough to fill a button: an IDE's light theme. */
 		val Light =
 			Palette(

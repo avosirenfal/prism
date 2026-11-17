@@ -10,6 +10,7 @@ import prism.preferences.PlaceSpec
 import prism.preferences.Preferences
 import prism.preferences.ShowSpec
 import prism.preferences.Spec
+import prism.preferences.TextSearchSpec
 import prism.preferences.WhenSpec
 
 /*
@@ -450,7 +451,8 @@ enum class ThingKind(
  */
 @Immutable
 data class Conditions(
-	val on: On = On.Files,
+	/** What the menu must be of; whatever it is of, where null, as a text search is offered unless it says. */
+	val on: On? = On.Files,
 	val types: List<String>? = null,
 	val names: List<Regex>? = null,
 	val kind: ThingKind? = null,
@@ -466,7 +468,7 @@ data class Conditions(
 ) {
 	/** Whether these hold for [subject], in [world]. */
 	fun hold(subject: Subject, world: World): Boolean =
-		on == subject.on && holdBut(subject, world)
+		(on == null || on == subject.on) && holdBut(subject, world)
 
 	/** As [hold], but for what the menu is of, which a negation does not say again. */
 	private fun holdBut(subject: Subject, world: World): Boolean {
@@ -536,7 +538,8 @@ data class Conditions(
 			pattern == type
 
 	companion object {
-		fun read(spec: WhenSpec): Reading<Conditions> {
+		/** [spec] read: for a menu of [unsaid], where it does not say what of. */
+		fun read(spec: WhenSpec, unsaid: On? = On.Files): Reading<Conditions> {
 			fun <T> one(
 				text: String?,
 				of: List<T>,
@@ -553,9 +556,9 @@ data class Conditions(
 			return one(spec.target, On.entries, On::word, "a valid target").then { on ->
 				one(spec.kind, ThingKind.entries, ThingKind::word, "a valid kind").then { kind ->
 					one(spec.count, Count.entries, Count::word, "a valid count").then { count ->
-						(spec.not?.let(::read) ?: Reading.Right(null)).map { not ->
+						(spec.not?.let { read(it) } ?: Reading.Right(null)).map { not ->
 							Conditions(
-								on = on ?: On.Files,
+								on = on ?: unsaid,
 								types = spec.types,
 								names =
 									(
@@ -659,6 +662,9 @@ data class Thing(
 sealed interface Where {
 	val word: String
 
+	/** The values with names being there adds, for a command to name. */
+	val values: Map<String, String> get() = emptyMap()
+
 	data class Folder(
 		val path: Path,
 	) : Where {
@@ -691,12 +697,23 @@ sealed interface Where {
 		 * `within`, the folder shown as a path with a `/` after it (empty at the top), and `depth`, how many folders
 		 * deep that is. A command that brings entries out uses them to leave the folders above behind.
 		 */
-		val values: Map<String, String> get() =
+		override val values: Map<String, String> get() =
 			placed.values +
 				mapOf(
 					"within" to within.joinToString("") { "$it/" },
 					"depth" to within.size.toString(),
 				)
+	}
+
+	/**
+	 * Among the lines [search] found, on one of them: [values] are what is said of that line (its number, its text,
+	 * and what was looked for), which an action offered for it can name.
+	 */
+	data class Text(
+		val search: TextSearch,
+		override val values: Map<String, String> = emptyMap(),
+	) : Where {
+		override val word: String get() = search.id
 	}
 }
 
@@ -713,7 +730,7 @@ data class Subject(
 
 	/** What commands are filled from, with [answers] to what was asked. */
 	fun filling(answers: Map<String, String> = emptyMap()): Filling =
-		Filling(things, folder, (where as? Where.Place)?.values.orEmpty() + answers)
+		Filling(things, folder, where.values + answers)
 }
 
 // ---- an action ---------------------------------------------------------------------------------------------------
@@ -943,7 +960,9 @@ data class Broken(
 	override fun toString(): String = "$what ${id?.let { "“$it”" } ?: "(with no id)"}: $why"
 }
 
-/** Every action and place there is: prism's own (the defaults) and the user's, which replace them by id. */
+/**
+ * Every action, place and text search there is: prism's own (the defaults) and the user's, which replace them by id.
+ */
 @Immutable
 data class Actions(
 	val actions: List<UserAction>,
@@ -953,7 +972,18 @@ data class Actions(
 	val hidden: Set<String> = emptySet(),
 	/** The ids of actions and places written rightly that cannot be run here: none of the programs they need is installed. */
 	val unavailable: Set<String> = emptySet(),
+	/** The text searches, in the order they are written. */
+	val searches: List<TextSearch> = emptyList(),
+	/** What opens a file at a line: the user's editor. */
+	val editor: Editor = Editor.Application,
 ) {
+	/** The text searches offered for [subject], in the order they are written, those hidden left out. */
+	fun searching(subject: Subject, world: World): List<TextSearch> =
+		searches.filter { it.id !in hidden && it.offered(subject, world) }
+
+	/** The text search called [id], where there is one. */
+	fun search(id: String): TextSearch? = searches.firstOrNull { it.id == id }
+
 	private val byId: Map<String, UserAction> by lazy { actions.associateBy { it.id } }
 
 	operator fun get(id: String): UserAction? = byId[id]
@@ -971,6 +1001,9 @@ data class Actions(
 	companion object {
 		val NONE = Actions(emptyList(), emptyMap(), emptyList())
 
+		/** What the editor is known by, where it is said not to read. */
+		private const val EDITOR = "editor"
+
 		/** The values every place has, beside those it takes: where in it the window is. */
 		private val IN_PLACE = setOf("within", "depth")
 
@@ -985,18 +1018,29 @@ data class Actions(
 		}
 
 		/** Prism's own and [preferences]' together. */
-		fun of(preferences: Preferences, installed: (String) -> Boolean = { true }): Actions =
-			read(listOf(SHIPPED, preferences.written), preferences.menu.hidden.toSet(), installed)
+		fun of(
+			preferences: Preferences,
+			environment: (String) -> String? = System::getenv,
+			installed: (String) -> Boolean = { true },
+		): Actions =
+			read(
+				listOf(SHIPPED, preferences.written),
+				preferences.menu.hidden.toSet(),
+				environment,
+				installed,
+			)
 
 		/**
 		 * Every action and place in [files], a later file's replacing an earlier one's of the same id. Where one has
 		 * several ways, it is read as the first whose programs are [installed]; one none of whose ways can be run here
 		 * is left out, without being said to be wrong ([Actions.unavailable]). Unless told, every program is taken to
-		 * be installed, which reads everything, as its first way.
+		 * be installed, which reads everything, as its first way. The editor is the last file's that names one, or
+		 * the one [environment] names.
 		 */
 		fun read(
 			files: List<ActionsFile>,
 			hidden: Set<String> = emptySet(),
+			environment: (String) -> String? = { null },
 			installed: (String) -> Boolean = { true },
 		): Actions {
 			val broken = ArrayList<Broken>()
@@ -1017,6 +1061,8 @@ data class Actions(
 
 			val placeSpecs = written(files.flatMap { it.placeSpecs() }, "place") { it.id }
 			val actionSpecs = written(files.flatMap { it.actionSpecs() }, "action") { it.id }
+			val searchSpecs =
+				written(files.flatMap { it.textSearchSpecs() }, "text search") { it.id }
 
 			fun <S, T> meant(
 				specs: Map<String, S>,
@@ -1038,7 +1084,12 @@ data class Actions(
 					}.toMap()
 
 			val places = meant(placeSpecs, "place") { placeOf(it, installed) }
-			val taken = placeSpecs.mapValues { it.value.takes }
+			val searches = meant(searchSpecs, "text search") { searchOf(it, installed) }
+			// What an action that says it is only in a place, or among a text search's lines, can name there.
+			val taken =
+				placeSpecs.mapValues { it.value.takes.toSet() + IN_PLACE } +
+					searches.mapValues { it.value.named }
+
 			val plain =
 				meant(actionSpecs.filterValues { it.like == null }, "action") {
 					// A place that cannot be listed here is not one to show, which is nothing wrong with the action.
@@ -1096,7 +1147,28 @@ data class Actions(
 						wrong == null
 					}
 
-			return Actions(all, sound, broken, hidden, unavailable)
+			val editor =
+				when (
+					val read =
+						Editor.of(
+							files.lastOrNull { it.editor != null }?.editor,
+							environment,
+						)
+				) {
+					is Reading.Right -> read.value
+					is Reading.Wrong ->
+						Editor.Application.also { broken += Broken("editor", EDITOR, read.why) }
+				}
+
+			return Actions(
+				all,
+				sound,
+				broken,
+				hidden,
+				unavailable,
+				searchSpecs.keys.mapNotNull(searches::get),
+				editor,
+			)
 		}
 
 		/**
@@ -1178,18 +1250,172 @@ data class Actions(
 		/** The values with names in an action that says it is only [within] these places: those every one takes. */
 		private fun namedIn(
 			within: List<String>?,
-			taken: Map<String, List<String>>,
+			taken: Map<String, Set<String>>,
 		): Set<String> =
 			within
-				?.map { taken[it]?.let { takes -> takes.toSet() + IN_PLACE }.orEmpty() }
+				?.map { taken[it].orEmpty() }
 				?.reduceOrNull { all, its -> all intersect its }
 				.orEmpty()
+
+		/** A text search, as it is declared: what it says checked, and its commands read. */
+		private fun searchOf(
+			spec: TextSearchSpec,
+			installed: (String) -> Boolean,
+		): Reading<TextSearch> {
+			val run = spec.run
+			// Each way with its command; none, for a way that has none.
+			val ways = spec.ways.map { way -> way.run?.let { way.programs to it } }
+			val asked = setOf(TextSearch.QUERY, TextSearch.OPTIONS)
+
+			val finding =
+				when {
+					run != null && ways.isNotEmpty() ->
+						Reading.Wrong("It has both “run” and “ways”. Use one or the other")
+					run != null -> Command.read(run, asked, installed)
+					null in ways -> Reading.Wrong("Each of its ways needs a “run”")
+					ways.isNotEmpty() -> wayOf(ways.filterNotNull(), asked, installed)
+					else -> Reading.Wrong("It needs a “run” command")
+				}
+
+			return finding.then { command ->
+				val options =
+					command.words
+						.filterIsInstance<Word.One>()
+						.count { word ->
+							word.phrase.holes.any {
+								it is Hole.Value &&
+									it.name == TextSearch.OPTIONS
+							}
+						}
+
+				when {
+					command.named ->
+						Reading.Wrong(
+							"Its command is given the files on its standard input, and can't use the selected files",
+						)
+					options != command.words.count { it.isOptions } ->
+						Reading.Wrong(
+							"“{options}” expands to several arguments, so it must be an argument on its own",
+						)
+					else ->
+						word(
+							spec.query ?: QueryUse.Typed.word,
+							QueryUse.entries,
+							QueryUse::word,
+							"a valid use of the query",
+						).then { query ->
+							word(
+								spec.read ?: HitRead.Lines.word,
+								HitRead.entries,
+								HitRead::word,
+								"a valid way to read",
+							).then { read ->
+								word(
+									spec.positions ?: Positions.Lines.word,
+									Positions.entries,
+									Positions::word,
+									"a valid kind of position",
+								).then { positions ->
+									// What is said of a line found, which a command for it can name beside the file itself.
+									val named = setOf(positions.hole, TextSearch.TEXT, TextSearch.QUERY)
+
+									previewOf(spec, named, installed).then { preview ->
+										openerOf(spec.open, named, installed).then { open ->
+											Conditions.read(spec.conditions, unsaid = null).then { conditions ->
+												keyOf(spec.key).map { key ->
+													TextSearch(
+														id = spec.id,
+														label = spec.label,
+														conditions = conditions,
+														submenu = submenuOf(spec.submenu),
+														key = key,
+														query = query,
+														options =
+															spec.options.map { (name, option) ->
+																TextOption(name, option.label, option.on, option.off)
+															},
+														run = command,
+														read = read,
+														nul = spec.nul,
+														positions = positions,
+														preview = preview,
+														open = open,
+													)
+												}
+											}
+										}
+									}
+								}
+							}
+						}
+				}
+			}
+		}
+
+		/**
+		 * The command that shows a file beside a line found in it: the one said, or the first of several whose programs
+		 * are installed; none, where none is said or none of them can be run here, and prism reads the file itself.
+		 */
+		private fun previewOf(
+			spec: TextSearchSpec,
+			named: Set<String>,
+			installed: (String) -> Boolean,
+		): Reading<Command?> {
+			val preview = spec.preview
+			val ways = spec.previews.map { way -> way.run?.let { way.programs to it } }
+
+			val read: Reading<Command?> =
+				when {
+					preview != null && ways.isNotEmpty() ->
+						Reading.Wrong("It has both “preview” and “previews”. Use one or the other")
+					preview != null -> Command.read(preview, named, installed)
+					null in ways -> Reading.Wrong("Each of its previews needs a “run”")
+					ways.isNotEmpty() ->
+						when (val way = wayOf(ways.filterNotNull(), named, installed)) {
+							is Reading.Right -> way
+							is Reading.Wrong ->
+								if (way.missing)
+									Reading.Right(null)
+								else
+									way
+						}
+					else -> Reading.Right(null)
+				}
+
+			return read.then { command ->
+				if (command != null && fileless(command))
+					Reading.Wrong("Its preview must name the file to show, as {path}")
+				else
+					Reading.Right(command)
+			}
+		}
+
+		/** Whether [command] names no one file on disk, which a command for a line found in one must. */
+		private fun fileless(command: Command): Boolean =
+			!command.forEach || command.needs != setOf(Need.Real)
+
+		/** What opens a file at a line, as it is written; [named] are what is said of the line. */
+		internal fun openerOf(
+			spec: prism.preferences.OpenSpec?,
+			named: Set<String>,
+			installed: (String) -> Boolean = { true },
+		): Reading<Opener?> =
+			when (spec) {
+				null -> Reading.Right(null)
+				else ->
+					Command.read(spec.run, named, installed).then { command ->
+						if (fileless(command))
+							Reading.Wrong("What opens a file must name it, as {path}")
+						else
+							Reading.Right(Opener(command, spec.terminal))
+					}
+			}
 
 		private fun actionOf(
 			spec: ActionSpec,
 			places: Map<String, PlaceType>,
 			/** What each place written takes, whether or not it can be listed here: what its actions may name. */
-			taken: Map<String, List<String>>,
+			taken: Map<String, Set<String>>,
 			installed: (String) -> Boolean,
 		): Reading<UserAction> {
 			val named = namedIn(spec.conditions.within, taken) + spec.ask.keys + TEMP
@@ -1259,7 +1485,7 @@ data class Actions(
 		private fun likeOf(
 			spec: ActionSpec,
 			plain: Map<String, UserAction>,
-			taken: Map<String, List<String>>,
+			taken: Map<String, Set<String>>,
 		): Reading<UserAction> {
 			val base =
 				plain[spec.like]
@@ -1446,8 +1672,10 @@ data class Actions(
 				?: Reading.Right(read.map { (it as Reading.Right).value })
 		}
 
-		private fun keyOf(spec: ActionSpec): Reading<Chord?> =
-			when (val key = spec.key) {
+		private fun keyOf(spec: ActionSpec): Reading<Chord?> = keyOf(spec.key)
+
+		private fun keyOf(key: String?): Reading<Chord?> =
+			when (key) {
 				null -> Reading.Right(null)
 				else ->
 					Chord.parse(key)?.let { Reading.Right(it) }

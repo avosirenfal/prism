@@ -9,11 +9,13 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
 /*
- * The user's own actions and places, as the preferences file writes them: the shapes of the JSON, and nothing of what
- * they mean. An action is something a context menu offers (or a key does) beyond what prism does itself; a place is
- * something a window shows that is not a folder on disk, listed by a command (docs/menus.md).
+ * The user's own actions, places and text searches, as the preferences file writes them: the shapes of the JSON, and
+ * nothing of what they mean. An action is something a context menu offers (or a key does) beyond what prism does
+ * itself; a place is something a window shows that is not a folder on disk, listed by a command (docs/menus.md); a
+ * text search is a command that finds lines in the files a window shows, which the window then shows in their place
+ * (docs/text.md).
  *
- * Each action and each place is read on its own, so one written wrong is said to be, with why, and the rest are still
+ * Each of them is read on its own, so one written wrong is said to be, with why, and the rest are still
  * read. What they mean, and whether what they say can be done (a placeholder nothing fills, a place nothing declares),
  * is checked by whoever uses them (the browser's actions.kt), which says so in the same way.
  */
@@ -182,6 +184,61 @@ data class PlaceSpec(
 	val into: String? = null,
 )
 
+/**
+ * A text search as it is written: a command given the files a window shows, whose lines of output are lines found in
+ * them, shown in the window grouped by file, each file beside its lines (docs/text.md).
+ */
+@Serializable
+data class TextSearchSpec(
+	val id: String,
+	val label: String,
+	/** When it is offered: every condition named must hold. Whatever the menu is of, unless `target` says. */
+	@SerialName("when")
+	val conditions: WhenSpec = WhenSpec(),
+	/** The submenu it is offered in, levels apart by `/`. */
+	val submenu: String? = null,
+	/** The chord that opens it on everything the window shows, until the user binds another. */
+	val key: String? = null,
+	/**
+	 * What is typed into it: `typed` (unless said), which the command is run again for as it changes, and names as
+	 * `{query}`; or `narrows`, which the command is run once without, and which narrows what it printed.
+	 */
+	val query: String? = null,
+	/** What can be turned on beside the query, each by its name: the words `{options}` becomes say which are. */
+	val options: Map<String, OptionSpec> = emptyMap(),
+	/** The command, as its words. One of this and [ways]. */
+	val run: List<String>? = null,
+	/** Several commands that find the same with different programs, the most to be preferred first. */
+	val ways: List<WaySpec> = emptyList(),
+	/** How what it prints is read: `lines` (unless said), `rg-json`, or `json`. */
+	val read: String? = null,
+	/** For `lines`: whether a NUL character ends each path, as `grep -Z` and `rg -0` print them, and not a colon. */
+	val nul: Boolean = false,
+	/** What the number printed with each line is: `lines` (unless said), a line of the file; or `offsets`, a byte of it. */
+	val positions: String? = null,
+	/** The command whose output is shown beside a line found: the file, coloured. Prism reads the file, where none is said. */
+	val preview: List<String>? = null,
+	/** Several commands that show the same with different programs: the first whose programs are installed. */
+	val previews: List<WaySpec> = emptyList(),
+	/** What opening a line found does, in place of the user's editor. */
+	val open: OpenSpec? = null,
+)
+
+/** Something turned on or off beside a text search's query: the words its command is given when it is [on], and when [off]. */
+@Serializable
+data class OptionSpec(
+	val label: String,
+	val on: List<String> = emptyList(),
+	val off: List<String> = emptyList(),
+)
+
+/** A command that opens a file at a line: its words, and whether it runs in the user's terminal. */
+@Serializable
+data class OpenSpec(
+	val run: List<String>,
+	val terminal: Boolean = false,
+)
+
 /** How the context menus are arranged (menus.kt), and what of them is left out wherever it would be. */
 @Serializable
 data class MenuSpec(
@@ -227,11 +284,14 @@ sealed interface Spec<out T> {
 	) : Spec<Nothing>
 }
 
-/** Actions and places together: what a file of them holds, and what the preferences hold of them. */
+/** Actions, places and text searches together: what a file of them holds, and what the preferences hold of them. */
 @Serializable
 data class ActionsFile(
 	val actions: List<JsonElement> = emptyList(),
 	val places: List<JsonElement> = emptyList(),
+	val textSearches: List<JsonElement> = emptyList(),
+	/** What opens a file at a line, as the user says it: their editor. */
+	val editor: OpenSpec? = null,
 ) {
 	fun actionSpecs(): List<Spec<ActionSpec>> =
 		actions.map {
@@ -239,6 +299,9 @@ data class ActionsFile(
 		}
 
 	fun placeSpecs(): List<Spec<PlaceSpec>> = places.map { read(PlaceSpec.serializer(), it) }
+
+	fun textSearchSpecs(): List<Spec<TextSearchSpec>> =
+		textSearches.map { read(TextSearchSpec.serializer(), it) }
 
 	companion object {
 		// Strict about names: a condition written wrong (`"typs"`) must be said, not taken as no condition at all.

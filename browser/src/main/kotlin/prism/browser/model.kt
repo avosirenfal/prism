@@ -403,6 +403,9 @@ sealed class Rows {
 
 	abstract fun indexOf(id: RowId): Int?
 
+	/** Where the row at [index] is on disk, where it is, without making the row. */
+	open fun pathAt(index: Int): Path? = this[index].path
+
 	/**
 	 * These rows, with what they are looked up by worked out now, by whoever asks: off the windows' thread, by what
 	 * read a large folder there, where it would otherwise be worked out the first time a row is looked for.
@@ -496,6 +499,13 @@ sealed class Rows {
 		override fun idAt(index: Int): RowId = RowId.Found(matches, order[index])
 
 		override fun nameAt(index: Int): String = matches.nameOf(order[index])
+
+		// A result of a search in a place may be an entry that is nowhere on disk, which its row says.
+		override fun pathAt(index: Int): Path? =
+			if (matches.tree == null)
+				matches.pathOf(order[index])
+			else
+				super.pathAt(index)
 
 		/** Where a result of these matches is shown; nowhere, for a result of any other search's. */
 		override fun indexOf(id: RowId): Int? =
@@ -865,6 +875,60 @@ sealed interface Location {
 		val within: List<String> = emptyList(),
 		val tree: PlaceTree? = null,
 	) : Location
+
+	/**
+	 * What a text search found in the files the window showed ([scope]), in their place (docs/text.md): the lines
+	 * found, under the file each is in, and beside them the file the line under the [cursor] is in. It lists no files.
+	 *
+	 * [query] is what is typed and [on] the options turned on; [running] the run of its command under way, where one
+	 * is; [results] what the last run to find anything found, which stays shown while the next is under way, until
+	 * that finds something or ends. [folded] are the files whose lines are put away under them. [previewed] is the
+	 * file shown beside the list, and [asked] the one asked for and not yet read.
+	 */
+	data class Text(
+		val search: TextSearch,
+		val scope: TextScope,
+		val query: String = "",
+		val on: Set<String> = emptySet(),
+		val running: TextRun? = null,
+		val results: TextResults = TextResults.NONE,
+		val folded: Set<Path> = emptySet(),
+		val cursor: TextRowId? = null,
+		val previewed: Previewed? = null,
+		val asked: PreviewAsk? = null,
+		private val listed: TextListed = TextListed(),
+	) : Location {
+		/** What is typed, where it narrows what was found and is not what the command looks for. */
+		val narrowing: String get() =
+			if (search.query == QueryUse.Narrows)
+				query
+			else
+				""
+
+		/** What its list shows: the files, and the lines under those not folded. */
+		val rows: TextRows get() = listed.of(results.hits, folded, narrowing)
+
+		/** The line found that the cursor is on, where it is on one. */
+		val line: TextRow.Line? get() = cursor?.let { rows[it] } as? TextRow.Line
+
+		/** What is said of the row [id] is, for a command for it to name: its place in its file, its text, and what was looked for. */
+		fun valuesOf(id: TextRowId, position: Long? = null): Map<String, String> {
+			val hit =
+				(id as? TextRowId.Line)?.let {
+					results.hits[it.path]?.hits?.getOrNull(it.index)
+				}
+			val at = position ?: hit?.position
+
+			return mapOf(
+				// What opens a file is told a line, whatever the search's positions are.
+				Positions.Lines.hole to
+					(at.takeIf { search.positions == Positions.Lines } ?: 1L).toString(),
+				search.positions.hole to (at ?: search.positions.first).toString(),
+				TextSearch.TEXT to hit?.text.orEmpty(),
+				TextSearch.QUERY to query,
+			)
+		}
+	}
 
 	/** The trash: every trash's entries, the home trash's and each drive's, together. */
 	data object Trash : Location
@@ -1532,6 +1596,7 @@ data class BrowserState(
 				is Location.Place -> Where.Place(at.placed, at.within)
 				Location.Trash -> Where.Trash
 				is Location.System -> Where.System
+				is Location.Text -> Where.Text(at.search)
 				// Files and folders of anywhere, as a search's results are: what is done to those is done to these.
 				Location.Recents -> Where.Results
 			}
@@ -1542,11 +1607,18 @@ data class BrowserState(
 	/** The System page shown, where it is. */
 	val system: Location.System? get() = at as? Location.System
 
+	/** The text search shown, where one is. */
+	val text: Location.Text? get() = at as? Location.Text
+
+	/** Whether what is shown lists files: not the System page, nor what a text search found. */
+	val listsFiles: Boolean get() = system == null && text == null
+
 	/**
 	 * Whether the window has a sidebar at all, open or closed: not where what it shows is a place that is a tool of
-	 * its own (an archive's window), which has no places on disk beside it.
+	 * its own (an archive's window), which has no places on disk beside it; nor where it is what a text search found,
+	 * which has the file a line is in beside it and needs the window's width.
 	 */
-	val sidebared: Boolean get() = inPlace?.placed?.type?.sidebar != false
+	val sidebared: Boolean get() = inPlace?.placed?.type?.sidebar != false && text == null
 
 	/** What the window is for, as how its listings look goes. */
 	val role: Role get() =
@@ -1565,6 +1637,7 @@ data class BrowserState(
 				Location.Trash -> ListingKind.Trash
 				// It lists no files: as far as how a listing would look goes, it is a folder's, which it never draws.
 				is Location.System -> ListingKind.Folder
+				is Location.Text -> ListingKind.Folder
 				// Its rows are in its own order and drawn its own way: narrowed as a folder's are, and no more.
 				Location.Recents -> ListingKind.Folder
 			}
@@ -1634,6 +1707,7 @@ data class BrowserState(
 				is Location.Place -> at.within.lastOrNull() ?: at.placed.title
 				Location.Trash -> "Trash"
 				is Location.System -> "System"
+				is Location.Text -> at.search.label.removeSuffix("…")
 				Location.Recents -> "Recents"
 			}
 

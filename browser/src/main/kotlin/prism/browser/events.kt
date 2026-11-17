@@ -56,6 +56,65 @@ sealed interface BrowserEvent : Input {
 	/** The folder shown, read again. */
 	data object Refreshed : BrowserEvent
 
+	// ---- a text search ----
+
+	/**
+	 * [search] opened on [target]: what was chosen, or a folder of the sidebar; on everything the window shows, where
+	 * null.
+	 */
+	data class SearchedText(
+		val search: TextSearch,
+		val target: Target? = null,
+	) : BrowserEvent
+
+	/** What a text search looks for typed, to be [text]. */
+	data class TextTyped(
+		val text: String,
+	) : BrowserEvent
+
+	/** The option [name] of the text search shown turned on, or off, whichever it was not. */
+	data class TextOptioned(
+		val name: String,
+	) : BrowserEvent
+
+	/** The cursor of a text search's list moved. */
+	data class TextMoved(
+		val move: Move,
+	) : BrowserEvent
+
+	/** A row of a text search's list pressed: the cursor goes to it. */
+	data class TextPointed(
+		val row: TextRowId,
+	) : BrowserEvent
+
+	/** The lines found in [path] put away under it, or shown again: as [folded] says, or whichever they were not. */
+	data class TextFolded(
+		val path: Path,
+		val folded: Boolean? = null,
+	) : BrowserEvent
+
+	/** Every file's lines put away under it, or shown again. */
+	data class TextFoldedAll(
+		val folded: Boolean,
+	) : BrowserEvent
+
+	/**
+	 * [row] opened in the editor, at its line: the row under the cursor, where null. At line [at] of its file, where
+	 * that is said: a line of the file shown beside the list, which need be no line found.
+	 */
+	data class TextOpened(
+		val row: TextRowId? = null,
+		val at: Long? = null,
+	) : BrowserEvent
+
+	/** The text search's command, under way, stopped. */
+	data object TextStopped : BrowserEvent
+
+	/** The folder [path] is in gone to, with it chosen there: "Show in folder", of a file lines were found in. */
+	data class TextRevealed(
+		val path: Path,
+	) : BrowserEvent
+
 	// ---- the listing ----
 
 	/** A row pressed with the pointer, with [click] saying what the keys held made of it. */
@@ -653,6 +712,24 @@ sealed interface Answer : Input {
 	data class Ran(
 		val job: Job,
 		val failure: String?,
+	) : Answer
+
+	/** Lines [run] found, as its command printed them. */
+	data class TextFound(
+		val run: TextRun,
+		val hits: List<FileHit>,
+	) : Answer
+
+	/** [run]'s command ended, as [ending] says. */
+	data class TextEnded(
+		val run: TextRun,
+		val ending: TextEnding,
+	) : Answer
+
+	/** The file [ask] asked for, as it is shown. */
+	data class Previewed(
+		val ask: PreviewAsk,
+		val preview: Preview,
 	) : Answer
 
 	/**
@@ -1257,6 +1334,23 @@ sealed interface Effect {
 	data class Temp(
 		val carried: Carried,
 	) : Asking
+
+	/**
+	 * [ask]'s file read to be shown, sent back as [Answer.Previewed]. It is overtaken by the next one asked for: only
+	 * the latest is answered.
+	 */
+	data class Preview(
+		val ask: PreviewAsk,
+	) : Asking
+
+	/**
+	 * [run]'s command run, the lines it finds sent back as it prints them ([Answer.TextFound]) and then how it ended
+	 * ([Answer.TextEnded]). It takes the place of the run under way, which is stopped and says no more; with none
+	 * (null), that is all it does.
+	 */
+	data class FindText(
+		val run: TextRun?,
+	) : Effect
 
 	/** [task], under way, stopped, with whatever its command started. */
 	data class Stop(

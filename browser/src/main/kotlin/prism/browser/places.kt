@@ -315,24 +315,67 @@ interface Watch {
 	}
 }
 
-/** What runs the commands prism waits for: a place's listing, and an action's watched command. */
+/** What runs the commands prism waits for: a place's listing, an action's watched command, a text search's. */
 fun interface Commands {
 	fun run(invocation: Invocation, watch: Watch): Ran
 
 	fun run(invocation: Invocation): Ran = run(invocation, Watch.NONE)
+
+	/**
+	 * [invocation] run with [input] to read, where it has any (written by [input], which is given what to write it
+	 * to), and each line it prints given to [line] as it prints it: what it came to, without what it printed, which
+	 * [line] was told. For a command that may print a great deal, and whose lines are wanted as they come.
+	 *
+	 * Unless a way of running commands says how, the command is run as any is, with nothing to read, and its lines
+	 * are told once it has ended.
+	 */
+	fun stream(
+		invocation: Invocation,
+		input: ((java.io.OutputStream) -> Unit)?,
+		watch: Watch,
+		line: (String) -> Unit,
+	): Ran =
+		run(invocation, watch).let { ran ->
+			ran.output
+				.lineSequence()
+				.filter { it.isNotEmpty() }
+				.forEach(line)
+			ran.copy(output = "")
+		}
 }
 
 /** Commands run as processes, with nothing of prism's to read, and all they write kept and told as it is written. */
 object ProcessCommands : Commands {
 	override fun run(invocation: Invocation, watch: Watch): Ran =
+		ran(invocation, null, watch, null)
+
+	override fun stream(
+		invocation: Invocation,
+		input: ((java.io.OutputStream) -> Unit)?,
+		watch: Watch,
+		line: (String) -> Unit,
+	): Ran = ran(invocation, input, watch, line)
+
+	/**
+	 * [invocation] run and waited for. What it reads is what [input] writes, or nothing. What it prints is kept, and
+	 * told to [watch]; or, where [line] takes its lines, given to that as they come and not kept.
+	 */
+	private fun ran(
+		invocation: Invocation,
+		input: ((java.io.OutputStream) -> Unit)?,
+		watch: Watch,
+		line: ((String) -> Unit)?,
+	): Ran =
 		try {
 			val process =
 				ProcessBuilder(invocation.words)
 					.asChildOfPrism()
 					.directory(invocation.folder.toFile())
-					.redirectInput(ProcessBuilder.Redirect.from(java.io.File("/dev/null")))
-					.apply { environment().putAll(invocation.environment) }
-					.start()
+					.apply {
+						if (input == null)
+							redirectInput(ProcessBuilder.Redirect.from(java.io.File("/dev/null")))
+						environment().putAll(invocation.environment)
+					}.start()
 
 			val stopped = AtomicBoolean(false)
 
@@ -349,10 +392,14 @@ object ProcessCommands : Commands {
 				val kept = StringBuilder()
 
 				try {
-					stream.bufferedReader().forEachLine { line ->
-						kept.append(line).append('\n')
-						said.append(line).append('\n')
-						watch.said(line, error)
+					stream.bufferedReader().forEachLine { printed ->
+						if (error || line == null) {
+							kept.append(printed).append('\n')
+							said.append(printed).append('\n')
+							watch.said(printed, error)
+						} else {
+							line(printed)
+						}
 					}
 				} catch (closed: IOException) {
 					// The command closed its end: what was read so far is what it said.
@@ -361,18 +408,35 @@ object ProcessCommands : Commands {
 				return kept
 			}
 
+			fun aside(name: String, work: () -> Unit): Thread =
+				Thread(work, name).apply {
+					isDaemon = true
+					start()
+				}
+
+			// Written while what it prints is read: a command that prints before it has read everything would
+			// otherwise wait for its output to be read, by a prism waiting for it to read.
+			val writer =
+				input?.let { write ->
+					aside("prism command input") {
+						try {
+							process.outputStream.use(write)
+						} catch (closed: IOException) {
+							// The command read as much as it wanted, or was stopped.
+						}
+					}
+				}
+
 			// Both read at once: a command that fills one pipe while the other is read would wait for ever.
 			// Set by the one thread that reads it, and read once that thread is done: a place to put what it read.
 			val errors = AtomicReference(StringBuilder())
 			val reader =
-				Thread { errors.set(read(process.errorStream, error = true)) }.apply {
-					isDaemon = true
-					start()
-				}
+				aside("prism command errors") { errors.set(read(process.errorStream, error = true)) }
 			val output = read(process.inputStream, error = false)
 			val status = process.waitFor()
 
 			reader.join()
+			writer?.join()
 
 			if (stopped.get())
 				Ran(null, output.toString(), STOPPED)

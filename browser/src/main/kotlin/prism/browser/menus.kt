@@ -78,7 +78,24 @@ fun contextMenuOf(
 			(target as? Target.Rows)?.rows?.size ==
 				1
 		}
-	val own = ownActions(offered - setOfNotNull(opener), subject, bindings, state.terminal)
+
+	// What looks into the files shown: an explorer's to offer, as the actions are.
+	val searching =
+		if (acting)
+			state.actions.searching(subject, world)
+		else
+			emptyList()
+
+	val own =
+		ownActions(
+			offered - setOfNotNull(opener),
+			searching,
+			subject,
+			target,
+			bindings,
+			state.terminal,
+		)
+
 	val key = state.menuKeyOf(target)
 	val slots =
 		when (target) {
@@ -133,10 +150,16 @@ private fun slots(build: Slots.() -> Unit): Map<String, List<MenuEntry<BrowserEv
 private fun Bindings.keys(action: Bindable): String? =
 	of(action).firstOrNull()?.toString()
 
-/** [offered], the user's actions for [subject], as a menu's entries: those of no submenu, then each submenu, nested. */
+/**
+ * [offered], the user's actions for [subject], and [searching], the text searches for it, as a menu's entries: those
+ * of no submenu, then each submenu, nested. A search chosen from the menu of [target] looks in what the menu is of:
+ * the rows, or everything the window shows.
+ */
 private fun ownActions(
 	offered: List<UserAction>,
+	searching: List<TextSearch>,
 	subject: Subject,
+	target: Target,
 	bindings: Bindings,
 	terminal: TerminalChoice,
 ): List<MenuEntry<BrowserEvent>> {
@@ -144,26 +167,141 @@ private fun ownActions(
 	fun runs(action: UserAction): Boolean =
 		terminal.runsCommands || (action.deed as? Deed.Run)?.how != How.Terminal
 
-	fun entries(actions: List<UserAction>, depth: Int): List<MenuEntry<BrowserEvent>> {
-		val here = actions.filter { it.submenu.size == depth }
-		val below = actions.filter { it.submenu.size > depth }.groupBy { it.submenu[depth] }
+	val within = target.takeUnless { it == Target.Folder }
 
-		return here.map {
-			MenuEntry.Item(
-				it.label,
-				BrowserEvent.Did(it, subject) as BrowserEvent,
-				keys = bindings.keys(Custom(it)),
-				enabled = runs(it),
-				id = it.id,
-			)
+	// Each with the submenus it is under.
+	val items: List<Pair<List<String>, MenuEntry.Item<BrowserEvent>>> =
+		offered.map {
+			it.submenu to
+				MenuEntry.Item(
+					it.label,
+					BrowserEvent.Did(it, subject) as BrowserEvent,
+					keys = bindings.keys(Custom(it)),
+					enabled = runs(it),
+					id = it.id,
+				)
 		} +
+			searching.map {
+				it.submenu to
+					MenuEntry.Item(
+						it.label,
+						BrowserEvent.SearchedText(it, within) as BrowserEvent,
+						// Its key opens it on everything shown, which is what it does from the menu of that alone.
+						keys = bindings.keys(Searching(it)).takeIf { within == null },
+						id = it.id,
+					)
+			}
+
+	fun entries(
+		items: List<Pair<List<String>, MenuEntry.Item<BrowserEvent>>>,
+		depth: Int,
+	): List<MenuEntry<BrowserEvent>> {
+		val here = items.filter { it.first.size == depth }
+		val below = items.filter { it.first.size > depth }.groupBy { it.first[depth] }
+
+		return here.map { it.second } +
 			below.map { (label, under) ->
 				MenuEntry.Submenu(label, Menu(entries(under, depth + 1)))
 			}
 	}
 
-	return entries(offered, 0)
+	return entries(items, 0)
 }
+
+/**
+ * The menu of [row] of the text search [state] shows (docs/text.md). A line found is opened in the editor, and is
+ * offered what the user's actions that are for this search's lines do. A file is a file on disk, and is offered
+ * whatever their actions do to one, wherever it is shown.
+ */
+fun textMenuOf(
+	state: BrowserState,
+	row: TextRow,
+	bindings: Bindings = Bindings.DEFAULT,
+	world: World = World.Bare(state.home),
+): Menu<BrowserEvent> {
+	val text = state.text ?: return Menu(emptyList())
+	val path = row.id.path
+	val subject = state.textSubject(row.id)
+
+	val offered =
+		subject
+			?.let { state.actions.offered(it, world) }
+			.orEmpty()
+			// A line is not its file: only what says it is for this search's lines is offered for one.
+			.filter {
+				row is TextRow.File || it.conditions.within?.contains(
+					text.search.id,
+				) == true
+			}
+
+	return menu {
+		item(
+			"Open in editor",
+			BrowserEvent.TextOpened(row.id),
+			keys = bindings.keys(Action.Open),
+			id = "builtin.open-in-editor",
+		)
+		if (row is TextRow.File)
+			item(
+				"Open with…",
+				BrowserEvent.Requested(Request.OpenWith(listOf(path))),
+				id = "builtin.open-with",
+			)
+		subject?.let {
+			ownActions(
+				offered,
+				emptyList(),
+				it,
+				Target.Folder,
+				bindings,
+				state.terminal,
+			).forEach(::add)
+		}
+		separator()
+		item("Show in folder", BrowserEvent.TextRevealed(path), id = "builtin.show-in-folder")
+		if (row is TextRow.Line)
+			item("Copy line", BrowserEvent.CopiedText(row.hit.text), id = "builtin.copy-line")
+		item(
+			"Copy path",
+			BrowserEvent.CopiedPaths(listOf(path)),
+			keys = bindings.keys(Action.CopyPaths),
+			id = "builtin.copy-path",
+		)
+		if (row is TextRow.File) {
+			item(
+				"Properties",
+				BrowserEvent.Requested(Request.Properties(listOf(path))),
+				keys = bindings.keys(Action.Properties),
+				id = "builtin.properties",
+			)
+			separator()
+			item(
+				if (row.folded) "Expand" else "Collapse",
+				BrowserEvent.TextFolded(path),
+			)
+			item("Collapse all", BrowserEvent.TextFoldedAll(true))
+			item("Expand all", BrowserEvent.TextFoldedAll(false))
+		}
+	}.without(state.actions.hidden)
+}
+
+/**
+ * The menu of line [at] of [path], shown beside the lines a text search found in it: any line of the file, which need
+ * be none that was found, opened in the editor.
+ */
+fun previewMenuOf(path: Path, at: Long?, line: String): Menu<BrowserEvent> =
+	menu {
+		item(
+			if (at == null)
+				"Open in editor"
+			else
+				"Edit this line",
+			BrowserEvent.TextOpened(TextRowId.File(path), at),
+			id = "builtin.edit-line",
+		)
+		separator()
+		item("Copy line", BrowserEvent.CopiedText(line), id = "builtin.copy-line")
+	}
 
 /** What prism offers for [rows], each in its slot. */
 private fun rowsSlots(
