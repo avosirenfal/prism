@@ -226,7 +226,9 @@ object SystemClipboard {
 				return@call it.types[TEXT_UTF8]?.decodeToString()?.takeIf(String::isNotEmpty)
 			}
 
-			SDL_GetClipboardText()?.takeIf { it.isNotEmpty() }
+			SDL_GetClipboardText()?.takeIf { it.isNotEmpty() }.also {
+				Log.say { "clipboard: the desktop's text is ${it?.length ?: "not there"}" }
+			}
 		}
 }
 

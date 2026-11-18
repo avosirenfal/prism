@@ -416,6 +416,9 @@ private fun windowAction(
 						Request.NewWindow(state.folder ?: state.home),
 					).takeIf { exploring }
 			Action.Preferences -> BrowserEvent.Requested(Request.Preferences).takeIf { exploring }
+			// Into the folder shown, from wherever in the window the keyboard is but a text field, which pastes into
+			// itself and never lets the key come this far.
+			Action.Paste -> BrowserEvent.Pasted().takeIf { exploring }
 			// Exploring, there is nothing to cancel: Escape lets go of what is chosen. A picker is cancelled.
 			Action.Cancel ->
 				if (exploring)

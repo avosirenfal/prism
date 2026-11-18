@@ -217,7 +217,10 @@ enum class Action(
 	Rename("Rename", Scope.Listing, KeyGroups.Files, "F2"),
 	CopyFiles("Copy", Scope.Listing, KeyGroups.Files, "Primary+C"),
 	CutFiles("Cut", Scope.Listing, KeyGroups.Files, "Primary+X"),
-	Paste("Paste", Scope.Listing, KeyGroups.Files, "Primary+V"),
+
+	// From anywhere in the window but a text field, which pastes into itself: what is pasted goes into the folder
+	// shown, whichever part of the window was clicked last (the sidebar, to get to that folder).
+	Paste("Paste", Scope.Leftover, KeyGroups.Files, "Primary+V"),
 	CopyPaths("Copy path", Scope.Listing, KeyGroups.Files, "Primary+Shift+C"),
 	Trash(
 		"Move to trash",
