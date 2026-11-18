@@ -48,12 +48,11 @@ object SystemFileClipboard : FileClipboard {
 		)
 	}
 
-	override fun read(): FileClip? {
-		val types = SystemClipboard.types()
-
-		return when {
-			GNOME in types -> SystemClipboard.read(GNOME)?.decodeToString()?.let(::gnomeOf)
-			URI_LIST in types ->
+	override fun read(): FileClip? =
+		when {
+			SystemClipboard.has(GNOME) ->
+				SystemClipboard.read(GNOME)?.decodeToString()?.let(::gnomeOf)
+			SystemClipboard.has(URI_LIST) ->
 				SystemClipboard
 					.read(URI_LIST)
 					?.decodeToString()
@@ -62,7 +61,6 @@ object SystemFileClipboard : FileClipboard {
 					?.let { FileClip(it, cut = false) }
 			else -> null
 		}
-	}
 
 	/** [paths] as a URI list, as every desktop names files: one a line, each line ended by CR and LF. */
 	fun uriList(paths: List<Path>): String =

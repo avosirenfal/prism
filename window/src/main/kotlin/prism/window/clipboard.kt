@@ -23,8 +23,10 @@ import org.lwjgl.sdl.SDLClipboard.SDL_ClearClipboardData
 import org.lwjgl.sdl.SDLClipboard.SDL_GetClipboardData
 import org.lwjgl.sdl.SDLClipboard.SDL_GetClipboardMimeTypes
 import org.lwjgl.sdl.SDLClipboard.SDL_GetClipboardText
+import org.lwjgl.sdl.SDLClipboard.SDL_HasClipboardData
 import org.lwjgl.sdl.SDLClipboard.SDL_SetClipboardData
 import org.lwjgl.sdl.SDLStdinc.nSDL_free
+import org.lwjgl.sdl.SDLVideo.SDL_GetCurrentVideoDriver
 import org.lwjgl.sdl.SDL_ClipboardCleanupCallback
 import org.lwjgl.sdl.SDL_ClipboardDataCallback
 import org.lwjgl.system.MemoryUtil
@@ -141,22 +143,32 @@ object SystemClipboard {
 		}
 
 	/**
-	 * What this process put on the clipboard, while it is still what is there. It is read from here, and the
-	 * desktop is not asked for it.
+	 * What this process put on the clipboard, while it is still what is there: read from here, and the desktop not
+	 * asked for it.
 	 *
-	 * Asking is no use where it matters most. On Wayland a compositor shows a program its own selection as an offer
-	 * like any other's, and SDL tells its own from another's by reading a mark back out of it; where that reading
-	 * fails, SDL takes the clipboard to be someone else's and lets go of what it was given to hand over, while the
-	 * selection goes on being this process's. Every other program can then paste what was copied, and this one,
-	 * asking SDL for it, is given nothing.
+	 * Whether it is still there is told by a type of its own that every offer is given ([Held.mark]), asked of the
+	 * desktop like any other type.
 	 *
-	 * So whether the clipboard is still this process's is told by a type of its own that every offer is given
-	 * ([Held.mark]), looked for among the types the desktop says are there: there, the offer is the one held (or one
-	 * a clipboard manager made of it, type for type), and what is in it is what is held.
+	 * On Wayland that is not all, because of what SDL does where a clipboard manager runs (one that keeps what was
+	 * copied, by taking it and offering it again as its own, type for type). SDL puts a mark of its own in every
+	 * offer, so as to know its own selection when its compositor shows it back; the manager's offer has that mark
+	 * too, so SDL takes it for its own selection come round again and throws the offer away, and, told meanwhile
+	 * that its own selection was replaced, lets go of that as well. It is left with nothing: no types, and nothing
+	 * to give for any of them, while the clipboard holds exactly what was copied and every other program pastes
+	 * it. So there, SDL knowing of nothing at all on the clipboard, after it let go of what this process put, is
+	 * read as this: what the manager holds is what is held here. An offer of anyone else's, SDL does tell of.
 	 */
-	private fun own(): ClipOffer? = held?.takeIf { it.mark in desktopTypes() }?.offer
+	private fun own(): ClipOffer? =
+		held
+			?.takeIf {
+				SDL_HasClipboardData(it.mark) || (takenByAManager() && desktopTypes().isEmpty())
+			}?.offer
 
-	/** The types the desktop says are on the clipboard, whoever put them there. */
+	/** Whether what this process put was let go of where a clipboard manager would have taken it: on Wayland. */
+	private fun takenByAManager(): Boolean =
+		!ours.value && Video.of(SDL_GetCurrentVideoDriver()) == Video.Wayland
+
+	/** The types SDL says are on the clipboard. */
 	private fun desktopTypes(): List<String> {
 		val types = SDL_GetClipboardMimeTypes() ?: return emptyList()
 
@@ -167,17 +179,23 @@ object SystemClipboard {
 		}
 	}
 
-	/** The MIME types what is on the clipboard is offered as. */
-	fun types(): List<String> =
+	/**
+	 * Whether what is on the clipboard is offered as [type].
+	 *
+	 * Asked a type at a time: all a paste wants to know is whether the kind it can take is there.
+	 */
+	fun has(type: String): Boolean =
 		Ui.call {
-			own()?.let {
-				Log.say { "clipboard: asked what is there; it is this prism's, ${it.types.keys}" }
+			val own = own()
 
-				return@call it.types.keys.toList()
-			}
-
-			desktopTypes().also {
-				Log.say { "clipboard: asked what is there; the desktop says $it" }
+			(own?.let { type in it.types } ?: SDL_HasClipboardData(type)).also {
+				Log.say {
+					"clipboard: ${if (own != null)
+						"this prism's own"
+					else
+						"the desktop's"} " +
+						"${if (it) "has" else "has no"} $type"
+				}
 			}
 		}
 
