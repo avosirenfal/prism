@@ -563,7 +563,16 @@ internal fun opened(
 	val asking = CoroutineScope(Dispatchers.Default)
 
 	return listening.use {
-		val own = asking.async { instance.answer(request) }
+		val own =
+			asking.async {
+				instance.answer(request).also { reply ->
+					// What was asked for could not be done (a file that is not there), so no window was opened.
+					// The windows end when their last one closes, and with none ever opened they would stay for
+					// good, saying nothing: they are stopped, and what went wrong is said as the command ends.
+					if (reply !is Reply.Done || reply.ran.status != 0)
+						instance.windows.stop()
+				}
+			}
 
 		try {
 			instance.windows.run()
