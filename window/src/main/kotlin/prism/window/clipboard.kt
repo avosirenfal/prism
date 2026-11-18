@@ -14,6 +14,7 @@ import java.awt.datatransfer.Transferable
 import java.awt.datatransfer.UnsupportedFlavorException
 import java.io.IOException
 import java.nio.ByteBuffer
+import java.util.UUID
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -52,6 +53,8 @@ const val TEXT = "text/plain"
 
 /** The desktop's clipboard. */
 object SystemClipboard {
+	private val EMPTY = ByteArray(0)
+
 	/** What is offered now, kept until the clipboard is taken by another program or replaced: SDL reads it as asked. */
 	private var held: Held? = null
 
@@ -66,6 +69,8 @@ object SystemClipboard {
 
 	private class Held(
 		val offer: ClipOffer,
+		/** A type this offer alone has, with nothing in it: what tells it on the clipboard from any other. */
+		val mark: String,
 		val data: SDL_ClipboardDataCallback,
 		val cleanup: SDL_ClipboardCleanupCallback,
 		/** Each type's bytes in native memory, made when asked for, and freed as the offer is given up. */
@@ -88,7 +93,7 @@ object SystemClipboard {
 			val data =
 				SDL_ClipboardDataCallback.create { _, type, size ->
 					val name = MemoryUtil.memUTF8(type)
-					val bytes = holding.offer.types[name]
+					val bytes = holding.offer.types[name] ?: EMPTY.takeIf { name == holding.mark }
 
 					if (bytes == null) {
 						MemoryUtil.memPutAddress(size, 0L)
@@ -105,12 +110,16 @@ object SystemClipboard {
 				}
 
 			// Called as what was offered is let go of: replaced, by this process or another, or cleared.
-			val cleanup = SDL_ClipboardCleanupCallback.create { _ -> ours.value = false }
+			val cleanup =
+				SDL_ClipboardCleanupCallback.create { _ ->
+					Log.say { "clipboard: what was put is let go" }
+					ours.value = false
+				}
 
-			holding = Held(offer, data, cleanup)
+			holding = Held(offer, "application/x-prism-offer-${UUID.randomUUID()}", data, cleanup)
 
-			val types = PointerBuffer.allocateDirect(offer.types.size)
-			val names = offer.types.keys.map { MemoryUtil.memUTF8(it) }
+			val types = PointerBuffer.allocateDirect(offer.types.size + 1)
+			val names = (offer.types.keys + holding.mark).map { MemoryUtil.memUTF8(it) }
 
 			names.forEach(types::put)
 			types.flip()
@@ -126,29 +135,49 @@ object SystemClipboard {
 			}
 			held = holding.takeIf { done }
 			ours.value = done
+			Log.say { "clipboard: put ${offer.types.keys}, ${if (done) "taken" else "refused"}" }
 
 			done
 		}
 
 	/**
 	 * What this process put on the clipboard, while it is still what is there. It is read from here, and the
-	 * desktop is not asked: asking would have the platform hand this process its own offer back through itself (a
-	 * pasteboard's lazy provider, a selection's pipe, each on the very thread that is waiting for it), which is not
-	 * something every platform does, and is nothing but a way round to what is held here already.
+	 * desktop is not asked for it.
+	 *
+	 * Asking is no use where it matters most. On Wayland a compositor shows a program its own selection as an offer
+	 * like any other's, and SDL tells its own from another's by reading a mark back out of it; where that reading
+	 * fails, SDL takes the clipboard to be someone else's and lets go of what it was given to hand over, while the
+	 * selection goes on being this process's. Every other program can then paste what was copied, and this one,
+	 * asking SDL for it, is given nothing.
+	 *
+	 * So whether the clipboard is still this process's is told by a type of its own that every offer is given
+	 * ([Held.mark]), looked for among the types the desktop says are there: there, the offer is the one held (or one
+	 * a clipboard manager made of it, type for type), and what is in it is what is held.
 	 */
-	private fun own(): ClipOffer? = held?.offer?.takeIf { ours.value }
+	private fun own(): ClipOffer? = held?.takeIf { it.mark in desktopTypes() }?.offer
+
+	/** The types the desktop says are on the clipboard, whoever put them there. */
+	private fun desktopTypes(): List<String> {
+		val types = SDL_GetClipboardMimeTypes() ?: return emptyList()
+
+		return try {
+			(0 until types.remaining()).map { types.getStringUTF8(it) }
+		} finally {
+			nSDL_free(types.address())
+		}
+	}
 
 	/** The MIME types what is on the clipboard is offered as. */
 	fun types(): List<String> =
 		Ui.call {
-			own()?.let { return@call it.types.keys.toList() }
+			own()?.let {
+				Log.say { "clipboard: asked what is there; it is this prism's, ${it.types.keys}" }
 
-			val types = SDL_GetClipboardMimeTypes() ?: return@call emptyList()
+				return@call it.types.keys.toList()
+			}
 
-			try {
-				(0 until types.remaining()).map { types.getStringUTF8(it) }
-			} finally {
-				nSDL_free(types.address())
+			desktopTypes().also {
+				Log.say { "clipboard: asked what is there; the desktop says $it" }
 			}
 		}
 
@@ -157,7 +186,11 @@ object SystemClipboard {
 		Ui.call {
 			own()?.let { return@call it.types[type] }
 
-			val buffer = SDL_GetClipboardData(type) ?: return@call null
+			val buffer =
+				SDL_GetClipboardData(type)
+					?: return@call null.also {
+						Log.say { "clipboard: the desktop gave nothing as $type" }
+					}
 			// Where SDL's memory starts, taken before reading moves the buffer's position along it.
 			val start = MemoryUtil.memAddress(buffer)
 
