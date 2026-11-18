@@ -130,9 +130,19 @@ object SystemClipboard {
 			done
 		}
 
+	/**
+	 * What this process put on the clipboard, while it is still what is there. It is read from here, and the
+	 * desktop is not asked: asking would have the platform hand this process its own offer back through itself (a
+	 * pasteboard's lazy provider, a selection's pipe, each on the very thread that is waiting for it), which is not
+	 * something every platform does, and is nothing but a way round to what is held here already.
+	 */
+	private fun own(): ClipOffer? = held?.offer?.takeIf { ours.value }
+
 	/** The MIME types what is on the clipboard is offered as. */
 	fun types(): List<String> =
 		Ui.call {
+			own()?.let { return@call it.types.keys.toList() }
+
 			val types = SDL_GetClipboardMimeTypes() ?: return@call emptyList()
 
 			try {
@@ -145,6 +155,8 @@ object SystemClipboard {
 	/** What is on the clipboard as [type]; null where it is not offered so. */
 	fun read(type: String): ByteArray? =
 		Ui.call {
+			own()?.let { return@call it.types[type] }
+
 			val buffer = SDL_GetClipboardData(type) ?: return@call null
 			// Where SDL's memory starts, taken before reading moves the buffer's position along it.
 			val start = MemoryUtil.memAddress(buffer)
@@ -157,7 +169,14 @@ object SystemClipboard {
 		}
 
 	/** What is on the clipboard as text, if it is text. */
-	fun text(): String? = Ui.call { SDL_GetClipboardText()?.takeIf { it.isNotEmpty() } }
+	fun text(): String? =
+		Ui.call {
+			own()?.let {
+				return@call it.types[TEXT_UTF8]?.decodeToString()?.takeIf(String::isNotEmpty)
+			}
+
+			SDL_GetClipboardText()?.takeIf { it.isNotEmpty() }
+		}
 }
 
 /**
