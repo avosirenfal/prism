@@ -1,0 +1,50 @@
+#!/usr/bin/env nix
+#! nix --extra-experimental-features ``nix-command flakes`` shell --inputs-from ..
+#! nix nixpkgs#bash nixpkgs#coreutils nixpkgs#librsvg nixpkgs#libicns nixpkgs#imagemagick --command bash
+
+# prism's icon drawn as each platform wants it, from the one picture that is its source (nix/prism.svg):
+#
+#   nix/prism.png    512 pixels across: what a Linux application image is given
+#   nix/prism.icns   a Mac's, at every size the Dock and Finder ask for
+#   nix/prism.ico    Windows', at every size Explorer and the taskbar ask for
+#
+# Linux's own package installs the SVG as it is. Run this after changing the picture, and commit what it writes:
+#
+#   tools/icons
+#
+# Everything it needs comes from the flake's nixpkgs (the lines above), so it runs wherever Nix does.
+
+set -euo pipefail
+
+here=$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)
+source=$here/nix/prism.svg
+work=$(mktemp -d)
+trap 'rm -rf "$work"' EXIT
+
+# The picture at [size] pixels, edge to edge.
+whole() {
+	rsvg-convert --width "$1" --height "$1" "$source" --output "$2"
+}
+
+# The picture as a Mac's icons are drawn: the tile at 824 parts in 1024 of the square, with clear space round it,
+# which is what keeps it the size of its neighbours in the Dock.
+inset() {
+	local inner=$(($1 * 824 / 1024))
+
+	rsvg-convert --width "$inner" --height "$inner" "$source" |
+		magick png:- -background none -gravity center -extent "$1x$1" "png32:$2"
+}
+
+whole 512 "$here/nix/prism.png"
+
+for size in 16 32 48 128 256 512 1024; do
+	inset "$size" "$work/mac-$size.png"
+done
+png2icns "$here/nix/prism.icns" "$work"/mac-{16,32,48,128,256,512,1024}.png >/dev/null
+
+for size in 16 24 32 48 64 256; do
+	whole "$size" "$work/win-$size.png"
+done
+magick "$work"/win-{16,24,32,48,64,256}.png "$here/nix/prism.ico"
+
+ls -l "$here"/nix/prism.{svg,png,icns,ico}

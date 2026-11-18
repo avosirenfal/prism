@@ -130,11 +130,11 @@ private fun InTheDock(windows: List<ExplorerWindow>) {
 /** How often the index is asked how far its reading has got. */
 private const val INDEX_LOOKED_AT = 500L
 
-/** prism's icon, as the Dock shows it: the one the Linux package installs, kept beside the classes. */
+/** prism's icon, as the Dock shows it: a Mac's own drawing of it, kept beside the classes. */
 private val PRISM_ICON: ByteArray? by lazy {
 	ExplorerWindow::class.java
 		.getResourceAsStream(
-			"/prism/prism.svg",
+			"/prism/prism.icns",
 		)?.use { it.readBytes() }
 }
 

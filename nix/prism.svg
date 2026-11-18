@@ -1,20 +1,26 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- prism's icon: a glass prism over the rows of a file listing, each row a colour of the light it spreads. -->
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+<!--
+  prism's icon, on every platform: what the Linux package installs as it is, and what tools/icons draws the Mac's
+  (prism.icns), Windows' (prism.ico) and the picture (prism.png) from. Run tools/icons after changing it.
+
+  The letter is the P of Plus Jakarta Sans ExtraBold (SIL Open Font License), as its outline, so that nothing that
+  draws this needs the font.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
   <defs>
-    <linearGradient id="ground" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#f7f9fd"/>
-      <stop offset="1" stop-color="#dfe6f3"/>
+    <linearGradient id="tile" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#303338"/>
+      <stop offset="100%" stop-color="#202328"/>
+    </linearGradient>
+    <linearGradient id="letter" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#399BFF"/>
+      <stop offset="100%" stop-color="#1976DB"/>
     </linearGradient>
   </defs>
-  <rect x="6" y="6" width="116" height="116" rx="26" fill="url(#ground)" stroke="#c3cde0" stroke-width="2"/>
-  <rect x="58" y="34" width="50" height="9" rx="4.5" fill="#ef5b5b"/>
-  <rect x="58" y="49" width="42" height="9" rx="4.5" fill="#f5a742"/>
-  <rect x="58" y="64" width="50" height="9" rx="4.5" fill="#e8cf3a"/>
-  <rect x="58" y="79" width="36" height="9" rx="4.5" fill="#4fc27f"/>
-  <rect x="58" y="94" width="46" height="9" rx="4.5" fill="#4a90e2"/>
-  <path d="M40 26 L66 100 L18 100 Z" fill="#8fa3c8"/>
-  <path d="M40 26 L66 100 L44 88 Z" fill="#5d739f"/>
-  <path d="M40 26 L44 88 L18 100 Z" fill="#b7c5e0"/>
-  <path d="M40 26 L66 100 L18 100 Z" fill="none" stroke="#3f5078" stroke-width="3" stroke-linejoin="round"/>
+
+  <!-- The graphite tile, and the light along its upper edge. -->
+  <rect x="16" y="16" width="480" height="480" rx="84" fill="url(#tile)" stroke="#555A60" stroke-width="1.5"/>
+  <path d="M100 17 H412" stroke="#FFFFFF" stroke-opacity="0.12" stroke-width="1" fill="none"/>
+
+  <path d="M145.3 406V106H260.4Q291.4 106 315.4 116.9Q339.4 127.7 353 149.1Q366.7 170.4 366.7 201.8Q366.7 232.4 352.8 253.8Q339 275.1 315 286.2Q291 297.3 260.4 297.3H207.7V406ZM207.7 242.9H260.8Q280.6 242.9 292.4 231.6Q304.3 220.4 304.3 201.8Q304.3 182.9 292.4 171.6Q280.6 160.4 260.8 160.4H207.7Z" fill="url(#letter)"/>
 </svg>

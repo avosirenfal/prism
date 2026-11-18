@@ -99,6 +99,13 @@ compose.desktop {
 			// that the Dock, the menu bar and the system's permissions know it as Prism and not as java. It starts
 			// in no Dock (LSUIElement), as a daemon and a launcher are, and is put there while it has a window
 			// (macos/launcher.kt, Dock). A Mac's versions begin at 1.
+			// prism's icon is one picture (nix/prism.svg), drawn as each platform wants it by tools/icons.
+			linux {
+				iconFile.set(rootProject.layout.projectDirectory.file("nix/prism.png"))
+			}
+			windows {
+				iconFile.set(rootProject.layout.projectDirectory.file("nix/prism.ico"))
+			}
 			macOS {
 				bundleID = "dev.prism"
 				packageName = "Prism"

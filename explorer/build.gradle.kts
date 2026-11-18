@@ -16,9 +16,10 @@ dependencies {
 	testImplementation(compose.uiTest)
 }
 
-// prism's icon, the one the Linux package installs (nix/prism.svg), kept beside the classes for the Dock to show.
+// prism's icon as a Mac's are drawn (nix/prism.icns, which tools/icons draws from nix/prism.svg), kept beside the
+// classes for the Dock to show.
 tasks.processResources {
-	from(rootProject.layout.projectDirectory.file("nix/prism.svg")) { into("prism") }
+	from(rootProject.layout.projectDirectory.file("nix/prism.icns")) { into("prism") }
 }
 
 tasks.test {

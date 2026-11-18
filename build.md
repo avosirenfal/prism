@@ -315,6 +315,19 @@ System Settings opens at Full Disk Access; `prism status` in a new terminal answ
 with access given, the daemon's log says it is reading the folders it left out; with Spotlight's shortcut off,
 Command-Space shows the launcher.
 
+## The icon
+
+prism's icon is one picture, `nix/prism.svg`. Linux's package installs it as it is; a Mac, Windows and a Linux
+application image each want it drawn their own way, and those drawings are kept beside it (`nix/prism.icns`,
+`nix/prism.ico`, `nix/prism.png`). After changing the picture, draw them again and commit what is written:
+
+```bash
+tools/icons
+```
+
+The script brings what it needs from the flake's nixpkgs (librsvg, libicns, ImageMagick), so it runs wherever Nix
+does. A Mac's drawing has clear space round the tile, as the Dock's icons have.
+
 ## The locks
 
 Gradle fetches nothing while Nix builds prism: every artifact is in a lock, by hash. Linux's is `nix/deps.json`, and
