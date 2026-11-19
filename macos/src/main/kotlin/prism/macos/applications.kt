@@ -30,11 +30,44 @@ data class Bundle(
 	val opens: List<String>,
 	/** The MIME types of the documents it says it opens, where it names them so. */
 	val opensMime: List<String>,
-	/** Whether it runs without a window or a place in the Dock (`LSUIElement`, `LSBackgroundOnly`): no one starts it. */
-	val background: Boolean,
+	/** How Launch Services runs it: in the Dock, as an accessory, or with no window at all. */
+	val policy: ActivationPolicy,
 	/** The program that is it (`Contents/MacOS/Safari`), where it has one. */
 	val executable: Path? = null,
 )
+
+/**
+ * How Launch Services runs an application, as its Info.plist says: AppKit's activation policies
+ * (`NSApplicationActivationPolicy`), which are what the two keys that say it come to. A bundle that says neither is
+ * [Regular].
+ */
+enum class ActivationPolicy {
+	/** An ordinary application, in the Dock, with a menu bar and windows. */
+	Regular,
+
+	/**
+	 * In no Dock and with no menu bar of its own, but with windows when it wants them (`LSUIElement`): an application
+	 * of the menu bar's (Rectangle), or prism's daemon; and an application's helpers, which have none.
+	 */
+	Accessory,
+
+	/** With no window at all, never brought forward (`LSBackgroundOnly`): a faceless helper. */
+	Prohibited,
+	;
+
+	companion object {
+		/**
+		 * The policy of a bundle that says it is an accessory ([uiElement]) and that it runs in the background alone
+		 * ([backgroundOnly]): where it says both, the stricter, since what has no window cannot show one.
+		 */
+		fun of(uiElement: Boolean, backgroundOnly: Boolean): ActivationPolicy =
+			when {
+				backgroundOnly -> Prohibited
+				uiElement -> Accessory
+				else -> Regular
+			}
+	}
+}
 
 /** An application running, as NSWorkspace lists it. */
 data class Running(
@@ -80,8 +113,16 @@ object Applications {
 						.mapNotNull { it.text() }
 				}
 
+			// A key that says yes is written as a Boolean (`<true/>`), and in older bundles and Chromium's
+			// helpers as a string (`<string>1</string>`): each is read as Foundation reads it.
 			fun flag(key: String) =
-				info[key].orNull()?.let { it.isA(NSNumber) && NSNumber.boolValue(it) } == true
+				info[key].orNull()?.let {
+					when {
+						it.isA(NSNumber) -> NSNumber.boolValue(it)
+						it.isA(NSString) -> NSString.boolValue(it)
+						else -> false
+					}
+				} == true
 
 			Bundle(
 				path = path,
@@ -90,7 +131,7 @@ object Applications {
 				category = info["LSApplicationCategoryType"].text(),
 				opens = words("LSItemContentTypes"),
 				opensMime = words("CFBundleTypeMIMETypes"),
-				background = flag("LSUIElement") || flag("LSBackgroundOnly"),
+				policy = ActivationPolicy.of(flag("LSUIElement"), flag("LSBackgroundOnly")),
 				executable = NSBundle.executablePath(bundle).text()?.let(Path::of),
 			)
 		}

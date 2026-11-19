@@ -20,16 +20,37 @@ import kotlin.streams.asSequence
 value class BundlePath private constructor(
 	val path: Path,
 ) {
-	/** Whether it is inside another bundle: an application's helper, kept in that application's Contents. */
-	val inAnother: Boolean get() =
-		generateSequence(path.parent) { it.parent }.any {
-			of(it) !=
-				null
+	/** Where it is: in no other bundle, inside one, or the bundle another wraps. */
+	val placement: Placement
+		get() =
+			path.parent?.let { parent ->
+				parent
+					.takeIf { it.fileName?.toString() == WRAPPER }
+					?.parent
+					?.let(::of)
+					?.let(Placement::WrappedBy)
+					?: holding(parent)?.let(Placement::Within)
+			} ?: Placement.Alone
+
+	/**
+	 * Whether the application of this bundle, run as [policy] says, is one a person starts, and so listed: one in no
+	 * other bundle that can show a window; one inside another only where it is an application in the Dock (Xcode's
+	 * Simulator), and not an accessory, as an application's helpers are; and the bundle another wraps never, since it
+	 * is the wrapper that is opened.
+	 */
+	fun startedAs(policy: ActivationPolicy): Boolean =
+		when (placement) {
+			Placement.Alone -> policy != ActivationPolicy.Prohibited
+			is Placement.Within -> policy == ActivationPolicy.Regular
+			is Placement.WrappedBy -> false
 		}
 
 	override fun toString(): String = path.toString()
 
 	companion object {
+		/** The folder a wrapper keeps the bundle it wraps in, as CoreFoundation names it. */
+		private const val WRAPPER = "Wrapper"
+
 		/** [path] as a bundle's, where it is named as one; none where it is not. */
 		fun of(path: Path): BundlePath? =
 			path
@@ -42,6 +63,29 @@ value class BundlePath private constructor(
 		fun holding(path: Path): BundlePath? =
 			generateSequence(path) { it.parent }.firstNotNullOfOrNull(::of)
 	}
+}
+
+/** Where a bundle is, which is what says, with how it runs, whether it is an application a person starts. */
+sealed interface Placement {
+	/** In no other bundle: `/Applications/Safari.app`. */
+	data object Alone : Placement
+
+	/**
+	 * Inside [outer]'s contents: an application's helper (`Google Chrome Helper.app`), its login item, or an
+	 * application it brings with it (`Xcode.app/Contents/Developer/Applications/Simulator.app`).
+	 */
+	data class Within(
+		val outer: BundlePath,
+	) : Placement
+
+	/**
+	 * The bundle [wrapper] wraps, in its `Wrapper` folder: an iPhone's or iPad's application installed on a Mac
+	 * (`Something.app/Wrapper/Something.app`), whose wrapper is what Launch Services opens, and whose Info.plist the
+	 * wrapper is read by, through its `WrappedBundle` link.
+	 */
+	data class WrappedBy(
+		val wrapper: BundlePath,
+	) : Placement
 }
 
 /** How often a bundle has changed since it was first kept, as one count for every bundle: a newer one is larger. */

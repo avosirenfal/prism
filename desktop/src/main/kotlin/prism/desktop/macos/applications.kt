@@ -99,7 +99,7 @@ class LaunchServicesApplications(
 			?: listed(
 				(folders.flatMap(::bundlesIn) + bundles.filter { it.isDirectory() })
 					.mapNotNull(BundlePath::of)
-					.mapNotNull { applicationAt(it, Listing.Installed) },
+					.mapNotNull(::applicationAt),
 			).also(read::set)
 
 	/**
@@ -111,7 +111,7 @@ class LaunchServicesApplications(
 		val now =
 			kept.revisions.mapValues { (bundle, revision) ->
 				before[bundle]?.takeIf { it.revision == revision }
-					?: Known(revision, applicationAt(bundle, Listing.Anywhere))
+					?: Known(revision, applicationAt(bundle))
 			}
 
 		known.set(now)
@@ -175,33 +175,19 @@ class LaunchServicesApplications(
 			emptyList()
 		}
 
-	/** Where a bundle was found, which is what says whether one that runs with no window is listed. */
-	private enum class Listing {
-		/** In a folder applications are installed in: listed only where it has a window (no agent of the system's). */
-		Installed,
-
-		/**
-		 * Anywhere on the disk: listed but where it is inside another's bundle and has no window (a browser's
-		 * helper), so that a menu bar's application, which has none either, is found.
-		 */
-		Anywhere,
-	}
-
-	/** The application at [path], as Launch Services names one: one that has a window, as an installed one is. */
+	/** The application at [path], where it is one a person starts. */
 	private fun installedAt(path: Path): Application? =
-		BundlePath.of(path)?.let { applicationAt(it, Listing.Installed) }
+		BundlePath.of(path)?.let(::applicationAt)
 
-	/** The application of [bundle], found as [listing] says; none for one that is not, or is not to be listed. */
-	private fun applicationAt(bundle: BundlePath, listing: Listing): Application? =
+	/**
+	 * The application of [bundle], where it is one a person starts ([BundlePath.startedAs]): the same wherever it was
+	 * found, so that what is listed is the same with a daemon's index and without.
+	 */
+	private fun applicationAt(bundle: BundlePath): Application? =
 		LaunchServices
 			.bundle(bundle.path)
-			?.takeUnless {
-				it.background && it.identifier != PRISM &&
-					when (listing) {
-						Listing.Installed -> true
-						Listing.Anywhere -> bundle.inAnother
-					}
-			}?.let(::applicationOf)
+			?.takeIf { bundle.startedAs(it.policy) }
+			?.let(::applicationOf)
 
 	private fun applicationOf(bundle: Bundle): Application =
 		Application(
@@ -242,7 +228,7 @@ class LaunchServicesApplications(
 		/** What asks Launch Services to open: an application, or files with one. */
 		const val OPEN = "/usr/bin/open"
 
-		/** prism's own bundle, by its identifier: listed though it starts in no Dock, and known to have "New Window". */
+		/** prism's own bundle, by its identifier: known to have "New Window". */
 		const val PRISM = "dev.prism"
 
 		/** What a bundle's category says, as a person would: `public.app-category.developer-tools` is "Developer Tools". */

@@ -125,9 +125,20 @@ Each has the icon your icon theme has for it, and the first letter of its name o
 
 **On a Mac, what is listed** is each application bundle (a folder named `Something.app`) the daemon's index holds:
 `/Applications`, `~/Applications`, the system's own (docs/daemon.md, "Places included under one left out"), and any
-other folder they are kept in. A bundle with no window (`LSUIElement`, `LSBackgroundOnly`) is left out where it is
-inside another's `Contents`, as a browser's helper is, and listed where it is not, as a menu bar's application is;
-one inside another that has a window is listed (Xcode's Simulator). The
+other folder they are kept in, where it is one a person starts. That is said by how Launch Services runs it (its
+activation policy, from its Info.plist) and where it is:
+
+| how it runs | in no other bundle | inside another's `Contents` |
+|---|---|---|
+| in the Dock (neither key) | listed: Safari | listed: Xcode's Simulator |
+| an accessory (`LSUIElement`): no Dock, windows when it wants | listed: Rectangle, prism | left out: Chrome's helpers |
+| faceless (`LSBackgroundOnly`): never a window | left out | left out |
+
+A key is yes written as a Boolean or as a string (`<string>1</string>`, as Chromium's helpers write it), read as
+Foundation reads it (`boolValue`); a bundle that says both is faceless. An iPhone's or iPad's application installed on
+a Mac is two bundles, a wrapper and the one in its `Wrapper` folder, and only the wrapper is listed, since it is what
+is opened (it is read through its `WrappedBundle` link, as CoreFoundation reads it). The same rule is used wherever the
+applications come from, and for which application opens a file. The
 daemon keeps which bundles there are without asking the index anything but what it holds (`KeptCatalogue`,
 daemon/bundles.kt): each time the index is read whole it takes every bundle in it, and from then on each batch of
 FSEvents says which bundle a change was in (its `Info.plist` rewritten, as an update does), which was made or moved in

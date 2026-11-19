@@ -43,10 +43,61 @@ class BundlesTest {
 				),
 			),
 		)
-		assertTrue(
-			bundle("/Applications/Xcode.app/Contents/Applications/Simulator.app").inAnother,
+	}
+
+	private val xcode = bundle("/Applications/Xcode.app")
+	private val simulator =
+		bundle("/Applications/Xcode.app/Contents/Developer/Applications/Simulator.app")
+	private val wrapper = bundle("/Applications/Notes Pad.app")
+	private val wrapped = bundle("/Applications/Notes Pad.app/Wrapper/NotesPad.app")
+
+	@Test
+	fun aBundleIsAloneInsideAnotherOrTheOneAWrapperWraps() {
+		assertEquals(Placement.Alone, safari.placement)
+		assertEquals(Placement.Within(xcode), simulator.placement)
+		assertEquals(Placement.WrappedBy(wrapper), wrapped.placement)
+		// A folder named Wrapper in no bundle wraps nothing.
+		assertEquals(Placement.Alone, bundle("/Users/a/Wrapper/Tool.app").placement)
+	}
+
+	@Test
+	fun whatIsListedIsWhatCanShowAWindowAndIsNoOtherApplicationsHelper() {
+		val listed =
+			listOf(safari, simulator, wrapped).associateWith { bundle ->
+				ActivationPolicy.entries.filter(bundle::startedAs)
+			}
+
+		assertEquals(
+			mapOf(
+				// Safari, or Rectangle in the menu bar; not a faceless agent.
+				safari to listOf(ActivationPolicy.Regular, ActivationPolicy.Accessory),
+				// Xcode's Simulator, in the Dock; not Chrome's helpers, which are accessories.
+				simulator to listOf(ActivationPolicy.Regular),
+				// Opened by its wrapper, which is listed in its place.
+				wrapped to emptyList(),
+			),
+			listed,
 		)
-		assertTrue(!safari.inAnother)
+	}
+
+	@Test
+	fun aBundleThatSaysBothThatItIsAnAccessoryAndFacelessIsFaceless() {
+		assertEquals(
+			ActivationPolicy.Regular,
+			ActivationPolicy.of(uiElement = false, backgroundOnly = false),
+		)
+		assertEquals(
+			ActivationPolicy.Accessory,
+			ActivationPolicy.of(uiElement = true, backgroundOnly = false),
+		)
+		assertEquals(
+			ActivationPolicy.Prohibited,
+			ActivationPolicy.of(uiElement = false, backgroundOnly = true),
+		)
+		assertEquals(
+			ActivationPolicy.Prohibited,
+			ActivationPolicy.of(uiElement = true, backgroundOnly = true),
+		)
 	}
 
 	@Test

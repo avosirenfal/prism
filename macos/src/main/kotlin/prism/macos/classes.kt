@@ -31,6 +31,9 @@ data object NSObject : ObjCClass("NSObject") {
 data object NSString : ObjCClass("NSString") {
 	val stringWithUTF8String = static("stringWithUTF8String:", Ptr, Obj)
 	val utf8String = message("UTF8String", Ptr)
+
+	/** Whether it says yes: "1", "YES", "true", as `boolValue` reads one (a digit 1–9, a Y or a T, first). */
+	val boolValue = message("boolValue", Bool)
 }
 
 data object NSArray : ObjCClass("NSArray") {
