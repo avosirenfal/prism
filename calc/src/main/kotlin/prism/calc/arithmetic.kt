@@ -176,18 +176,34 @@ private fun arithmetic(
 			val a = left.value
 			val b = (right as FloatValue).value
 
-			Computed.Done(
-				FloatValue.of(
-					left.type,
-					when (operator) {
-						Operator.Plus -> a + b
-						Operator.Minus -> a - b
-						Operator.Times -> a * b
-						Operator.Divide -> a / b
-						else -> a % b
-					},
-				),
-			)
+			val made =
+				when (operator) {
+					Operator.Plus -> a + b
+					Operator.Minus -> a - b
+					Operator.Times -> a * b
+					Operator.Divide -> a / b
+					else -> a % b
+				}
+
+			// Past the type's largest, from finite numbers (a division by zero is no overflow): what it came to, exactly.
+			if (a.isFinite() && b.isFinite() && !(operator == Operator.Divide && b == 0.0))
+				floated(left.type, made) {
+					val x = exactOf(left)!!
+					val y = exactOf(right)!!
+
+					said(
+						DecimalValue(
+							when (operator) {
+								Operator.Plus -> x + y
+								Operator.Minus -> x - y
+								Operator.Times -> x * y
+								else -> x.divide(y, PRECISION)
+							},
+						),
+					)
+				}
+			else
+				Computed.Done(FloatValue.of(left.type, made))
 		}
 	}
 

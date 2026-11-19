@@ -129,7 +129,7 @@ class CalculatorTest {
 			wrong("5.toUInt() + 1.5"),
 		)
 		assertEquals(
-			"sin: 1E+400 is too large for a Double",
+			"sin: Overflow: 1E+400 > 1.7976931348623157E+308 (Double.MAX_VALUE)",
 			wrong("sin(1e400)"),
 		)
 		assertTrue(
@@ -149,7 +149,7 @@ class CalculatorTest {
 			wrong("1 + "),
 		)
 		assertTrue(wrong("-5u").startsWith("a UInt can't be negated"))
-		assertEquals("300 doesn't fit in a Byte (-128..127)", wrong("100.toByte() + 300"))
+		assertEquals("Overflow: 300 > 127 (Byte.MAX_VALUE)", wrong("100.toByte() + 300"))
 	}
 
 	@Test
@@ -225,7 +225,7 @@ class CalculatorTest {
 		assertEquals("5.0 : Float", answer("5.float"))
 		assertEquals("0.1 : Double", answer("0.1.double"))
 		// Where it would change the number, it is refused, as a literal of the type would be; toByte() wraps it.
-		assertEquals("300 doesn't fit in a Byte (-128..127)", wrong("300.byte"))
+		assertEquals("Overflow: 300 > 127 (Byte.MAX_VALUE)", wrong("300.byte"))
 		assertEquals("44 : Byte", answer("300.toByte()"))
 		assertEquals("there is no property nope", wrong("5.nope"))
 		assertEquals("toInt is a function: call it, as .toInt()", wrong("5.toInt"))
@@ -238,5 +238,41 @@ class CalculatorTest {
 				}.containsAll(listOf("ubyte", "uint", "ulong", "ushort")),
 		)
 		assertEquals(Shape.Plain, Calculation.of("5.uint").shape)
+	}
+
+	@Test
+	fun everyOverflowIsSaidOneWayAndOnlyAnOperationsIsLetThrough() {
+		// An operation goes past its type's largest, and is said to.
+		assertEquals("Infinity : Double", answer("1e308.double * 10"))
+		assertEquals(
+			listOf("Overflow: 1E+309 > 1.7976931348623157E+308 (Double.MAX_VALUE)"),
+			notes("1e308.double * 10"),
+		)
+		assertEquals(
+			listOf("Underflow: -1E+309 < -1.7976931348623157E+308 (-Double.MAX_VALUE)"),
+			notes("-1e308.double * 10"),
+		)
+		assertEquals(
+			listOf("Overflow: exp(1000.0) > 1.7976931348623157E+308 (Double.MAX_VALUE)"),
+			notes("exp(1000.0.double)"),
+		)
+		assertEquals(
+			listOf("Overflow: 100000000000000000000 > 2147483647 (Int.MAX_VALUE)"),
+			notes("1e20.double.toInt()"),
+		)
+		assertEquals(listOf("Overflow: 300 > 127 (Byte.MAX_VALUE)"), notes("300.toByte()"))
+		// A literal of a type never does: it is refused, said the same way.
+		assertEquals("Overflow: 300 > 127 (Byte.MAX_VALUE)", wrong("300.byte"))
+		assertEquals(
+			"Overflow: 9223372036854775808 > 9223372036854775807 (Long.MAX_VALUE)",
+			wrong("9223372036854775808L"),
+		)
+		assertEquals("Underflow: -1 < 0 (UInt.MIN_VALUE)", wrong("(-1).uint"))
+		assertEquals(
+			"Overflow: 1E+400 > 1.7976931348623157E+308 (Double.MAX_VALUE)",
+			wrong("1e400.double"),
+		)
+		// And no more is a number made a type to be worked with one: 300 is no Byte to add.
+		assertEquals("Overflow: 300 > 127 (Byte.MAX_VALUE)", wrong("5.byte + 300"))
 	}
 }

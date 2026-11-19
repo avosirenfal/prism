@@ -39,13 +39,13 @@ enum class Page(
 	val label: String,
 ) {
 	Display("Display"),
+	Indexing("Indexing"),
 	Renderer("Renderer"),
 	Layout("Layout"),
 	Menus("Context menus"),
 	Terminal("Terminal"),
 	Bindings("Key bindings"),
 	Aliases("Aliases"),
-	Indexing("Indexing"),
 	Actions("File actions"),
 	Searches("Text searches"),
 }

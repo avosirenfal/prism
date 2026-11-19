@@ -113,6 +113,53 @@ enum class Floating : NumberType {
 	;
 
 	override val written: String get() = name
+
+	/** The largest finite number of this type. */
+	val max: BigDecimal
+		get() =
+			when (this) {
+				Float ->
+					kotlin.Float.MAX_VALUE
+						.toString()
+						.toBigDecimal()
+				Double ->
+					kotlin.Double.MAX_VALUE
+						.toString()
+						.toBigDecimal()
+			}
+
+	/**
+	 * What is said of [what], which this type has no finite number for, as a fixed-width integer's is said
+	 * ([Fixed.beyond]): `Overflow: 1E+400 > 1.7976931348623157E+308 (Double.MAX_VALUE)`. [negative] where it is below
+	 * the most negative number, which is the largest negated (Kotlin's MIN_VALUE is the smallest above zero).
+	 */
+	fun beyond(what: String, negative: Boolean): String =
+		if (negative)
+			"Underflow: $what < -${said(DecimalValue(max))} (-$written.MAX_VALUE)"
+		else
+			"Overflow: $what > ${said(DecimalValue(max))} ($written.MAX_VALUE)"
+
+	/** [exact], which this type has no finite number for, said as [beyond] says it. */
+	fun beyond(exact: BigDecimal): String =
+		beyond(
+			said(DecimalValue(exact)),
+			exact.signum() < 0,
+		)
+}
+
+/**
+ * [value] worked out as a number of [type] from what are all finite numbers, said as an overflow where it is not one:
+ * [working] is what it is the result of (`a * b`, `exp(1000.0)`), or its exact value where that is known.
+ */
+fun floated(type: Floating, value: Double, working: () -> String): Computed.Done {
+	val made = FloatValue.of(type, value)
+
+	return Computed.Done(
+		made,
+		listOfNotNull(
+			type.beyond(working(), made.value < 0).takeIf { made.value.isInfinite() },
+		),
+	)
 }
 
 /** What the calculator works with: a number, or a number shown in a form of its own. */
@@ -231,7 +278,7 @@ fun implicitly(value: NumberValue, to: NumberType): Converted {
 	if (value is FloatValue && to is Floating)
 		return FloatValue.of(to, value.value).let { made ->
 			if (made.value.isInfinite() && value.value.isFinite())
-				Converted.Refused("${described(value)} is too large for a ${to.written}")
+				Converted.Refused(to.beyond(exactOf(value)!!))
 			else
 				Converted.Done(made)
 		}
@@ -259,15 +306,13 @@ fun implicitly(value: NumberValue, to: NumberType): Converted {
 			if (to.holds(whole))
 				Converted.Done(to.wrapped(whole).value)
 			else
-				Converted.Refused(
-					"${described(value)} doesn't fit in a${an(to)} ${to.written} (${to.min}..${to.max})",
-				)
+				Converted.Refused(to.beyond(whole))
 		}
 		is Floating -> {
 			val made = FloatValue.of(to, exact.toDouble())
 
 			if (made.value.isInfinite())
-				Converted.Refused("${described(value)} is too large for a ${to.written}")
+				Converted.Refused(to.beyond(exact))
 			else
 				Converted.Done(made)
 		}
@@ -295,8 +340,10 @@ fun explicitly(value: NumberValue, to: NumberType): Converted {
 		return Converted.Done(
 			made,
 			listOfNotNull(
-				"${described(value)} is too large for a ${to.written}: it became ${said(made)}"
-					.takeIf { made.value.isInfinite() && value.value.isFinite() },
+				to.beyond(exactOf(value) ?: BigDecimal.ZERO).takeIf {
+					made.value.isInfinite() &&
+						value.value.isFinite()
+				},
 			),
 		)
 	}
@@ -329,8 +376,7 @@ fun explicitly(value: NumberValue, to: NumberType): Converted {
 			Converted.Done(
 				made,
 				listOfNotNull(
-					"${described(value)} is too large for a ${to.written}: it became ${said(made)}"
-						.takeIf { made.value.isInfinite() },
+					to.beyond(exact).takeIf { made.value.isInfinite() },
 				),
 			)
 		}
@@ -348,7 +394,7 @@ fun explicitly(value: NumberValue, to: NumberType): Converted {
 				Converted.Done(
 					to.wrapped(held).value,
 					listOf(
-						"${to.beyond(whole)}: held at $held, as Kotlin's to${to.written}() does",
+						to.beyond(whole),
 					),
 				)
 			} else {

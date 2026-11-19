@@ -291,7 +291,12 @@ private fun floating(
 		does,
 		listOf(DOUBLE, FLOAT).map { type ->
 			Overload(parameters.map { one(it, type) }, Gives.One(type)) { values ->
-				done(FloatValue.of(type, of(values.map { it.double }.toDoubleArray())))
+				val given = values.map { it.double }
+
+				if (given.all { it.isFinite() })
+					floated(type, of(given.toDoubleArray())) { "$name(${given.joinToString(", ")})" }
+				else
+					done(FloatValue.of(type, of(given.toDoubleArray())))
 			}
 		},
 	)
@@ -564,13 +569,17 @@ object Library {
 						listOf(one("base", DOUBLE), one("exponent", DOUBLE)),
 						Gives.One(DOUBLE),
 					) { (base, exponent) ->
-						done(FloatValue.of(DOUBLE, Math.pow(base.double, exponent.double)))
+						floated(DOUBLE, Math.pow(base.double, exponent.double)) {
+							"${base.double} ** ${exponent.double}"
+						}
 					},
 					Overload(
 						listOf(one("base", FLOAT), one("exponent", FLOAT)),
 						Gives.One(FLOAT),
 					) { (base, exponent) ->
-						done(FloatValue.of(FLOAT, Math.pow(base.double, exponent.double)))
+						floated(FLOAT, Math.pow(base.double, exponent.double)) {
+							"${said(base)} ** ${said(exponent)}"
+						}
 					},
 				),
 			),

@@ -200,6 +200,7 @@ answer, and what Kotlin would hide is said under it:
 | `0u - 1u` | `4294967295` UInt | Underflow: -1 < 0 (UInt.MIN_VALUE) |
 | `0.1.toDouble() + 0.2` | `0.30000000000000004` Double | |
 | `200.toByte()` | `-56` Byte | Overflow: 200 > 127 (Byte.MAX_VALUE) |
+| `1e308.double * 10` | `Infinity` Double | Overflow: 1E+309 > 1.7976931348623157E+308 (Double.MAX_VALUE) |
 | `3.7.toInt()` | `3` Int | 3.7 was rounded toward zero, to 3 |
 | `100.toByte() + 100.toByte()` | `-56` Byte | Overflow: 200 > 127 (Byte.MAX_VALUE) |
 | `1.toInt() shl 33` | `2` Int | shl by 33 is shl by 1: an Int shifts by the low 5 bits of its count |
@@ -208,14 +209,21 @@ There are three ways to ask for a type, and they differ in what they do to a num
 
 | written | is | `300` as a Byte |
 |---|---|---|
-| `5L`, `5u`, `5uL`, `1.5f` | Kotlin's suffixes: a Long, a UInt, a ULong, a Float | |
+| `5L`, `5u`, `5uL`, `1.5f` | Kotlin's suffixes: a Long, a UInt, a ULong, a Float | `300` has no suffix for a Byte; `9223372036854775808L` is refused |
 | `5.int`, `5.uint`, `5.short`, `5.ushort`, `5.long`, `5.ulong`, `5.byte`, `5.ubyte`, `5.float`, `5.double` | a literal of that type, as a suffix makes one | `300.byte` is refused, as `val b: Byte = 300` is in Kotlin |
 | `toByte()`, `toShort()`, `toInt()`, `toLong()`, `toUByte()` and the other unsigned, `toFloat()`, `toDouble()`, `toBigInteger()`, `toBigDecimal()` | Kotlin's conversions | `300.toByte()` is `44`, wrapped round, and said so |
 
 When two types meet, the Decimal (what was typed) becomes the other: `5.toUInt() + 1` is a UInt. A floating-point
 number wins over a whole one, and a Double over a Float. Two fixed-width integers become the wider of them, and a
 Byte with a Byte stays a Byte (where Kotlin would make it an Int), so that a Byte's overflow is seen.
-A signed one and an unsigned one are refused, as Kotlin refuses them, since neither holds all of the other. And a value
+A signed one and an unsigned one are refused, as Kotlin refuses them, since neither holds all of the other.
+
+Only an operation goes past its type's largest. What it comes to is wrapped round, for a fixed-width integer, or is
+infinite, for a Float or a Double, as Kotlin's would be, and it is said under the answer. A number written as a type
+(a literal, a property such as `.byte`, or a number made the type of what it is worked with) never does: it is
+refused, and said the same way. So `5.byte + 300` is refused, since 300 is no Byte, and `127.byte + 1` is `-128`.
+Every overflow is said one way, of every type: `Overflow: 200 > 127 (Byte.MAX_VALUE)`, or `Underflow: -1 < 0
+(UInt.MIN_VALUE)` below the smallest. And a value
 converted to make two meet must not be changed by it: `5.toUInt() + 1.5` is refused, since 1.5 is no UInt.
 
 The language is Kotlin's arithmetic, with `**` for powers and C's operators of bits beside Kotlin's words for them.
