@@ -25,6 +25,7 @@ data object NSObject : ObjCClass("NSObject") {
 	val alloc = static("alloc", Obj)
 	val init = message("init", Obj)
 	val release = message("release", NoValue)
+	val autorelease = message("autorelease", Obj)
 	val isKindOfClass = message("isKindOfClass:", Obj, Bool)
 }
 
@@ -174,10 +175,14 @@ data object NSMenu : ObjCClass("NSMenu", Frameworks.appKit) {
 	val initWithTitle = message("initWithTitle:", Obj, Obj)
 	val addItemWithTitle =
 		message("addItemWithTitle:action:keyEquivalent:", Obj, Sel, Obj, Obj)
+	val addItem = message("addItem:", Obj, NoValue)
 }
 
 data object NSMenuItem : ObjCClass("NSMenuItem", Frameworks.appKit) {
+	val separatorItem = static("separatorItem", Obj)
 	val setTarget = message("setTarget:", Obj, NoValue)
+	val tag = message("tag", Int64)
+	val setTag = message("setTag:", Int64, NoValue)
 }
 
 data object NSResponder : ObjCClass("NSResponder", Frameworks.appKit) {

@@ -91,7 +91,7 @@ whether it is on the same volume, is known only once it is dropped.
 | the launcher over every window | a layer surface, or a window kept in front | a non-activating panel, as Spotlight's is: made by prism as AppKit makes one and given to SDL for its window, at a pop-up menu's level, on every Space and over full-screen applications | a topmost tool window |
 | hidden files | names starting with a dot | those, and the `UF_HIDDEN` flag (`~/Library`), later | the hidden attribute |
 | what is left out by default | Linux's own, after what every platform has: containers, snapshots, the system's stores (`Exclusions.defaultsOn`) | a Mac's own: the Library's folders of applications' data, what is inside a bundle, what the system keeps on a volume for itself, the system's trees and Homebrew's | what every platform has, until Windows' own are written |
-| the application | a desktop entry, with "New Window" | Prism.app, whose own program is what runs (the daemon too), so the Dock and the system's permissions know it as Prism; opened again while it runs, it shows a window where it has none; "New Window" in its Dock menu and in prism's launcher | a shortcut |
+| the application | a desktop entry, with "New Window" | Prism.app, whose own program is what runs (the daemon too), so the Dock and the system's permissions know it as Prism; opened again while it runs, it shows a window where it has none; a Dock menu of a new window, the five folders gone to most lately, the launcher and the settings (app/dockmenu.kt); "New Window" in prism's launcher | a shortcut |
 | quitting | closing the last window | Command-Q asks each window to close, and a daemon stays; Quit asked any other way ends it | closing the last window |
 | setting it up | the flake's NixOS module, or `prism portal install` | Prism.app sets itself up the first time it is opened; or the flake's nix-darwin module | |
 | packaging | AppImage | Prism.app, and a DMG of it; signed and notarized, later (signing is what keeps Full Disk Access granted across updates) | MSI |
@@ -202,7 +202,8 @@ What to try on an Apple-silicon Mac, in order, since each needs the one before:
 7. **The application.** `./gradlew :app:createDistributable`, and Prism.app (in
    `app/build/compose/binaries/main/app`) put in /Applications and opened
    ("Setting it up on a Mac", below): Prism.app in the Dock as Prism
-   while a window is open, its icon opening a window, "New Window" in its Dock menu, and Command-Q closing windows
+   while a window is open, its icon opening a window, its Dock menu (New Window, the folders gone to lately, Show
+   Launcher, Settings…, Launcher Settings…) doing what each says, and Command-Q closing windows
    and leaving the daemon.
 
 ## Setting it up on a Mac

@@ -2,6 +2,7 @@ package prism.macos
 
 import java.lang.foreign.Arena
 import java.lang.foreign.MemorySegment
+import java.util.concurrent.atomic.AtomicReference
 import prism.ffi.Library
 
 /*
@@ -13,9 +14,21 @@ import prism.ffi.Library
  * function, on the windows' thread, as the application's event loop dispatches it.
  *
  * **The Dock's menu.** A press on an application's icon in the Dock shows a menu the application may add to, asked of
- * its delegate (`applicationDockMenu:`). SDL's delegate does not answer that, so it is given the method, which is all
- * that is asked of it; the menu's one item, "New Window", is sent to an object of a class made here for it.
+ * its delegate (`applicationDockMenu:`) each time it is shown. SDL's delegate does not answer that, so it is given the
+ * method, which is all that is asked of it. What the menu holds is plain data ([DockEntry]), made again each time; an
+ * item chosen is sent to an object of a class made here for it, which is told which by the item's tag, its place
+ * among the items, and gives back what that item asks for.
  */
+
+/** What the Dock's menu for the application holds: items, each with what it asks for, and lines between them. */
+sealed interface DockEntry<out T> {
+	data class Item<out T>(
+		val title: String,
+		val asks: T,
+	) : DockEntry<T>
+
+	data object Line : DockEntry<Nothing>
+}
 
 /** `AEEventHandlerUPP`: the event, the reply to fill, and the handler's own data; answered with a status. */
 internal fun interface AppleEventHandler {
@@ -56,11 +69,16 @@ object AppEvents {
 		try {
 			work()
 		} catch (thrown: Throwable) {
-			Thread.getDefaultUncaughtExceptionHandler()?.uncaughtException(
-				Thread.currentThread(),
-				thrown,
-			)
+			said(thrown)
 		}
+	}
+
+	/** [thrown], said as what is thrown and not caught is. */
+	private fun said(thrown: Throwable) {
+		Thread.getDefaultUncaughtExceptionHandler()?.uncaughtException(
+			Thread.currentThread(),
+			thrown,
+		)
 	}
 
 	/**
@@ -82,11 +100,15 @@ object AppEvents {
 	}
 
 	/**
-	 * The Dock's menu for the application given one item, [title], which calls [chosen] on the windows' thread.
-	 * Whether it could be: not where the application has no delegate, or its delegate has a Dock menu of its own.
+	 * The Dock's menu for the application: [entries], made again each time it is shown, so that it is as things are
+	 * then (the folders gone to lately); an item chosen is given to [chosen], on the windows' thread, as what it asks
+	 * for. Whether it could be: not where the application has no delegate.
 	 */
-	fun dockItem(title: String, chosen: () -> Unit): Boolean =
-		ObjC.pooled {
+	fun <T> dockMenu(entries: () -> List<DockEntry<T>>, chosen: (T) -> Unit): Boolean {
+		// What each item of the menu shown last asks for, by its tag.
+		val shown = AtomicReference<List<T>>(emptyList())
+
+		return ObjC.pooled {
 			val delegate =
 				NSApplication.delegate(NSApplication.sharedApplication()).orNull()
 					?: return@pooled false
@@ -101,38 +123,77 @@ object AppEvents {
 								Implemented(
 									CHOSEN,
 									"v24@0:8@16",
-									Library.upcall<Takes>(Takes { _, _, _ -> guarded(chosen) }, Arena.global()),
+									Library.upcall<Takes>(
+										Takes { _, _, item ->
+											guarded {
+												shown
+													.get()
+													.getOrNull(NSMenuItem.tag(Id(item)).toInt())
+													?.let(chosen)
+											}
+										},
+										Arena.global(),
+									),
 								),
 							),
 						),
 					),
 				)
 
-			// Made once and kept for the life of the process: the delegate hands the same menu out each time.
-			val menu = NSMenu.initWithTitle(NSObject.alloc.on(NSMenu.cls), nsString(""))
+			/** [made] as a menu, owned by whoever made it: each item told its place among the items, and the target. */
+			fun menuOf(made: List<DockEntry<T>>): Id =
+				ObjC.pooled {
+					val menu = NSMenu.initWithTitle(NSObject.alloc.on(NSMenu.cls), nsString(""))
 
-			NSMenuItem.setTarget(
-				NSMenu.addItemWithTitle(menu, nsString(title), CHOSEN, nsString("")),
-				target,
-			)
+					made.fold(0L) { at, entry ->
+						when (entry) {
+							is DockEntry.Item -> {
+								val item =
+									NSMenu.addItemWithTitle(
+										menu,
+										nsString(entry.title),
+										CHOSEN,
+										nsString(""),
+									)
+
+								NSMenuItem.setTarget(item, target)
+								NSMenuItem.setTag(item, at)
+								at + 1
+							}
+							DockEntry.Line -> {
+								NSMenu.addItem(menu, NSMenuItem.separatorItem())
+								at
+							}
+						}
+					}
+					menu
+				}
+
 			ObjCRuntime.add(
 				ObjCRuntime.classOf(delegate),
 				Implemented(
 					"applicationDockMenu:",
 					"@24@0:8@16",
 					Library.upcall<AnswersObject>(
-						AnswersObject {
-							_,
-							_,
-							_,
-							->
-							menu.address
+						AnswersObject { _, _, _ ->
+							try {
+								val made = entries()
+
+								shown.set(made.filterIsInstance<DockEntry.Item<T>>().map { it.asks })
+								// Given to the pool AppKit asked in, not to one of prism's: it lives till the Dock has it.
+								NSObject.autorelease(menuOf(made)).address
+							} catch (thrown: Throwable) {
+								// No menu of prism's: the Dock's own items alone.
+								said(thrown)
+								MemorySegment.NULL
+							}
 						},
 						Arena.global(),
 					),
 				),
 			)
 		}
+	}
 
 	private const val CHOSEN = "prismDockItemChosen:"
 }

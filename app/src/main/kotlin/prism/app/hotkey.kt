@@ -124,7 +124,7 @@ internal fun holdLauncherKey(
 /**
  * What a Mac asks of an application that is running, answered for [instance], on the windows' thread: opened again
  * (its icon clicked while it runs), it shows a window on the home folder where it has none of the usual kind, and
- * comes forward with those it has otherwise, as a Mac's applications do; and its Dock menu has "New Window".
+ * comes forward with those it has otherwise, as a Mac's applications do; and it has a Dock menu (dockmenu.kt).
  */
 internal fun answerMacApplication(
 	command: Command,
@@ -142,7 +142,7 @@ internal fun answerMacApplication(
 		}
 	}
 
-	asked { _ ->
+	asked { explorer ->
 		val reopening =
 			AppEvents.onReopen {
 				asked { explorer ->
@@ -158,6 +158,25 @@ internal fun answerMacApplication(
 				command,
 				"macOS would not tell prism when it is opened again, so its icon opens no window",
 			)
-		AppEvents.dockItem("New Window") { asked { it.browse(home) } }
+
+		val recents = explorer.recents
+
+		val docked =
+			AppEvents.dockMenu({
+				dockMenuOf(
+					recents
+						.read()
+						.folders.all.paths,
+					home,
+				)
+			}) { ask ->
+				asked { it.done(ask, home) }
+			}
+
+		if (!docked)
+			warn(
+				command,
+				"macOS gave prism no way to add to its Dock menu, so it has only the Dock's own items",
+			)
 	}
 }
