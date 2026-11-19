@@ -20,7 +20,8 @@ import prism.platform.Runtime
 import prism.portal.pathOf
 
 /**
- * `prism explore`, and `prism` with no command: the file explorer, on a folder. Where a prism with windows is already
+ * `prism explore`, and `prism` with no command: the file explorer, on a folder: the one it was asked from, where none
+ * is named (the asker's own, sent with what it asks to the prism that answers). Where a prism with windows is already
  * running (the daemon, or one started before this), that one opens the window and this one is done at once, so a
  * window costs no start of a Java program; where none is, this one opens it, is the session's prism for as long as it
  * has a window open, and ends when its last is closed. `--isolated` keeps it to itself either way.
@@ -28,7 +29,7 @@ import prism.portal.pathOf
 internal object ExploreCommand :
 	Command(
 		"explore",
-		"open folders in the file explorer (default your home folder)",
+		"open folders in the file explorer (default the current folder)",
 	),
 	Served {
 	private val items =
@@ -55,8 +56,11 @@ internal object ExploreCommand :
 	/** The word that keeps a prism to a process of its own, which a desktop entry's action gives it. */
 	const val ISOLATED = "--isolated"
 
-	/** What [args] ask to be shown, as [caller] meant them: paths read from the folder they were said in. */
-	private fun shownBy(args: Args, caller: Caller, home: Path): List<Path> =
+	/**
+	 * What [args] ask to be shown, as [caller] meant them: paths read from the folder they were said in, and that
+	 * folder itself where they name none.
+	 */
+	private fun shownBy(args: Args, caller: Caller): List<Path> =
 		args[items]
 			.map { word ->
 				val path =
@@ -69,10 +73,10 @@ internal object ExploreCommand :
 					throw InputError("$word does not exist")
 
 				path
-			}.ifEmpty { listOf(home) }
+			}.ifEmpty { listOf(caller.folder) }
 
 	override suspend fun serve(args: Args, caller: Caller, instance: Instance): Outcome {
-		val shown = shownBy(args, caller, Path(System.getProperty("user.home")))
+		val shown = shownBy(args, caller)
 
 		instance.windows.with { explorer ->
 			shown.forEach {

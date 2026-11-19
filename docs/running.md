@@ -11,7 +11,7 @@ Say you are logged in, the daemon was started with your session, and you press t
 
 1. The launcher runs `prism`. That is a new process, and a small one (in the flake's package, a program compiled
    ahead of time that does nothing but this: docs/shell.md, "The client"): it takes its words (none, which means
-   `prism explore`, on your home folder), and looks for a socket at `$XDG_RUNTIME_DIR/prism/prism.sock`.
+   `prism explore`, on the folder it was run in), and looks for a socket at `$XDG_RUNTIME_DIR/prism/prism.sock`.
 2. The daemon is listening there. The new process writes it what it was asked: the words `explore`, the folder it
    was started in, and the token the launcher gave it for the window to be given the keyboard. Then it waits.
 3. The daemon reads the words exactly as it would read its own command line, and opens an explorer window on your
@@ -36,7 +36,7 @@ The rest of this document is each of those parts in turn.
 
 | command | what it is |
 |---|---|
-| `prism`, `prism FOLDER`, `prism explore FOLDER...` | an explorer window on a folder (your home, with none named), or on a file's folder with the file chosen; opened by the prism already running where there is one |
+| `prism`, `prism FOLDER`, `prism explore FOLDER...` | an explorer window on a folder (the one it was run in, with none named, which the asker sends along to the prism that opens it), or on a file's folder with the file chosen; opened by the prism already running where there is one |
 | `prism launcher` | the launcher: applications, then files, found as you type (docs/launcher.md); shown by the prism already running where there is one, and put away where it is shown already, so one key bound to it shows and hides it |
 | `prism dmenu` | the lines on standard input, in the launcher's window to choose one of, and the one chosen printed, as dmenu does (docs/launcher.md, "dmenu"); shown by the prism already running where there is one |
 | `prism --isolated`, `prism explore --isolated` | the same, in a process of its own, whether or not a prism is running: it asks nobody, and nobody asks it |
