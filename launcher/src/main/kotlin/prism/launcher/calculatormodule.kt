@@ -8,7 +8,7 @@ import prism.calc.Shape
 /*
  * The calculator, as a module of the launcher's (calc holds the language). Typed bare, arithmetic is worked out as it
  * is typed, and its answer shown along the top, copied by the banner's key; a date's dashes (2024-11-18), which may be
- * arithmetic and may be a name, are worked out too, as a row after the files. In its view (`=` or `calc ` before what
+ * arithmetic and may be a name, are worked out too, and answered along the top as well. In its view (`=` or `calc ` before what
  * is typed), everything typed is the calculator's: what is wrong with it is said as it is typed, and the name being
  * typed is completed (Tab), with the types each of its overloads takes and gives.
  */
@@ -29,21 +29,11 @@ object CalculatorModule : LauncherModule {
 					Strength.Certain,
 					banner = bannerOf(calculation.outcome),
 				)
+			// A date's dashes may be arithmetic and may be a name: answered along the top all the same, which costs
+			// the files found for it nothing, and less sure, so that a surer module's banner is shown first.
 			Shape.Ambiguous ->
 				(calculation.outcome as? Outcome.Answer)?.let {
-					ModuleAnswer(
-						Strength.Possible,
-						rows =
-							listOf(
-								ModuleRow(
-									"answer",
-									"= ${it.shown}",
-									query.trim(),
-									it.type ?: title,
-									ModuleAct.Copy(it.copied),
-								),
-							),
-					)
+					ModuleAnswer(Strength.Possible, banner = bannerOf(it))
 				}
 			Shape.Plain, null -> null
 		}

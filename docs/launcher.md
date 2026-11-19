@@ -159,11 +159,11 @@ row, and takes nothing away.
 What a module makes of what is typed is shown in one of two ways.
 
 - **A banner**, the row along the top: set apart from the results, drawn differently, and never what the arrows are
-  on, so that Enter still starts the first application found. It has a key of its own, said on it (Shift+Enter, which
+  on, so that Enter still starts the first application found. Of the modules that answer with one, the surest
+  module's is shown. It has a key of its own, said on it (Shift+Enter, which
   the keys page of the launcher's settings rebinds as "Use the answer"), and a click on it does the same. What the key
   does is the module's to say: something done (the calculator's answer copied), a menu of what can be done (as the
-  right arrow shows a result's), or the module's own view. A banner is shown only where its module is certain.
-- **Rows**, among the results, chosen as any result is. A module sure of what is typed has its rows before the
+  right arrow shows a result's), or the module's own view. - **Rows**, among the results, chosen as any result is. A module sure of what is typed has its rows before the
   applications; one that thinks it likely, after them; one that thinks it only possible, after the files.
 
 A module is also a result of its own, found by its name or its prefix as an application is found by its name:
@@ -182,7 +182,8 @@ never asked about what is typed bare.
 The calculator is asked about everything typed. It answers along the top where what is typed is arithmetic, which is
 where it reads as an expression whole and has an operator in it or calls a function. A number on its own (`42`) or a
 name (`pi`, `firefox`) is left to the rest. A date's dashes (`2024-11-18`), or a version's slashes, are arithmetic and
-are as likely something else, so what they come to is a row after the files. Its prefixes are `=` and `calc `. In its
+are as likely something else, so what they come to is answered along the top too, as less sure: it takes nothing from
+the files found for them, and Shift+Enter copies it. Its prefixes are `=` and `calc `. In its
 view, what is wrong is said as it is typed; the name being typed is completed, with the types each of its overloads
 takes and gives (Tab finishes it); and Enter copies the answer.
 

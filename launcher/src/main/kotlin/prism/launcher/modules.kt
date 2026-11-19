@@ -81,8 +81,8 @@ sealed interface Reach {
 }
 
 /**
- * How sure a module is that what is typed is meant for it, which is where what it makes of it is shown: its banner
- * shown only where it is [Certain]; its rows before the applications, after them, or after the files.
+ * How sure a module is that what is typed is meant for it, which is where what it makes of it is shown: of the banners
+ * answering it, the surest module's along the top; its rows before the applications, after them, or after the files.
  */
 enum class Strength {
 	Certain,

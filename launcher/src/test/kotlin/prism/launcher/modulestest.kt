@@ -91,15 +91,19 @@ class ModulesTest {
 	}
 
 	@Test
-	fun noArithmeticIsLeftToTheApplicationsAndADatesDashesAreAnsweredLast() {
+	fun noArithmeticIsLeftToTheApplicationsAndADatesDashesAreAnsweredAlongTheTop() {
 		assertNull(state(CalculatorModule, query = "fire").shown)
 		assertNull(state(CalculatorModule, query = "42").shown)
 
 		val dated = state(CalculatorModule, query = "2024-11-18")
 
-		assertNull(dated.shown)
-		assertEquals("Calculator", dated.sections.last().title)
-		assertEquals("= 1,995", dated.entries.last().title)
+		// Along the top, as any answer of the calculator's: never among what the arrows move through.
+		assertEquals("1,995", dated.shown?.banner?.title)
+		assertTrue(dated.entries.none { it is Entry.Answer })
+		assertEquals(
+			listOf(LauncherEffect.Copy("1995"), LauncherEffect.Close),
+			dated.after(LauncherEvent.Answered).effects,
+		)
 	}
 
 	@Test
@@ -187,8 +191,11 @@ class ModulesTest {
 			).after(LauncherEvent.Entered)
 
 		assertEquals(listOf(LauncherEffect.Copy("FIRE"), LauncherEffect.Close), chosen.effects)
-		// Only a certain module's banner is shown.
-		assertNull(state(Tried(Strength.Likely), query = "fire").shown)
+		// A module's banner is shown however sure it is, the surest's first.
+		assertEquals(
+			"loud: fire",
+			state(Tried(Strength.Likely), query = "fire").shown?.banner?.title,
+		)
 		assertEquals(
 			"loud: fire",
 			state(Tried(Strength.Certain), query = "fire").shown?.banner?.title,

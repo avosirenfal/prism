@@ -388,14 +388,14 @@ data class LauncherState(
 	}
 
 	/**
-	 * The banner along the top: in a module's view, the module's; otherwise that of the surest module that is certain
-	 * of what is typed, where one is.
+	 * The banner along the top: in a module's view, the module's; otherwise that of the surest module that answers what is
+	 * typed with one, where one does.
 	 */
 	val shown: Shown? by lazy {
 		inView?.let { (module, view) -> return@lazy view.banner?.let { Shown(module, it) } }
 
 		answers
-			.filter { (_, answer) -> answer.strength == Strength.Certain }
+			.sortedBy { (_, answer) -> answer.strength }
 			.firstNotNullOfOrNull { (module, answer) -> answer.banner?.let { Shown(module, it) } }
 	}
 
