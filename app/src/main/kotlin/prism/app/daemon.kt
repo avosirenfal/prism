@@ -31,14 +31,18 @@ import prism.cli.Outcome
 import prism.cli.ParamType
 import prism.daemon.Daemon
 import prism.daemon.DaemonSettings
+import prism.daemon.KeptCatalogue
 import prism.daemon.LiveIndex
 import prism.daemon.LiveSearch
+import prism.daemon.Telling
 import prism.dbus.Connection
 import prism.dbus.Opening
 import prism.desktop.asChildOfPrism
+import prism.desktop.macos.ApplicationSource
 import prism.index.Exclusion
 import prism.index.IgnoreRules
 import prism.index.Ignored
+import prism.index.Included
 import prism.index.IndexStore
 import prism.index.Indexer
 import prism.index.Usage
@@ -165,15 +169,21 @@ object DaemonCommand : Command(
 					)
 			}
 
+		val asked =
+			args[roots]
+				.map {
+					it.toAbsolutePath().normalize()
+				}.ifEmpty { listOf(Path("/")) }
+		// A Mac's applications, as the index holds them, kept current as the disk changes; none to keep elsewhere.
+		val catalogue = KeptCatalogue().takeIf { Os.current == Os.MacOS }
+
 		val settings =
 			DaemonSettings(
 				file = file,
-				roots =
-					args[roots].map { it.toAbsolutePath().normalize() }.ifEmpty {
-						listOf(
-							Path("/"),
-						)
-					},
+				// The places held though a folder above them is left out, where they are under what is indexed: a
+				// Mac's system's applications, under its system's tree.
+				roots = asked + Included.DEFAULTS.filter { it.under(asked) }.map { it.path },
+				telling = catalogue?.telling ?: Telling.NOBODY,
 				indexer = Indexer(rules = daemonRules()),
 				report = Report::whileDoing,
 			)
@@ -246,6 +256,8 @@ object DaemonCommand : Command(
 							home,
 							file != null,
 						),
+						applicationsFrom =
+							catalogue?.let { ApplicationSource.Kept(it::now) } ?: ApplicationSource.Folders,
 					),
 					Lasting.UntilStopped,
 				)

@@ -3,7 +3,6 @@ package prism.desktop.macos
 import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.Path
-import java.util.concurrent.TimeUnit
 import kotlin.io.path.extension
 import kotlin.io.path.isDirectory
 import kotlin.io.path.listDirectoryEntries
@@ -12,6 +11,10 @@ import prism.desktop.ApplicationAction
 import prism.desktop.Applications
 import prism.desktop.MimeType
 import prism.macos.Bundle
+import prism.macos.BundlePath
+import prism.macos.Catalogue
+import prism.macos.KeptBundles
+import prism.macos.Revision
 import prism.macos.UniformTypes
 import prism.shared.Published
 import prism.macos.Applications as LaunchServices
@@ -22,17 +25,41 @@ import prism.macos.Applications as LaunchServices
  * which asks Launch Services to start it (or bring it forward, where it is running) as a process of its own.
  */
 
-/** A Mac's applications, [types] saying what each opens as prism's types. */
+/** Where a Mac's applications are found. */
+sealed interface ApplicationSource {
+	/** The folders applications are installed in, read when they are asked for: what a prism with no daemon has. */
+	data object Folders : ApplicationSource
+
+	/**
+	 * The bundles a daemon keeps of its index ([Catalogue]): every application on the disk, wherever it is, kept as
+	 * the disk changes. The folders, until the index has first been read.
+	 */
+	class Kept(
+		val catalogue: () -> Catalogue,
+	) : ApplicationSource
+}
+
+/** A Mac's applications, found as [source] says, [types] saying what each opens as prism's types. */
 class LaunchServicesApplications(
 	private val types: UniformFileTypes,
+	private val source: ApplicationSource = ApplicationSource.Folders,
 	private val home: Path = Path.of(System.getProperty("user.home")),
 ) : Applications {
-	/** What was read of the installed applications, until they are read again; none before they are first asked for. */
+	/** What was read of the folders, until they are read again; none before they are first asked for. */
 	private val read = Published<List<Application>?>(null)
+
+	/** A bundle as it was last read, and the revision of it that was: read again only once it has a newer one. */
+	private data class Known(
+		val revision: Revision,
+		val application: Application?,
+	)
+
+	/** What was read of each bundle kept: what a bundle says of itself is read again only when it changes. */
+	private val known = Published<Map<BundlePath, Known>>(emptyMap())
 
 	/**
 	 * Where applications are installed: the user's own, the computer's, and the system's, each with its Utilities; and
-	 * the applications the system keeps among its own services (Screen Sharing, Archive Utility), which Spotlight lists.
+	 * the applications the system keeps among its own services (Screen Sharing, Archive Utility).
 	 */
 	private val folders: List<Path>
 		get() =
@@ -53,93 +80,64 @@ class LaunchServicesApplications(
 		get() = listOf(Path.of("/System/Library/CoreServices/Finder.app"))
 
 	/**
-	 * Every application, as Spotlight finds them: whatever its own index holds as an application, wherever it is, and
-	 * every pane of System Settings it holds, so that what Spotlight finds by name prism finds too. Where Spotlight
-	 * says nothing (it is turned off, or has not indexed the disk yet), the folders applications are installed in, read
-	 * as they are. An application inside another's bundle that runs with no window (a browser's helper) is left out.
-	 * Two threads that ask at once may each read them: the same, and one is kept.
+	 * Every application: as a daemon keeps them, where one does and has read its index; and as the folders they are
+	 * installed in hold them, where not. Two threads that ask at once may each read them: the same, and one is kept.
 	 */
 	override fun all(): List<Application> =
-		read.now ?: run {
-			val spotlit = spotlit(APPLICATION).sortedBy(::rankOf)
-
-			val applications =
-				if (spotlit.isEmpty())
-					(
-						folders.flatMap(::bundlesIn) +
-							bundles.filter {
-								it.isDirectory()
-							}
-					).mapNotNull(::applicationAt)
-				else
-					spotlit.mapNotNull { path ->
-						LaunchServices
-							.bundle(path)
-							?.takeUnless { it.background && it.identifier != PRISM && insideABundle(path) }
-							?.let(::applicationOf)
-					}
-
-			val panes = spotlit(SETTINGS_PANE).mapNotNull(::paneAt)
-
-			(applications + panes)
-				.distinctBy { it.id }
-				.sortedBy { it.name.lowercase() }
-				.also(read::set)
+		when (source) {
+			ApplicationSource.Folders -> inFolders()
+			is ApplicationSource.Kept ->
+				when (val catalogue = source.catalogue()) {
+					Catalogue.Unread -> inFolders()
+					is Catalogue.Read -> kept(catalogue.kept)
+				}
 		}
 
-	/** What Spotlight's index holds of the content [type], by path; none where it says nothing. */
-	private fun spotlit(type: String): List<Path> =
-		try {
-			val process =
-				ProcessBuilder(MDFIND, "-0", "kMDItemContentType == '$type'")
-					.redirectError(ProcessBuilder.Redirect.DISCARD)
-					.start()
-			val found = process.inputStream.readAllBytes().decodeToString()
+	/** The applications in the folders they are installed in, as they were last read. */
+	private fun inFolders(): List<Application> =
+		read.now
+			?: listed(
+				(folders.flatMap(::bundlesIn) + bundles.filter { it.isDirectory() })
+					.mapNotNull(BundlePath::of)
+					.mapNotNull { applicationAt(it, Listing.Installed) },
+			).also(read::set)
 
-			if (process.waitFor(SPOTLIGHT_SECONDS, TimeUnit.SECONDS) && process.exitValue() == 0)
-				found.split('\u0000').filter { it.isNotEmpty() }.map(Path::of)
-			else
-				emptyList()
-		} catch (failed: IOException) {
-			emptyList()
-		}
+	/**
+	 * The applications of the bundles [kept]: each as it was last read, and read again where it has changed since. A
+	 * bundle in an applications folder is listed before another copy of the same application elsewhere.
+	 */
+	private fun kept(kept: KeptBundles): List<Application> {
+		val before = known.now
+		val now =
+			kept.revisions.mapValues { (bundle, revision) ->
+				before[bundle]?.takeIf { it.revision == revision }
+					?: Known(revision, applicationAt(bundle, Listing.Anywhere))
+			}
+
+		known.set(now)
+
+		return listed(
+			now.entries
+				.sortedBy {
+					rankOf(it.key.path)
+				}.mapNotNull { it.value.application },
+		)
+	}
+
+	/** [applications] as they are listed: each once, by its name. */
+	private fun listed(applications: List<Application>): List<Application> =
+		applications.distinctBy { it.id }.sortedBy { it.name.lowercase() }
 
 	/** Of two copies of one application, which is listed: the one in an applications folder before any other. */
 	private fun rankOf(path: Path): Int =
-		folders.indexOfFirst { path.startsWith(it) }.let {
-			if (it <
-				0
-			) folders.size else it
-		}
-
-	/** Whether [path] is inside another bundle: an application's helper, kept in its Contents. */
-	private fun insideABundle(path: Path): Boolean =
-		generateSequence(path.parent) { it.parent }.any {
-			it.fileName?.toString()?.endsWith(".app") ==
-				true
-		}
-
-	/** The pane of System Settings at [path], as an application that opens System Settings at it. */
-	private fun paneAt(path: Path): Application? =
-		LaunchServices.bundle(path)?.let { bundle ->
-			Application(
-				id = bundle.identifier ?: path.toString(),
-				name = bundle.name.removeSuffix(".prefPane"),
-				types = emptySet(),
-				command = listOf(OPEN, path.toString()),
-				inTerminal = false,
-				icon = path.toString(),
-				source = path,
-				generic = "System Settings",
-			)
-		}
+		folders.indexOfFirst { path.startsWith(it) }.let { if (it < 0) folders.size else it }
 
 	override fun reread() = read.set(null)
 
 	override fun forType(type: MimeType): List<Application> {
 		val identifier = types.uniformOf(type)?.identifier ?: return emptyList()
 		val default = defaultFor(type)
-		val others = LaunchServices.forType(identifier).mapNotNull(::applicationAt)
+		val others = LaunchServices.forType(identifier).mapNotNull(::installedAt)
 
 		return (listOfNotNull(default) + others).distinctBy { it.id }
 	}
@@ -149,7 +147,7 @@ class LaunchServicesApplications(
 			.uniformOf(type)
 			?.identifier
 			?.let(LaunchServices::defaultFor)
-			?.let(::applicationAt)
+			?.let(::installedAt)
 
 	override fun setDefault(type: MimeType, application: Application) {
 		val identifier =
@@ -177,12 +175,32 @@ class LaunchServicesApplications(
 			emptyList()
 		}
 
-	/** The application of the bundle at [path]: none for one that is not, or runs with no window anyone starts. */
-	private fun applicationAt(path: Path): Application? =
+	/** Where a bundle was found, which is what says whether one that runs with no window is listed. */
+	private enum class Listing {
+		/** In a folder applications are installed in: listed only where it has a window (no agent of the system's). */
+		Installed,
+
+		/**
+		 * Anywhere on the disk: listed but where it is inside another's bundle and has no window (a browser's
+		 * helper), so that a menu bar's application, which has none either, is found.
+		 */
+		Anywhere,
+	}
+
+	/** The application at [path], as Launch Services names one: one that has a window, as an installed one is. */
+	private fun installedAt(path: Path): Application? =
+		BundlePath.of(path)?.let { applicationAt(it, Listing.Installed) }
+
+	/** The application of [bundle], found as [listing] says; none for one that is not, or is not to be listed. */
+	private fun applicationAt(bundle: BundlePath, listing: Listing): Application? =
 		LaunchServices
-			.bundle(path)
+			.bundle(bundle.path)
 			?.takeUnless {
-				it.background && it.identifier != PRISM
+				it.background && it.identifier != PRISM &&
+					when (listing) {
+						Listing.Installed -> true
+						Listing.Anywhere -> bundle.inAnother
+					}
 			}?.let(::applicationOf)
 
 	private fun applicationOf(bundle: Bundle): Application =
@@ -223,16 +241,6 @@ class LaunchServicesApplications(
 	companion object {
 		/** What asks Launch Services to open: an application, or files with one. */
 		const val OPEN = "/usr/bin/open"
-
-		/** Spotlight's index, asked from the command line. */
-		private const val MDFIND = "/usr/bin/mdfind"
-
-		/** What Spotlight calls an application, and a pane of System Settings. */
-		private const val APPLICATION = "com.apple.application-bundle"
-		private const val SETTINGS_PANE = "com.apple.systempreference.prefpane"
-
-		/** How long Spotlight is waited for. */
-		private const val SPOTLIGHT_SECONDS = 10L
 
 		/** prism's own bundle, by its identifier: listed though it starts in no Dock, and known to have "New Window". */
 		const val PRISM = "dev.prism"

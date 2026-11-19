@@ -123,6 +123,19 @@ or whose `NotShowIn` does, and one whose `TryExec` is not installed; an entry in
 the system's of the same name, whatever it says. Names and descriptions are in your language where the entry has them.
 Each has the icon your icon theme has for it, and the first letter of its name on a tile where the theme has none.
 
+**On a Mac, what is listed** is each application bundle (a folder named `Something.app`) the daemon's index holds:
+`/Applications`, `~/Applications`, the system's own (docs/daemon.md, "Places included under one left out"), and any
+other folder they are kept in. A bundle with no window (`LSUIElement`, `LSBackgroundOnly`) is left out where it is
+inside another's `Contents`, as a browser's helper is, and listed where it is not, as a menu bar's application is;
+one inside another that has a window is listed (Xcode's Simulator). The
+daemon keeps which bundles there are without asking the index anything but what it holds (`KeptCatalogue`,
+daemon/bundles.kt): each time the index is read whole it takes every bundle in it, and from then on each batch of
+FSEvents says which bundle a change was in (its `Info.plist` rewritten, as an update does), which was made or moved in
+(with any a folder moved in holds), and which went. Each bundle has a revision, raised as it changes, and the
+launcher reads a bundle's `Info.plist` again only when its revision is new (`LaunchServicesApplications`). Until the
+index is first read, and with no daemon at all (`prism launcher` alone), the applications folders are read instead,
+as they always were.
+
 What is typed is words, and each word counts for the best place it is found in:
 
 | found in | counts |

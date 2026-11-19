@@ -347,6 +347,8 @@ class Hiding(
 class Exclusions private constructor(
 	val rules: List<Rule>,
 	val home: Path,
+	/** The places held though a folder above them is left out ([Included]): hidden, as a hidden rule's are. */
+	val included: List<Included>,
 ) {
 	/** One rule: as it is [written], what it [names], what is done ([exclusion]), whether it is one of prism's own, and whether it is [on]. */
 	data class Rule(
@@ -382,7 +384,17 @@ class Exclusions private constructor(
 
 	/** What a search leaves out of what it finds. */
 	val hiding: Hiding by lazy {
-		Hiding(Seeking(namings(Exclusion.Hidden).map { it.itself }, home))
+		Hiding(
+			Seeking(
+				(
+					namings(Exclusion.Hidden) +
+						included.map {
+							it.hidden
+						}
+				).map { it.itself },
+				home,
+			),
+		)
 	}
 
 	/** How many rules are in effect, of each kind. */
@@ -631,7 +643,8 @@ class Exclusions private constructor(
 		val DEFAULT: Exclusions by lazy { of(home = Path.of(System.getProperty("user.home"))) }
 
 		/** No rule at all. */
-		fun none(home: Path = Path.of("/")): Exclusions = Exclusions(emptyList(), home)
+		fun none(home: Path = Path.of("/")): Exclusions =
+			Exclusions(emptyList(), home, emptyList())
 
 		/**
 		 * The rules as the preferences keep them: the defaults but for those switched [off] and those [changed] to
@@ -645,6 +658,7 @@ class Exclusions private constructor(
 			own: Map<String, Exclusion> = emptyMap(),
 			home: Path,
 			defaults: List<String> = DEFAULTS,
+			included: List<Included> = Included.DEFAULTS,
 		): Exclusions {
 			val builtIn =
 				defaults.map { written ->
@@ -669,7 +683,7 @@ class Exclusions private constructor(
 						rules + Rule(written.trim(), naming, exclusion, builtIn = false, on = true)
 				}
 
-			return Exclusions(builtIn + user, home)
+			return Exclusions(builtIn + user, home, included)
 		}
 
 		/**

@@ -54,6 +54,7 @@ import prism.client.Request
 import prism.client.ask
 import prism.dbus.Connection
 import prism.desktop.Desktop
+import prism.desktop.macos.ApplicationSource
 import prism.explorer.Explorer
 import prism.explorer.ExplorerWindows
 import prism.launcher.LaunchFile
@@ -99,6 +100,8 @@ internal data class Hosting(
 	val search: Search = Search.Unavailable(BrowserState.NO_INDEX),
 	/** What a search searches; none where there is no index. */
 	val finder: Finder? = null,
+	/** Where a Mac's applications are found: the daemon's catalogue of them, where there is a daemon. */
+	val applicationsFrom: ApplicationSource = ApplicationSource.Folders,
 )
 
 /** The folders pickers were lately answered from, where every prism of the session keeps them. */
@@ -270,7 +273,7 @@ internal class Windows(
 	 * for the next that asks.
 	 */
 	fun run() {
-		val desktop = windowsDesktop()
+		val desktop = windowsDesktop(hosting.applicationsFrom)
 
 		preferencesHere.let { preferences ->
 			preferences.problem?.let {

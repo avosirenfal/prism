@@ -18,6 +18,7 @@ import prism.desktop.Activation
 import prism.desktop.ActivationToken
 import prism.desktop.Desktop
 import prism.desktop.currentDesktop
+import prism.desktop.macos.ApplicationSource
 import prism.index.IndexFile
 import prism.index.IndexRead
 import prism.index.Usage
@@ -35,8 +36,15 @@ import prism.window.activationToken
  * The desktop prism is on, for a command that opens windows: what it starts is brought forward from them, by the
  * token the windows' platform makes of the user's last press in one (prism.window's `activationToken`).
  */
-internal fun windowsDesktop(): Desktop =
-	currentDesktop(Activation { appId -> activationToken(appId)?.let(::ActivationToken) })
+internal fun windowsDesktop(
+	applicationsFrom: ApplicationSource = ApplicationSource.Folders,
+): Desktop =
+	currentDesktop(
+		Activation { appId ->
+			activationToken(appId)?.let(::ActivationToken)
+		},
+		applicationsFrom,
+	)
 
 /** `--theme`: the palette, the desktop's colour scheme by default. */
 internal fun Command.themeOption(): Param<Theme> =

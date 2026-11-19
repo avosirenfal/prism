@@ -19,6 +19,8 @@ import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 import prism.index.FileId
 import prism.index.IgnoreRules
+import prism.index.Index
+import prism.index.IndexStore
 import prism.index.Indexer
 import prism.index.Name
 import prism.index.Where
@@ -67,46 +69,50 @@ fun interface Feed {
 		 * no daemon ran is told first. Where its record no longer goes back that far, it says to read everything
 		 * again, which is counted as lost.
 		 */
-		fun fsEvents(roots: List<Path>, since: Long = EventStream.SINCE_NOW) =
-			Feed { seen ->
-				val lost = AtomicLong(0)
-				val last = AtomicLong(since)
-				val stopped = Published<String?>(null)
+		fun fsEvents(
+			roots: List<Path>,
+			since: Long = EventStream.SINCE_NOW,
+			heard: (List<FsEvent>) -> Unit = {},
+		) = Feed { seen ->
+			val lost = AtomicLong(0)
+			val last = AtomicLong(since)
+			val stopped = Published<String?>(null)
 
-				val stream =
-					EventStream.start(
-						roots,
-						latency = FSEVENTS_LATENCY,
-						since = since,
-						failed = { stopped.set("FSEvents' changes could not be read: $it") },
-					) { batch ->
-						if (batch.any { event -> event.flags.any { it in FSEVENTS_LOST } })
-							lost.incrementAndGet()
-						seen(batch.mapNotNull(::changedOf))
-						// Once given: a place kept is one whose changes were at least handed on.
-						batch.maxOfOrNull { it.id }?.let { id -> last.accumulateAndGet(id, ::maxOf) }
-					}
-
-				stream?.let {
-					Feeding.On(
-						it,
-						lost::get,
-						stopped::now,
-						if (since == EventStream.SINCE_NOW)
-							"FSEvents"
-						else
-							"FSEvents, from where the last daemon left off",
-						at = { last.get().takeIf { id -> id > 0 } },
-					)
+			val stream =
+				EventStream.start(
+					roots,
+					latency = FSEVENTS_LATENCY,
+					since = since,
+					failed = { stopped.set("FSEvents' changes could not be read: $it") },
+				) { batch ->
+					if (batch.any { event -> event.flags.any { it in FSEVENTS_LOST } })
+						lost.incrementAndGet()
+					seen(batch.mapNotNull(::changedOf))
+					heard(batch)
+					// Once given: a place kept is one whose changes were at least handed on.
+					batch.maxOfOrNull { it.id }?.let { id -> last.accumulateAndGet(id, ::maxOf) }
 				}
-					?: Feeding.Off("macOS would not start a stream of FSEvents")
+
+			stream?.let {
+				Feeding.On(
+					it,
+					lost::get,
+					stopped::now,
+					if (since == EventStream.SINCE_NOW)
+						"FSEvents"
+					else
+						"FSEvents, from where the last daemon left off",
+					at = { last.get().takeIf { id -> id > 0 } },
+				)
 			}
+				?: Feeding.Off("macOS would not start a stream of FSEvents")
+		}
 
 		/** The feed of the platform this runs on, of changes under [roots]: the kernel's watcher on Linux, FSEvents on a Mac. */
-		fun of(roots: List<Path>): Feed =
+		fun of(roots: List<Path>, heard: (List<FsEvent>) -> Unit = {}): Feed =
 			when (Os.current) {
 				Os.Linux -> KERNEL
-				Os.MacOS -> fsEvents(roots)
+				Os.MacOS -> fsEvents(roots, heard = heard)
 				Os.Windows -> none("prism has no watcher for Windows yet")
 			}
 
@@ -195,10 +201,28 @@ fun changedOf(event: FsEvent): Changed? {
 /** What FSEvents says of an entry whose being there, or its name, changed. */
 private val FSEVENTS_ENTRIES = setOf(FsFlag.Created, FsFlag.Removed, FsFlag.Renamed)
 
+/**
+ * What a daemon tells of what it sees, besides keeping the index, to what keeps something of its own of the disk (a
+ * Mac's applications, which are what the index holds that is named as a bundle is). The index tells nobody of what
+ * changes in it; the daemon tells of the index as a whole, and of what its feed says changed.
+ */
+class Telling(
+	/** The index, whenever it is whole: as it opens from its file, and each time its roots have been read. */
+	val whole: (Index) -> Unit = {},
+	/** Each batch of FSEvents' changes, as it is seen, on a Mac: every one, whatever the index makes of it. */
+	val heard: (List<FsEvent>) -> Unit = {},
+) {
+	companion object {
+		val NOBODY = Telling()
+	}
+}
+
 /** How a daemon goes about its work. */
 data class DaemonSettings(
 	/** The index's file; null to keep it in memory alone. */
 	val file: Path?,
+	/** Who is told of the index as a whole, and of each batch of changes. */
+	val telling: Telling = Telling.NOBODY,
 	val roots: List<Path> = listOf(Path("/")),
 	val indexer: Indexer = Indexer(),
 	val live: LiveSettings = LiveSettings(),
@@ -306,7 +330,10 @@ class Daemon private constructor(
 	init {
 		val every = settings.tick.inWholeMilliseconds
 
-		reported("reading ${settings.roots.joinToString()}", live.opened)
+		// The index as its file held it is whole, before its roots are read again; so is it once they are.
+		if (live.origin is IndexStore.Origin.Read)
+			carrying("telling of the index") { settings.telling.whole(live.index) }
+		told(reported("reading ${settings.roots.joinToString()}", live.opened))
 		// A tick that threw would be the last: the executor runs a task that failed no more.
 		ticks.scheduleWithFixedDelay({
 			carrying("keeping the index", ::tick)
@@ -374,7 +401,15 @@ class Daemon private constructor(
 	}
 
 	/** The roots read again, and what that fails with, if it does, reported: they are read again the next time. */
-	fun rescanRoots() = reported("reading the roots again", live.rescanRoots())
+	fun rescanRoots() = told(reported("reading the roots again", live.rescanRoots()))
+
+	/** [read], once it is done, told of as the index whole, where it was read without going wrong. */
+	private fun told(read: CompletableFuture<Unit>): CompletableFuture<Unit> =
+		read.thenApply {
+			carrying(
+				"telling of the index",
+			) { settings.telling.whole(live.index) }
+		}
 
 	/** What the index leaves out made [rules], and the index made to agree ([LiveIndex.ruled]). */
 	fun ruled(rules: IgnoreRules) =
@@ -516,7 +551,7 @@ class Daemon private constructor(
 		fun start(settings: DaemonSettings): Daemon {
 			val history =
 				settings.file?.takeIf { Os.current == Os.MacOS }?.let(History::beside)
-					?: return start(settings, Feed.of(settings.roots), null) {}
+					?: return start(settings, Feed.of(settings.roots, settings.telling.heard), null) {}
 			val rules = rulesOf(settings.indexer.rules)
 			val kept =
 				history.read()?.takeIf {
@@ -528,11 +563,11 @@ class Daemon private constructor(
 			history.forget()
 
 			return if (kept == null)
-				start(settings, Feed.of(settings.roots), history) {}
+				start(settings, Feed.of(settings.roots, settings.telling.heard), history) {}
 			else
 				start(
 					settings.copy(live = settings.live.copy(readRootsOnOpen = false)),
-					Feed.fsEvents(settings.roots, kept.id),
+					Feed.fsEvents(settings.roots, kept.id, settings.telling.heard),
 					history,
 				) {}.also {
 					// Rules added while no daemon ran: what they leave out is taken out, which reads nothing.

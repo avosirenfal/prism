@@ -13,11 +13,14 @@ import prism.desktop.TerminalChoice
 /**
  * A Mac's desktop: uniform types for what a file is, Launch Services for which application opens it and for starting
  * it, NSWorkspace for icons, Finder's places, the volumes, and the system's trash. The JVM's views of a file say all
- * its facts here, when it was made among them (APFS keeps it, and the JVM asks).
+ * its facts here, when it was made among them (APFS keeps it, and the JVM asks). Its applications are found as
+ * [applicationsFrom] says.
  */
-class MacDesktop : Desktop {
+class MacDesktop(
+	applicationsFrom: ApplicationSource = ApplicationSource.Folders,
+) : Desktop {
 	override val types = UniformFileTypes()
-	override val applications = LaunchServicesApplications(types)
+	override val applications = LaunchServicesApplications(types, applicationsFrom)
 	override val launcher = OpenLauncher()
 	override val icons = WorkspaceIcons()
 	override val places = FinderPlaces()

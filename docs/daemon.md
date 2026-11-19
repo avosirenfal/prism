@@ -176,6 +176,14 @@ differences from the defaults (`"excluding"`: which are off, which do something 
 each does), so a default added later is the user's too. The "Indexing" page of the preferences sets them
 (docs/explorer.md).
 
+**Places included under one left out** (`Included`, `index/included.kt`). A Mac keeps its own applications under
+`/System`, which is ignored: `/System/Applications` (Safari, Mail), `/System/Applications/Utilities`,
+`/System/Library/CoreServices/Applications` and `/System/Library/CoreServices/Finder.app`. These four are read all
+the same, as roots of their own: a place asked for outright is read whatever the rules say, so a scan goes into them
+and into nothing else of `/System`. They are hidden, as a hidden rule is: held, so the launcher lists what they hold,
+and left out of what a search finds until a path term names them (`/System/Applications/ safari`). The daemon adds
+each as a root where a root it was given holds it (`/` does); other platforms include nothing.
+
 **How they are applied.** A rule that is a folder's path, or folders by the names their paths end with (`build/`,
 `.yarn/cache/`: every default is one of these), is one a scan never goes into (`IgnoreRules.directories`), which is
 what makes leaving out `node_modules` cheap. Any other query is looked for in what a scan read, by the search engine

@@ -25,6 +25,9 @@ import prism.index.Name
 import prism.linux.Fd
 import prism.linux.orThrow
 import prism.linux.statx
+import prism.macos.BundleDisk
+import prism.macos.BundlePath
+import prism.macos.Catalogue
 import prism.platform.Dev
 import prism.platform.FileKind
 import prism.platform.KernelDev
@@ -142,6 +145,41 @@ class DaemonTest {
 
 			eventually { "docs/unseen.txt" in daemon.live.index.names() }
 		}
+	}
+
+	@Test
+	fun theBundlesTheIndexHoldsAreToldOfEachTimeItIsWhole() {
+		made("Applications/Safari.app/Contents/Info.plist", "docs/a.txt")
+
+		val feed = Given()
+		val catalogue = KeptCatalogue(Disk)
+
+		fun kept(): Set<String> =
+			when (val now = catalogue.now) {
+				Catalogue.Unread -> emptySet()
+				is Catalogue.Read ->
+					now.kept.bundles
+						.map { root.relativize(it.path).toString() }
+						.toSet()
+			}
+
+		Daemon.start(settings().copy(telling = catalogue.telling), feed).use { daemon ->
+			daemon.live.opened.get(30, TimeUnit.SECONDS)
+			eventually { kept() == setOf("Applications/Safari.app") }
+
+			// Made without the watcher saying so: the roots are read again, and what they hold told of again.
+			made("Applications/Zed.app/Contents/Info.plist")
+			feed.lost.incrementAndGet()
+
+			eventually { kept() == setOf("Applications/Safari.app", "Applications/Zed.app") }
+		}
+	}
+
+	/** The disk as it is, for bundles: they are folders, and none is moved in while a test runs. */
+	private object Disk : BundleDisk {
+		override fun holds(bundle: BundlePath): Boolean = Files.isDirectory(bundle.path)
+
+		override fun bundlesIn(folder: Path): List<BundlePath> = emptyList()
 	}
 
 	@Test
@@ -323,16 +361,18 @@ class DaemonTest {
 			}
 
 		// Written at every tick, here, where a daemon left to itself writes once an hour.
-		Daemon.start(settings().copy(write = 100.milliseconds), feed, history) {}.use { daemon ->
-			daemon.live.opened.get()
-			eventually { history.read()?.id == 7L }
+		Daemon
+			.start(settings().copy(write = 100.milliseconds), feed, history) {}
+			.use { daemon ->
+				daemon.live.opened.get()
+				eventually { history.read()?.id == 7L }
 
-			// A place is of the volumes and the rules it was kept with.
-			assertEquals(volumesOf(settings().live.mounts()), history.read()?.of)
-			assertEquals(rulesOf(daemon.live.rules), history.read()?.rules)
+				// A place is of the volumes and the rules it was kept with.
+				assertEquals(volumesOf(settings().live.mounts()), history.read()?.of)
+				assertEquals(rulesOf(daemon.live.rules), history.read()?.rules)
 
-			at.set(9)
-		}
+				at.set(9)
+			}
 
 		// Closing writes the index, and the place with it.
 		assertEquals(9L, history.read()?.id)
