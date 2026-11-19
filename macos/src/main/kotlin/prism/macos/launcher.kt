@@ -514,6 +514,17 @@ object Dock {
 		}
 	}
 
+	/**
+	 * prism an application of the usual kind, in the Dock, before a window of the usual kind is made: an application
+	 * with no place in the Dock has its windows shown on the Space in front, a full-screen application's included,
+	 * where an application with one has them on a desktop's Space, as every other application's are.
+	 */
+	fun regular() {
+		ObjC.pooled {
+			NSApplication.setActivationPolicy(NSApplication.sharedApplication(), REGULAR)
+		}
+	}
+
 	/** prism in the Dock, with [icon] (an image's bytes: SVG, PNG) as its icon, where [shown]; out of it where not. */
 	fun shown(shown: Boolean, icon: ByteArray?) {
 		ObjC.pooled {

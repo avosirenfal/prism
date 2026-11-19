@@ -146,6 +146,7 @@ import org.lwjgl.sdl.SDLVideo.SDL_WINDOW_RESIZABLE
 import org.lwjgl.sdl.SDLVideo.SDL_WINDOW_TRANSPARENT
 import org.lwjgl.sdl.SDL_Event
 import org.lwjgl.system.MemoryStack
+import prism.macos.Dock
 import prism.macos.Panel
 
 /** The window something is drawn in: given to everything in it, as [LocalNativeWindow]. */
@@ -337,6 +338,12 @@ class NativeWindow internal constructor(
 					inFront =
 						video != Video.Wayland,
 				)
+
+		// On a Mac, a window of the usual kind is an application's of the usual kind, made once prism is one: made while
+		// prism has no place in the Dock (as a daemon has none), it would be shown on the Space in front, a full-screen
+		// application's, where the next window, made once prism was in the Dock, would not be.
+		if (video == Video.Cocoa && surfacing is Surfacing.Toplevel)
+			Dock.regular()
 
 		panel = panelled?.second
 		sdl =
