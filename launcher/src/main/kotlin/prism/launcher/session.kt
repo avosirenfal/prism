@@ -106,6 +106,7 @@ class LauncherSession(
 	private val scope: CoroutineScope,
 	preferences: LauncherPreferences = LauncherPreferences(),
 	aliases: Aliases = Aliases.NONE,
+	modules: Modules = Modules.STANDARD,
 ) {
 	/** The windows open, as the desktop tells of them now; where it tells of none, nothing here asks for any. */
 	private val windows: OpenWindows = services.windows()
@@ -124,6 +125,7 @@ class LauncherSession(
 				launches = services.launches.launches,
 				preferences = preferences,
 				aliases = aliases,
+				modules = modules,
 				searchable = services.finder != null,
 				now = services.clock.instant(),
 			),
@@ -287,7 +289,7 @@ class LauncherSession(
 							opening.unopened.isNotEmpty()
 						}
 				}
-			is Entry.Command, is Entry.Prism, is Entry.Named -> null
+			is Entry.Command, is Entry.Prism, is Entry.Named, is Entry.Answer -> null
 		}
 	}
 

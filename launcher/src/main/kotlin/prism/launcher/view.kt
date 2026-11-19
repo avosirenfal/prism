@@ -3,6 +3,7 @@ package prism.launcher
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -47,10 +48,13 @@ import androidx.compose.ui.input.key.isShiftPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.input.VisualTransformation
@@ -61,7 +65,6 @@ import androidx.compose.ui.unit.times
 import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import prism.browser.ActionMenuLayer
 import prism.browser.ActionMenuPanel
@@ -166,8 +169,8 @@ fun LauncherView(session: LauncherSession, bindings: Bindings) {
 
 	PutAwayUnfocused(state.preferences.closeUnfocused) { session.send(LauncherEvent.Closed) }
 
-	val queries = remember(session) { session.state.map { it.query } }
-	var typed by typedOf(queries, state.query)
+	val queries = remember(session) { session.state.map { it.field } }
+	var typed by typedOf(queries, state.field)
 
 	Scaled(state.preferences.scale.times) {
 		LauncherPane(
@@ -211,13 +214,16 @@ internal fun PutAwayUnfocused(closes: Boolean, onGone: () -> Unit) {
 /**
  * What is typed into the field, which is the field's own until what its session has typed ([queries]) differs:
  * cleared by Escape, say. It begins as [first].
+ *
+ * Every state is compared, and not only a change in what is typed: `calc ` typed opens the calculator's view with
+ * nothing typed in it, so what the session has typed goes from nothing to nothing, while the field holds `calc `.
  */
 @Composable
 internal fun typedOf(queries: Flow<String>, first: String): MutableState<TextFieldValue> {
 	val typed = remember { mutableStateOf(TextFieldValue(first, TextRange(first.length))) }
 
 	LaunchedEffect(queries) {
-		queries.distinctUntilChanged().collect { query ->
+		queries.collect { query ->
 			if (query != typed.value.text)
 				typed.value = TextFieldValue(query, TextRange(query.length))
 		}
@@ -239,7 +245,7 @@ internal fun cornersHere(preferences: LauncherPreferences): Corners =
 fun LauncherPane(
 	state: LauncherState,
 	bindings: Bindings = launcherBindings(),
-	typed: TextFieldValue = TextFieldValue(state.query, TextRange(state.query.length)),
+	typed: TextFieldValue = TextFieldValue(state.field, TextRange(state.field.length)),
 	corners: Corners = Corners.Square,
 	onTyped: (TextFieldValue) -> Unit = {},
 	onEvent: (LauncherEvent) -> Unit = {},
@@ -249,6 +255,8 @@ fun LauncherPane(
 	// Where the row the arrows are on is, for its menu to be drawn by: not known again until the row they have moved to
 	// says where it is, so a menu is never drawn by the row they were on.
 	var anchor by remember(state.highlighted) { mutableStateOf<Rect?>(null) }
+	// Where the banner is, for its own menu to be drawn by.
+	var bannerAt by remember { mutableStateOf<Rect?>(null) }
 
 	Box(Modifier.fillMaxSize()) {
 		Frame(
@@ -264,6 +272,20 @@ fun LauncherPane(
 					onEvent(LauncherEvent.MenuClosed)
 
 					return@Frame true
+				}
+
+				// In a module's view: Backspace with nothing typed leaves it, and Tab finishes what the arrows are on.
+				if (down && plain && state.viewing != null && menu == null) {
+					if (key.key == Key.Backspace && typed.text.isEmpty()) {
+						onEvent(LauncherEvent.LeftView)
+
+						return@Frame true
+					}
+					if (key.key == Key.Tab && state.entries.isNotEmpty()) {
+						onEvent(LauncherEvent.Completed)
+
+						return@Frame true
+					}
 				}
 
 				// Tab finishes the alias being named, the first of those it could be.
@@ -304,10 +326,21 @@ fun LauncherPane(
 					aliases = state.aliases,
 				)
 			else
-				Found(state, bindings, typed, field, onTyped, { anchor = it }, onEvent)
+				Found(
+					state,
+					bindings,
+					typed,
+					field,
+					onTyped,
+					{ anchor = it },
+					{ bannerAt = it },
+					onEvent,
+				)
 		}
 		if (menu != null)
-			ActionMenuLayer(anchor, { onEvent(LauncherEvent.MenuClosed) }) {
+			ActionMenuLayer(if (menu.ofBanner) bannerAt else anchor, {
+				onEvent(LauncherEvent.MenuClosed)
+			}) {
 				ActionMenuPanel(
 					menu.actions.actions.map { action ->
 						MenuLine(
@@ -380,14 +413,45 @@ private fun ColumnScope.Found(
 	field: FocusRequester,
 	onTyped: (TextFieldValue) -> Unit,
 	onAnchor: (Rect) -> Unit,
+	onBanner: (Rect) -> Unit,
 	onEvent: (LauncherEvent) -> Unit,
 ) {
-	QueryField("Search applications and files…", typed, field, onTyped, state.searching)
+	val inView = state.inView
+
+	QueryField(
+		inView?.second?.placeholder ?: "Search applications and files…",
+		typed,
+		field,
+		onTyped,
+		state.searching,
+		chip = inView?.first?.title,
+	)
 	Divider()
+	state.shown?.let { shown ->
+		BannerRow(
+			shown.banner,
+			// In a module's view, Enter is the banner's key; otherwise the launcher's own key for it.
+			shown.banner.key?.let {
+				(
+					if (state.viewing !=
+						null
+					)
+						bindings.of(LauncherAction.Open)
+					else
+						bindings.of(LauncherAction.Answer)
+				).firstOrNull()
+			},
+			onBanner,
+			onUse = { onEvent(LauncherEvent.Answered) },
+		)
+		Divider()
+	}
 	Box(Modifier.weight(1f).fillMaxWidth().padding(LauncherDims.around)) {
-		if (state.entries.isEmpty())
-			Nothing(state)
-		else
+		// Nothing found is said only where nothing else is: not under a banner, nor in a module's view.
+		if (state.entries.isEmpty()) {
+			if (state.shown == null && state.viewing == null)
+				Nothing(state)
+		} else {
 			ResultList(
 				state.entries.size,
 				state.highlighted,
@@ -406,9 +470,90 @@ private fun ColumnScope.Found(
 				Spacer(Modifier.width(Space.m))
 				ResultText(entry.title, entry.detail, entry.kind)
 			}
+		}
 	}
 	Divider()
 	Footer(state, bindings)
+}
+
+/**
+ * The row along the top: what a module makes of what is typed, set apart from the results it is not one of. Its title
+ * large, what kind of thing it is beside it, what is to be said of how it came about under it, and at its end the key
+ * that does what it says ([chord]), which a click on it does too. What is wrong is said in the colour of what is.
+ */
+@Composable
+private fun BannerRow(
+	banner: Banner,
+	chord: Chord?,
+	onPlaced: (Rect) -> Unit,
+	onUse: () -> Unit,
+) {
+	val palette = LocalPalette.current
+	val type = LocalType.current
+	val wrong = banner.tone == Tone.Wrong
+	val shape = RoundedCornerShape(Radius.medium)
+
+	Row(
+		Modifier
+			.fillMaxWidth()
+			.padding(horizontal = LauncherDims.around + Space.xs, vertical = Space.s)
+			.clip(shape)
+			.background(if (wrong) palette.sunken else palette.chosen)
+			.border(LauncherDims.edge, if (wrong) palette.danger else palette.border, shape)
+			.onGloballyPositioned { onPlaced(it.boundsInWindow()) }
+			.clickable(enabled = banner.key != null, onClick = onUse)
+			.padding(horizontal = Space.l, vertical = Space.m)
+			.testTag("launcher-banner"),
+		verticalAlignment = Alignment.CenterVertically,
+	) {
+		Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(Space.xxs)) {
+			Row(verticalAlignment = Alignment.CenterVertically) {
+				Text(
+					banner.title,
+					style =
+						if (wrong)
+							type.body.copy(color = palette.dangerText)
+						else
+							type.body
+								.times(
+									1.5f,
+								).copy(color = palette.text, fontFamily = FontFamily.Monospace),
+					maxLines = if (wrong) 2 else 1,
+					overflow = TextOverflow.Ellipsis,
+					modifier = Modifier.weight(1f, fill = false).testTag("launcher-banner-title"),
+				)
+				banner.badge?.let {
+					Spacer(Modifier.width(Space.s))
+					Text(
+						it,
+						style = type.muted.copy(color = palette.accentText),
+						maxLines = 1,
+						modifier =
+							Modifier
+								.clip(RoundedCornerShape(Radius.small))
+								.background(palette.sunken)
+								.padding(horizontal = Space.xs + Space.xxs, vertical = 1.dp)
+								.testTag("launcher-banner-badge"),
+					)
+				}
+			}
+			for (note in banner.notes)
+				Text(
+					note,
+					style = type.muted.copy(color = palette.dangerText),
+					maxLines = 1,
+					overflow = TextOverflow.Ellipsis,
+					modifier = Modifier.testTag("launcher-banner-note"),
+				)
+		}
+
+		val key = banner.key
+
+		if (key != null && chord != null) {
+			Spacer(Modifier.width(Space.m))
+			Box(Modifier.testTag("launcher-banner-key")) { KeyHint(key.label, chord) }
+		}
+	}
 }
 
 /**
@@ -424,6 +569,8 @@ internal fun QueryField(
 	onTyped: (TextFieldValue) -> Unit,
 	searching: Boolean,
 	redacted: Boolean = false,
+	/** What the field is, where it is not the launcher's own: the name of the module whose view it is in. */
+	chip: String? = null,
 ) {
 	val palette = LocalPalette.current
 	val type = LocalType.current
@@ -438,6 +585,22 @@ internal fun QueryField(
 	) {
 		GlyphIcon(Glyph.Search, palette.textMuted, 22.dp)
 		Spacer(Modifier.width(Space.m + Space.xxs))
+		if (chip != null) {
+			Box(
+				Modifier
+					.clip(RoundedCornerShape(Radius.medium))
+					.background(palette.chosen)
+					.padding(horizontal = Space.s, vertical = Space.xxs),
+			) {
+				Text(
+					chip,
+					style = type.strong.copy(color = palette.accentText),
+					maxLines = 1,
+					modifier = Modifier.testTag("launcher-chip"),
+				)
+			}
+			Spacer(Modifier.width(Space.s))
+		}
 		Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
 			if (typed.text.isEmpty())
 				Text(
@@ -536,6 +699,7 @@ private fun EntryIcon(entry: Entry, size: Dp) {
 				)
 			is Entry.Prism -> GlyphIcon(entry.own.glyph, palette.accent, size * 0.75f)
 			is Entry.Named -> GlyphIcon(Glyph.At, palette.accent, size * 0.75f)
+			is Entry.Answer -> GlyphIcon(Glyph.Plus, palette.accent, size * 0.75f)
 		}
 	}
 }
@@ -606,8 +770,13 @@ private fun Footer(state: LauncherState, bindings: Bindings) {
 				else -> "${"%,d".format(state.entries.size)} results"
 			},
 		wrong = wrong != null,
-		hintsFor(state.current),
+		hintsFor(state.current, inView = state.viewing != null),
 		bindings,
+		// In a module's view, what the arrows are on is finished by Tab, which is no key the user binds.
+		finishing =
+			"Complete".takeIf {
+				state.viewing != null && state.current is Entry.Answer
+			},
 	)
 }
 
@@ -621,6 +790,8 @@ internal fun FooterBar(
 	wrong: Boolean,
 	hints: List<Pair<LauncherAction, String>>,
 	bindings: Bindings,
+	/** What Tab does, said with it before the rest, where it does something of its own. */
+	finishing: String? = null,
 ) {
 	val palette = LocalPalette.current
 	val type = LocalType.current
@@ -651,17 +822,26 @@ internal fun FooterBar(
 			horizontalArrangement = Arrangement.spacedBy(Space.l),
 			verticalAlignment = Alignment.CenterVertically,
 		) {
+			finishing?.let { KeyHint(it, listOf("Tab")) }
 			for ((action, label) in hints)
 				bindings.of(action).firstOrNull()?.let { KeyHint(label, it) }
 		}
 	}
 }
 
-/** The keys said along the bottom for [entry], each with what it does to it, in a word or two. */
-private fun hintsFor(entry: Entry?): List<Pair<LauncherAction, String>> =
+/**
+ * The keys said along the bottom for [entry], each with what it does to it, in a word or two. In a module's view
+ * ([inView]) its rows are finished by Tab, which is said apart, and Enter is the banner's, which the banner says.
+ */
+private fun hintsFor(
+	entry: Entry?,
+	inView: Boolean,
+): List<Pair<LauncherAction, String>> =
 	listOfNotNull(
 		when (entry) {
 			null -> null
+			is Entry.Answer ->
+				(LauncherAction.Open to answerLabel(entry)).takeUnless { inView }
 			is Entry.App, is Entry.Action -> LauncherAction.Open to "Launch"
 			is Entry.File -> LauncherAction.Open to "Open"
 			is Entry.Command, is Entry.Prism -> LauncherAction.Open to "Open"
@@ -670,6 +850,17 @@ private fun hintsFor(entry: Entry?): List<Pair<LauncherAction, String>> =
 		(LauncherAction.Reveal to "Show in folder").takeIf {
 			entry is Entry.App || entry is Entry.Action || entry is Entry.File
 		},
-		(LauncherAction.ShowActions to "Actions").takeIf { entry != null },
+		// A module's row has nothing more to be done to it than what it does.
+		(LauncherAction.ShowActions to "Actions").takeIf {
+			entry != null &&
+				entry !is Entry.Answer
+		},
 		LauncherAction.Settings to "Settings",
 	)
+
+/** What a module's row does, in a word. */
+private fun answerLabel(entry: Entry.Answer): String =
+	when (entry.row.act) {
+		is ModuleAct.Copy -> "Copy"
+		is ModuleAct.Put -> "Complete"
+	}

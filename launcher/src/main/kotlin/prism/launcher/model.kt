@@ -117,6 +117,18 @@ sealed interface Entry {
 		override val kind: String get() = "Alias"
 	}
 
+	/** A result of one of the launcher's modules ([module], called [moduleTitle]): chosen, its [row]'s act is done. */
+	data class Answer(
+		val module: ModuleId,
+		val moduleTitle: String,
+		val row: ModuleRow,
+	) : Entry {
+		override val key: String get() = "module:${module.name}:${row.key}"
+		override val title: String get() = row.title
+		override val detail: String get() = row.detail
+		override val kind: String get() = row.kind
+	}
+
 	companion object {
 		/** What is said of what is prism's own at its row's end, and over it. */
 		const val PRISM = "Prism"
@@ -243,6 +255,10 @@ data class LauncherState(
 	val help: Boolean = false,
 	/** The user's search aliases: what a `name@` in [query] stands for, where files are looked for. */
 	val aliases: Aliases = Aliases.NONE,
+	/** What the launcher finds besides applications and files ([LauncherModule]). */
+	val modules: Modules = Modules.NONE,
+	/** The module whose view the launcher is in, and what is typed there; none, where it is in none. */
+	val viewing: Viewing? = null,
 	/** When this is, for how lately something was used. */
 	val now: Instant = Instant.EPOCH,
 ) {
@@ -256,6 +272,17 @@ data class LauncherState(
 	 * finding files, and Enter on the first thing shown still starts an application.
 	 */
 	val sections: List<Section> by lazy {
+		inView?.let { (module, view) ->
+			return@lazy listOf(
+				Section(
+					module.title,
+					view.rows.map {
+						Entry.Answer(module.id, module.title, it)
+					},
+				),
+			).filter { it.entries.isNotEmpty() }
+		}
+
 		val shown = installed.listed.filterNot { it.application.id in preferences.hidden }
 		val words = wordsOf(query)
 
@@ -290,28 +317,70 @@ data class LauncherState(
 
 		val applications = Section("Applications", programs)
 
-		(
-			// What is typed is an application's very name: it is that application that is asked for, whatever
-			// of prism's own the same word asks for (`prism` is prism's word, and the explorer's name).
+		/** The rows of the modules as sure as [strength] that what is typed is for them, each module's under its name. */
+		fun answered(strength: Strength): List<Section> =
+			answers
+				.filter { (_, answer) -> answer.strength == strength }
+				.map { (module, answer) ->
+					Section(module.title, answer.rows.map { Entry.Answer(module.id, module.title, it) })
+				}
+
+		// What is typed is an application's very name: it is that application that is asked for, whatever of
+		// prism's own the same word asks for (`prism` is prism's word, and the explorer's name).
+		val started =
 			if (own.isEmpty() || programs.firstOrNull()?.let(::named) == true)
 				listOf(applications, Section(Entry.PRISM, own + does))
 			else
 				listOf(Section(Entry.PRISM, own + does), applications)
-		).plus(
-			listOf(
-				Section(
-					"Aliases",
-					completing
-						?.let {
-							it.aliases.map { alias ->
-								Entry.Named(alias, it.completed(alias))
-							}
-						}.orEmpty(),
-				),
-				Section("Files", found),
-			),
+
+		val aliases =
+			Section(
+				"Aliases",
+				completing
+					?.let {
+						it.aliases.map { alias ->
+							Entry.Named(alias, it.completed(alias))
+						}
+					}.orEmpty(),
+			)
+
+		// What a module is sure of first, what it thinks likely after what is started, and what it thinks only
+		// possible after everything else.
+		(
+			answered(Strength.Certain) + started + answered(Strength.Likely) + aliases +
+				Section("Files", found) + answered(Strength.Possible)
 		).filter { it.entries.isNotEmpty() }
 	}
+
+	/** The module whose view the launcher is in, and what it shows of what is typed there. */
+	val inView: Pair<LauncherModule, ModuleView>? by lazy {
+		viewing?.let { viewing ->
+			modules.of(viewing.module)?.let { it to it.view(viewing.text) }
+		}
+	}
+
+	/** What each module asked about what is typed bare makes of it; nothing while a module's view is open. */
+	val answers: List<Pair<LauncherModule, ModuleAnswer>> by lazy {
+		if (viewing != null)
+			emptyList()
+		else
+			modules.answers(query)
+	}
+
+	/**
+	 * The banner along the top: in a module's view, the module's; otherwise that of the surest module that is certain
+	 * of what is typed, where one is.
+	 */
+	val shown: Shown? by lazy {
+		inView?.let { (module, view) -> return@lazy view.banner?.let { Shown(module, it) } }
+
+		answers
+			.filter { (_, answer) -> answer.strength == Strength.Certain }
+			.firstNotNullOfOrNull { (module, answer) -> answer.banner?.let { Shown(module, it) } }
+	}
+
+	/** What is in the field: what is typed bare, or what is typed in a module's view. */
+	val field: String get() = viewing?.text ?: query
 
 	/** [query] read in the search language, with the aliases it uses stood for. */
 	val read: ReadQuery by lazy { QueryText.read(query, aliases) }

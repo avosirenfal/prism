@@ -29,6 +29,9 @@ enum class LauncherAction(
 ) : Bindable {
 	Open("Open", LauncherGroups.Result, "Enter"),
 	ShowActions("Show actions", LauncherGroups.Result, "Right"),
+
+	// What the row along the top says its key does: the calculator's answer copied.
+	Answer("Use the answer", LauncherGroups.Result, "Shift+Enter"),
 	Reveal("Show in folder", LauncherGroups.Result, "Primary+Enter"),
 	Copy("Copy", LauncherGroups.Result, "Primary+C"),
 	CopyPath("Copy path", LauncherGroups.Result, "Primary+Shift+C"),
@@ -70,6 +73,7 @@ internal fun eventOf(action: LauncherAction, page: Int): LauncherEvent =
 	when (action) {
 		LauncherAction.Open -> LauncherEvent.Entered
 		LauncherAction.ShowActions -> LauncherEvent.MenuOpened()
+		LauncherAction.Answer -> LauncherEvent.Answered
 		LauncherAction.Reveal -> LauncherEvent.Revealed
 		LauncherAction.Copy -> LauncherEvent.Copied
 		LauncherAction.CopyPath -> LauncherEvent.CopiedPath

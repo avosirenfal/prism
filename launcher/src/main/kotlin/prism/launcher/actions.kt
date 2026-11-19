@@ -109,6 +109,13 @@ sealed interface EntryAction {
 		override val key: LauncherAction get() = LauncherAction.Open
 	}
 
+	/** What a module's banner offers in its menu ([BannerKey.Menu]): [choice]'s act done. */
+	data class Choice(
+		val choice: ModuleChoice,
+	) : EntryAction {
+		override val label: String get() = choice.label
+	}
+
 	/** An application left out of the launcher from now on, until its settings say otherwise. */
 	data object Hide : EntryAction {
 		override val label: String get() = "Hide from launcher"
@@ -117,12 +124,14 @@ sealed interface EntryAction {
 
 /**
  * The menu of what can be done to a result: the [entry] it is of, and its [actions], with the one the arrows are on.
- * It holds its entry, so it is never a menu of nothing, whatever is listed by now.
+ * It holds its entry, so it is never a menu of nothing, whatever is listed by now. A banner's menu ([ofBanner]) is of
+ * no result, and is drawn by the banner.
  */
 @Immutable
 data class EntryMenu(
 	val entry: Entry,
 	val actions: ActionMenu<EntryAction>,
+	val ofBanner: Boolean = false,
 )
 
 /** What can be done to [entry], the first being what Enter does to it. */
@@ -151,6 +160,7 @@ fun actionsOf(entry: Entry): List<EntryAction> =
 			)
 		is Entry.Command, is Entry.Prism -> listOf(EntryAction.Open)
 		is Entry.Named -> listOf(EntryAction.Use)
+		is Entry.Answer -> listOf(EntryAction.Open)
 	}
 
 /**

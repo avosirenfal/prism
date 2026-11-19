@@ -589,8 +589,18 @@ class LauncherViewTest {
 
 		assertTrue(running.menu?.actions?.current is EntryAction.Focus)
 
+		// The calculator: an answer along the top, of a type of Kotlin's that overflowed; in its own view, a name being
+		// finished; and something wrong.
+		val calculator = first.copy(modules = Modules.STANDARD)
+		val answered = step(calculator, LauncherEvent.Typed("2147483647.toInt() + 1")).state
+		val viewed = step(calculator, LauncherEvent.Typed("=sqrt(2) * at")).state
+		val wronged = step(calculator, LauncherEvent.Typed("5.toUInt() + 1.5")).state
+
 		val drawn =
 			mapOf(
+				"calculator" to answered,
+				"calculator-view" to viewed,
+				"calculator-wrong" to wronged,
 				"first" to first,
 				"typed" to typed,
 				"nothing" to nothing,
@@ -626,6 +636,62 @@ class LauncherViewTest {
 				}
 			}
 	}
+
+	@Test
+	fun arithmeticIsAnsweredAlongTheTopAndItsKeyCopiesTheAnswer() =
+		launching { session, _, host, _ ->
+			onNodeWithTag("launcher-query").performTextInput("2+3*4")
+			waitForIdle()
+			onNodeWithTag("launcher-banner-title", useUnmergedTree = true).assertTextEquals("14")
+			onNodeWithTag("launcher-banner-key", useUnmergedTree = true).assertIsDisplayed()
+
+			onNodeWithTag("launcher-query").performKeyInput {
+				withKeyDown(Key.ShiftLeft) { pressKey(Key.Enter) }
+			}
+			until { "copy 14" in host.asked }
+			assertTrue("close" in host.asked)
+			assertTrue(
+				session.state.value.entries
+					.none { it is Entry.Answer },
+			)
+		}
+
+	@Test
+	fun theCalculatorsViewIsTheFieldsAloneItsNamesFinishedByTabAndLeftByBackspace() =
+		launching { session, _, host, _ ->
+			onNodeWithTag("launcher-query").performTextInput("=")
+			waitForIdle()
+			onNodeWithTag("launcher-chip").assertTextEquals("Calculator")
+			assertEquals("", session.state.value.field)
+
+			onNodeWithTag("launcher-query").performTextInput("1 + sq")
+			waitForIdle()
+			press(Key.Tab)
+			waitForIdle()
+			assertEquals("1 + sqrt(", session.state.value.field)
+
+			onNodeWithTag("launcher-query").performTextInput("16)")
+			waitForIdle()
+			onNodeWithTag("launcher-banner-title", useUnmergedTree = true).assertTextEquals("5")
+			press(Key.Enter)
+			until { "copy 5" in host.asked }
+		}
+
+	@Test
+	fun aModulesViewIsLeftByBackspaceWithNothingTyped() =
+		launching { session, _, _, _ ->
+			onNodeWithTag("launcher-query").performTextInput("calc ")
+			waitForIdle()
+			assertEquals(
+				CalculatorModule.id,
+				session.state.value.viewing
+					?.module,
+			)
+			press(Key.Backspace)
+			waitForIdle()
+			assertNull(session.state.value.viewing)
+			assertEquals(0, onAllNodes(hasTestTag("launcher-chip")).fetchSemanticsNodes().size)
+		}
 
 	@Test
 	fun theRightArrowShowsWhatCanBeDoneToAResultAndLeftAndEscapeLeaveOnlyTheMenu() =

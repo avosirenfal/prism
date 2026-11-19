@@ -183,7 +183,9 @@ object Grammar {
 
 	/** A name, called with arguments where they follow it: a function's call, or a constant. */
 	private val named: Parser<Expression> =
-		(name.spanned() before space and arguments.spanned().optional()).map { (called, given) ->
+		(name.spanned() before space and arguments.spanned().optional()).map { found ->
+			val (called, given) = found
+
 			if (given == null)
 				Expression.Name(called.value, called.span)
 			else

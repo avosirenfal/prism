@@ -68,6 +68,15 @@ sealed interface LauncherEvent {
 	/** The result the arrows are on shown where it is: its folder, in an explorer's window, with it chosen. */
 	data object Revealed : LauncherEvent
 
+	/** The banner's own key: what the banner along the top says its key does, done. */
+	data object Answered : LauncherEvent
+
+	/** A module's view left, back to the launcher's own field (Backspace with nothing typed in it). */
+	data object LeftView : LauncherEvent
+
+	/** In a module's view, the row the arrows are on used, the field staying the module's (Tab): a name finished. */
+	data object Completed : LauncherEvent
+
 	/** The file or folder the arrows are on put on the clipboard, to be pasted; nothing, on any other result. */
 	data object Copied : LauncherEvent
 
@@ -264,7 +273,8 @@ private fun inMenu(
 		-> stepped(state, event)
 		is LauncherEvent.Typed, is LauncherEvent.Chosen, LauncherEvent.Revealed,
 		LauncherEvent.Copied, LauncherEvent.CopiedPath, LauncherEvent.AskedForSettings,
-		LauncherEvent.HelpClosed,
+		LauncherEvent.HelpClosed, LauncherEvent.Answered, LauncherEvent.LeftView,
+		LauncherEvent.Completed,
 		is LauncherEvent.Tried, LauncherEvent.Closed,
 		-> stepped(closed, event)
 	}
@@ -278,7 +288,8 @@ private val LauncherEvent.isOfTheResults: Boolean
 			LauncherEvent.Entered, is LauncherEvent.Chosen, LauncherEvent.Revealed,
 			LauncherEvent.Copied, LauncherEvent.CopiedPath, is LauncherEvent.MenuOpened,
 			LauncherEvent.MenuClosed,
-			is LauncherEvent.MenuChosen,
+			is LauncherEvent.MenuChosen, LauncherEvent.Answered, LauncherEvent.LeftView,
+			LauncherEvent.Completed,
 			-> true
 			LauncherEvent.AskedForSettings, LauncherEvent.Dismissed, LauncherEvent.HelpClosed,
 			is LauncherEvent.Tried, LauncherEvent.Closed, is LauncherEvent.FilesArrived,
@@ -290,8 +301,7 @@ private val LauncherEvent.isOfTheResults: Boolean
 
 private fun stepped(state: LauncherState, event: LauncherEvent): LauncherStep =
 	when (event) {
-		is LauncherEvent.Typed ->
-			state.copy(query = event.query, arrowsOn = null, notice = null).searching()
+		is LauncherEvent.Typed -> state.typed(event.query)
 		is LauncherEvent.Moved -> LauncherStep(state.arrowsAt(state.highlighted + event.by))
 		is LauncherEvent.MovedTo ->
 			LauncherStep(
@@ -302,7 +312,20 @@ private fun stepped(state: LauncherState, event: LauncherEvent): LauncherStep =
 						0,
 				),
 			)
-		LauncherEvent.Entered -> state.chosen(state.highlighted)
+		// In a module's view, Enter is the banner's key, where it has one: the rows there are finished by Tab.
+		LauncherEvent.Entered ->
+			if (state.viewing != null && state.shown?.banner?.key != null)
+				state.answered()
+			else
+				state.chosen(state.highlighted)
+		LauncherEvent.Answered -> state.answered()
+		LauncherEvent.LeftView -> state.leftView()
+		LauncherEvent.Completed ->
+			(state.current as? Entry.Answer)
+				?.takeIf {
+					state.viewing != null
+				}?.let { state.did(it.row.act) }
+				?: LauncherStep(state)
 		is LauncherEvent.Chosen -> state.chosen(event.at)
 		is LauncherEvent.MenuOpened ->
 			LauncherStep(
@@ -346,6 +369,7 @@ private fun stepped(state: LauncherState, event: LauncherEvent): LauncherStep =
 		LauncherEvent.Dismissed ->
 			when {
 				state.help -> LauncherStep(state.copy(help = false))
+				state.viewing != null -> state.leftView()
 				state.query.isEmpty() -> LauncherStep(state, listOf(LauncherEffect.Close))
 				else -> state.copy(query = "", arrowsOn = null, notice = null).searching()
 			}
@@ -400,9 +424,86 @@ private fun stepped(state: LauncherState, event: LauncherEvent): LauncherStep =
 				LauncherStep(state.copy(notice = LauncherNotice.Failed(event.failed)))
 	}
 
+/**
+ * [text] typed into the field: into the module's, in a module's view; otherwise what is typed bare, unless it begins
+ * with a module's prefix, which opens the module's view with what follows it.
+ */
+private fun LauncherState.typed(text: String): LauncherStep {
+	viewing?.let {
+		return LauncherStep(
+			copy(viewing = it.copy(text = text), arrowsOn = null, notice = null),
+		)
+	}
+
+	return modules.prefixed(text)?.let { (module, rest) -> intoView(module, rest) }
+		?: copy(query = text, arrowsOn = null, notice = null).searching()
+}
+
+/** [module]'s view opened, with [text] typed in it: what is typed bare let go, and the files found for it with it. */
+private fun LauncherState.intoView(module: LauncherModule, text: String): LauncherStep =
+	LauncherStep(
+		copy(
+			query = "",
+			viewing = Viewing(module.id, text),
+			files = FilesFound.None,
+			arrowsOn = null,
+			notice = null,
+			menu = null,
+		),
+	)
+
+/** The module's view left, with nothing typed: the launcher as it opens. */
+private fun LauncherState.leftView(): LauncherStep =
+	copy(viewing = null, query = "", arrowsOn = null, notice = null).searching()
+
+/** What the banner along the top says its key does, done; nothing, where there is none or it has no key. */
+private fun LauncherState.answered(): LauncherStep {
+	val (module, banner) = shown ?: return LauncherStep(this)
+
+	return when (val key = banner.key) {
+		null -> LauncherStep(this)
+		is BannerKey.Does -> did(key.act)
+		is BannerKey.View -> intoView(module, query)
+		is BannerKey.Menu ->
+			ActionMenu.of<EntryAction>(key.choices.map(EntryAction::Choice))?.let { actions ->
+				val of =
+					ModuleRow(
+						"banner",
+						banner.title,
+						banner.badge.orEmpty(),
+						module.title,
+						key.choices.first().act,
+					)
+
+				LauncherStep(
+					copy(
+						menu =
+							EntryMenu(
+								Entry.Answer(module.id, module.title, of),
+								actions,
+								ofBanner = true,
+							),
+						notice = null,
+					),
+				)
+			} ?: LauncherStep(this)
+	}
+}
+
+/** What a module says is to be done, done. */
+internal fun LauncherState.did(act: ModuleAct): LauncherStep =
+	when (act) {
+		is ModuleAct.Copy ->
+			LauncherStep(
+				copy(notice = null),
+				listOf(LauncherEffect.Copy(act.text), LauncherEffect.Close),
+			)
+		is ModuleAct.Put -> typed(act.text)
+	}
+
 /** This state with the index asked for the files that fit what is typed, where files are found at all. */
 private fun LauncherState.searching(): LauncherStep {
-	if (!preferences.files || !searchable)
+	if (!preferences.files || !searchable || viewing != null)
 		return LauncherStep(copy(files = FilesFound.None))
 
 	// Nothing typed, or nothing yet that can be searched for, would find everything: nothing is found.
@@ -468,6 +569,7 @@ private fun LauncherState.opened(entry: Entry): LauncherStep =
 				copy(arrowsOn = entry.key, notice = null),
 				listOf(LauncherEffect.Start(entry)),
 			)
+		is Entry.Answer -> did(entry.row.act)
 	}
 
 /**
@@ -524,6 +626,7 @@ private fun LauncherState.acted(entry: Entry, action: EntryAction): LauncherStep
 					},
 				),
 			)
+		is EntryAction.Choice -> did(action.choice.act)
 		EntryAction.Hide ->
 			LauncherStep(
 				on,
@@ -538,5 +641,5 @@ private fun pathOf(entry: Entry): Path? =
 		is Entry.File -> entry.path
 		is Entry.App -> entry.application.source
 		is Entry.Action -> entry.application.source
-		is Entry.Command, is Entry.Prism, is Entry.Named -> null
+		is Entry.Command, is Entry.Prism, is Entry.Named, is Entry.Answer -> null
 	}

@@ -7,6 +7,8 @@ plugins {
 
 dependencies {
 	api(project(":browser"))
+	// The calculator's language, which a module of the launcher's works out what is typed in.
+	implementation(project(":calc"))
 	// A Mac's launcher window over every other, given the keyboard and giving it back.
 	implementation(project(":macos"))
 
