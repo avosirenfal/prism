@@ -136,7 +136,11 @@ final class Probe: NSObject, NSApplicationDelegate {
 	}
 }
 
-let probe = Probe()
+// A script's top level runs on the main thread, but Swift does not take it to be the main actor's: it is said to be.
+MainActor.assumeIsolated {
+	// Held here for as long as the application runs, which is until the process ends: a delegate is not kept by it.
+	let probe = Probe()
 
-NSApplication.shared.delegate = probe
-NSApplication.shared.run()
+	NSApplication.shared.delegate = probe
+	NSApplication.shared.run()
+}
