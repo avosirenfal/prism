@@ -105,6 +105,8 @@ data object NSWorkspace : ObjCClass("NSWorkspace", Frameworks.appKit) {
 	val urlsForApplicationsToOpenContentType =
 		message("URLsForApplicationsToOpenContentType:", Obj, Obj)
 	val urlForApplicationToOpenURL = message("URLForApplicationToOpenURL:", Obj, Obj)
+	val urlForApplicationWithBundleIdentifier =
+		message("URLForApplicationWithBundleIdentifier:", Obj, Obj)
 	val iconForFile = message("iconForFile:", Obj, Obj)
 	val runningApplications = message("runningApplications", Obj)
 }

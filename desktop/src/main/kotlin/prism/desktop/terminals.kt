@@ -295,29 +295,37 @@ object KnownTerminals {
 		)
 
 	/**
-	 * On macOS, through `open`: Terminal and iTerm take the folder as what they open, and no command; Ghostty, as an
+	 * On macOS, through `open`, each by its application's bundle identifier (`-b`), which is how Launch Services knows
+	 * it wherever it is installed (nix-darwin's `/Applications/Nix Apps` among the rest), and how whether it is
+	 * installed is asked: Terminal and iTerm take the folder as what they open, and no command; Ghostty, as an
 	 * application of its own (`-n`), takes its options after `--args`.
 	 */
-	val mac: List<Terminal> =
+	val mac: List<MacTerminal> =
 		listOf(
-			Terminal(
-				"Ghostty",
-				listOf("open", "-na", "Ghostty", "--args"),
-				joined("--working-directory="),
-				before("-e"),
-			),
-			Terminal(
-				"iTerm",
-				listOf("open", "-a", "iTerm"),
-				FolderArgs.Positional,
-				ExecArg.Unsupported,
-			),
-			Terminal(
-				"Terminal",
-				listOf("open", "-a", "Terminal"),
-				FolderArgs.Positional,
-				ExecArg.Unsupported,
-			),
+			MacTerminal.of(BundleIdentifier("com.mitchellh.ghostty")) { bundle ->
+				Terminal(
+					"Ghostty",
+					listOf("open", "-nb", bundle, "--args"),
+					joined("--working-directory="),
+					before("-e"),
+				)
+			},
+			MacTerminal.of(BundleIdentifier("com.googlecode.iterm2")) { bundle ->
+				Terminal(
+					"iTerm",
+					listOf("open", "-b", bundle),
+					FolderArgs.Positional,
+					ExecArg.Unsupported,
+				)
+			},
+			MacTerminal.of(BundleIdentifier("com.apple.Terminal")) { bundle ->
+				Terminal(
+					"Terminal",
+					listOf("open", "-b", bundle),
+					FolderArgs.Positional,
+					ExecArg.Unsupported,
+				)
+			},
 		)
 
 	/** On Windows: Windows Terminal (`wt.exe -d`), and PowerShell in a console of its own where there is none. */
@@ -345,9 +353,35 @@ object KnownTerminals {
 	}
 }
 
+/** What Launch Services knows an application by, whatever it is named and wherever it is: `com.apple.Terminal`. */
+@JvmInline
+value class BundleIdentifier(
+	val name: String,
+)
+
+/**
+ * A terminal of a Mac's, and the bundle identifier of its application ([bundle]): what it is opened by, and what
+ * whether it is installed is asked of. Made by [of], with its command made of the identifier, so that what is opened
+ * and what is asked of are one.
+ */
+@ConsistentCopyVisibility
+data class MacTerminal private constructor(
+	val bundle: BundleIdentifier,
+	val terminal: Terminal,
+) {
+	val name: String get() = terminal.name
+
+	companion object {
+		/** The terminal [made] of [bundle]'s identifier, as its command names it. */
+		fun of(bundle: BundleIdentifier, made: (String) -> Terminal): MacTerminal =
+			MacTerminal(bundle, made(bundle.name))
+	}
+}
+
 /**
  * A terminal the preferences can name: what it is called ([label]), the name the preferences keep for it ([name]: its
- * program's, `ghostty`, or its desktop entry's), and whether it is [installed], its program on the `PATH`.
+ * program's, `ghostty`, or its desktop entry's), and whether it is [installed]: its program on the `PATH`, or, on a
+ * Mac, its application known to Launch Services.
  */
 data class TerminalOption(
 	val label: String,

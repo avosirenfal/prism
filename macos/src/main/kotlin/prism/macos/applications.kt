@@ -158,6 +158,19 @@ object Applications {
 				}.orEmpty()
 		}
 
+	/**
+	 * The application whose bundle says it is [identifier] (`com.mitchellh.ghostty`), wherever it is, as Launch
+	 * Services knows it: as `open -b` finds it. Null where Launch Services knows of none.
+	 */
+	fun withIdentifier(identifier: String): Path? =
+		ObjC.pooled {
+			NSWorkspace
+				.urlForApplicationWithBundleIdentifier(
+					workspace,
+					nsString(identifier),
+				).filePath()
+		}
+
 	/** The application that opens the file at [path] by default; null where none does. */
 	fun defaultForFile(path: Path): Path? =
 		ObjC.pooled {

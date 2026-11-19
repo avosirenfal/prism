@@ -6,9 +6,11 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.util.concurrent.TimeUnit
 import prism.desktop.Application
+import prism.desktop.BundleIdentifier
 import prism.desktop.KnownTerminals
 import prism.desktop.Launched
 import prism.desktop.Launcher
+import prism.desktop.MacTerminal
 import prism.desktop.Terminal
 import prism.desktop.TerminalChoice
 import prism.desktop.TerminalCommand
@@ -27,11 +29,13 @@ import prism.desktop.commandIn
 /** Starts what prism opens through Launch Services, with the terminals a Mac has. */
 class OpenLauncher(
 	private val home: Path = Path.of(System.getProperty("user.home")),
-	/** Whether an application of a name is installed: in one of the folders applications are, by its bundle's name. */
-	private val installed: (
-		String,
-	) -> Boolean = { name ->
-		APPLICATIONS.any { Files.isDirectory(it.resolve("$name.app")) }
+	/**
+	 * Whether the application of a bundle identifier is installed: known to Launch Services, wherever it is, which is
+	 * what `open -b` asks.
+	 */
+	private val installed: (BundleIdentifier) -> Boolean = {
+		prism.macos.Applications.withIdentifier(it.name) !=
+			null
 	},
 ) : Launcher {
 	override fun launch(
@@ -91,7 +95,7 @@ class OpenLauncher(
 	override fun terminals(): TerminalOptions =
 		TerminalOptions(
 			preferred()?.name,
-			KnownTerminals.mac.map { TerminalOption(it.name, it.name, installed(it.name)) },
+			KnownTerminals.mac.map { TerminalOption(it.name, it.name, installed(it.bundle)) },
 		)
 
 	override fun terminalCommand(
@@ -99,12 +103,22 @@ class OpenLauncher(
 		choice: TerminalChoice,
 		command: List<String>?,
 	): TerminalCommand =
-		choice.commandIn(folder, command, ::preferred, ::named, installed, "in Applications")
+		choice.commandIn(
+			folder,
+			command,
+			::preferred,
+			{ named(it)?.terminal },
+			{ name -> named(name)?.bundle?.let(installed) == true },
+			"known to macOS",
+		)
 
 	private fun preferred(): Terminal? =
-		KnownTerminals.mac.firstOrNull { installed(it.name) }
+		KnownTerminals.mac
+			.firstOrNull {
+				installed(it.bundle)
+			}?.terminal
 
-	private fun named(name: String): Terminal? =
+	private fun named(name: String): MacTerminal? =
 		KnownTerminals.mac.firstOrNull {
 			it.name.equals(name, ignoreCase = true)
 		}
@@ -112,13 +126,5 @@ class OpenLauncher(
 	private companion object {
 		/** How long `open` is waited for: it hands its work to Launch Services and is done, in no time. */
 		const val OPEN_WAITED = 10L
-
-		val APPLICATIONS =
-			listOf(
-				Path.of(System.getProperty("user.home"), "Applications"),
-				Path.of("/Applications"),
-				Path.of("/Applications/Utilities"),
-				Path.of("/System/Applications/Utilities"),
-			)
 	}
 }

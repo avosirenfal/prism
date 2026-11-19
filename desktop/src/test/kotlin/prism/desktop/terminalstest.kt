@@ -97,9 +97,13 @@ class TerminalsTest {
 		assertEquals(listOf("xterm"), opened(known("xterm")))
 
 		// macOS's Terminal opens the folder, and cannot be given a command; Windows Terminal takes -d.
-		val mac = KnownTerminals.mac.single { it.name == "Terminal" }
+		val mac = KnownTerminals.mac.single { it.name == "Terminal" }.terminal
 
-		assertEquals(listOf("open", "-a", "Terminal", folder.toString()), mac.opening(folder))
+		// By its bundle's identifier, which is how Launch Services knows it wherever it is.
+		assertEquals(
+			listOf("open", "-b", "com.apple.Terminal", folder.toString()),
+			mac.opening(folder),
+		)
 		assertNull(mac.opening(folder, listOf("htop")))
 		assertEquals(
 			listOf("wt.exe", "-d", folder.toString(), "htop"),

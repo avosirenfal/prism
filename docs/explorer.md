@@ -682,8 +682,11 @@ then the system's, each folder's file for the session's desktop first; KDE's own
 `x-terminal-emulator`; the installed desktop entries of the category `TerminalEmulator`; and the terminals prism knows,
 on the `PATH` (`desktop/freedesktop/terminals.kt`). A terminal named by a desktop entry is told the folder and a command
 as the entry says (`X-TerminalArgDir=`, `X-TerminalArgExec=`), or else as prism knows it (`KnownTerminals`, about twenty),
-or else is started in the folder and given `-e`. On macOS (Terminal, iTerm, Ghostty, through `open`) and Windows
-(Windows Terminal, PowerShell) the forms are described the same way, for the launchers those platforms are to have.
+or else is started in the folder and given `-e`. On macOS (Ghostty, iTerm, Terminal) and Windows (Windows Terminal,
+PowerShell) the forms are described the same way. A Mac's are each known by its application's bundle identifier
+(`com.mitchellh.ghostty`, `MacTerminal`): one is installed where Launch Services knows an application of it, wherever
+it is (nix-darwin's `/Applications/Nix Apps`, Home Manager's `~/Applications/Home Manager Apps`, as well as
+`/Applications`), and it is opened by the same identifier (`open -b`), so that what is found is what is opened.
 
 ### Choosing the terminal
 
