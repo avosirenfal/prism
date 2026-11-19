@@ -1279,38 +1279,95 @@ data class Actions(
 				?.reduceOrNull { all, its -> all intersect its }
 				.orEmpty()
 
-		/** A text search, as it is declared: what it says checked, and its commands read. */
+		/** A way of a text search as it is declared: what it needs, its command, and how it is read, as its words. */
+		private data class DeclaredWay(
+			val programs: List<String>,
+			val run: List<String>,
+			val read: String?,
+			val nul: Boolean?,
+		)
+
+		/**
+		 * The ways of a text search, each read with how what it prints is read, the way's own or else the search's;
+		 * run by the first whose programs are [installed]. Every way is read, so that one written wrong is said to be
+		 * on any machine; one whose programs are not here is read as though they were, to be tried all the same.
+		 */
+		private fun searchWaysOf(
+			declared: List<DeclaredWay>,
+			asked: Set<String>,
+			installed: (String) -> Boolean,
+		): Reading<SearchWays> {
+			val read =
+				declared.map { way ->
+					word(
+						way.read ?: HitRead.Lines.word,
+						HitRead.entries,
+						HitRead::word,
+						"a valid way to read",
+					).then { kind ->
+						Command.read(way.run, asked).map { anywhere ->
+							// Read as it would be here, where it can be: `{which:…}` as what is installed.
+							val printed = Printed.of(kind, way.nul == true)
+							val here =
+								(Command.read(way.run, asked, installed) as? Reading.Right)
+									?.value
+									?.let { SearchWay(way.programs, it, printed) }
+									?.takeIf { it.needsAll(installed) }
+
+							(here != null) to (here ?: SearchWay(way.programs, anywhere, printed))
+						}
+					}
+				}
+
+			read.filterIsInstance<Reading.Wrong>().firstOrNull()?.let { return it }
+
+			val ways = read.map { (it as Reading.Right).value }
+
+			return SearchWays
+				.of(ways.map { it.second }, ways.indexOfFirst { it.first })
+				?.let { Reading.Right(it) }
+				?: Reading.Wrong("None of the programs it can use is installed", missing = true)
+		}
+
+		/** A text search, as it is declared: what it says checked, and the commands of its ways read. */
 		private fun searchOf(
 			spec: TextSearchSpec,
 			installed: (String) -> Boolean,
 		): Reading<TextSearch> {
 			val run = spec.run
-			// Each way with its command; none, for a way that has none.
-			val ways = spec.ways.map { way -> way.run?.let { way.programs to it } }
 			val asked = setOf(TextSearch.QUERY, TextSearch.OPTIONS)
 
-			// The command, and the way it is, where it is one of several: which may say how its own output is read.
-			val finding: Reading<Pair<Command, prism.preferences.WaySpec?>> =
+			val reading: Reading<SearchWays> =
 				when {
-					run != null && ways.isNotEmpty() ->
+					run != null && spec.ways.isNotEmpty() ->
 						Reading.Wrong("It has both “run” and “ways”. Use one or the other")
-					run != null -> Command.read(run, asked, installed).map { it to null }
-					null in ways -> Reading.Wrong("Each of its ways needs a “run”")
-					ways.isNotEmpty() ->
-						// Every way's reading is checked, so that one written wrong is said to be on any machine.
-						spec.ways
-							.mapNotNull { it.read }
-							.map { word(it, HitRead.entries, HitRead::word, "a valid way to read") }
-							.filterIsInstance<Reading.Wrong>()
-							.firstOrNull()
-							?: wayAt(ways.filterNotNull(), asked, installed).map {
-								it.value to spec.ways[it.index]
-							}
+					run != null ->
+						searchWaysOf(
+							listOf(DeclaredWay(emptyList(), run, spec.read, spec.nul)),
+							asked,
+							installed,
+						)
+					spec.ways.any { it.run == null } -> Reading.Wrong("Each of its ways needs a “run”")
+					spec.ways.isNotEmpty() ->
+						searchWaysOf(
+							spec.ways.map {
+								DeclaredWay(
+									it.programs,
+									it.run!!,
+									it.read ?: spec.read,
+									it.nul ?: spec.nul,
+								)
+							},
+							asked,
+							installed,
+						)
 					else -> Reading.Wrong("It needs a “run” command")
 				}
 
-			return finding.then { (command, way) ->
-				val options =
+			return reading.then { ways ->
+				val commands = ways.all.map { it.run }
+
+				fun options(command: Command) =
 					command.words
 						.filterIsInstance<Word.One>()
 						.count { word ->
@@ -1321,11 +1378,11 @@ data class Actions(
 						}
 
 				when {
-					command.named ->
+					commands.any { it.named } ->
 						Reading.Wrong(
 							"Its command is given the files on its standard input, and can't use the selected files",
 						)
-					options != command.words.count { it.isOptions } ->
+					commands.any { options(it) != it.words.count { word -> word.isOptions } } ->
 						Reading.Wrong(
 							"“{options}” expands to several arguments, so it must be an argument on its own",
 						)
@@ -1337,64 +1394,55 @@ data class Actions(
 							"a valid use of the query",
 						).then { query ->
 							word(
-								way?.read ?: spec.read ?: HitRead.Lines.word,
-								HitRead.entries,
-								HitRead::word,
-								"a valid way to read",
-							).then { read ->
-								word(
-									spec.positions ?: Positions.Lines.word,
-									Positions.entries,
-									Positions::word,
-									"a valid kind of position",
-								).then { positions ->
-									val takes =
-										when (
-											val said =
-												word(
-													spec.takes ?: Takes.Files.word,
-													Takes.entries,
-													Takes::word,
-													"something a search can take",
+								spec.positions ?: Positions.Lines.word,
+								Positions.entries,
+								Positions::word,
+								"a valid kind of position",
+							).then { positions ->
+								val takes =
+									when (
+										val said =
+											word(
+												spec.takes ?: Takes.Files.word,
+												Takes.entries,
+												Takes::word,
+												"something a search can take",
+											)
+									) {
+										is Reading.Right -> said.value
+										is Reading.Wrong -> return@then said
+									}
+
+								// Lines are kept by their numbers, which a list of files does not have.
+								if (takes == Takes.Lines && ways.all.any { it.printed is Printed.Paths })
+									return@then Reading.Wrong(
+										"A search that takes lines keeps lines: it can't be read as “paths”",
+									)
+
+								// What is said of a line found, which a command for it can name beside the file itself.
+								val named = setOf(positions.hole, TextSearch.TEXT, TextSearch.QUERY)
+
+								previewOf(spec, named, installed).then { preview ->
+									openerOf(spec.open, named, installed).then { open ->
+										Conditions.read(spec.conditions, unsaid = null).then { conditions ->
+											keyOf(spec.key).map { key ->
+												TextSearch(
+													id = spec.id,
+													label = spec.label,
+													conditions = conditions,
+													submenu = submenuOf(spec.submenu),
+													key = key,
+													query = query,
+													options =
+														spec.options.map { (name, option) ->
+															TextOption(name, option.label, option.on, option.off)
+														},
+													ways = ways,
+													takes = takes,
+													positions = positions,
+													preview = preview,
+													open = open,
 												)
-										) {
-											is Reading.Right -> said.value
-											is Reading.Wrong -> return@then said
-										}
-
-									// Lines are kept by their numbers, which a list of files does not have.
-									if (takes == Takes.Lines && read == HitRead.Paths)
-										return@then Reading.Wrong(
-											"A search that takes lines keeps lines: it can't be read as “paths”",
-										)
-
-									// What is said of a line found, which a command for it can name beside the file itself.
-									val named = setOf(positions.hole, TextSearch.TEXT, TextSearch.QUERY)
-
-									previewOf(spec, named, installed).then { preview ->
-										openerOf(spec.open, named, installed).then { open ->
-											Conditions.read(spec.conditions, unsaid = null).then { conditions ->
-												keyOf(spec.key).map { key ->
-													TextSearch(
-														id = spec.id,
-														label = spec.label,
-														conditions = conditions,
-														submenu = submenuOf(spec.submenu),
-														key = key,
-														query = query,
-														options =
-															spec.options.map { (name, option) ->
-																TextOption(name, option.label, option.on, option.off)
-															},
-														run = command,
-														takes = takes,
-														read = read,
-														nul = way?.nul ?: spec.nul,
-														positions = positions,
-														preview = preview,
-														open = open,
-													)
-												}
 											}
 										}
 									}

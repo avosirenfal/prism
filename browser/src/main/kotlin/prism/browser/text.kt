@@ -64,6 +64,120 @@ enum class HitRead(
 	Paths("paths"),
 }
 
+/** Where the path ends in a line `grep -n` prints: at the colon before its number, or at a NUL (`grep --null`). */
+enum class PathEnd {
+	Colon,
+	Nul,
+}
+
+/** What parts the paths a command prints: a line each, or a NUL character after each (`rg -0`). */
+enum class PathsApart {
+	Lines,
+	Nul,
+}
+
+/**
+ * How what one command prints is read: each kind with only what can be said of it, so that ripgrep's JSON is never
+ * read as ended by NULs, nor grep's lines as JSON. Said of each way of a search, with its command ([SearchWay]).
+ */
+@Immutable
+sealed interface Printed {
+	/** As it is declared. */
+	val kind: HitRead
+
+	/** `path:position:text`, a line each, as `grep -n` prints, the path ended as [pathEnd] says. */
+	data class Lines(
+		val pathEnd: PathEnd,
+	) : Printed {
+		override val kind: HitRead get() = HitRead.Lines
+	}
+
+	/** ripgrep's own `--json`. */
+	data object RipgrepJson : Printed {
+		override val kind: HitRead get() = HitRead.RgJson
+	}
+
+	/** An object a line: `path`, `at`, `text`, and `marks`. */
+	data object ObjectJson : Printed {
+		override val kind: HitRead get() = HitRead.Json
+	}
+
+	/** Paths alone, apart as [apart] says. */
+	data class Paths(
+		val apart: PathsApart,
+	) : Printed {
+		override val kind: HitRead get() = HitRead.Paths
+	}
+
+	/** How a line is printed that is read as one found, by a search that [takes] what it does: "path:number:text". */
+	fun described(takes: Takes): String =
+		when (this) {
+			is Lines ->
+				when {
+					takes == Takes.Lines -> "number:text"
+					pathEnd == PathEnd.Nul -> "path, NUL, number:text"
+					else -> "path:number:text"
+				}
+			RipgrepJson -> "ripgrep JSON"
+			ObjectJson -> "JSON"
+			is Paths -> "paths"
+		}
+
+	companion object {
+		/** What is declared as [kind], with paths ended by NULs where [nul] says. */
+		fun of(kind: HitRead, nul: Boolean): Printed =
+			when (kind) {
+				HitRead.Lines -> Lines(if (nul) PathEnd.Nul else PathEnd.Colon)
+				HitRead.RgJson -> RipgrepJson
+				HitRead.Json -> ObjectJson
+				HitRead.Paths -> Paths(if (nul) PathsApart.Nul else PathsApart.Lines)
+			}
+	}
+}
+
+/**
+ * A way of running a text search: the [programs] it needs (`a|b`, either), its command, and how what that command
+ * prints is read. The two are declared together and kept together: one way's command is never read as another's.
+ */
+@Immutable
+data class SearchWay(
+	val programs: List<String>,
+	val run: Command,
+	val printed: Printed,
+) {
+	/** Whether every program it needs is [installed]: one of each `a|b`. */
+	fun needsAll(installed: (String) -> Boolean): Boolean =
+		programs.all { any -> any.split('|').any { installed(it.trim()) } }
+}
+
+/**
+ * A text search's ways, the most preferred first, and the one it is run by ([chosen]): as it is read, the first that
+ * can be run here; to try one, any of them ([trying]).
+ */
+@Immutable
+@ConsistentCopyVisibility
+data class SearchWays private constructor(
+	val all: List<SearchWay>,
+	/** Which of [all] is run. */
+	val at: Int,
+) {
+	val chosen: SearchWay get() = all[at]
+
+	/** These, run by the way at [index] among them; none where there is none there. */
+	fun trying(index: Int): SearchWays? = of(all, index)
+
+	companion object {
+		/** [all], run by the way at [at]; none where there is no way there. */
+		fun of(all: List<SearchWay>, at: Int): SearchWays? =
+			if (at in
+				all.indices
+			)
+				SearchWays(all, at)
+			else
+				null
+	}
+}
+
 /** What a text search is given to look in. */
 enum class Takes(
 	val word: String,
@@ -121,12 +235,10 @@ data class TextSearch(
 	val key: Chord?,
 	val query: QueryUse,
 	val options: List<TextOption>,
-	val run: Command,
+	/** The ways it can be run, and the one it is: each with how what it prints is read. */
+	val ways: SearchWays,
 	/** What it is given to look in: files, or lines found already. */
 	val takes: Takes,
-	val read: HitRead,
-	/** For [HitRead.Lines]: whether a NUL character ends each path printed, and not a colon. */
-	val nul: Boolean,
 	val positions: Positions,
 	/** The command whose output is shown beside a line found; prism reads the file itself, where there is none. */
 	val preview: Command?,
@@ -139,15 +251,21 @@ data class TextSearch(
 	/** The values with names an action offered for one of its lines can name. */
 	val named: Set<String> get() = setOf(positions.hole, TEXT, QUERY)
 
+	/** The way it is run. */
+	val way: SearchWay get() = ways.chosen
+
+	/** This, run by its way at [index]; none where it has none there. */
+	fun trying(index: Int): TextSearch? = ways.trying(index)?.let { copy(ways = it) }
+
 	/**
-	 * The words of [run] for [query], with [on] of its options on; null where it names something that is not there.
+	 * The words of its [way]'s command for [query], with [on] of its options on; null where it names something that is not there.
 	 * `{options}`, a word alone, becomes the words of every option, each as it is on or off.
 	 */
 	fun words(query: String, on: Set<String>, folder: Path): List<String>? {
 		val filling = Filling(emptyList(), folder, mapOf(QUERY to query))
 		val chosen = options.flatMap { if (it.name in on) it.on else it.off }
 
-		return run.words
+		return way.run.words
 			.map { word ->
 				when {
 					word.isOptions -> chosen
@@ -400,28 +518,64 @@ class Hits private constructor(
 // ---- reading what a command prints -------------------------------------------------------------------------------
 
 /**
- * What reads a command's output, a line at a time, into the lines it found. Relative paths are in [base]. A line that
- * says nothing found (ripgrep's `begin` and `end`, a line that is not as its kind is printed) reads as none.
+ * What a line a command printed comes to, read as its search says it is printed ([HitReader]). Of the two that are
+ * not something found, one is as a command of that kind prints and says nothing was (ripgrep's `begin` and `end`, a
+ * blank line); and the other is not as one prints at all, which says the search is read as something its command
+ * does not print: macOS's grep, told `-Z`, prints no NUL after a path, and none of its lines is one found.
+ */
+sealed interface LineRead<out T> {
+	/** What a line found, or kept, is. */
+	data class Found<out T>(
+		val value: T,
+	) : LineRead<T>
+
+	/** As a command of its kind prints, and saying nothing found. */
+	data object Empty : LineRead<Nothing>
+
+	/** Not as a command of its kind prints. */
+	data object Unread : LineRead<Nothing>
+
+	/** What was found; none for a line that found nothing. */
+	val found: T? get() = (this as? Found)?.value
+
+	companion object {
+		/** [value] found, where there is one; and where there is none, a line that is not as its kind is printed. */
+		fun <T> of(value: T?): LineRead<T> = value?.let(::Found) ?: Unread
+	}
+}
+
+/**
+ * What reads a command's output, a line at a time, into the lines it found, as [printed] says it is printed: that of
+ * the way of a search that is run, and no other. Relative paths are in [base].
  */
 class HitReader(
-	private val read: HitRead,
-	private val nul: Boolean,
+	private val printed: Printed,
 	private val base: Path,
 ) {
-	constructor(search: TextSearch, base: Path) : this(search.read, search.nul, base)
+	/** Each line in [line], as a command prints a line: paths apart by NULs come as one line of them all. */
+	fun readAll(line: String): List<Pair<String, LineRead<FileHit>>> =
+		when (printed) {
+			Printed.Paths(PathsApart.Nul) -> line.split('\u0000')
+			else -> listOf(line)
+		}.map { it to read(it) }
 
-	fun read(line: String): FileHit? =
-		when (read) {
-			HitRead.Lines -> plain(line)
-			HitRead.RgJson -> objectOf(line)?.let(::ripgrep)
-			// A line found is found in a file: an object that names none says nothing found.
-			HitRead.Json -> objectOf(line)?.takeIf { it.text("path") != null }?.let(::written)
-			HitRead.Paths ->
-				line
-					.takeIf {
-						it.isNotBlank()
-					}?.let(::resolved)
-					?.let { FileHit(it, null) }
+	fun read(line: String): LineRead<FileHit> =
+		when {
+			line.isBlank() -> LineRead.Empty
+			else ->
+				when (printed) {
+					is Printed.Lines -> LineRead.of(plain(line, printed.pathEnd))
+					Printed.RipgrepJson -> objectOf(line)?.let(::ripgrep) ?: LineRead.Unread
+					// A line found is found in a file: an object that names none says nothing found.
+					Printed.ObjectJson ->
+						objectOf(line)?.let {
+							if (it.text("path") == null)
+								LineRead.Empty
+							else
+								LineRead.of(written(it))
+						} ?: LineRead.Unread
+					is Printed.Paths -> LineRead.of(resolved(line)?.let { FileHit(it, null) })
+				}
 		}
 
 	/**
@@ -429,50 +583,66 @@ class HitReader(
 	 * (their number, from 1, as `grep -n` counts its standard input), and that line as it now is, with what matched in
 	 * it. Whatever file the command says it is of is not said: it was given no file.
 	 */
-	fun kept(line: String): Pair<Long, Hit>? =
-		when (read) {
-			HitRead.Lines ->
-				inked(line).first.let { read ->
-					NUMBERED.matchAt(read.text, 0)?.let { numbered ->
-						val from = numbered.range.last + 1
+	fun kept(line: String): LineRead<Pair<Long, Hit>> =
+		when {
+			line.isBlank() -> LineRead.Empty
+			else -> keptOf(line)
+		}
 
-						numbered.groupValues[1].toLongOrNull()?.let {
-							it to
-								Hit(
-									it,
-									read.text.substring(from),
-									read.runs
-										.filter { run -> run.range.last >= from }
-										.map { run -> maxOf(run.range.first, from) - from..run.range.last - from }
-										.merged(),
-								)
-						}
-					}
+	private fun keptOf(line: String): LineRead<Pair<Long, Hit>> =
+		when (printed) {
+			is Printed.Lines -> LineRead.of(lineKept(line))
+			// A line kept says which it was: one that says nothing of it is not one kept.
+			Printed.RipgrepJson ->
+				when (val said = objectOf(line)?.let(::ripgrep) ?: LineRead.Unread) {
+					is LineRead.Found ->
+						LineRead.of(
+							said.value.hit?.let { hit ->
+								hit.position?.let {
+									it to
+										hit
+								}
+							},
+						)
+					LineRead.Empty -> LineRead.Empty
+					LineRead.Unread -> LineRead.Unread
 				}
-			HitRead.RgJson ->
-				objectOf(line)?.let(::ripgrep)?.hit?.let { hit ->
-					hit.position?.let {
-						it to
-							hit
-					}
+			Printed.ObjectJson ->
+				LineRead.of(
+					objectOf(line)?.let(::written)?.hit?.let { hit -> hit.position?.let { it to hit } },
+				)
+			// Refused as it is declared: a search that takes lines is not read as paths.
+			is Printed.Paths -> LineRead.Unread
+		}
+
+	/** `12:text`, as `grep -n` prints a line of its standard input: none where it is not printed so. */
+	private fun lineKept(line: String): Pair<Long, Hit>? =
+		inked(line).first.let { read ->
+			NUMBERED.matchAt(read.text, 0)?.let { numbered ->
+				val from = numbered.range.last + 1
+
+				numbered.groupValues[1].toLongOrNull()?.let {
+					it to
+						Hit(
+							it,
+							read.text.substring(from),
+							read.runs
+								.filter { run -> run.range.last >= from }
+								.map { run -> maxOf(run.range.first, from) - from..run.range.last - from }
+								.merged(),
+						)
 				}
-			HitRead.Json ->
-				objectOf(line)?.let(::written)?.hit?.let { hit ->
-					hit.position?.let {
-						it to
-							hit
-					}
-				}
-			HitRead.Paths -> null
+			}
 		}
 
 	/**
 	 * `path:12:text`, or `path: 12 text` as `strings -f -t d` prints; and, where a NUL ends the path, the text alone
 	 * after it where no number is.
 	 */
-	private fun plain(line: String): FileHit? {
+	private fun plain(line: String, pathEnd: PathEnd): FileHit? {
 		val (read, _) = inked(line)
 		val text = read.text
+		val nul = pathEnd == PathEnd.Nul
 		val parted =
 			if (nul)
 				text.indexOf('\u0000').takeIf { it > 0 }?.let { text.substring(0, it) to it + 1 }
@@ -502,11 +672,19 @@ class HitReader(
 		}
 	}
 
-	/** One of ripgrep's `--json` messages: a `match` is a line found, and nothing else is. */
-	private fun ripgrep(message: JsonObject): FileHit? {
-		if (message.text("type") != "match")
-			return null
+	/**
+	 * One of ripgrep's `--json` messages: a `match` is a line found, and every other kind it prints (`begin`, `end`,
+	 * `context`, `summary`) says nothing found; a message of no kind is none of ripgrep's.
+	 */
+	private fun ripgrep(message: JsonObject): LineRead<FileHit> =
+		when (message.text("type")) {
+			"match" -> LineRead.of(match(message))
+			null -> LineRead.Unread
+			else -> LineRead.Empty
+		}
 
+	/** A `match` of ripgrep's: none where it is not as ripgrep prints one. */
+	private fun match(message: JsonObject): FileHit? {
 		val data = message["data"] as? JsonObject ?: return null
 		val path = (data["path"] as? JsonObject)?.let(::said) ?: return null
 		val bytes = (data["lines"] as? JsonObject)?.let(::bytesOf) ?: return null
@@ -843,7 +1021,7 @@ class TextRun(
 	val without: Boolean = false,
 ) {
 	/** What reads what its command prints. */
-	val reader: HitReader get() = HitReader(search, scope.folder)
+	val reader: HitReader get() = HitReader(search.way.printed, scope.folder)
 
 	override fun toString(): String = "TextRun(${search.id}, “$query”)"
 }

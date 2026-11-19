@@ -26,6 +26,7 @@ import prism.preferences.ActionSpec
 import prism.preferences.ActionsFile
 import prism.preferences.Preferences
 import prism.preferences.TextSearchSpec
+import prism.preferences.WaySpec
 import prism.preferences.WhenSpec
 
 /**
@@ -49,6 +50,65 @@ class ActingTest {
 
 			override fun exists(path: Path) = Files.exists(path)
 		}
+
+	@Test
+	fun aSearchsWaysCanEachBeTried_InstalledHereOrNot_AndEachIsReadAsItsOwnPrints(
+		@TempDir home: Path,
+	) {
+		// Its first way needs what is not here; its second is the one run here.
+		val world = world(home) { it != "missing" }
+
+		Files.writeString(home.resolve("a.txt"), "one\ntwo\n")
+
+		val spec =
+			TextSearchSpec(
+				"t.ways",
+				"Ways",
+				ways =
+					listOf(
+						WaySpec(
+							listOf("missing"),
+							run =
+								listOf(
+									"sh",
+									"-c",
+									"cat >/dev/null; echo '{\"path\": \"a.txt\", \"at\": 1, \"text\": \"one\"}'",
+								),
+							read = "json",
+						),
+						WaySpec(
+							listOf("sh"),
+							run = listOf("sh", "-c", "cat >/dev/null; echo a.txt:2:two"),
+							read = "lines",
+						),
+					),
+			)
+
+		fun tried(way: Int?) =
+			(
+				tried(
+					Acting(),
+					spec,
+					Trial("a.txt", way = way),
+					world,
+					ProcessCommands,
+				) as Tried.Found
+			).let { found ->
+				Triple(found.first.map { it.hit?.text }, found.readAs, found.unread)
+			}
+
+		assertEquals(
+			Triple(listOf("two"), "path:number:text", emptyList<String>()),
+			tried(null),
+		)
+		assertEquals(Triple(listOf("two"), "path:number:text", emptyList<String>()), tried(1))
+		// The way that is not installed here, tried all the same, and read as it prints, not as the other does.
+		assertEquals(Triple(listOf("one"), "JSON", emptyList<String>()), tried(0))
+		assertEquals(
+			Tried.Refused("It has no way 3."),
+			tried(Acting(), spec, Trial("a.txt", way = 2), world, ProcessCommands),
+		)
+	}
 
 	@Test
 	fun everyActionAndSearchPrismComesWithIsWrittenAgainAsItWas_FromTheFormThatEditsIt() {

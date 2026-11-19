@@ -15,7 +15,8 @@ import java.util.concurrent.atomic.AtomicReference
 
 /**
  * [run]'s command run by [commands] and waited for: what it looks in written to its standard input; what it finds
- * given to [found] as it prints it; and how it ended. Having found as many lines as are kept ([Hits.LIMIT]), it is
+ * given to [found] as it prints it, and each line it prints that is not as its way is read to [misreading]; and how
+ * it ended. Having found as many lines as are kept ([Hits.LIMIT]), it is
  * stopped. [watch] is told how to stop it.
  *
  * What it looks in is the files of the run, each ended by a NUL character; or, for a search that takes lines, the
@@ -34,6 +35,7 @@ fun found(
 	run: TextRun,
 	commands: Commands,
 	watch: Watch = Watch.NONE,
+	misreading: (String) -> Unit = {},
 	found: (FileHit) -> Unit,
 ): TextEnding {
 	val folder = run.scope.folder
@@ -52,6 +54,16 @@ fun found(
 	val kept = java.util.BitSet()
 	val within = HashSet<Path>()
 	val printed = AtomicInteger(0)
+	// What it printed that is not as its search reads it: how many lines, and the first of them.
+	val unread = AtomicInteger(0)
+	val firstUnread = AtomicReference<String?>(null)
+
+	/** [line] counted as printed not as its search reads it, and told. */
+	fun unreadable(line: String) {
+		unread.incrementAndGet()
+		firstUnread.compareAndSet(null, line)
+		misreading(line)
+	}
 
 	/** [hit] given, unless as many as are kept have been: then the command is stopped. */
 	fun tell(hit: FileHit) {
@@ -102,41 +114,60 @@ fun found(
 			},
 		) { line ->
 			if (given != null)
-				reader.kept(line)?.let { (number, hit) ->
-					val place = (number - 1).toInt()
+				when (val read = reader.kept(line)) {
+					is LineRead.Found -> {
+						val (number, hit) = read.value
+						val place = (number - 1).toInt()
 
-					given.getOrNull(place)?.let { was ->
-						printed.incrementAndGet()
-						if (run.without)
-							kept.set(place)
-						else
-							// Still the line it was: of its file, at its place there, whatever number it had here.
-							tell(FileHit(was.path, hit.copy(position = was.hit?.position)))
+						given.getOrNull(place)?.let { was ->
+							printed.incrementAndGet()
+							if (run.without)
+								kept.set(place)
+							else
+								// Still the line it was: of its file, at its place there, whatever number it had here.
+								tell(FileHit(was.path, hit.copy(position = was.hit?.position)))
+						}
 					}
+					LineRead.Empty -> Unit
+					LineRead.Unread -> unreadable(line)
 				}
 			else
-				// Paths ended by NUL characters come as one line of them all.
-				(
-					if (run.search.read == HitRead.Paths && run.search.nul)
-						line.split('\u0000')
-					else
-						listOf(line)
-				).mapNotNull(reader::read).forEach { hit ->
-					printed.incrementAndGet()
-					if (run.without)
-						within.add(hit.path)
-					else
-						tell(hit)
+				reader.readAll(line).forEach { (each, read) ->
+					when (read) {
+						is LineRead.Found -> {
+							printed.incrementAndGet()
+							if (run.without)
+								within.add(read.value.path)
+							else
+								tell(read.value)
+						}
+						LineRead.Empty -> Unit
+						LineRead.Unread -> unreadable(each)
+					}
 				}
 		}
 
 	val wrote = ran.errors.trim()
 	val stopped = ran.status == null && ran.errors == ProcessCommands.STOPPED
 
+	// Printed, and none of it as its search reads it: the search is read as what its command does not print.
+	val misread =
+		firstUnread.get()?.takeIf { printed.get() == 0 }?.let {
+			misread(
+				unread.get(),
+				it,
+				run.search.way.printed
+					.described(run.search.takes),
+			)
+		}
+
 	// What it did not find of what it was given, where that is what is wanted: once it has said all it found.
 	val failed =
 		!stopped &&
-			(ran.status == null || (printed.get() == 0 && !ran.worked && wrote.isNotEmpty()))
+			(
+				ran.status == null || misread != null ||
+					(printed.get() == 0 && !ran.worked && wrote.isNotEmpty())
+			)
 
 	if (run.without && !stopped && !failed) {
 		if (given != null)
@@ -156,9 +187,42 @@ fun found(
 		stopped -> TextEnding.Stopped
 		ran.status == null -> TextEnding.Failed(ran.why)
 		// What it wrote is why, as it wrote it: how it ended says nothing more (and through `xargs`, nothing of its own).
-		failed -> TextEnding.Failed(wrote)
+		failed ->
+			TextEnding.Failed(
+				listOfNotNull(
+					misread,
+					wrote.ifEmpty {
+						null
+					},
+				).joinToString("\n"),
+			)
 		else -> TextEnding.Done(wrote.ifEmpty { null })
 	}
+}
+
+/** How long a line printed is quoted, where it is said to be none that was read. */
+private const val QUOTED = 120
+
+/**
+ * What is said of a command that printed [count] lines, none of which was as [printed] is printed: the first of them
+ * ([first]) as it would be seen, its colours gone, a NUL shown as `␀`, cut short where it is long.
+ */
+internal fun misread(count: Int, first: String, printed: String): String {
+	val seen = inked(first).first.text.replace('\u0000', '␀')
+	val quoted =
+		if (seen.length > QUOTED)
+			seen.take(QUOTED) + "…"
+		else
+			seen
+
+	val lines =
+		if (count == 1)
+			"a line"
+		else
+			"$count lines"
+
+	return "It printed $lines, none of them $printed as the search reads its output. " +
+		"The first: “$quoted”"
 }
 
 /**

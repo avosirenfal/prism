@@ -219,6 +219,52 @@ class TextTest {
 	// ---- looking -----------------------------------------------------------------------------------------------------
 
 	@Test
+	fun eachWayIsReadAsItsOwnCommandPrints_WhicheverIsRun() {
+		// The words of its way's command that are written as they are, and not filled.
+		fun written(search: TextSearch) =
+			search.way.run.words.mapNotNull {
+				((it as? Word.One)?.phrase?.pieces?.singleOrNull() as? Piece.Text)?.text
+			}
+
+		fun program(search: TextSearch) =
+			written(search).first {
+				it != "xargs" &&
+					!it.startsWith("-")
+			}
+
+		// Read where every program is installed, and where ripgrep is not: nothing need be installed to read either.
+		val withRipgrep = Actions.read(listOf(Actions.SHIPPED)) { true }.search("text.search")!!
+		val withoutRipgrep =
+			Actions
+				.read(listOf(Actions.SHIPPED)) {
+					it != "rg"
+				}.search("text.search")!!
+
+		assertEquals(
+			"rg" to Printed.RipgrepJson,
+			program(withRipgrep) to withRipgrep.way.printed,
+		)
+		assertEquals(
+			"grep" to Printed.Lines(PathEnd.Nul),
+			program(withoutRipgrep) to withoutRipgrep.way.printed,
+		)
+
+		// grep tried where ripgrep is installed is still grep, and read as grep prints: its way, and not the search's.
+		val grep = withRipgrep.trying(1)!!
+
+		assertEquals("grep" to Printed.Lines(PathEnd.Nul), program(grep) to grep.way.printed)
+		assertEquals(null, withRipgrep.trying(2))
+		// A NUL after each path is `--null` to both GNU's grep and macOS's, which reads `-Z` as "decompress".
+		assertTrue(
+			written(grep)
+				.let {
+					"--null" in it &&
+						it.none { word -> word.startsWith("-") && !word.startsWith("--") && 'Z' in word }
+				},
+		)
+	}
+
+	@Test
 	fun grepFindsTheSameWhereThereIsNoRipgrep_AndWhatItColoursIsWhatMatched() {
 		has("grep", "xargs")
 		project()
@@ -230,7 +276,7 @@ class TextTest {
 			listOf("xargs", "-0", "-r", "grep"),
 			grep
 				.search("text.search")!!
-				.run.words
+				.way.run.words
 				.take(4)
 				.map { ((it as Word.One).phrase.pieces.single() as Piece.Text).text },
 		)
@@ -1285,15 +1331,37 @@ class TextTest {
 
 	// ---- what a command prints, read ---------------------------------------------------------------------------------
 
+	/** What [line] found, read: none where it found nothing. */
+	private fun HitReader.hit(line: String) = read(line).found
+
+	private fun HitReader.keptHit(line: String) = kept(line).found
+
+	@Test
+	fun macOsGrepToldDashZPrintsNoNul_SoNothingOfItIsReadAsALineFound() {
+		// BSD grep reads `-Z` as "decompress", and puts no NUL after a path: `--null` is the NUL to both greps.
+		val nul = HitReader(Printed.Lines(PathEnd.Nul), root)
+
+		assertEquals(LineRead.Unread, nul.read("src/a.kt:12:  val x = 1"))
+		assertEquals(
+			FileHit(root.resolve("src/a.kt"), Hit(12, "  val x = 1")),
+			nul.hit("src/a.kt\u000012:  val x = 1"),
+		)
+		assertEquals(
+			"path, NUL, number:text",
+			Printed.Lines(PathEnd.Nul).described(Takes.Files),
+		)
+		assertEquals("number:text", Printed.Lines(PathEnd.Nul).described(Takes.Lines))
+	}
+
 	@Test
 	fun linesAreReadAsGrepPrintsThem_AndWhatIsColouredInOneIsWhatMatched() {
 		val esc = "\u001B"
-		val plain = HitReader(HitRead.Lines, nul = false, root)
-		val nul = HitReader(HitRead.Lines, nul = true, root)
+		val plain = HitReader(Printed.Lines(PathEnd.Colon), root)
+		val nul = HitReader(Printed.Lines(PathEnd.Nul), root)
 
 		assertEquals(
 			FileHit(root.resolve("src/a.kt"), Hit(12, "  val x = 1")),
-			plain.read("src/a.kt:12:  val x = 1"),
+			plain.hit("src/a.kt:12:  val x = 1"),
 		)
 		// A colon in the text is the text's; an absolute path is itself.
 		assertEquals(
@@ -1302,17 +1370,17 @@ class TextTest {
 					.of("/etc/hosts"),
 				Hit(3, "::1 localhost"),
 			),
-			plain.read("/etc/hosts:3:::1 localhost"),
+			plain.hit("/etc/hosts:3:::1 localhost"),
 		)
 		// As `strings -f -t d` prints.
 		assertEquals(
 			FileHit(root.resolve("a.out"), Hit(4096, "GLIBC_2.34")),
-			plain.read("a.out:    4096 GLIBC_2.34"),
+			plain.hit("a.out:    4096 GLIBC_2.34"),
 		)
 		// As `grep --color=always -Z` prints: the name and the number coloured too, and only the text's colour a mark.
 		assertEquals(
 			FileHit(root.resolve("a:b.txt"), Hit(7, "one two one", listOf(0..2, 8..10))),
-			nul.read(
+			nul.hit(
 				"$esc[35m$esc[Ka:b.txt$esc[m$esc[K\u0000$esc[32m$esc[K7$esc[m$esc[K" +
 					"$esc[36m$esc[K:$esc[m$esc[K" +
 					"$esc[01;31m$esc[Kone$esc[m$esc[K two $esc[01;31m$esc[Kone$esc[m$esc[K",
@@ -1321,15 +1389,15 @@ class TextTest {
 		// With no number at all, where a NUL says where the name ends.
 		assertEquals(
 			FileHit(root.resolve("a.txt"), Hit(null, "12 monkeys")),
-			nul.read("a.txt\u000012 monkeys"),
+			nul.hit("a.txt\u000012 monkeys"),
 		)
-		assertEquals(null, plain.read("Binary file a.out matches"))
-		assertEquals(null, plain.read(""))
+		assertEquals(LineRead.Unread, plain.read("Binary file a.out matches"))
+		assertEquals(LineRead.Empty, plain.read(""))
 	}
 
 	@Test
 	fun ripgrepsJsonIsRead_ItsMatchesSaidInBytesMarkedByCharacters() {
-		val reader = HitReader(HitRead.RgJson, nul = false, root)
+		val reader = HitReader(Printed.RipgrepJson, root)
 
 		fun match(lines: String, start: Int, end: Int, path: String = """{"text":"a.txt"}""") =
 			"""{"type":"match","data":{"path":$path,"lines":$lines,"line_number":3,""" +
@@ -1338,56 +1406,61 @@ class TextTest {
 		// "héllo " is seven bytes and six characters.
 		assertEquals(
 			FileHit(root.resolve("a.txt"), Hit(3, "héllo wörld", listOf(6..10))),
-			reader.read(match("""{"text":"héllo wörld\n"}""", 7, 13)),
+			reader.hit(match("""{"text":"héllo wörld\n"}""", 7, 13)),
 		)
 		// What is not UTF-8 is said in base 64: "caf\xe9 au lait".
 		assertEquals(
 			FileHit(root.resolve("a.txt"), Hit(3, "caf� au lait", listOf(5..6))),
-			reader.read(match("""{"bytes":"Y2Fm6SBhdSBsYWl0"}""", 5, 7)),
+			reader.hit(match("""{"bytes":"Y2Fm6SBhdSBsYWl0"}""", 5, 7)),
 		)
-		assertEquals(null, reader.read("""{"type":"begin","data":{"path":{"text":"a.txt"}}}"""))
-		assertEquals(null, reader.read("""{"type":"summary","data":{}}"""))
-		assertEquals(null, reader.read("not json"))
+		assertEquals(
+			LineRead.Empty,
+			reader.read("""{"type":"begin","data":{"path":{"text":"a.txt"}}}"""),
+		)
+		assertEquals(LineRead.Empty, reader.read("""{"type":"summary","data":{}}"""))
+		assertEquals(LineRead.Unread, reader.read("not json"))
+		assertEquals(LineRead.Unread, reader.read("""{"no": "type"}"""))
 	}
 
 	@Test
 	fun aScriptsOwnJsonIsRead() {
-		val reader = HitReader(HitRead.Json, nul = false, root)
+		val reader = HitReader(Printed.ObjectJson, root)
 
 		assertEquals(
 			FileHit(root.resolve("sub/a.srt"), Hit(125, "I'll be back", listOf(5..11))),
-			reader.read(
+			reader.hit(
 				"""{"path": "sub/a.srt", "at": 125, "text": "I'll be back", "marks": [[5, 12]]}""",
 			),
 		)
 		assertEquals(
 			FileHit(root.resolve("a"), Hit(null, "")),
-			reader.read("""{"path": "a"}"""),
+			reader.hit("""{"path": "a"}"""),
 		)
-		assertEquals(null, reader.read("""{"text": "no file"}"""))
+		assertEquals(LineRead.Empty, reader.read("""{"text": "no file"}"""))
+		assertEquals(LineRead.Unread, reader.read("not json"))
 	}
 
 	@Test
 	fun filesAloneAreRead_AndLinesKeptAreReadByTheirNumbers() {
 		val esc = "\u001B"
-		val paths = HitReader(HitRead.Paths, nul = true, root)
-		val lines = HitReader(HitRead.Lines, nul = false, root)
-		val json = HitReader(HitRead.RgJson, nul = false, root)
+		val paths = HitReader(Printed.Paths(PathsApart.Nul), root)
+		val lines = HitReader(Printed.Lines(PathEnd.Colon), root)
+		val json = HitReader(Printed.RipgrepJson, root)
 
-		assertEquals(FileHit(root.resolve("src/a.kt"), null), paths.read("src/a.kt"))
-		assertEquals(null, paths.read(" "))
+		assertEquals(FileHit(root.resolve("src/a.kt"), null), paths.hit("src/a.kt"))
+		assertEquals(LineRead.Empty, paths.read(" "))
 		// As `grep -n --color=always` prints a line of its standard input: its number among them, and the line.
 		assertEquals(
 			3L to Hit(3, "a TODO here", listOf(2..5)),
-			lines.kept(
+			lines.keptHit(
 				"$esc[32m$esc[K3$esc[m$esc[K$esc[36m$esc[K:$esc[m$esc[Ka $esc[01;31m$esc[KTODO$esc[m$esc[K here",
 			),
 		)
-		assertEquals(null, lines.kept("no number"))
+		assertEquals(LineRead.Unread, lines.kept("no number"))
 		// As `rg --json` says one, of a file it calls its standard input.
 		assertEquals(
 			7L to Hit(7, "a TODO here", listOf(2..5)),
-			json.kept(
+			json.keptHit(
 				"""{"type":"match","data":{"path":{"text":"<stdin>"},""" +
 					""""lines":{"text":"a TODO here\n"},"line_number":7,"absolute_offset":0,""" +
 					""""submatches":[{"match":{"text":"TODO"},"start":2,"end":6}]}}""",
@@ -1600,6 +1673,28 @@ class TextTest {
 		assertEquals(
 			TextEnding.Done("rg: b.txt: Permission denied") to 1,
 			ending(Ran(2, "a.txt:1:x\n", "rg: b.txt: Permission denied\n")),
+		)
+
+		// Printed, and none of it as the search is read: not nothing found, but the search read wrongly.
+		val misread = HitReader(Printed.RipgrepJson, root)
+
+		val json =
+			TextRun(
+				search.copy(
+					ways = SearchWays.of(listOf(search.way.copy(printed = Printed.RipgrepJson)), 0)!!,
+				),
+				scope,
+				"x",
+				emptySet(),
+			)
+
+		assertEquals(LineRead.Unread, misread.read("a.txt:1:x"))
+		assertEquals(
+			TextEnding.Failed(
+				"It printed 2 lines, none of them ripgrep JSON as the search reads its output. " +
+					"The first: “a.txt:1:x”",
+			),
+			found(json, { _, _ -> Ran(0, "a.txt:1:x\na.txt:2:y\n", "") }) {},
 		)
 	}
 

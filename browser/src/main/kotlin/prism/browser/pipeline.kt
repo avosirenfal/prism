@@ -156,7 +156,7 @@ fun given(step: TextStep.Search, input: TextFlow?, raw: Hits): TextFlow {
 		// The lines it kept are lines of whatever found them first.
 		search.takes == Takes.Lines -> TextFlow(found, input?.source)
 		// Files and no lines of them: the files it names, with whatever lines they came with.
-		search.read == HitRead.Paths || step.without ->
+		search.way.printed is Printed.Paths || step.without ->
 			TextFlow(input?.hits?.restricted(found.paths.toSet()) ?: found, input?.source)
 		else -> TextFlow(found, search)
 	}

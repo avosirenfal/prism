@@ -3,9 +3,6 @@ package prism.explorer
 import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.Path
-import kotlinx.serialization.SerializationException
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonObject
 import prism.browser.Actions
 import prism.browser.Commands
 import prism.browser.Deed
@@ -15,10 +12,12 @@ import prism.browser.Hit
 import prism.browser.HitRead
 import prism.browser.Invocation
 import prism.browser.Item
+import prism.browser.LineRead
 import prism.browser.Need
 import prism.browser.On
 import prism.browser.Placed
 import prism.browser.Question
+import prism.browser.Reading
 import prism.browser.Showing
 import prism.browser.Subject
 import prism.browser.TEMP
@@ -59,6 +58,8 @@ data class Trial(
 	val query: String = "",
 	/** The options of a text search that are on. */
 	val on: Set<String> = emptySet(),
+	/** Which of a text search's ways is tried, by its place among them; null for the one it is run by here. */
+	val way: Int? = null,
 	/** How the last trial went; null before any. */
 	val result: Tried? = null,
 ) {
@@ -93,7 +94,8 @@ sealed interface Tried {
 
 	/**
 	 * A search's command ([words]) was run: how it [ended], how many [lines] it found in how many [files], the [first]
-	 * of them, and the lines it printed that could not be read as it says they are to be ([unread], the first of them).
+	 * of them, and the lines it printed that could not be read as it says they are to be ([unread], the first of them),
+	 * which is as the way of it that ran is read ([readAs]: "ripgrep JSON", "path, NUL, number:text").
 	 */
 	data class Found(
 		val words: List<String>,
@@ -102,6 +104,7 @@ sealed interface Tried {
 		val files: Int,
 		val first: List<FileHit>,
 		val unread: List<String>,
+		val readAs: String,
 	) : Tried
 }
 
@@ -184,10 +187,11 @@ private fun <S : Declared> ScriptKind<S>.readWith(
 	acting: Acting,
 	spec: S,
 	world: World,
+	installed: (String) -> Boolean = world::installed,
 ): Actions =
 	Actions.read(
 		listOf(Actions.SHIPPED, put(acting, spec).file),
-		installed = world::installed,
+		installed = installed,
 	)
 
 // ---- an example ------------------------------------------------------------------------------------------------------
@@ -489,14 +493,11 @@ fun tried(
 	world: World,
 	commands: Commands,
 ): Tried {
-	val actions = ScriptKind.Search.readWith(acting, spec, world)
-
 	val search =
-		actions.search(spec.id)
-			?: return Tried.Refused(
-				actions.broken.firstOrNull { it.id == spec.id }?.why
-					?: "A required program isn't installed.",
-			)
+		when (val read = searchTried(acting, spec, world, trial.way)) {
+			is Reading.Right -> read.value
+			is Reading.Wrong -> return Tried.Refused(read.why)
+		}
 
 	val lines = search.takes == Takes.Lines
 
@@ -545,29 +546,17 @@ fun tried(
 		search.words(trial.query, trial.on, folder)
 			?: return Tried.Refused("The command uses a placeholder that isn't available here.")
 
-	val printed = ArrayList<String>()
 	val hits = ArrayList<FileHit>()
+	val unread = ArrayList<String>()
 
-	// What it printed is kept as it is read, a line each, to say which of them were not read as anything found.
-	val listening =
-		object : Commands {
-			override fun run(invocation: Invocation, watch: Watch) =
-				commands.run(invocation, watch)
-
-			override fun stream(
-				invocation: Invocation,
-				input: ((java.io.OutputStream) -> Unit)?,
-				watch: Watch,
-				line: (String) -> Unit,
-			) = commands.stream(invocation, input, watch) {
-				if (printed.size < PRINTED)
-					printed += it
-				line(it)
-			}
-		}
-
-	val ended = found(run, listening) { hits += it }
-	val reader = run.reader
+	// Run as the window runs it, and read as it reads it: what is not read there is said here, as it is told.
+	val ended =
+		found(run, commands, misreading = {
+			if (unread.size <
+				SHOWN
+			)
+				unread += it
+		}) { hits += it }
 
 	return Tried.Found(
 		words,
@@ -575,38 +564,49 @@ fun tried(
 		hits.count { it.hit != null }.takeIf { it > 0 } ?: hits.size,
 		hits.mapTo(HashSet()) { it.path }.size,
 		hits.take(SHOWN),
-		printed
-			.filter { line ->
-				line.isNotBlank() &&
-					when {
-						search.read == HitRead.RgJson || search.read == HitRead.Json -> !isObject(line)
-						lines -> reader.kept(line) == null
-						// Paths ended by NUL characters come as one line of them all.
-						search.read == HitRead.Paths && search.nul -> false
-						else -> reader.read(line) == null
-					}
-			}.take(SHOWN),
+		unread,
+		search.way.printed.described(search.takes),
 	)
 }
-
-/** Whether [line] is a JSON object, as each line of a command that prints JSON is. */
-private fun isObject(line: String): Boolean =
-	try {
-		Json.parseToJsonElement(line) is JsonObject
-	} catch (notJson: SerializationException) {
-		false
-	}
 
 /** The file the lines typed for a trial are said to be of, which are of none. */
 private val GIVEN: Path = Path.of("lines given")
 
-/** How many lines of what a trial printed are kept to look through, and how many of what it found are shown. */
-private const val PRINTED = 20_000
+/** How many of what a trial found, and of the lines it printed that were not read, are shown. */
 private const val SHOWN = 50
 
 /** The search [spec] reads as, with [acting], on this machine: for its window to show what it has to be tried with. */
 fun searchRead(acting: Acting, spec: TextSearchSpec, world: World): TextSearch? =
 	ScriptKind.Search.readWith(acting, spec, world).search(spec.id)
+
+/**
+ * The search [spec] is, to be tried by its way at [way] (by the one it is run by here, where null): as this machine
+ * has it, or, where none of its ways can be run here, as though every program it needs were installed, so that any of
+ * them can be tried, and say why it cannot be run.
+ */
+fun searchTried(
+	acting: Acting,
+	spec: TextSearchSpec,
+	world: World,
+	way: Int?,
+): Reading<TextSearch> {
+	val here = ScriptKind.Search.readWith(acting, spec, world)
+	val anywhere by lazy { ScriptKind.Search.readWith(acting, spec, world) { true } }
+
+	val search =
+		here.search(spec.id) ?: anywhere.search(spec.id)
+			?: return Reading.Wrong(
+				(here.broken + anywhere.broken).firstOrNull { it.id == spec.id }?.why
+					?: "It can't be read.",
+			)
+
+	return when (way) {
+		null -> Reading.Right(search)
+		else ->
+			search.trying(way)?.let { Reading.Right(it) }
+				?: Reading.Wrong("It has no way ${way + 1}.")
+	}
+}
 
 // ---- the window over the pages -----------------------------------------------------------------------------------------
 

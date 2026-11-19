@@ -708,10 +708,8 @@ class ActionsPageTest {
 														prism.browser.Hit(40, "println(answer)"),
 													),
 												),
-												listOf(
-													"{\"type\":\"begin\",\"data\":{\"path\":{\"text\":\"main.kt\"}}}",
-													"{\"type\":\"summary\",\"data\":{\"elapsed_total\":{\"secs\":0}}}",
-												),
+												listOf("rg: warning: main.kt is not valid UTF-8"),
+												"ripgrep JSON",
 											),
 									),
 							),

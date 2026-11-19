@@ -62,6 +62,7 @@ import prism.browser.Positions
 import prism.browser.PushButton
 import prism.browser.QueryUse
 import prism.browser.Radius
+import prism.browser.Reading
 import prism.browser.ScrollArea
 import prism.browser.Segmented
 import prism.browser.Select
@@ -861,7 +862,7 @@ private fun found(tried: Tried.Found): String {
 
 /** How a trial went. */
 @Composable
-private fun TriedSaid(tried: Tried?, read: String = "") {
+private fun TriedSaid(tried: Tried?) {
 	val palette = LocalPalette.current
 	val type = LocalType.current
 
@@ -965,7 +966,7 @@ private fun TriedSaid(tried: Tried?, read: String = "") {
 				)
 			if (tried.unread.isNotEmpty()) {
 				Text(
-					"Ignored output (not $read):",
+					"Ignored output (not ${tried.readAs}):",
 					style = type.body.copy(color = palette.dangerText),
 					modifier = Modifier.testTag("tried-unread-said"),
 				)
@@ -1801,7 +1802,6 @@ private fun TrialModal(
 	settings: Settings,
 	onChange: (Settings) -> Unit,
 	work: (Trial) -> Tried,
-	read: String = "",
 	inputs: @Composable ColumnScope.((Trial) -> Unit) -> Unit,
 ) {
 	val type = LocalType.current
@@ -1849,7 +1849,7 @@ private fun TrialModal(
 		) {
 			Column(verticalArrangement = Arrangement.spacedBy(Space.m)) {
 				inputs { trying(it) }
-				TriedSaid(trial.result, read)
+				TriedSaid(trial.result)
 			}
 		}
 	}
@@ -1913,6 +1913,9 @@ private fun SearchTrial(
 	val spec = form.spec()
 	val trial = modal.trial
 	val lines = form.takes == Takes.Lines
+	// Its ways, and the one it is run by here: any can be tried, installed here or not.
+	val read = remember(acting, spec) { searchTried(acting, spec, world, null) }
+	val ways = (read as? Reading.Right)?.value?.ways
 
 	TrialModal(
 		modal,
@@ -1921,18 +1924,27 @@ private fun SearchTrial(
 		settings,
 		onChange,
 		work = { tried(acting, spec, it, world, commands) },
-		read =
-			when (form.read) {
-				HitRead.Lines ->
-					if (lines)
-						"number:text"
-					else
-						"path:number:text"
-				HitRead.RgJson -> "ripgrep JSON"
-				HitRead.Json -> "JSON"
-				HitRead.Paths -> "paths"
-			},
 	) { trying ->
+		if (ways != null && ways.all.size > 1)
+			Headed(
+				"Way",
+				help = "The first with its programs installed is run; any can be tried.",
+			) {
+				Segmented(
+					ways.all.indices.toList(),
+					trial.way ?: ways.at,
+					{ at ->
+						val way = ways.all[at]
+						val named = way.programs.joinToString(" + ").ifEmpty { "Way ${at + 1}" }
+
+						if (way.needsAll(world::installed))
+							named
+						else
+							"$named (not installed)"
+					},
+					tag = "trial-way",
+				) { trying(trial.copy(way = it, result = null)) }
+			}
 		Headed(
 			if (lines)
 				"Input lines"

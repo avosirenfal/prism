@@ -404,7 +404,8 @@ fun Location.Text.lined(index: Int): TextSearch? =
 		.take(index)
 		.lastOrNull { stage ->
 			(stage.step as? TextStep.Search)?.let {
-				it.search.takes == Takes.Files && it.search.read != HitRead.Paths && !it.without
+				it.search.takes == Takes.Files && it.search.way.printed !is Printed.Paths &&
+					!it.without
 			} == true
 		}?.let { (it.step as TextStep.Search).search }
 

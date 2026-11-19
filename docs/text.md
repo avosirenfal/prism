@@ -102,7 +102,7 @@ page with why, and the rest are still read.
 | `options` | what can be turned on beside the field, each by a name: its `label`, and the words the command is given when it is `on` and when it is `off` |
 | `run`, or `ways` | the command; or several, each with the `programs` it needs, the first that can be run here being used |
 | `takes` | what it is given on its standard input: `files` (unless said), or `lines` found already: see "Steps" |
-| `read`, `nul`, `positions` | how what it prints is read: see below. A way can say its own `read` and `nul` |
+| `read`, `nul`, `positions` | how what it prints is read: see below. A way can say its own `read` and `nul`, and each way is read as its own command prints, whichever is run |
 | `preview`, or `previews` | the command whose output is shown beside a line; or several, as `ways` are |
 | `open` | what opens a line, in place of the user's editor: `{ "run": […], "terminal": true }` |
 
@@ -141,15 +141,23 @@ that only lists. "Strings in files…" is one:
 | `json` | an object: `path`, and any of `at` (the number), `text`, and `marks` (pairs of where a match starts and ends in the text) | a script of your own |
 | `paths` | a file, and no line of it | `rg --files`, `rg -l`, `git ls-files`, `fd` |
 
-A line that is not of its kind is passed over. A relative path is in the folder the command ran in, which is the
-folder shown (the home folder, where the window shows none).
+Each of a search's ways is read as it says, or as the search says where it says nothing: its command and how what
+the command prints is read are one (`SearchWay`, browser/text.kt), so that one way's output is never read as another's.
+ripgrep's way of "Search in files…" is read as `rg-json`, and grep's, which says its own, as `lines` ended by NULs.
+And each form of reading has only what can be said of it (`Printed`): a NUL ends the path of a line, or parts paths,
+and is nothing to JSON.
+
+A line that is as its kind is printed and says nothing found (ripgrep's `begin` and `end`, a blank line) is passed
+over. A line that is not of its kind at all is passed over too, and counted: see "How it ends". A relative path is in
+the folder the command ran in, which is the folder shown (the home folder, where the window shows none).
 
 **What matched** is said outright by the two JSON forms. In `lines`, it is whatever the program drew differently in
 the text: its escape sequences for colour are read out of the line (`browser/ansi.kt`), and the runs they covered are
 the marks. So `grep --color=always` is enough for its matches to be highlighted, and the program needs to know
 nothing of prism.
 
-**`"nul": true`** reads a NUL character as the end of the path, as `grep -Z` and `rg -0` print it. Without it, the
+**`"nul": true`** reads a NUL character as the end of the path, as `grep --null` and `rg -0` print it (`--null`, and
+not `-Z`, which macOS's grep reads as "decompress", and which puts no NUL after a path there). Without it, the
 path ends at the first colon that a number follows, so a file with `:12:` in its name is read wrongly. With it, a
 line may have no number at all.
 
@@ -166,6 +174,9 @@ and `rg` end with 1 where they find nothing, and `xargs` with 123 where any comm
   would be, in letters of one width (a program that points at where a pattern goes wrong points with spaces).
 - It found something, and wrote something there too: what it found is shown, and the last line it wrote is in the
   status line (a file it could not read).
+- It printed lines, and none of them as its way is read: it failed, and what is shown says so, with the first of
+  them (`It printed 12 lines, none of them path, NUL, number:text as the search reads its output. The first: …`).
+  That is a search read as what its command does not print, and not one that found nothing.
 - It found 100,000 lines: it is stopped there, and the status line says so.
 
 While it runs, the status line has a spinner, and once it has run for a moment the field has one too, with a square
@@ -367,8 +378,12 @@ needs said.
 
 Its Test button runs the command for real on files or folders typed there, with a query and its options, and shows
 what it found: how many lines in how many files, and the first of them. With them it shows the lines the command
-printed that could not be read in the form the search says, which is what is wrong when a search finds nothing: a
-command that prints `rg --json` read as lines shows every line of it there.
+printed that could not be read in the form its way says, which is what is wrong when a search finds nothing: a
+command that prints `rg --json` read as lines shows every line of it there. It runs the search as a window does, by
+the same code, and is told which lines were not read by that run itself (`found`'s `misreading`), so the two cannot
+read a line differently. Where a search has several ways, any of them can be tried ("Way"), whether its programs are
+installed or not: the one that is run here is chosen to begin with, and one whose programs are missing is run all
+the same, and says why it cannot be.
 
 ![A text search tested](search-test.png)
 
