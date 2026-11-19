@@ -650,5 +650,6 @@ private fun pathOf(entry: Entry): Path? =
 		is Entry.File -> entry.path
 		is Entry.App -> entry.application.source
 		is Entry.Action -> entry.application.source
-		is Entry.Command, is Entry.Prism, is Entry.Named, is Entry.Answer, is Entry.Module -> null
+		is Entry.Command, is Entry.Prism, is Entry.Named, is Entry.Answer, is Entry.Module,
+		-> null
 	}
