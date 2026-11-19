@@ -433,29 +433,116 @@ private fun roundedNote(
 		},
 	)
 
-/** How long a Decimal is written out in full before it is written with an exponent. */
-private const val PLAIN_DIGITS = 40
+/** How many digits a number has before its point, past which it is written with an exponent. */
+private const val MOST_WHOLE_DIGITS = 30
 
-/** [value] as it is shown: as Kotlin writes its own types, and a Decimal in full where that is not too long. */
+/** How many zeros a number has after its point before its first digit, past which it is written with an exponent. */
+private const val MOST_LEADING_ZEROS = 10
+
+/** [exact] written out in full, every digit of it, without its trailing zeros: what is copied. */
+private fun full(exact: BigDecimal): String =
+	exact
+		.stripTrailingZeros()
+		.let {
+			if (it.scale() <
+				0
+			) it.setScale(0) else it
+		}.toPlainString()
+
+/**
+ * [exact] as it is read: in full, but where it is so large or so small that its zeros would be most of it (more than
+ * [MOST_WHOLE_DIGITS] digits before its point, or [MOST_LEADING_ZEROS] zeros after it before the first digit), with an
+ * exponent, as `1.2676506002282294E+30`.
+ */
+private fun readable(exact: BigDecimal): String {
+	val stripped = exact.stripTrailingZeros()
+	// Where its first digit is: 3 for 123.4, -2 for 0.00123.
+	val magnitude = stripped.precision() - stripped.scale()
+
+	return if (stripped.signum() != 0 &&
+		(magnitude > MOST_WHOLE_DIGITS || magnitude < -MOST_LEADING_ZEROS)
+	)
+		scientific(stripped)
+	else
+		full(stripped)
+}
+
+/** [exact] as a number from 1 to 10 times a power of ten: `1.2676506002282294E+30`, `1.23E-12`, `0E+0`. */
+fun scientific(exact: BigDecimal): String {
+	val stripped = exact.stripTrailingZeros()
+
+	if (stripped.signum() == 0)
+		return "0E+0"
+
+	val power = stripped.precision() - stripped.scale() - 1
+
+	return "${stripped.movePointLeft(
+		power,
+	).toPlainString()}E${if (power >= 0) "+" else ""}$power"
+}
+
+/** A floating-point number's value as it is written, exactly: what its shortest repetition says (0.1, not 0.1000…). */
+private fun exactOfFloat(value: FloatValue): BigDecimal? = exactOf(value)
+
+/**
+ * [value] as it is said in what is said of it (an overflow, what is wrong): in full, but for a number so large or so
+ * small that it is written with an exponent ([readable]). A Double or a Float keeps a point, as Kotlin writes one
+ * (`5.0`), so that it is told from a whole number; and is Kotlin's own where it is no number (NaN, Infinity).
+ */
 fun said(value: Value): String =
 	when (value) {
 		is Formatted -> value.text
-		is DecimalValue ->
-			value.value.stripTrailingZeros().let { stripped ->
-				val plain = stripped.toPlainString()
-
-				if (plain.length <= PLAIN_DIGITS)
-					plain
-				else
-					stripped.toString()
-			}
-		is BigIntegerValue -> value.value.toString()
+		is DecimalValue -> readable(value.value)
+		is BigIntegerValue -> readable(value.value.toBigDecimal())
 		is FixedValue -> value.value.toString()
 		is FloatValue ->
-			when (value.type) {
-				Floating.Float -> value.value.toFloat().toString()
-				Floating.Double -> value.value.toString()
-			}
+			exactOfFloat(value)?.let { exact ->
+				readable(exact).let {
+					if ('.' in it || 'E' in it)
+						it
+					else
+						"$it.0"
+				}
+			} ?: value.value.toString()
+	}
+
+/**
+ * [value] as an answer is shown: as [said] says it, with its thousands apart before its point (`1,234,567.89`), where
+ * it is written in full.
+ */
+fun shown(value: Value): String {
+	val text = said(value)
+
+	if (value is Formatted || 'E' in text || text.none(Char::isDigit) ||
+		text.any { it.isLetter() }
+	)
+		return text
+
+	val negative = text.startsWith('-')
+	val digits = text.removePrefix("-")
+	val whole = digits.substringBefore('.')
+	val fraction = digits.substring(whole.length)
+
+	return (if (negative) "-" else "") +
+		whole
+			.reversed()
+			.chunked(3)
+			.joinToString(",")
+			.reversed() +
+		fraction
+}
+
+/**
+ * [value] as it is copied: every digit of it, with no exponent and nothing between its thousands, as any program
+ * reads a number; a form ([Formatted]) as it is shown; and a floating-point number that is no number as Kotlin writes it.
+ */
+fun copied(value: Value): String =
+	when (value) {
+		is Formatted -> value.text
+		is FixedValue -> value.value.toString()
+		is FloatValue -> exactOfFloat(value)?.let(::full) ?: value.value.toString()
+		is DecimalValue -> full(value.value)
+		is BigIntegerValue -> value.value.toString()
 	}
 
 /** What is said beside a result of [value]'s: its type, and the form it is shown in; nothing for a plain Decimal. */

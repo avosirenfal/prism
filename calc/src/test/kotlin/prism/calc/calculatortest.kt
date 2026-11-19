@@ -35,11 +35,11 @@ class CalculatorTest {
 		assertEquals("-4", answer("-2**2"))
 		assertEquals("512", answer("2**3**2"))
 		assertEquals("0.5", answer("2**-1"))
-		assertEquals("1267650600228229401496703205376", answer("2**100"))
-		assertEquals("1000000", answer("1_000_000"))
+		assertEquals("1.267650600228229401496703205376E+30", answer("2**100"))
+		assertEquals("1,000,000", answer("1_000_000"))
 		assertEquals("255", answer("0xff"))
 		assertEquals("5", answer("0b101"))
-		assertEquals("1500", answer("1.5e3"))
+		assertEquals("1,500", answer("1.5e3"))
 	}
 
 	@Test
@@ -49,7 +49,7 @@ class CalculatorTest {
 		assertEquals("1.4142135623730951 : Double", answer("2.toDouble().sqrt()"))
 		assertEquals("1.0 : Double", answer("sin(pi/2)"))
 		assertEquals("0.7853981633974483 : Double", answer("atan2(1, 1)"))
-		assertEquals("1024", answer("pow(2, 10)"))
+		assertEquals("1,024", answer("pow(2, 10)"))
 		assertEquals("1.4142135623730951 : Double", answer("pow(2, 0.5)"))
 		assertEquals("3", answer("abs(-3)"))
 		assertEquals("2", answer("min(2, 3)"))
@@ -63,14 +63,14 @@ class CalculatorTest {
 		assertEquals("5 : UInt", answer("5.toUInt()"))
 		assertEquals("6 : UInt", answer("5.toUInt() + 1"))
 		assertEquals("5 : Long", answer("5L"))
-		assertEquals("-2147483648 : Int", answer("2147483647.toInt() + 1"))
+		assertEquals("-2,147,483,648 : Int", answer("2147483647.toInt() + 1"))
 		assertEquals(
 			listOf(
 				"Overflow: 2147483648 > 2147483647 (Int.MAX_VALUE)",
 			),
 			notes("2147483647.toInt() + 1"),
 		)
-		assertEquals("4294967295 : UInt", answer("0u - 1u"))
+		assertEquals("4,294,967,295 : UInt", answer("0u - 1u"))
 		// A Byte's arithmetic is a Byte's, and goes past its largest as soon as it can.
 		assertEquals("-56 : Byte", answer("100.toByte() + 100.toByte()"))
 		assertEquals(
@@ -87,7 +87,7 @@ class CalculatorTest {
 			notes("200.toByte()"),
 		)
 		assertEquals("3 : Int", answer("3.7.toInt()"))
-		assertEquals("2147483647 : Int", answer("1e20.toDouble().toInt()"))
+		assertEquals("2,147,483,647 : Int", answer("1e20.toDouble().toInt()"))
 		assertEquals("0.30000000000000004 : Double", answer("0.1.toDouble() + 0.2"))
 		assertEquals("1.5 : Float", answer("1.5f"))
 		assertEquals("3 : Int", answer("7.toInt() / 2"))
@@ -98,7 +98,7 @@ class CalculatorTest {
 	fun bitsAreAWholeNumbersAsKotlinHasThem() {
 		assertEquals("16", answer("1 shl 4"))
 		assertEquals("2 : Int", answer("1.toInt() shl 33"))
-		assertEquals("2147483647 : Int", answer("-1.toInt() ushr 1"))
+		assertEquals("2,147,483,647 : Int", answer("-1.toInt() ushr 1"))
 		assertEquals("8", answer("12 and 10"))
 		assertEquals("6", answer("12 xor 10"))
 		assertEquals("-1 : Int", answer("0.toInt().inv()"))
@@ -197,7 +197,7 @@ class CalculatorTest {
 	fun csOperatorsOfBitsAreThereBesideKotlinsWordsAndBindAsInC() {
 		assertEquals("16", answer("1 << 4"))
 		assertEquals("4", answer("16 >> 2"))
-		assertEquals("2147483647 : Int", answer("(-1).int >>> 1"))
+		assertEquals("2,147,483,647 : Int", answer("(-1).int >>> 1"))
 		assertEquals("8", answer("12 & 10"))
 		assertEquals("14", answer("12 | 10"))
 		assertEquals("6", answer("12 ^ 10"))
@@ -274,5 +274,27 @@ class CalculatorTest {
 		)
 		// And no more is a number made a type to be worked with one: 300 is no Byte to add.
 		assertEquals("Overflow: 300 > 127 (Byte.MAX_VALUE)", wrong("5.byte + 300"))
+	}
+
+	@Test
+	fun anAnswerIsShownWithItsThousandsApartAndCopiedInFullWithNothingBetween() {
+		fun shown(text: String) = (Calculation.of(text).outcome as Outcome.Answer).shown
+
+		fun copied(text: String) = (Calculation.of(text).outcome as Outcome.Answer).copied
+
+		assertEquals("12,345,678.9", shown("12345678.9"))
+		assertEquals("12345678.9", copied("12345678.9"))
+		// A Double's is in full too, where Kotlin would write 1.0E7, and keeps a point to be told from a whole number.
+		assertEquals("10,000,000.0", shown("1e7.double"))
+		assertEquals("10000000", copied("1e7.double"))
+		// Past thirty digits before the point, or ten zeros after it, with an exponent; copied in full all the same.
+		assertEquals("1.267650600228229401496703205376E+30", shown("2 ** 100"))
+		assertEquals("1267650600228229401496703205376", copied("2 ** 100"))
+		assertEquals("1E-12", shown("1e-12"))
+		assertEquals("0.000000000001", copied("1e-12"))
+		assertEquals("0.0001", shown("1e-4"))
+		// A form is shown and copied as it is.
+		assertEquals("0xff", copied("255.toHex()"))
+		assertEquals("Infinity", copied("1.double / 0"))
 	}
 }

@@ -906,20 +906,7 @@ object Library {
 						is Either.Left -> exact
 						is Either.Right ->
 							Either.Right(
-								exact.value.stripTrailingZeros().let {
-									if (it.signum() == 0)
-										"0E+0"
-									else
-										"${it.movePointLeft(it.precision() - it.scale() - 1).toPlainString()}E" +
-											(it.precision() - it.scale() - 1).let { power ->
-												if (power >=
-													0
-												)
-													"+$power"
-												else
-													"$power"
-											}
-								},
+								scientific(exact.value),
 							)
 					}
 				},

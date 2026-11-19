@@ -15,8 +15,11 @@ sealed interface Outcome {
 		val value: Value,
 		val notes: List<String> = emptyList(),
 	) : Outcome {
-		/** The value as it is shown. */
-		val shown: String get() = said(value)
+		/** The value as it is shown: its thousands apart, and with an exponent only where it is very large or small. */
+		val shown: String get() = shown(value)
+
+		/** The value as it is copied: every digit, nothing between them. */
+		val copied: String get() = copied(value)
 
 		/** Its type, where it is said: none for a Decimal, which is what is typed. */
 		val type: String? get() = typeSaid(value)

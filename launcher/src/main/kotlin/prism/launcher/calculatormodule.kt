@@ -40,7 +40,7 @@ object CalculatorModule : LauncherModule {
 									"= ${it.shown}",
 									query.trim(),
 									it.type ?: title,
-									ModuleAct.Copy(it.shown),
+									ModuleAct.Copy(it.copied),
 								),
 							),
 					)
@@ -72,7 +72,7 @@ object CalculatorModule : LauncherModule {
 					outcome.shown,
 					outcome.type,
 					outcome.notes,
-					key = BannerKey.Does(COPY, ModuleAct.Copy(outcome.shown)),
+					key = BannerKey.Does(COPY, ModuleAct.Copy(outcome.copied)),
 				)
 			is Outcome.Wrong -> Banner(capitalized(outcome.why), tone = Tone.Wrong)
 			is Outcome.Unread ->

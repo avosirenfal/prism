@@ -99,14 +99,14 @@ class ModulesTest {
 
 		assertNull(dated.shown)
 		assertEquals("Calculator", dated.sections.last().title)
-		assertEquals("= 1995", dated.entries.last().title)
+		assertEquals("= 1,995", dated.entries.last().title)
 	}
 
 	@Test
 	fun theCalculatorTypesAndOverflowsAreShownAndWhatIsWrongIsSaid() {
 		val typed = state(CalculatorModule, query = "2147483647.toInt() + 1")
 
-		assertEquals("-2147483648", typed.shown?.banner?.title)
+		assertEquals("-2,147,483,648", typed.shown?.banner?.title)
 		assertEquals("Int", typed.shown?.banner?.badge)
 		assertTrue(
 			typed.shown!!
@@ -135,7 +135,7 @@ class ModulesTest {
 		val word = state(CalculatorModule, query = "calc 2 ** 10")
 
 		assertEquals("2 ** 10", word.field)
-		assertEquals("1024", word.shown?.banner?.title)
+		assertEquals("1,024", word.shown?.banner?.title)
 		// Enter, in the view, is the banner's key.
 		assertEquals(
 			listOf(LauncherEffect.Copy("1024"), LauncherEffect.Close),

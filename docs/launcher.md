@@ -186,6 +186,11 @@ are as likely something else, so what they come to is a row after the files. Its
 view, what is wrong is said as it is typed; the name being typed is completed, with the types each of its overloads
 takes and gives (Tab finishes it); and Enter copies the answer.
 
+An answer is shown with its thousands apart (`12,345,678.9`), in full, but for a number with more than thirty digits
+before its point, or ten zeros after it before its first digit, which is shown with an exponent
+(`1.2676506002282294E+30`). What is copied is every digit of it, with nothing between them and no exponent
+(`1267650600228229401496703205376`), as any program reads a number.
+
 What is typed is a **Decimal**: exact, of any size, as a person counts. `0.1 + 0.2` is `0.3`, `2 ** 100` is every digit
 of it, and `1 / 3` is worked to 34 digits. A Decimal's answer says no type beside it. Each answer says, over it, which module it is of.
 
