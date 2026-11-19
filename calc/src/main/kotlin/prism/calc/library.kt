@@ -114,6 +114,19 @@ data class Constant(
 	val does: String,
 )
 
+/**
+ * A property that makes what it is of a number of [type], as a literal of the type is made (`5.uint` is `5u`): only
+ * where it is that number still, so that `300.byte` is refused, where `300.toByte()` wraps round.
+ */
+data class TypedLiteral(
+	val name: String,
+	val type: NumberType,
+) {
+	val does: String get() = "this number as a${an(
+		type,
+	)} ${type.written}, as a literal of it: refused where it would change"
+}
+
 /** What calling a function on some values came to. */
 sealed interface Called {
 	data class Done(
@@ -307,11 +320,11 @@ private fun each(
 	)
 
 /** A whole number made a value of what it was: a BigInteger, or a fixed-width integer, wrapped where it must be. */
-private fun wholeOf(type: Fixed?, whole: BigInteger, working: String): Computed =
+private fun wholeOf(type: Fixed?, whole: BigInteger): Computed =
 	if (type == null)
 		done(BigIntegerValue(whole))
 	else
-		fixed(type, whole, working)
+		fixed(type, whole)
 
 /** A conversion to [type], as Kotlin's own (`toInt()`): what it changes said. */
 private fun conversion(type: NumberType, name: String = "to${type.written}"): Function =
@@ -544,7 +557,7 @@ object Library {
 								Computed.Failed(
 									"a power above $MOST_EXACT_POWER is not worked out exactly",
 								)
-							else -> wholeOf((base as? FixedValue)?.type, whole.pow(n), "${said(base)} ** $n")
+							else -> wholeOf((base as? FixedValue)?.type, whole.pow(n))
 						}
 					},
 					Overload(
@@ -566,35 +579,35 @@ object Library {
 				"abs",
 				"the number without its sign",
 				{ done(DecimalValue(it.abs())) },
-				{ type, it -> wholeOf(type, it.abs(), "abs($it)") },
+				{ type, it -> wholeOf(type, it.abs()) },
 				{ _, it -> kotlin.math.abs(it) },
 			),
 			each(
 				"sign",
 				"-1, 0 or 1, as the number is negative, zero or positive",
 				{ done(DecimalValue(it.signum().toBigDecimal())) },
-				{ type, it -> wholeOf(type, it.signum().toBigInteger(), "sign($it)") },
+				{ type, it -> wholeOf(type, it.signum().toBigInteger()) },
 				{ _, it -> kotlin.math.sign(it) },
 			),
 			each(
 				"floor",
 				"the largest whole number no greater than this",
 				{ done(DecimalValue(it.setScale(0, RoundingMode.FLOOR))) },
-				{ type, it -> wholeOf(type, it, "floor($it)") },
+				{ type, it -> wholeOf(type, it) },
 				{ _, it -> kotlin.math.floor(it) },
 			),
 			each(
 				"ceil",
 				"the smallest whole number no less than this",
 				{ done(DecimalValue(it.setScale(0, RoundingMode.CEILING))) },
-				{ type, it -> wholeOf(type, it, "ceil($it)") },
+				{ type, it -> wholeOf(type, it) },
 				{ _, it -> kotlin.math.ceil(it) },
 			),
 			each(
 				"truncate",
 				"the whole number this is, the fraction dropped",
 				{ done(DecimalValue(it.setScale(0, RoundingMode.DOWN))) },
-				{ type, it -> wholeOf(type, it, "truncate($it)") },
+				{ type, it -> wholeOf(type, it) },
 				{ _, it -> kotlin.math.truncate(it) },
 			),
 			Function(
@@ -695,7 +708,6 @@ object Library {
 										r + y
 									else
 										r,
-									"${said(a)}.mod(${said(b)})",
 								)
 							}
 					},
@@ -765,7 +777,7 @@ object Library {
 				listOf(
 					Overload(listOf(same("x", Kind.Whole)), Gives.Same) { (x) ->
 						when (x) {
-							is FixedValue -> wholeOf(x.type, x.value.not(), "inv(${x.value})")
+							is FixedValue -> wholeOf(x.type, x.value.not())
 							else -> done(BigIntegerValue(x.whole.not()))
 						}
 					},
@@ -914,7 +926,8 @@ object Library {
 			)
 
 	init {
-		val names = FUNCTIONS.map { it.name } + CONSTANTS.map { it.name }
+		val names =
+			FUNCTIONS.map { it.name } + CONSTANTS.map { it.name } + PROPERTIES.map { it.name }
 
 		require(names.size == names.toSet().size) {
 			"every function and constant has a name of its own: ${names.groupBy {
@@ -925,6 +938,26 @@ object Library {
 
 	private val functionsByName: Map<String, Function> = FUNCTIONS.associateBy { it.name }
 	private val constantsByName: Map<String, Constant> = CONSTANTS.associateBy { it.name }
+
+	/** The properties after a dot that make a number one of Kotlin's types: `5.uint`, `0.1.double`. */
+	val PROPERTIES: List<TypedLiteral>
+		get() =
+			listOf(
+				TypedLiteral("byte", Fixed.Byte),
+				TypedLiteral("short", Fixed.Short),
+				TypedLiteral("int", Fixed.Int),
+				TypedLiteral("long", Fixed.Long),
+				TypedLiteral("ubyte", Fixed.UByte),
+				TypedLiteral("ushort", Fixed.UShort),
+				TypedLiteral("uint", Fixed.UInt),
+				TypedLiteral("ulong", Fixed.ULong),
+				TypedLiteral("float", Floating.Float),
+				TypedLiteral("double", Floating.Double),
+			)
+
+	/** The property called [name], in whatever case. */
+	fun property(name: String): TypedLiteral? =
+		PROPERTIES.firstOrNull { it.name.equals(name, ignoreCase = true) }
 
 	/** The function called [name]: by its own case, or, where none is, by any (`Sin`, `SQRT`). */
 	fun function(name: String): Function? =

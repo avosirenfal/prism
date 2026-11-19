@@ -46,12 +46,14 @@ enum class Prefix(
 ) {
 	Negate("-"),
 	Same("+"),
+
+	/** Every bit turned over: C's `~`, Kotlin's inv(). */
+	Invert("~"),
 }
 
 /** The type [a] and [b] are worked out in, or why there is none. */
 fun common(a: NumberType, b: NumberType): Either<String, NumberType> =
 	when {
-		a is Fixed && a == b -> Either.Right(atLeastInt(a))
 		a == b -> Either.Right(a)
 		a == NumberType.Decimal -> Either.Right(b)
 		b == NumberType.Decimal -> Either.Right(a)
@@ -63,7 +65,7 @@ fun common(a: NumberType, b: NumberType): Either<String, NumberType> =
 			)
 		a is Fixed && b is Fixed ->
 			if (a.signed == b.signed)
-				Either.Right(atLeastInt(if (a.bits >= b.bits) a else b))
+				Either.Right(if (a.bits >= b.bits) a else b)
 			else
 				Either.Left(
 					"a${an(
@@ -74,14 +76,6 @@ fun common(a: NumberType, b: NumberType): Either<String, NumberType> =
 						"of them (to${a.written}(), to${b.written}())",
 				)
 		else -> Either.Left("${a.written} and ${b.written} can't be worked out together")
-	}
-
-/** [type], or an Int or a UInt where it is narrower: what Kotlin works a Byte's or a Short's arithmetic in. */
-private fun atLeastInt(type: Fixed): Fixed =
-	when {
-		type.bits >= 32 -> type
-		type.signed -> Fixed.Int
-		else -> Fixed.UInt
 	}
 
 /** One of two things: what went wrong ([Left]), or what came of it ([Right]). */
@@ -114,16 +108,13 @@ private fun alike(
 	}
 
 /** [whole] as a value of [type], wrapped round where it does not fit, and said so. */
-internal fun fixed(type: Fixed, whole: BigInteger, working: String): Computed.Done {
+internal fun fixed(type: Fixed, whole: BigInteger): Computed.Done {
 	val (made, wrapped) = type.wrapped(whole)
 
 	return Computed.Done(
 		made,
 		listOfNotNull(
-			"${type.written} overflow: $working is $whole, which wrapped round to ${made.value}"
-				.takeIf {
-					wrapped
-				},
+			"${type.beyond(whole)}: wrapped round to ${made.value}".takeIf { wrapped },
 		),
 	)
 }
@@ -138,12 +129,11 @@ fun binary(operator: Operator, a: NumberValue, b: NumberValue): Computed {
 			is Either.Left -> return Computed.Failed(made.value)
 			is Either.Right -> made.value
 		}
-	val working = "${said(left)} ${operator.written} ${said(right)}"
 
 	return when (operator) {
-		Operator.And, Operator.Or, Operator.Xor -> bitwise(operator, left, right, working)
+		Operator.And, Operator.Or, Operator.Xor -> bitwise(operator, left, right)
 		Operator.Power -> Computed.Failed("** is worked out by pow")
-		else -> arithmetic(operator, left, right, working)
+		else -> arithmetic(operator, left, right)
 	}
 }
 
@@ -151,7 +141,6 @@ private fun arithmetic(
 	operator: Operator,
 	left: NumberValue,
 	right: NumberValue,
-	working: String,
 ): Computed =
 	when (left) {
 		is DecimalValue -> {
@@ -181,7 +170,7 @@ private fun arithmetic(
 			}
 		is FixedValue ->
 			wholes(operator, left.value, (right as FixedValue).value) {
-				fixed(left.type, it, working)
+				fixed(left.type, it)
 			}
 		is FloatValue -> {
 			val a = left.value
@@ -244,7 +233,6 @@ private fun bitwise(
 	operator: Operator,
 	left: NumberValue,
 	right: NumberValue,
-	working: String,
 ): Computed {
 	fun of(a: BigInteger, b: BigInteger): BigInteger =
 		when (operator) {
@@ -274,9 +262,8 @@ private fun bitwise(
 		// Two's complement, as a fixed-width integer's bits are: BigInteger's own and, or and xor are of the same.
 		is FixedValue ->
 			fixed(
-				atLeastInt(left.type),
+				left.type,
 				of(left.value, (right as FixedValue).value),
-				working,
 			)
 	}
 }
@@ -327,7 +314,7 @@ private fun shifted(operator: Operator, a: NumberValue, b: NumberValue): Compute
 			)
 		}
 		is FixedValue -> {
-			val type = atLeastInt(a.type)
+			val type = a.type
 			val by = count and (type.bits - 1)
 
 			val masked =
@@ -366,6 +353,26 @@ private fun shifted(operator: Operator, a: NumberValue, b: NumberValue): Compute
 fun prefixed(operator: Prefix, value: NumberValue): Computed =
 	when (operator) {
 		Prefix.Same -> Computed.Done(value)
+		Prefix.Invert ->
+			when (value) {
+				is FixedValue -> fixed(value.type, value.value.not())
+				is BigIntegerValue -> Computed.Done(BigIntegerValue(value.value.not()))
+				is FloatValue ->
+					Computed.Failed(
+						"bits are only a whole number's: ${described(value)} is not",
+					)
+				is DecimalValue ->
+					when (val whole = implicitly(value, NumberType.BigInteger)) {
+						is Converted.Refused ->
+							Computed.Failed(
+								"bits are only a whole number's: ${said(value)} is not whole",
+							)
+						is Converted.Done ->
+							Computed.Done(
+								DecimalValue((whole.value as BigIntegerValue).value.not().toBigDecimal()),
+							)
+					}
+			}
 		Prefix.Negate ->
 			when (value) {
 				is DecimalValue -> Computed.Done(DecimalValue(value.value.negate()))
@@ -373,7 +380,7 @@ fun prefixed(operator: Prefix, value: NumberValue): Computed =
 				is FloatValue -> Computed.Done(FloatValue.of(value.type, -value.value))
 				is FixedValue ->
 					if (value.type.signed)
-						fixed(atLeastInt(value.type), value.value.negate(), "-${value.value}")
+						fixed(value.type, value.value.negate())
 					else
 						Computed.Failed(
 							"a${an(

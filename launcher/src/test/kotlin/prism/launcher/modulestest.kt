@@ -112,7 +112,7 @@ class ModulesTest {
 			typed.shown!!
 				.banner.notes
 				.single()
-				.startsWith("Int overflow"),
+				.startsWith("Overflow: 2147483648 > 2147483647"),
 		)
 
 		val wrong = state(CalculatorModule, query = "sin(1e400)")

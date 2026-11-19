@@ -73,6 +73,16 @@ enum class Fixed(
 		) -
 			BigInteger.ONE
 
+	/**
+	 * What is said of [whole], which this type does not hold: past its largest, `Overflow: 2147483648 > 2147483647
+	 * (Int.MAX_VALUE)`; below its smallest, `Underflow: …`.
+	 */
+	fun beyond(whole: BigInteger): String =
+		if (whole > max)
+			"Overflow: $whole > $max ($written.MAX_VALUE)"
+		else
+			"Underflow: $whole < $min ($written.MIN_VALUE)"
+
 	/** Whether [whole] is one of this type's values as it is. */
 	fun holds(whole: BigInteger): Boolean = whole in min..max
 
@@ -338,10 +348,7 @@ fun explicitly(value: NumberValue, to: NumberType): Converted {
 				Converted.Done(
 					to.wrapped(held).value,
 					listOf(
-						"${described(
-							value,
-						)} doesn't fit in a${an(to)} ${to.written}: it was held at $held, " +
-							"as Kotlin's to${to.written}() does",
+						"${to.beyond(whole)}: held at $held, as Kotlin's to${to.written}() does",
 					),
 				)
 			} else {
@@ -351,7 +358,7 @@ fun explicitly(value: NumberValue, to: NumberType): Converted {
 					made,
 					roundedNote(value, exact, whole) +
 						listOfNotNull(
-							"$whole doesn't fit in a${an(to)} ${to.written}: it wrapped round to ${made.value}"
+							"${to.beyond(whole)}: wrapped round to ${made.value}"
 								.takeIf { wrapped },
 						),
 				)

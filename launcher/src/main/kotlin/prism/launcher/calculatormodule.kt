@@ -98,10 +98,7 @@ object CalculatorModule : LauncherModule {
 					"and $more more overload${if (more == 1) "" else "s"}".takeIf { more > 0 }
 				},
 			).joinToString(" · "),
-			if (completion.isFunction)
-				"Function"
-			else
-				"Constant",
+			completion.kind.written,
 			ModuleAct.Put(text.dropLast(begun.length) + completion.inserted),
 		)
 	}

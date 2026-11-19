@@ -47,6 +47,15 @@ enum class Shape {
 	Plain,
 }
 
+/** What kind of thing a completion names. */
+enum class Named(
+	val written: String,
+) {
+	Function("Function"),
+	Property("Property"),
+	Constant("Constant"),
+}
+
 /** A name that what is being typed could be on its way to: a function or a constant, and what it is. */
 data class Completion(
 	val name: String,
@@ -55,7 +64,7 @@ data class Completion(
 	/** How it is called (each overload), or what a constant's value is. */
 	val signatures: List<String>,
 	val does: String,
-	val isFunction: Boolean,
+	val kind: Named,
 )
 
 /** What a text typed into a calculator is: read, worked out, and what it could be on its way to. */
@@ -128,6 +137,24 @@ private fun work(expression: Expression): Worked =
 				is Converted.Refused -> Worked.Wrong(made.why, expression.span)
 			}
 		is Expression.Grouped -> work(expression.inner)
+		is Expression.Property ->
+			all(listOf(expression.of)) { (of), notes ->
+				when (val literal = Library.property(expression.name)) {
+					null ->
+						Worked.Wrong(
+							if (Library.function(expression.name) != null)
+								"${expression.name} is a function: call it, as .${expression.name}()"
+							else
+								"there is no property ${expression.name}",
+							expression.named,
+						)
+					else ->
+						when (val made = implicitly(of.number, literal.type)) {
+							is Converted.Done -> Worked.Value(made.value, notes)
+							is Converted.Refused -> Worked.Wrong(made.why, expression.named)
+						}
+				}
+			}
 		is Expression.Name ->
 			Library.constant(expression.name)?.let { Worked.Value(it.value, emptyList()) }
 				?: Worked.Wrong(
@@ -181,6 +208,7 @@ private fun shapeOf(expression: Expression, text: String): Shape {
 	fun plain(of: Expression): Boolean =
 		when (of) {
 			is Expression.Literal, is Expression.Name -> true
+			is Expression.Property -> plain(of.of)
 			is Expression.Grouped -> plain(of.inner)
 			is Expression.Prefixed -> of.operand is Expression.Literal
 			else -> false
@@ -222,7 +250,7 @@ private fun completionsOf(text: String): List<Completion> {
 					it.overloads.any { overload ->
 						overload.parameters.isNotEmpty()
 					}
-			}.map { Completion(it.name, "${it.name}(", it.signatures, it.does, isFunction = true) }
+			}.map { Completion(it.name, "${it.name}(", it.signatures, it.does, Named.Function) }
 
 	val constants =
 		Library.CONSTANTS
@@ -235,12 +263,27 @@ private fun completionsOf(text: String): List<Completion> {
 					it.name,
 					listOf("${it.name} = ${said(it.value)}"),
 					it.does,
-					isFunction = false,
+					Named.Constant,
+				)
+			}
+
+	val properties =
+		Library.PROPERTIES
+			.takeIf { method }
+			.orEmpty()
+			.filter { it.name.startsWith(begun, ignoreCase = true) }
+			.map {
+				Completion(
+					it.name,
+					it.name,
+					listOf("x.${it.name}: ${it.type.written}"),
+					it.does,
+					Named.Property,
 				)
 			}
 
 	val found =
-		(constants + functions).sortedWith(
+		(constants + properties + functions).sortedWith(
 			compareBy({ it.name.length }, { it.name }),
 		)
 

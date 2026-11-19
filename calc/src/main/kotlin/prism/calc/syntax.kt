@@ -28,19 +28,24 @@ import prism.parsing.spanned
 import prism.parsing.then
 
 /*
- * The calculator's language, as it is written: Kotlin's arithmetic, with `**` for powers (and `^`, as calculators
- * have it). From the loosest to the tightest:
+ * The calculator's language, as it is written: Kotlin's arithmetic, with `**` for powers, and C's operators of bits
+ * beside Kotlin's words for them. From the loosest to the tightest:
  *
  *   1 shl 4      Kotlin's infix words, grouped from the left: shl shr ushr and or xor
+ *   a | b        C's: or
+ *   a ^ b             xor
+ *   a & b             and
+ *   1 << 4       C's shifts: << >> >>> (the last Java's, and Kotlin's ushr)
  *   1 + 2 - 3    grouped from the left
  *   2 * 3 / 4 % 5
- *   -x  +x
+ *   -x  +x  ~x   ~ every bit turned over, as Kotlin's inv()
  *   2 ** 3 ** 2  grouped from the right; what is raised to may be negated (2 ** -1)
- *   x.f(a)       a function called on what is before its dot: f(x, a)
+ *   x.f(a)  x.f  a function called on what is before its dot, f(x, a); a property of it, such as 5.uint
  *   1.5  0xff  0b101  1_000  1e9  5u  5L  5uL  1.5f   (x)   pi   f(a, b)
  *
  * A literal with no suffix is a Decimal; a suffix makes it one of Kotlin's types, as in Kotlin (`L` a Long, `u` a
- * UInt, `uL` a ULong, `f` a Float). Spaces are allowed between any two things.
+ * UInt, `uL` a ULong, `f` a Float), and so does a property of the type's name (`5.byte`, `5.ulong`, `5.double`).
+ * Spaces are allowed between any two things.
  */
 
 /** Something written in the language, where it is in the text. */
@@ -69,6 +74,14 @@ sealed interface Expression {
 		val named: Span,
 		val arguments: List<Expression>,
 		val method: Boolean,
+		override val span: Span,
+	) : Expression
+
+	/** A property of what is before a dot, [name] (where it is: [named]): `5.uint`. */
+	data class Property(
+		val of: Expression,
+		val name: String,
+		val named: Span,
 		override val span: Span,
 	) : Expression
 
@@ -205,24 +218,25 @@ object Grammar {
 
 	private val primary: Parser<Expression> = token(firstOf(number, grouped, named))
 
-	/** A primary, and the functions called on it after a dot, one after another. */
+	/** A primary, and the functions called on it after a dot, and its properties, one after another. */
 	private val postfix: Parser<Expression> =
 		primary.then { first ->
-			(
-				token(
-					char('.'),
-				) after name.spanned() before space and arguments.spanned()
-			).many().map { calls ->
-				calls.fold(first) { on, (called, given) ->
-					Expression.Call(
-						called.value,
-						called.span,
-						listOf(on) + given.value,
-						method = true,
-						on.span..given.span,
-					)
+			(token(char('.')) after name.spanned() before space and arguments.spanned().optional())
+				.many()
+				.map { calls ->
+					calls.fold(first) { on, (called, given) ->
+						if (given == null)
+							Expression.Property(on, called.value, called.span, on.span..called.span)
+						else
+							Expression.Call(
+								called.value,
+								called.span,
+								listOf(on) + given.value,
+								method = true,
+								on.span..given.span,
+							)
+					}
 				}
-			}
 		}
 
 	/** The operator [operator], written as [written] and followed by nothing that would make it another. */
@@ -246,6 +260,7 @@ object Grammar {
 								Prefix.Negate
 							},
 							char('+').map { Prefix.Same },
+							char('~').map { Prefix.Invert },
 						).spanned(),
 					) and
 						unary
@@ -264,7 +279,7 @@ object Grammar {
 	private val power: Parser<Expression> =
 		(
 			postfix and
-				(binary(Operator.Power, firstOf(literal("**"), char('^'))) and unary).optional()
+				(binary(Operator.Power, literal("**")) and unary).optional()
 		).map { (base, raised) ->
 			raised?.let { (join, exponent) -> join(base, exponent) } ?: base
 		}
@@ -283,8 +298,31 @@ object Grammar {
 			firstOf(binary(Operator.Plus, char('+')), binary(Operator.Minus, char('-'))),
 		)
 
-	private val infix: Parser<Expression> =
+	/** C's shifts: `<<`, `>>`, and Java's `>>>`, which is Kotlin's ushr. */
+	private val shifts: Parser<Expression> =
 		additive.leftAssociative(
+			firstOf(
+				binary(Operator.Ushr, literal(">>>")),
+				binary(Operator.Shr, literal(">>")),
+				binary(Operator.Shl, literal("<<")),
+			),
+		)
+
+	/** C's `&`, `^` and `|`, each looser than the one before, as in C. */
+	private val bitsAnd: Parser<Expression> =
+		shifts.leftAssociative(binary(Operator.And, char('&') before not(char('&'))))
+
+	private val bitsXor: Parser<Expression> =
+		bitsAnd.leftAssociative(
+			binary(Operator.Xor, char('^')),
+		)
+
+	private val bitsOr: Parser<Expression> =
+		bitsXor.leftAssociative(binary(Operator.Or, char('|') before not(char('|'))))
+
+	/** Kotlin's infix words, the loosest of all, as in Kotlin. */
+	private val infix: Parser<Expression> =
+		bitsOr.leftAssociative(
 			firstOf(
 				*listOf(
 					Operator.Shl,

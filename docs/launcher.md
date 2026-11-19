@@ -192,32 +192,43 @@ answer, and what Kotlin would hide is said under it:
 | typed | answer | said under it |
 |---|---|---|
 | `5.toUInt() + 1` | `6` UInt | |
-| `2147483647.toInt() + 1` | `-2147483648` Int | Int overflow: 2147483647 + 1 is 2147483648, which wrapped round to -2147483648 |
+| `2147483647.toInt() + 1` | `-2147483648` Int | Overflow: 2147483648 > 2147483647 (Int.MAX_VALUE): wrapped round to -2147483648 |
+| `0u - 1u` | `4294967295` UInt | Underflow: -1 < 0 (UInt.MIN_VALUE): wrapped round to 4294967295 |
 | `0.1.toDouble() + 0.2` | `0.30000000000000004` Double | |
-| `200.toByte()` | `-56` Byte | 200 doesn't fit in a Byte: it wrapped round to -56 |
+| `200.toByte()` | `-56` Byte | Overflow: 200 > 127 (Byte.MAX_VALUE): wrapped round to -56 |
 | `3.7.toInt()` | `3` Int | 3.7 was rounded toward zero, to 3 |
-| `100.toByte() + 100.toByte()` | `200` Int | (a Byte's arithmetic is an Int's, as in Kotlin) |
+| `100.toByte() + 100.toByte()` | `-56` Byte | Overflow: 200 > 127 (Byte.MAX_VALUE): wrapped round to -56 |
 | `1.toInt() shl 33` | `2` Int | shl by 33 is shl by 1: an Int shifts by the low 5 bits of its count |
 
-The suffixes are Kotlin's: `5L` a Long, `5u` a UInt, `5uL` a ULong, `1.5f` a Float. The conversions are `toByte()`,
-`toShort()`, `toInt()`, `toLong()`, their unsigned kin (`toUInt()` and the rest), `toFloat()`, `toDouble()`,
-`toBigInteger()` and `toBigDecimal()`.
+There are three ways to ask for a type, and they differ in what they do to a number the type cannot hold:
+
+| written | is | `300` as a Byte |
+|---|---|---|
+| `5L`, `5u`, `5uL`, `1.5f` | Kotlin's suffixes: a Long, a UInt, a ULong, a Float | |
+| `5.int`, `5.uint`, `5.short`, `5.ushort`, `5.long`, `5.ulong`, `5.byte`, `5.ubyte`, `5.float`, `5.double` | a literal of that type, as a suffix makes one | `300.byte` is refused, as `val b: Byte = 300` is in Kotlin |
+| `toByte()`, `toShort()`, `toInt()`, `toLong()`, `toUByte()` and the other unsigned, `toFloat()`, `toDouble()`, `toBigInteger()`, `toBigDecimal()` | Kotlin's conversions | `300.toByte()` is `44`, wrapped round, and said so |
 
 When two types meet, the Decimal (what was typed) becomes the other: `5.toUInt() + 1` is a UInt. A floating-point
-number wins over a whole one, and a Double over a Float. Two fixed-width integers become the wider, and at least an Int.
+number wins over a whole one, and a Double over a Float. Two fixed-width integers become the wider of them, and a
+Byte with a Byte stays a Byte (where Kotlin would make it an Int), so that a Byte's overflow is seen.
 A signed one and an unsigned one are refused, as Kotlin refuses them, since neither holds all of the other. And a value
 converted to make two meet must not be changed by it: `5.toUInt() + 1.5` is refused, since 1.5 is no UInt.
 
-The language is Kotlin's arithmetic, with `**` for powers (and `^`, as calculators have it). From the loosest:
+The language is Kotlin's arithmetic, with `**` for powers and C's operators of bits beside Kotlin's words for them.
+`^` is C's xor, not a power. From the loosest:
 
 | written | is |
 |---|---|
 | `a shl b`, `shr`, `ushr`, `and`, `or`, `xor` | Kotlin's infix words, grouped from the left: `1 shl 4 + 1` is `1 shl 5` |
+| `a \| b` | C's or |
+| `a ^ b` | C's xor |
+| `a & b` | C's and: `1 \| 4 & 5` is `1 \| (4 & 5)`, as in C |
+| `a << b`, `a >> b`, `a >>> b` | C's shifts, and Java's `>>>`, which is Kotlin's ushr: `1 << 4 + 1` is `1 << 5`, as in C |
 | `a + b`, `a - b` | |
 | `a * b`, `a / b`, `a % b` | a fixed-width integer's division is toward zero, as Kotlin's |
-| `-a`, `+a` | |
-| `a ** b`, `a ^ b` | grouped from the right; `-2 ** 2` is `-4`, and `2 ** -1` is `0.5` |
-| `a.f(b)` | `f(a, b)`: any function is called after a dot on its first argument; `-1.toInt()` is `-(1.toInt())`, as in Kotlin |
+| `-a`, `+a`, `~a` | `~` turns every bit over, as Kotlin's `inv()`: `~0.int` is `-1` |
+| `a ** b` | grouped from the right; `-2 ** 2` is `-4`, and `2 ** -1` is `0.5` |
+| `a.f(b)`, `a.p` | `f(a, b)`: any function is called after a dot on its first argument; `-1.toInt()` is `-(1.toInt())`, as in Kotlin. A property, such as `5.uint` |
 | `1.5`, `0xff`, `0b101`, `0o17`, `1_000`, `1e9`, `(a)`, `pi`, `f(a, b)` | |
 
 The constants are `pi`, `tau`, `e` and `phi`. The functions are declared once each, with typed overloads; completion

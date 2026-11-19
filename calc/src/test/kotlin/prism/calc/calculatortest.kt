@@ -34,7 +34,6 @@ class CalculatorTest {
 		assertEquals("1", answer("10 % 3"))
 		assertEquals("-4", answer("-2**2"))
 		assertEquals("512", answer("2**3**2"))
-		assertEquals("512", answer("2^3^2"))
 		assertEquals("0.5", answer("2**-1"))
 		assertEquals("1267650600228229401496703205376", answer("2**100"))
 		assertEquals("1000000", answer("1_000_000"))
@@ -67,16 +66,24 @@ class CalculatorTest {
 		assertEquals("-2147483648 : Int", answer("2147483647.toInt() + 1"))
 		assertEquals(
 			listOf(
-				"Int overflow: 2147483647 + 1 is 2147483648, which wrapped round to -2147483648",
+				"Overflow: 2147483648 > 2147483647 (Int.MAX_VALUE): wrapped round to -2147483648",
 			),
 			notes("2147483647.toInt() + 1"),
 		)
 		assertEquals("4294967295 : UInt", answer("0u - 1u"))
-		// As Kotlin's: a Byte's arithmetic is an Int's.
-		assertEquals("200 : Int", answer("100.toByte() + 100.toByte()"))
+		// A Byte's arithmetic is a Byte's, and goes past its largest as soon as it can.
+		assertEquals("-56 : Byte", answer("100.toByte() + 100.toByte()"))
+		assertEquals(
+			listOf("Overflow: 200 > 127 (Byte.MAX_VALUE): wrapped round to -56"),
+			notes("100.toByte() + 100.toByte()"),
+		)
+		assertEquals(
+			listOf("Underflow: -1 < 0 (UInt.MIN_VALUE): wrapped round to 4294967295"),
+			notes("0u - 1u"),
+		)
 		assertEquals("-56 : Byte", answer("200.toByte()"))
 		assertEquals(
-			listOf("200 doesn't fit in a Byte: it wrapped round to -56"),
+			listOf("Overflow: 200 > 127 (Byte.MAX_VALUE): wrapped round to -56"),
 			notes("200.toByte()"),
 		)
 		assertEquals("3 : Int", answer("3.7.toInt()"))
@@ -137,7 +144,10 @@ class CalculatorTest {
 				"atan2(1)",
 			).startsWith("atan2 takes 2 arguments: atan2(y: Double, x: Double): Double"),
 		)
-		assertEquals("unread at 4: expected a name, a number, “(”, “+” or “-”", wrong("1 + "))
+		assertEquals(
+			"unread at 4: expected a name, a number, “(”, “+”, “-” or “~”",
+			wrong("1 + "),
+		)
 		assertTrue(wrong("-5u").startsWith("a UInt can't be negated"))
 		assertEquals("300 doesn't fit in a Byte (-128..127)", wrong("100.toByte() + 300"))
 	}
@@ -181,5 +191,52 @@ class CalculatorTest {
 		assertEquals(emptyList<String>(), names("2*pi"))
 		assertEquals(emptyList<String>(), names("2+3"))
 		assertTrue(names("e").containsAll(listOf("e", "exp")))
+	}
+
+	@Test
+	fun csOperatorsOfBitsAreThereBesideKotlinsWordsAndBindAsInC() {
+		assertEquals("16", answer("1 << 4"))
+		assertEquals("4", answer("16 >> 2"))
+		assertEquals("2147483647 : Int", answer("(-1).int >>> 1"))
+		assertEquals("8", answer("12 & 10"))
+		assertEquals("14", answer("12 | 10"))
+		assertEquals("6", answer("12 ^ 10"))
+		assertEquals("-1 : Int", answer("~0.int"))
+		assertEquals("-6", answer("~5"))
+		// As in C: shifts looser than +, & than shifts, ^ than &, | than ^.
+		assertEquals("32", answer("1 << 4 + 1"))
+		assertEquals("8", answer("1 << 3 & 15"))
+		assertEquals("7", answer("1 | 2 ^ 4"))
+		assertEquals("5", answer("1 | 4 & 5"))
+		// And Kotlin's words are looser than all of them.
+		assertEquals("3", answer("1 or 2 & 3"))
+	}
+
+	@Test
+	fun aTypesNameAfterADotMakesANumberThatTypeAsALiteralOfItWould() {
+		assertEquals("5 : Int", answer("5.int"))
+		assertEquals("5 : UInt", answer("5.uint"))
+		assertEquals("5 : Short", answer("5.short"))
+		assertEquals("5 : UShort", answer("5.ushort"))
+		assertEquals("5 : Long", answer("5.long"))
+		assertEquals("5 : ULong", answer("5.ulong"))
+		assertEquals("5 : Byte", answer("5.byte"))
+		assertEquals("5 : UByte", answer("5.ubyte"))
+		assertEquals("5.0 : Float", answer("5.float"))
+		assertEquals("0.1 : Double", answer("0.1.double"))
+		// Where it would change the number, it is refused, as a literal of the type would be; toByte() wraps it.
+		assertEquals("300 doesn't fit in a Byte (-128..127)", wrong("300.byte"))
+		assertEquals("44 : Byte", answer("300.toByte()"))
+		assertEquals("there is no property nope", wrong("5.nope"))
+		assertEquals("toInt is a function: call it, as .toInt()", wrong("5.toInt"))
+		assertTrue(
+			Calculation
+				.of("5.u")
+				.completions
+				.map {
+					it.name
+				}.containsAll(listOf("ubyte", "uint", "ulong", "ushort")),
+		)
+		assertEquals(Shape.Plain, Calculation.of("5.uint").shape)
 	}
 }
