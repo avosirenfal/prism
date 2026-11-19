@@ -147,7 +147,6 @@ import org.lwjgl.sdl.SDLVideo.SDL_WINDOW_TRANSPARENT
 import org.lwjgl.sdl.SDL_Event
 import org.lwjgl.system.MemoryStack
 import prism.macos.Panel
-import prism.macos.Spaces
 
 /** The window something is drawn in: given to everything in it, as [LocalNativeWindow]. */
 val LocalNativeWindow = staticCompositionLocalOf<NativeWindow?> { null }
@@ -371,11 +370,6 @@ class NativeWindow internal constructor(
 		layer = layered?.second
 		id = SDL_GetWindowID(sdl)
 		handle = NativeHandle.of(sdl, video)
-		// On a Mac, shown on the Space in front, a full-screen application's too: a panel is made so already.
-		(handle as? NativeHandle.Cocoa)
-			?.takeIf {
-				panel == null
-			}?.let { Spaces.followFront(it.window) }
 		if (role is WindowRole.Overlay)
 			Log.say {
 				"window $id: an overlay, " +

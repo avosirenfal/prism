@@ -362,29 +362,6 @@ object MainThread {
 	}
 }
 
-/**
- * A window of prism's own on a Mac's Spaces. A full-screen application is a Space of its own, which has only its own
- * windows, and the windows marked as ones to be shown with it; a window that is not is opened on another Space, out of
- * sight. prism's windows are marked so, and are moved to the Space in front as they are brought forward, so that a
- * window opened over a full-screen application (the preferences, from an explorer over it) is shown there.
- */
-object Spaces {
-	/** `moveToActiveSpace` and `fullScreenAuxiliary`. */
-	private const val WITH_WHAT_IS_IN_FRONT = (1L shl 1) or (1L shl 8)
-
-	/** [window] (an `NSWindow *`) shown on the Space in front, a full-screen application's included. */
-	fun followFront(window: Long) {
-		MainThread.sync {
-			ObjC.pooled {
-				NSWindow.setCollectionBehavior(
-					Id(MemorySegment.ofAddress(window)),
-					WITH_WHAT_IS_IN_FRONT,
-				)
-			}
-		}
-	}
-}
-
 /** A panel made for SDL to have as a window: closed by whoever made it, once SDL has let go of it. */
 class Panel internal constructor(
 	private val panel: Id,
