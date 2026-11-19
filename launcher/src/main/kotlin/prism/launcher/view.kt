@@ -510,7 +510,8 @@ private fun BannerRow(
 			.fillMaxWidth()
 			.padding(horizontal = LauncherDims.around + Space.xs, vertical = Space.s)
 			.clip(shape)
-			.background(if (wrong) palette.sunken else palette.chosen)
+			// Grey, and quieter than the results: the blue of a chosen row is what the arrows are on, which this never is.
+			.background(palette.sunken)
 			.border(LauncherDims.edge, if (wrong) palette.danger else palette.border, shape)
 			.onGloballyPositioned { onPlaced(it.boundsInWindow()) }
 			.clickable(enabled = banner.key != null, onClick = onUse)
@@ -550,7 +551,8 @@ private fun BannerRow(
 						modifier =
 							Modifier
 								.clip(RoundedCornerShape(Radius.small))
-								.background(palette.sunken)
+								.background(palette.overlay)
+								.border(LauncherDims.edge, palette.border, RoundedCornerShape(Radius.small))
 								.padding(horizontal = Space.xs + Space.xxs, vertical = 1.dp)
 								.testTag("launcher-banner-badge"),
 					)

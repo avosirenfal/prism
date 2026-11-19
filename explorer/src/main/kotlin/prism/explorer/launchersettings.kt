@@ -64,10 +64,10 @@ enum class LauncherPage(
 	val glyph: Glyph,
 ) {
 	General("Launcher", Glyph.Search),
+	Indexing("Indexing", Glyph.Filter),
 	Bindings("Key bindings", Glyph.Keyboard),
 	Applications("Applications", Glyph.ViewGrid),
 	Aliases("Aliases", Glyph.At),
-	Indexing("Indexing", Glyph.Filter),
 }
 
 /**
