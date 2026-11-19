@@ -289,7 +289,7 @@ class LauncherSession(
 							opening.unopened.isNotEmpty()
 						}
 				}
-			is Entry.Command, is Entry.Prism, is Entry.Named, is Entry.Answer -> null
+			is Entry.Command, is Entry.Prism, is Entry.Named, is Entry.Answer, is Entry.Module -> null
 		}
 	}
 

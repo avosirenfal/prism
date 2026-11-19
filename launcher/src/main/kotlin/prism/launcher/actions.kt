@@ -160,7 +160,7 @@ fun actionsOf(entry: Entry): List<EntryAction> =
 			)
 		is Entry.Command, is Entry.Prism -> listOf(EntryAction.Open)
 		is Entry.Named -> listOf(EntryAction.Use)
-		is Entry.Answer -> listOf(EntryAction.Open)
+		is Entry.Answer, is Entry.Module -> listOf(EntryAction.Open)
 	}
 
 /**

@@ -99,6 +99,16 @@ private fun scoreOf(words: List<String>, said: List<Said>): Int? {
 /** How well [words] fit a text that is all there is of something ([said]: a line of a dmenu); null where they do not. */
 internal fun scoreOf(words: List<String>, said: Said): Int? = scoreOf(words, listOf(said))
 
+/**
+ * How well [words] fit [module]: by its title (`calc`, `Calculator`), and by its prefixes written as words
+ * (`calc`), as an application is found by its name and its command.
+ */
+internal fun scoreOf(words: List<String>, module: LauncherModule): Int? =
+	scoreOf(
+		words,
+		listOf(Said(module.title, 100)) + module.reach.prefixes.map { Said(it.written, 80) },
+	)
+
 /** What [application] says of itself. */
 private fun saidBy(application: Application): List<Said> =
 	listOfNotNull(

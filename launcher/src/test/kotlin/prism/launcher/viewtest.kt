@@ -644,6 +644,10 @@ class LauncherViewTest {
 			waitForIdle()
 			onNodeWithTag("launcher-banner-title", useUnmergedTree = true).assertTextEquals("14")
 			onNodeWithTag("launcher-banner-key", useUnmergedTree = true).assertIsDisplayed()
+			onNodeWithTag(
+				"launcher-banner-module",
+				useUnmergedTree = true,
+			).assertTextEquals("Calculator")
 
 			onNodeWithTag("launcher-query").performKeyInput {
 				withKeyDown(Key.ShiftLeft) { pressKey(Key.Enter) }
@@ -675,6 +679,23 @@ class LauncherViewTest {
 			onNodeWithTag("launcher-banner-title", useUnmergedTree = true).assertTextEquals("5")
 			press(Key.Enter)
 			until { "copy 5" in host.asked }
+		}
+
+	@Test
+	fun aModuleNamedAndTabbedToOpensItsView() =
+		launching { session, _, _, _ ->
+			onNodeWithTag("launcher-query").performTextInput("calc")
+			waitForIdle()
+			onNodeWithTag("entry:module:calculator").assertIsDisplayed()
+			press(Key.Tab)
+			waitForIdle()
+			assertEquals(
+				CalculatorModule.id,
+				session.state.value.viewing
+					?.module,
+			)
+			assertEquals("", session.state.value.field)
+			onNodeWithTag("launcher-chip").assertTextEquals("Calculator")
 		}
 
 	@Test

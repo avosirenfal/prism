@@ -114,7 +114,7 @@ internal fun fixed(type: Fixed, whole: BigInteger): Computed.Done {
 	return Computed.Done(
 		made,
 		listOfNotNull(
-			"${type.beyond(whole)}: wrapped round to ${made.value}".takeIf { wrapped },
+			type.beyond(whole).takeIf { wrapped },
 		),
 	)
 }

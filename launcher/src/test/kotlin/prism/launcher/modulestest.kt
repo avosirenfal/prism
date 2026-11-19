@@ -247,4 +247,31 @@ class ModulesTest {
 			).shown,
 		)
 	}
+
+	@Test
+	fun aModuleIsFoundByItsNameOrItsPrefixAndOpenedByTabOrEnter() {
+		val typed = state(CalculatorModule, query = "calc")
+
+		assertTrue(Entry.Module(CalculatorModule) in typed.entries)
+		assertEquals(
+			Viewing(CalculatorModule.id, ""),
+			typed.after(LauncherEvent.ModuleAsked).state.viewing,
+		)
+
+		val chosen =
+			typed
+				.after(
+					LauncherEvent.Chosen(typed.entries.indexOf(Entry.Module(CalculatorModule))),
+				).state
+
+		assertEquals(Viewing(CalculatorModule.id, ""), chosen.viewing)
+		assertTrue(
+			Entry.Module(
+				CalculatorModule,
+			) in state(CalculatorModule, query = "calculator").entries,
+		)
+		// Not with nothing typed, nor by what does not fit its name.
+		assertTrue(state(CalculatorModule).entries.none { it is Entry.Module })
+		assertTrue(state(CalculatorModule, query = "fire").entries.none { it is Entry.Module })
+	}
 }

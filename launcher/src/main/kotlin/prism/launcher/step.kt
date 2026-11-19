@@ -77,6 +77,9 @@ sealed interface LauncherEvent {
 	/** In a module's view, the row the arrows are on used, the field staying the module's (Tab): a name finished. */
 	data object Completed : LauncherEvent
 
+	/** The first module found by what is typed opened, its view taking the field (Tab, where one is found). */
+	data object ModuleAsked : LauncherEvent
+
 	/** The file or folder the arrows are on put on the clipboard, to be pasted; nothing, on any other result. */
 	data object Copied : LauncherEvent
 
@@ -274,7 +277,7 @@ private fun inMenu(
 		is LauncherEvent.Typed, is LauncherEvent.Chosen, LauncherEvent.Revealed,
 		LauncherEvent.Copied, LauncherEvent.CopiedPath, LauncherEvent.AskedForSettings,
 		LauncherEvent.HelpClosed, LauncherEvent.Answered, LauncherEvent.LeftView,
-		LauncherEvent.Completed,
+		LauncherEvent.Completed, LauncherEvent.ModuleAsked,
 		is LauncherEvent.Tried, LauncherEvent.Closed,
 		-> stepped(closed, event)
 	}
@@ -289,7 +292,7 @@ private val LauncherEvent.isOfTheResults: Boolean
 			LauncherEvent.Copied, LauncherEvent.CopiedPath, is LauncherEvent.MenuOpened,
 			LauncherEvent.MenuClosed,
 			is LauncherEvent.MenuChosen, LauncherEvent.Answered, LauncherEvent.LeftView,
-			LauncherEvent.Completed,
+			LauncherEvent.Completed, LauncherEvent.ModuleAsked,
 			-> true
 			LauncherEvent.AskedForSettings, LauncherEvent.Dismissed, LauncherEvent.HelpClosed,
 			is LauncherEvent.Tried, LauncherEvent.Closed, is LauncherEvent.FilesArrived,
@@ -319,6 +322,11 @@ private fun stepped(state: LauncherState, event: LauncherEvent): LauncherStep =
 			else
 				state.chosen(state.highlighted)
 		LauncherEvent.Answered -> state.answered()
+		LauncherEvent.ModuleAsked ->
+			state.entries.filterIsInstance<Entry.Module>().firstOrNull()?.let {
+				state.intoView(it.module, "")
+			}
+				?: LauncherStep(state)
 		LauncherEvent.LeftView -> state.leftView()
 		LauncherEvent.Completed ->
 			(state.current as? Entry.Answer)
@@ -570,6 +578,7 @@ private fun LauncherState.opened(entry: Entry): LauncherStep =
 				listOf(LauncherEffect.Start(entry)),
 			)
 		is Entry.Answer -> did(entry.row.act)
+		is Entry.Module -> intoView(entry.module, "")
 	}
 
 /**
@@ -641,5 +650,5 @@ private fun pathOf(entry: Entry): Path? =
 		is Entry.File -> entry.path
 		is Entry.App -> entry.application.source
 		is Entry.Action -> entry.application.source
-		is Entry.Command, is Entry.Prism, is Entry.Named, is Entry.Answer -> null
+		is Entry.Command, is Entry.Prism, is Entry.Named, is Entry.Answer, is Entry.Module -> null
 	}

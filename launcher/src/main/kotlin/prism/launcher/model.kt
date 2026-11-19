@@ -129,6 +129,19 @@ sealed interface Entry {
 		override val kind: String get() = row.kind
 	}
 
+	/** One of the launcher's modules, found by its name: chosen (Enter, or Tab), its view is opened. */
+	data class Module(
+		val module: LauncherModule,
+	) : Entry {
+		override val key: String get() = "module:${module.id.name}"
+		override val title: String get() = module.title
+		override val detail: String
+			get() = "Open its view; or type ${module.reach.prefixes.joinToString(
+				" or ",
+			) { "“${it.written.trim()}”" }} first"
+		override val kind: String get() = "Module"
+	}
+
 	companion object {
 		/** What is said of what is prism's own at its row's end, and over it. */
 		const val PRISM = "Prism"
@@ -313,6 +326,13 @@ data class LauncherState(
 					own
 			}
 
+		// The modules, found by their names once something is typed, after what prism does.
+		val reached =
+			if (words.isEmpty())
+				emptyList()
+			else
+				ranked(modules.all.mapNotNull { scored(Entry.Module(it), scoreOf(words, it)) })
+
 		val found = (files as? FilesFound.Found)?.takeIf { words.isNotEmpty() }?.files.orEmpty()
 
 		val applications = Section("Applications", programs)
@@ -329,9 +349,9 @@ data class LauncherState(
 		// prism's own the same word asks for (`prism` is prism's word, and the explorer's name).
 		val started =
 			if (own.isEmpty() || programs.firstOrNull()?.let(::named) == true)
-				listOf(applications, Section(Entry.PRISM, own + does))
+				listOf(applications, Section(Entry.PRISM, own + does + reached))
 			else
-				listOf(Section(Entry.PRISM, own + does), applications)
+				listOf(Section(Entry.PRISM, own + does + reached), applications)
 
 		val aliases =
 			Section(

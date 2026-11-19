@@ -166,6 +166,10 @@ What a module makes of what is typed is shown in one of two ways.
 - **Rows**, among the results, chosen as any result is. A module sure of what is typed has its rows before the
   applications; one that thinks it likely, after them; one that thinks it only possible, after the files.
 
+A module is also a result of its own, found by its name or its prefix as an application is found by its name:
+`calc` finds the Calculator, and Tab (or Enter, with the arrows on it) opens its view. A banner says, over its
+answer, which module it is of.
+
 Every module also has **prefixes**, which ask for it outright. Typed at the start of the field, a prefix opens the
 module's **view**: the module's name is shown in the field, the field is the module's alone (nothing else is looked
 for, and what is typed is read however the module reads it), and Escape, or Backspace with nothing typed, leaves it.
@@ -183,7 +187,7 @@ view, what is wrong is said as it is typed; the name being typed is completed, w
 takes and gives (Tab finishes it); and Enter copies the answer.
 
 What is typed is a **Decimal**: exact, of any size, as a person counts. `0.1 + 0.2` is `0.3`, `2 ** 100` is every digit
-of it, and `1 / 3` is worked to 34 digits. A Decimal's answer says no type beside it.
+of it, and `1 / 3` is worked to 34 digits. A Decimal's answer says no type beside it. Each answer says, over it, which module it is of.
 
 For a programmer, any of Kotlin's own number types can be asked for, by converting to it as Kotlin does, or by a
 literal's suffix, and from then on the arithmetic is that type's, as Kotlin does it. The type is said beside the
@@ -192,12 +196,12 @@ answer, and what Kotlin would hide is said under it:
 | typed | answer | said under it |
 |---|---|---|
 | `5.toUInt() + 1` | `6` UInt | |
-| `2147483647.toInt() + 1` | `-2147483648` Int | Overflow: 2147483648 > 2147483647 (Int.MAX_VALUE): wrapped round to -2147483648 |
-| `0u - 1u` | `4294967295` UInt | Underflow: -1 < 0 (UInt.MIN_VALUE): wrapped round to 4294967295 |
+| `2147483647.toInt() + 1` | `-2147483648` Int | Overflow: 2147483648 > 2147483647 (Int.MAX_VALUE) |
+| `0u - 1u` | `4294967295` UInt | Underflow: -1 < 0 (UInt.MIN_VALUE) |
 | `0.1.toDouble() + 0.2` | `0.30000000000000004` Double | |
-| `200.toByte()` | `-56` Byte | Overflow: 200 > 127 (Byte.MAX_VALUE): wrapped round to -56 |
+| `200.toByte()` | `-56` Byte | Overflow: 200 > 127 (Byte.MAX_VALUE) |
 | `3.7.toInt()` | `3` Int | 3.7 was rounded toward zero, to 3 |
-| `100.toByte() + 100.toByte()` | `-56` Byte | Overflow: 200 > 127 (Byte.MAX_VALUE): wrapped round to -56 |
+| `100.toByte() + 100.toByte()` | `-56` Byte | Overflow: 200 > 127 (Byte.MAX_VALUE) |
 | `1.toInt() shl 33` | `2` Int | shl by 33 is shl by 1: an Int shifts by the low 5 bits of its count |
 
 There are three ways to ask for a type, and they differ in what they do to a number the type cannot hold:

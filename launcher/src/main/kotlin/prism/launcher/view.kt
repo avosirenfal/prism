@@ -288,6 +288,16 @@ fun LauncherPane(
 					}
 				}
 
+				// Tab opens the module found by what is typed, the first of those it could be: `calc`, then Tab.
+				if (down && plain && key.key == Key.Tab && !state.help && menu == null &&
+					state.viewing == null && state.entries.any { it is Entry.Module } &&
+					state.completing == null
+				) {
+					onEvent(LauncherEvent.ModuleAsked)
+
+					return@Frame true
+				}
+
 				// Tab finishes the alias being named, the first of those it could be.
 				if (down && plain && key.key == Key.Tab && !state.help && menu == null)
 					state.completing?.let {
@@ -429,6 +439,7 @@ private fun ColumnScope.Found(
 	Divider()
 	state.shown?.let { shown ->
 		BannerRow(
+			shown.module.title,
 			shown.banner,
 			// In a module's view, Enter is the banner's key; otherwise the launcher's own key for it.
 			shown.banner.key?.let {
@@ -483,6 +494,7 @@ private fun ColumnScope.Found(
  */
 @Composable
 private fun BannerRow(
+	from: String,
 	banner: Banner,
 	chord: Chord?,
 	onPlaced: (Rect) -> Unit,
@@ -507,6 +519,13 @@ private fun BannerRow(
 		verticalAlignment = Alignment.CenterVertically,
 	) {
 		Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(Space.xxs)) {
+			// Which module this is of.
+			Text(
+				from,
+				style = type.muted.copy(color = palette.textMuted),
+				maxLines = 1,
+				modifier = Modifier.testTag("launcher-banner-module"),
+			)
 			Row(verticalAlignment = Alignment.CenterVertically) {
 				Text(
 					banner.title,
@@ -700,6 +719,7 @@ private fun EntryIcon(entry: Entry, size: Dp) {
 			is Entry.Prism -> GlyphIcon(entry.own.glyph, palette.accent, size * 0.75f)
 			is Entry.Named -> GlyphIcon(Glyph.At, palette.accent, size * 0.75f)
 			is Entry.Answer -> GlyphIcon(Glyph.Plus, palette.accent, size * 0.75f)
+			is Entry.Module -> GlyphIcon(Glyph.Bolt, palette.accent, size * 0.75f)
 		}
 	}
 }
@@ -846,6 +866,7 @@ private fun hintsFor(
 			is Entry.File -> LauncherAction.Open to "Open"
 			is Entry.Command, is Entry.Prism -> LauncherAction.Open to "Open"
 			is Entry.Named -> LauncherAction.Open to "Use alias"
+			is Entry.Module -> LauncherAction.Open to "Open"
 		},
 		(LauncherAction.Reveal to "Show in folder").takeIf {
 			entry is Entry.App || entry is Entry.Action || entry is Entry.File

@@ -358,7 +358,8 @@ fun explicitly(value: NumberValue, to: NumberType): Converted {
 					made,
 					roundedNote(value, exact, whole) +
 						listOfNotNull(
-							"${to.beyond(whole)}: wrapped round to ${made.value}"
+							to
+								.beyond(whole)
 								.takeIf { wrapped },
 						),
 				)

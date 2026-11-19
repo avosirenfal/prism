@@ -66,7 +66,7 @@ class CalculatorTest {
 		assertEquals("-2147483648 : Int", answer("2147483647.toInt() + 1"))
 		assertEquals(
 			listOf(
-				"Overflow: 2147483648 > 2147483647 (Int.MAX_VALUE): wrapped round to -2147483648",
+				"Overflow: 2147483648 > 2147483647 (Int.MAX_VALUE)",
 			),
 			notes("2147483647.toInt() + 1"),
 		)
@@ -74,16 +74,16 @@ class CalculatorTest {
 		// A Byte's arithmetic is a Byte's, and goes past its largest as soon as it can.
 		assertEquals("-56 : Byte", answer("100.toByte() + 100.toByte()"))
 		assertEquals(
-			listOf("Overflow: 200 > 127 (Byte.MAX_VALUE): wrapped round to -56"),
+			listOf("Overflow: 200 > 127 (Byte.MAX_VALUE)"),
 			notes("100.toByte() + 100.toByte()"),
 		)
 		assertEquals(
-			listOf("Underflow: -1 < 0 (UInt.MIN_VALUE): wrapped round to 4294967295"),
+			listOf("Underflow: -1 < 0 (UInt.MIN_VALUE)"),
 			notes("0u - 1u"),
 		)
 		assertEquals("-56 : Byte", answer("200.toByte()"))
 		assertEquals(
-			listOf("Overflow: 200 > 127 (Byte.MAX_VALUE): wrapped round to -56"),
+			listOf("Overflow: 200 > 127 (Byte.MAX_VALUE)"),
 			notes("200.toByte()"),
 		)
 		assertEquals("3 : Int", answer("3.7.toInt()"))
