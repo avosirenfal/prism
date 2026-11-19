@@ -31,6 +31,7 @@ import org.lwjgl.sdl.SDLProperties.SDL_GetPointerProperty
 import org.lwjgl.sdl.SDLVideo.SDL_PROP_GLOBAL_VIDEO_WAYLAND_WL_DISPLAY_POINTER
 import org.lwjgl.sdl.SDL_Event
 import prism.shared.Published
+import prism.shared.ScrollDirection
 
 /*
  * An application of windows, as Compose's own `application` and `Window` are used, on SDL's windows: a composition
@@ -326,6 +327,10 @@ internal class Application(
 	}
 }
 
+/** Which way the wheel scrolls in the windows composed within: as the system has it, unless the user asked otherwise. */
+val LocalScrollDirection =
+	androidx.compose.runtime.compositionLocalOf { ScrollDirection.AsTheSystem }
+
 /** The application the content of [content] is in, for the windows it opens. */
 private val LocalApplication =
 	androidx.compose.runtime
@@ -388,6 +393,7 @@ fun Window(
 	val latest by rememberUpdatedState(content)
 	val close by rememberUpdatedState(onCloseRequest)
 	val failed by rememberUpdatedState(onFailure)
+	val scrolling = LocalScrollDirection.current
 
 	// Made here, in the composition of windows, but never failing it: a window that cannot be made, or whose content
 	// cannot be composed for the first time, is one window's failure.
@@ -428,6 +434,7 @@ fun Window(
 
 	SideEffect {
 		window.title = title
+		window.scrolling = scrolling
 		window.updateLocals(locals)
 	}
 

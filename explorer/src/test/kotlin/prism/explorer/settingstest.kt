@@ -21,6 +21,7 @@ import prism.preferences.Preferences
 import prism.preferences.QuickAccess
 import prism.preferences.Role
 import prism.preferences.WindowKind
+import prism.shared.ScrollDirection
 
 /**
  * The preferences window's edits: a chord given where one is awaited, and taken from whatever had it; the places pinned
@@ -41,6 +42,18 @@ class SettingsTest {
 			Place("Downloads", Place.Kind.Downloads, home.resolve("Downloads")),
 		)
 	private val known = places.map { it.path }
+
+	@Test
+	fun reversedScrollingIsKeptAsAppliedOverWhatChangedElsewhere() {
+		val base = Preferences.DEFAULT
+		val elsewhere = base.copy(dates = DateFormat.Iso)
+		val saved = Settings(base).copy(scrolling = ScrollDirection.Reversed).over(elsewhere)
+
+		assertEquals(ScrollDirection.Reversed, saved.scrolling)
+		assertEquals(DateFormat.Iso, saved.dates)
+		// And left as it is where the window did not change it.
+		assertEquals(ScrollDirection.Reversed, Settings(base).over(saved).scrolling)
+	}
 
 	@Test
 	fun aChordPressedWhereOneIsAwaitedIsBoundThereAndTakenFromWhateverHadIt() {

@@ -125,6 +125,7 @@ import prism.preferences.Rows
 import prism.preferences.Sort
 import prism.preferences.TextPart
 import prism.preferences.Typography
+import prism.shared.ScrollDirection
 import prism.window.GraphicsReport
 import prism.window.WindowLocals
 import prism.browser.Page as PageLayout
@@ -236,6 +237,27 @@ private fun ExplorerBindingsPage(
 			)
 		},
 	) {
+		Card {
+			SettingRow(
+				"Reverse scroll direction",
+				description = "Scroll the opposite way to the system's setting.",
+			) {
+				Switch(
+					settings.scrolling == ScrollDirection.Reversed,
+					Modifier.testTag("scroll-reversed"),
+				) {
+					onChange(
+						settings.copy(
+							scrolling =
+								if (it)
+									ScrollDirection.Reversed
+								else
+									ScrollDirection.AsTheSystem,
+						),
+					)
+				}
+			}
+		}
 		Tabs(
 			KeyTab.entries,
 			settings.keys,

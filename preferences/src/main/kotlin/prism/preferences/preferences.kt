@@ -11,6 +11,7 @@ import kotlinx.serialization.encoding.Decoder
 import kotlinx.serialization.encoding.Encoder
 import kotlinx.serialization.json.JsonElement
 import prism.desktop.TerminalChoice
+import prism.shared.ScrollDirection
 
 /*
  * What the user has set, as one immutable value. Every window reads the same one, and a change to it is a new value
@@ -98,6 +99,8 @@ data class Preferences(
 	 * window manager's. Off, a window has none, and is closed with its keys.
 	 */
 	val titlebar: Boolean = true,
+	/** Which way the wheel, and a touchpad, scrolls every window: as the system is set, or the other way. */
+	val scrolling: ScrollDirection = ScrollDirection.AsTheSystem,
 	/** How the launcher looks and what it finds. */
 	val launcher: LauncherPreferences = LauncherPreferences(),
 	/**

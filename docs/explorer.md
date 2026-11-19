@@ -617,6 +617,9 @@ Either left null is the default's, so a later default reaches whoever never chos
 **Scrolling.** The wheel scrolls a list by its own rows, three a notch (a gallery by a line of tiles), however large it
 is drawn: a notch moves as far through the folder at 300 % as at 100 %. A touchpad's small scrolls move it as much
 less as they are smaller. Every list and page that scrolls has its bar beside it whenever there is more than fits.
+Which way is the system's: what the wheel and a touchpad give is taken as it comes, which on a Mac is as natural
+scrolling is set, as in every other application. "Reverse scroll direction", on the Key bindings page
+(`"scrolling": "Reversed"`), turns it the other way in every window.
 
 `scales` says how large things are drawn, as many times their usual size: the listing of a new explorer's window and
 of a new picker's (the nearest of the steps Ctrl and the wheel zoom the listing through), the sidebar's quick access

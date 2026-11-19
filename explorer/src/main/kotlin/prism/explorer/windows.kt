@@ -78,6 +78,7 @@ import prism.window.Graphics
 import prism.window.GraphicsReport
 import prism.window.Keyboard
 import prism.window.LocalNativeWindow
+import prism.window.LocalScrollDirection
 import prism.window.NativeWindow
 import prism.window.Window
 import prism.window.WindowRole
@@ -138,9 +139,19 @@ private val PRISM_ICON: ByteArray? by lazy {
 		)?.use { it.readBytes() }
 }
 
-/** Every window [explorer] has open, in [palette]. */
+/** Every window [explorer] has open, in [palette], each scrolled by its wheel as the preferences say. */
 @Composable
 fun ExplorerWindows(explorer: Explorer, palette: Palette, alwaysDecorated: Boolean) {
+	val preferences by explorer.preferences.preferences.collectAsState()
+
+	CompositionLocalProvider(LocalScrollDirection provides preferences.scrolling) {
+		EveryWindow(explorer, palette, alwaysDecorated)
+	}
+}
+
+/** Every window [explorer] has open, in [palette]. */
+@Composable
+private fun EveryWindow(explorer: Explorer, palette: Palette, alwaysDecorated: Boolean) {
 	val windows by explorer.windows.collectAsState()
 	val preferences by explorer.preferences.preferences.collectAsState()
 

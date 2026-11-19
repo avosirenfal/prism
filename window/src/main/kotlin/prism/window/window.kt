@@ -80,7 +80,6 @@ import org.lwjgl.sdl.SDLMouse.SDL_BUTTON_RIGHT
 import org.lwjgl.sdl.SDLMouse.SDL_BUTTON_X1
 import org.lwjgl.sdl.SDLMouse.SDL_BUTTON_X2
 import org.lwjgl.sdl.SDLMouse.SDL_CreateSystemCursor
-import org.lwjgl.sdl.SDLMouse.SDL_MOUSEWHEEL_FLIPPED
 import org.lwjgl.sdl.SDLMouse.SDL_SYSTEM_CURSOR_CROSSHAIR
 import org.lwjgl.sdl.SDLMouse.SDL_SYSTEM_CURSOR_DEFAULT
 import org.lwjgl.sdl.SDLMouse.SDL_SYSTEM_CURSOR_EW_RESIZE
@@ -148,6 +147,7 @@ import org.lwjgl.sdl.SDL_Event
 import org.lwjgl.system.MemoryStack
 import prism.macos.Dock
 import prism.macos.Panel
+import prism.shared.ScrollDirection
 
 /** The window something is drawn in: given to everything in it, as [LocalNativeWindow]. */
 val LocalNativeWindow = staticCompositionLocalOf<NativeWindow?> { null }
@@ -695,6 +695,9 @@ class NativeWindow internal constructor(
 		scene.compositionLocalContext = locals
 	}
 
+	/** Which way the wheel scrolls in it: as [LocalScrollDirection] says where it is composed. */
+	internal var scrolling: ScrollDirection = ScrollDirection.AsTheSystem
+
 	var title: String = title
 		set(value) {
 			if (field != value) {
@@ -851,11 +854,13 @@ class NativeWindow internal constructor(
 					"window $id: wheel ${wheel.x()}, ${wheel.y()} at ${wheel.mouse_x()}, ${wheel.mouse_y()}"
 				}
 
-				val flip =
-					if (wheel.direction() == SDL_MOUSEWHEEL_FLIPPED)
-						-1f
-					else
-						1f
+				// As the system gives it, which is as the user has it set (a Mac's natural scrolling, which SDL says is
+				// on by its direction, has turned it already); and the other way, where the user asks for that.
+				val turned =
+					when (scrolling) {
+						ScrollDirection.AsTheSystem -> 1f
+						ScrollDirection.Reversed -> -1f
+					}
 
 				pointer = pixelOf(wheel.mouse_x(), wheel.mouse_y())
 				// SDL's y is up, away from the user; Compose's scrolling is down for a positive y.
@@ -863,8 +868,8 @@ class NativeWindow internal constructor(
 					PointerEventType.Scroll,
 					scroll =
 						Offset(
-							wheel.x() * flip,
-							-wheel.y() * flip,
+							wheel.x() * turned,
+							-wheel.y() * turned,
 						),
 				)
 			}

@@ -15,6 +15,7 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import prism.desktop.TerminalChoice
 import prism.shared.Loaded
+import prism.shared.ScrollDirection
 import prism.shared.orElse
 
 /**
@@ -35,6 +36,17 @@ class PreferencesTest {
 			assertNull(it.problem)
 		}
 		assertEquals(Loaded.Missing, PreferenceFile.read(file))
+	}
+
+	@Test
+	fun theWheelScrollsAsTheSystemIsSetUnlessReversed_AndIsWrittenByName() {
+		assertEquals(ScrollDirection.AsTheSystem, Preferences.DEFAULT.scrolling)
+
+		val reversed = Preferences.DEFAULT.copy(scrolling = ScrollDirection.Reversed)
+		val written = PreferenceFormat.written(reversed).toString(Charsets.UTF_8)
+
+		assertTrue("\"scrolling\": \"Reversed\"" in written, written)
+		assertEquals(Loaded.Read(reversed), PreferenceFormat.read(written.toByteArray()))
 	}
 
 	@Test

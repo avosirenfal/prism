@@ -1,5 +1,6 @@
 package prism.app
 
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -45,6 +46,7 @@ import prism.index.IndexRead
 import prism.index.UsageFile
 import prism.preferences.Role
 import prism.preferences.preferences
+import prism.window.LocalScrollDirection
 import prism.window.Window
 import prism.window.application
 import prism.browser.Outcome as Ended
@@ -196,14 +198,17 @@ object PickCommand : Command(
 				}
 
 				val palette = paletteOf(theme, scheme)
+				val preferences by services.preferences.preferences.collectAsState()
 
-				Window(
-					onCloseRequest = { session.send(BrowserEvent.Cancelled) },
-					title = state.title,
-					size = DpSize(1100.dp, 680.dp),
-					decorated = decorated,
-				) {
-					HostedBrowser(window, session, services.preferences, palette)
+				CompositionLocalProvider(LocalScrollDirection provides preferences.scrolling) {
+					Window(
+						onCloseRequest = { session.send(BrowserEvent.Cancelled) },
+						title = state.title,
+						size = DpSize(1100.dp, 680.dp),
+						decorated = decorated,
+					) {
+						HostedBrowser(window, session, services.preferences, palette)
+					}
 				}
 			}
 		}

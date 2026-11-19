@@ -26,6 +26,7 @@ import prism.preferences.Scales
 import prism.preferences.TerminalChoiceSerializer
 import prism.preferences.Typography
 import prism.preferences.WhenSpec
+import prism.shared.ScrollDirection
 
 /*
  * The preferences as their window edits them, as one immutable value: how windows look, the terminal, and every
@@ -286,6 +287,8 @@ data class Settings(
 	val dates: DateFormat = base.dates,
 	/** Whether windows have a title bar. */
 	val titlebar: Boolean = base.titlebar,
+	/** Which way the wheel scrolls the windows. */
+	val scrolling: ScrollDirection = base.scrolling,
 	val page: Page = Page.Display,
 	val looking: LookKey = LookKey(Role.Explorer, ListingKind.Folder),
 	val filteringIn: Layout = Layout.List,
@@ -418,6 +421,7 @@ data class Settings(
 			rows = kept(Preferences::rows, rows),
 			dates = kept(Preferences::dates, dates),
 			titlebar = kept(Preferences::titlebar, titlebar),
+			scrolling = kept(Preferences::scrolling, scrolling),
 			// The other windows' sizes are each window's own, as Ctrl and the wheel leave them: never this window's.
 			scales =
 				current.scales.copy(
