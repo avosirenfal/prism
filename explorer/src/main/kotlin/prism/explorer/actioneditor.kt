@@ -30,7 +30,20 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.ui.focus.FocusManager
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEvent
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isAltPressed
+import androidx.compose.ui.input.key.isCtrlPressed
+import androidx.compose.ui.input.key.isMetaPressed
+import androidx.compose.ui.input.key.isShiftPressed
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextOverflow
@@ -96,7 +109,10 @@ import prism.preferences.WhenSpec
 
 // ---- parts of a form -------------------------------------------------------------------------------------------------
 
-/** Several lines to type into, in a field's look: as many lines tall as it holds, [lines] at least. */
+/**
+ * Several lines to type into, in a field's look: as many lines tall as it holds, [lines] at least. Tab moves the
+ * keyboard on, and Shift+Tab back, as a field of one line does, and is never typed into it.
+ */
 @Suppress("DEPRECATION") // The window feeds value-based fields.
 @Composable
 internal fun TextArea(
@@ -111,6 +127,7 @@ internal fun TextArea(
 	val shape = RoundedCornerShape(Radius.medium)
 	val source = remember { MutableInteractionSource() }
 	val felt = source.felt()
+	val focus = LocalFocusManager.current
 
 	Box(
 		modifier
@@ -130,7 +147,7 @@ internal fun TextArea(
 		BasicTextField(
 			text,
 			onText,
-			Modifier.fillMaxWidth(),
+			Modifier.fillMaxWidth().onPreviewKeyEvent { key -> movedOn(key, focus) },
 			textStyle = style.copy(color = palette.text),
 			minLines = lines,
 			maxLines = 14,
@@ -139,6 +156,22 @@ internal fun TextArea(
 		)
 	}
 }
+
+/**
+ * Whether [key] is Tab, or Shift+Tab, with nothing else held: the keyboard moved on to the next thing that takes it,
+ * or back, as it is pressed, and every event of the key taken, so that none of them is typed.
+ */
+private fun movedOn(key: KeyEvent, focus: FocusManager): Boolean =
+	(key.key == Key.Tab && !key.isCtrlPressed && !key.isAltPressed && !key.isMetaPressed)
+		.also { tab ->
+			if (tab && key.type == KeyEventType.KeyDown)
+				focus.moveFocus(
+					if (key.isShiftPressed)
+						FocusDirection.Previous
+					else
+						FocusDirection.Next,
+				)
+		}
 
 /**
  * What each label of these windows says when the pointer rests on it: what a word of prism's means (a place, a
