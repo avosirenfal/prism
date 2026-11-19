@@ -43,6 +43,8 @@ include(
 	":macos",
 	":platform",
 	":shared",
+	":parsing",
+	":calc",
 	":ebpf",
 	":ebpf-loader",
 	":dbus",

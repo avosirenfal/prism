@@ -8,6 +8,11 @@ import kotlin.time.Duration.Companion.days
 import kotlin.time.Duration.Companion.hours
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
+import prism.parsing.Span
+import prism.parsing.Spanned
+import prism.parsing.end
+import prism.parsing.joined
+import prism.parsing.map
 
 /*
  * What a query's text means: each term of its syntax made into a [Term], with what is wrong with it. A query is read

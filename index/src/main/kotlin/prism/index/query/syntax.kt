@@ -1,5 +1,30 @@
 package prism.index.query
 
+import prism.parsing.Always
+import prism.parsing.Parser
+import prism.parsing.Span
+import prism.parsing.Spanned
+import prism.parsing.after
+import prism.parsing.ahead
+import prism.parsing.and
+import prism.parsing.before
+import prism.parsing.char
+import prism.parsing.charThat
+import prism.parsing.concatenated
+import prism.parsing.end
+import prism.parsing.firstOf
+import prism.parsing.joined
+import prism.parsing.literal
+import prism.parsing.many
+import prism.parsing.map
+import prism.parsing.missed
+import prism.parsing.not
+import prism.parsing.optional
+import prism.parsing.pure
+import prism.parsing.some
+import prism.parsing.spanned
+import prism.parsing.then
+
 /*
  * A query's text as it was written: a tree of what each part of it is, every node with its span, so that what is
  * shown can be coloured part by part and a problem pointed at exactly. The grammar below reads any text at all into

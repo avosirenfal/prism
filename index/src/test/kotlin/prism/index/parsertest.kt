@@ -21,9 +21,11 @@ import prism.index.query.QueryGrammar
 import prism.index.query.QueryText
 import prism.index.query.RegexOn
 import prism.index.query.Since
-import prism.index.query.Span
 import prism.index.query.ValueSyntax
 import prism.index.query.query
+import prism.parsing.Span
+import prism.parsing.end
+import prism.parsing.map
 
 /**
  * The search language's text, read: every example of it reads to the query the DSL builds for it; every text it can

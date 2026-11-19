@@ -1,5 +1,10 @@
 package prism.index.query
 
+import prism.parsing.Span
+import prism.parsing.end
+import prism.parsing.joined
+import prism.parsing.map
+
 /*
  * How a query's text is coloured: each part of it marked with the role it plays, from its syntax. A view draws the
  * text with a colour a role, and then the problems over it (meaning.kt), so a part can be both what it is (a flag) and

@@ -1,5 +1,10 @@
 package prism.index.query
 
+import prism.parsing.Parser
+import prism.parsing.before
+import prism.parsing.end
+import prism.parsing.map
+
 /**
  * A glob: a pattern over the whole of a name, a stem, an extension or one segment of a path.
  *
