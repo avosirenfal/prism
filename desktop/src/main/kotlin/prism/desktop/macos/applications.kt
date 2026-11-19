@@ -29,7 +29,10 @@ class LaunchServicesApplications(
 	/** What was read of the installed applications, until they are read again; none before they are first asked for. */
 	private val read = Published<List<Application>?>(null)
 
-	/** Where applications are installed: the user's own, the computer's, and the system's, each with its Utilities. */
+	/**
+	 * Where applications are installed: the user's own, the computer's, and the system's, each with its Utilities; and
+	 * the applications the system keeps among its own services (Screen Sharing, Archive Utility), which Spotlight lists.
+	 */
 	private val folders: List<Path>
 		get() =
 			listOf(
@@ -38,12 +41,19 @@ class LaunchServicesApplications(
 				Path.of("/Applications/Utilities"),
 				Path.of("/System/Applications"),
 				Path.of("/System/Applications/Utilities"),
+				Path.of("/System/Library/CoreServices/Applications"),
 			)
+
+	/**
+	 * Applications kept where nothing else in the folder is one to list: Finder, among the system's services and agents
+	 * (/System/Library/CoreServices), which are listed one by one and not by their folder.
+	 */
+	private val bundles: List<Path>
+		get() = listOf(Path.of("/System/Library/CoreServices/Finder.app"))
 
 	// Two threads that ask at once may each read them: the same, and one is kept.
 	override fun all(): List<Application> =
-		read.now ?: folders
-			.flatMap(::bundlesIn)
+		read.now ?: (folders.flatMap(::bundlesIn) + bundles.filter { it.isDirectory() })
 			.mapNotNull(::applicationAt)
 			.distinctBy { it.id }
 			.sortedBy { it.name.lowercase() }
