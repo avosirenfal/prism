@@ -143,6 +143,105 @@ name, or where what is typed is the application's whole name; always after the a
 What was started is kept in `$XDG_STATE_HOME/prism/launches`, a line an entry. Deleting it forgets the order and
 nothing else.
 
+## Modules, and the calculator
+
+Typed into the launcher, `2 + 3 * 4` is answered at once: `14` along the top, over the applications, and Shift+Enter
+copies it. Typed, `firefox` is not: nothing is shown along the top, and the applications are as they were. What finds
+the answer is a module, and the calculator is the launcher's first.
+
+### What a module is
+
+A module looks at what is typed and says what it makes of it, if anything, and how sure it is that it was meant for
+it. The launcher does not decide which module a query is for; each module asked says for itself, and what it says is
+shown with everything else. So a module's test of what is meant for it can be simple: one that guesses wrongly costs a
+row, and takes nothing away.
+
+What a module makes of what is typed is shown in one of two ways.
+
+- **A banner**, the row along the top: set apart from the results, drawn differently, and never what the arrows are
+  on, so that Enter still starts the first application found. It has a key of its own, said on it (Shift+Enter, which
+  the keys page of the launcher's settings rebinds as "Use the answer"), and a click on it does the same. What the key
+  does is the module's to say: something done (the calculator's answer copied), a menu of what can be done (as the
+  right arrow shows a result's), or the module's own view. A banner is shown only where its module is certain.
+- **Rows**, among the results, chosen as any result is. A module sure of what is typed has its rows before the
+  applications; one that thinks it likely, after them; one that thinks it only possible, after the files.
+
+Every module also has **prefixes**, which ask for it outright. Typed at the start of the field, a prefix opens the
+module's **view**: the module's name is shown in the field, the field is the module's alone (nothing else is looked
+for, and what is typed is read however the module reads it), and Escape, or Backspace with nothing typed, leaves it.
+A prefix is a word followed by a space (`calc `), or a sign followed by anything (`=`). A word typed in quotes is the
+word, and asks for no module: `"calc` searches for "calc". Some modules are reached by their prefixes alone, and are
+never asked about what is typed bare.
+
+### The calculator
+
+The calculator is asked about everything typed. It answers along the top where what is typed is arithmetic, which is
+where it reads as an expression whole and has an operator in it or calls a function. A number on its own (`42`) or a
+name (`pi`, `firefox`) is left to the rest. A date's dashes (`2024-11-18`), or a version's slashes, are arithmetic and
+are as likely something else, so what they come to is a row after the files. Its prefixes are `=` and `calc `. In its
+view, what is wrong is said as it is typed; the name being typed is completed, with the types each of its overloads
+takes and gives (Tab finishes it); and Enter copies the answer.
+
+What is typed is a **Decimal**: exact, of any size, as a person counts. `0.1 + 0.2` is `0.3`, `2 ** 100` is every digit
+of it, and `1 / 3` is worked to 34 digits. A Decimal's answer says no type beside it.
+
+For a programmer, any of Kotlin's own number types can be asked for, by converting to it as Kotlin does, or by a
+literal's suffix, and from then on the arithmetic is that type's, as Kotlin does it. The type is said beside the
+answer, and what Kotlin would hide is said under it:
+
+| typed | answer | said under it |
+|---|---|---|
+| `5.toUInt() + 1` | `6` UInt | |
+| `2147483647.toInt() + 1` | `-2147483648` Int | Int overflow: 2147483647 + 1 is 2147483648, which wrapped round to -2147483648 |
+| `0.1.toDouble() + 0.2` | `0.30000000000000004` Double | |
+| `200.toByte()` | `-56` Byte | 200 doesn't fit in a Byte: it wrapped round to -56 |
+| `3.7.toInt()` | `3` Int | 3.7 was rounded toward zero, to 3 |
+| `100.toByte() + 100.toByte()` | `200` Int | (a Byte's arithmetic is an Int's, as in Kotlin) |
+| `1.toInt() shl 33` | `2` Int | shl by 33 is shl by 1: an Int shifts by the low 5 bits of its count |
+
+The suffixes are Kotlin's: `5L` a Long, `5u` a UInt, `5uL` a ULong, `1.5f` a Float. The conversions are `toByte()`,
+`toShort()`, `toInt()`, `toLong()`, their unsigned kin (`toUInt()` and the rest), `toFloat()`, `toDouble()`,
+`toBigInteger()` and `toBigDecimal()`.
+
+When two types meet, the Decimal (what was typed) becomes the other: `5.toUInt() + 1` is a UInt. A floating-point
+number wins over a whole one, and a Double over a Float. Two fixed-width integers become the wider, and at least an Int.
+A signed one and an unsigned one are refused, as Kotlin refuses them, since neither holds all of the other. And a value
+converted to make two meet must not be changed by it: `5.toUInt() + 1.5` is refused, since 1.5 is no UInt.
+
+The language is Kotlin's arithmetic, with `**` for powers (and `^`, as calculators have it). From the loosest:
+
+| written | is |
+|---|---|
+| `a shl b`, `shr`, `ushr`, `and`, `or`, `xor` | Kotlin's infix words, grouped from the left: `1 shl 4 + 1` is `1 shl 5` |
+| `a + b`, `a - b` | |
+| `a * b`, `a / b`, `a % b` | a fixed-width integer's division is toward zero, as Kotlin's |
+| `-a`, `+a` | |
+| `a ** b`, `a ^ b` | grouped from the right; `-2 ** 2` is `-4`, and `2 ** -1` is `0.5` |
+| `a.f(b)` | `f(a, b)`: any function is called after a dot on its first argument; `-1.toInt()` is `-(1.toInt())`, as in Kotlin |
+| `1.5`, `0xff`, `0b101`, `0o17`, `1_000`, `1e9`, `(a)`, `pi`, `f(a, b)` | |
+
+The constants are `pi`, `tau`, `e` and `phi`. The functions are declared once each, with typed overloads; completion
+shows them as `atan2(y: Double, x: Double): Double`. A call picks the overload that asks least change of its arguments,
+and converts them to it as an operand is converted: `sin(1)` takes the Decimal 1 as the Double that `sin` is of, and
+`sin(1e400)` is refused, since no Double is that large. There are:
+
+| kind | functions |
+|---|---|
+| angles, in radians | `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2(y, x)`, `sinh`, `cosh`, `tanh`, `asinh`, `acosh`, `atanh`, `hypot`, `toDegrees` (`deg`), `toRadians` (`rad`) |
+| powers and logarithms | `pow(x, n)` (exact for a whole power), `sqrt` (a Decimal's to 34 digits), `cbrt`, `exp`, `expm1`, `ln`, `ln1p`, `log` (base 10, or `log(x, base)`), `log10`, `log2` |
+| of any number, giving its own type | `abs`, `sign`, `floor`, `ceil`, `truncate`, `round` (or `round(x, places)`), `min`, `max`, `coerceIn`, `mod` |
+| whole numbers | `factorial`, `gcd`, `lcm`, `inv`, `countOneBits` |
+| a Double's own | `ulp`, `nextUp`, `nextDown` |
+| forms | `toHex()`, `toBinary()`, `toOctal()` (a fixed-width integer's as its bits are: `(-1).toInt().toHex()` is `0xffffffff`), `toString(radix)`, `grouped()` (`1,234,567.89`), `toFixed(places)`, `toScientific()`, `toPercent()` |
+
+A form is a number shown in a form of its own, and keeps the number and its type: `255.toUByte().toHex()` is `0xff`,
+said as "UByte · hex", and `255.toHex() + 1` is `256`.
+
+To add a function, add it to `Library.FUNCTIONS` (calc/library.kt), with its overloads' types; completion and the
+choice of overload come of that. To add a module, implement `LauncherModule` (launcher/modules.kt) and put it in
+`Modules.STANDARD`: it says how it is reached, what it makes of what is typed bare, and what it shows in its view,
+all as plain data. Asynchronous modules, and modules of other programs', are for later; the interface is the same.
+
 ## dmenu
 
 `prism dmenu` shows the lines on its standard input in the launcher's window, and prints the one you choose. It is
@@ -479,6 +578,7 @@ answers. `DmenuServed` (`app/dmenu.kt`) is the prism that is asked: it shows the
 - **Round on X11 drawn on the CPU**, and on macOS and Windows: a window there cannot be clear yet (docs/window.md,
   "Not yet"), so the launcher is square.
 - **Kept warm.** The window is made each time it is shown; kept hidden between, it would be there sooner still.
-- **More to find.** A calculator, windows to switch to, the clipboard's history: what Vicinae and Raycast do beyond
-  applications and files.
+- **More modules.** Windows to switch to, the clipboard's history, units and currencies: what Vicinae and Raycast do
+  beyond applications and files. And modules that answer later than as what is typed is typed (a web search's
+  suggestions), or that are other programs, speaking the same plain data over prism's socket.
 - **Icons for files** from the icon theme; they have prism's own, as a listing's rows do.
