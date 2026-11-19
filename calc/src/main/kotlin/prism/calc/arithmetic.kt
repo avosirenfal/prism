@@ -124,6 +124,14 @@ fun binary(operator: Operator, a: NumberValue, b: NumberValue): Computed {
 	if (operator == Operator.Shl || operator == Operator.Shr || operator == Operator.Ushr)
 		return shifted(operator, a, b)
 
+	// A fixed-width integer's operation is worked out exactly, and what it came to is then wrapped round as the type
+	// keeps it: 100.byte + 500 is 600, which wraps to 88, the overflow being 600's. Its operands are whole numbers as
+	// they are, the other's not first made the type, which would wrap 500 and say that 500 overflowed.
+	(common(a.type, b.type) as? Either.Right)?.value?.let { type ->
+		if (type is Fixed && operator != Operator.Power)
+			return fixedOperation(operator, type, a, b)
+	}
+
 	val (left, right) =
 		when (val made = alike(a, b)) {
 			is Either.Left -> return Computed.Failed(made.value)
@@ -134,6 +142,48 @@ fun binary(operator: Operator, a: NumberValue, b: NumberValue): Computed {
 		Operator.And, Operator.Or, Operator.Xor -> bitwise(operator, left, right)
 		Operator.Power -> Computed.Failed("** is worked out by pow")
 		else -> arithmetic(operator, left, right)
+	}
+}
+
+/** [a] [operator] [b] in [type]: worked out on the whole numbers they are, and wrapped round as [type] keeps it. */
+private fun fixedOperation(
+	operator: Operator,
+	type: Fixed,
+	a: NumberValue,
+	b: NumberValue,
+): Computed {
+	fun whole(value: NumberValue): Either<String, BigInteger> =
+		when (value) {
+			is FixedValue -> Either.Right(value.value)
+			else ->
+				exactOf(value)
+					?.takeIf { it.signum() == 0 || it.stripTrailingZeros().scale() <= 0 }
+					?.let { Either.Right(it.toBigIntegerExact()) }
+					?: Either.Left(
+						"${described(
+							value,
+						)} is not a whole number, so it can't be a${an(type)} ${type.written}",
+					)
+		}
+
+	val x =
+		when (val made = whole(a)) {
+			is Either.Left -> return Computed.Failed(made.value)
+			is Either.Right -> made.value
+		}
+
+	val y =
+		when (val made = whole(b)) {
+			is Either.Left -> return Computed.Failed(made.value)
+			is Either.Right -> made.value
+		}
+
+	return when (operator) {
+		// Two's complement, as a fixed-width integer's bits are: BigInteger's own and, or and xor are of the same.
+		Operator.And -> fixed(type, x.and(y))
+		Operator.Or -> fixed(type, x.or(y))
+		Operator.Xor -> fixed(type, x.xor(y))
+		else -> wholes(operator, x, y) { fixed(type, it) }
 	}
 }
 

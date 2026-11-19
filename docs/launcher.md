@@ -226,7 +226,9 @@ A signed one and an unsigned one are refused, as Kotlin refuses them, since neit
 Only an operation goes past its type's largest. What it comes to is wrapped round, for a fixed-width integer, or is
 infinite, for a Float or a Double, as Kotlin's would be, and it is said under the answer. A number written as a type
 (a literal, a property such as `.byte`, or a number made the type of what it is worked with) never does: it is
-refused, and said the same way. So `5.byte + 300` is refused, since 300 is no Byte, and `127.byte + 1` is `-128`.
+refused, and said the same way: `300.byte` is refused. An operation of a fixed-width integer's is worked out exactly
+first, and what it came to wrapped round: `100.byte + 500` is 600, which a Byte wraps to `88`, said as
+`Overflow: 600 > 127 (Byte.MAX_VALUE)`; and `127.byte + 1` is `-128`.
 Every overflow is said one way, of every type: `Overflow: 200 > 127 (Byte.MAX_VALUE)`, or `Underflow: -1 < 0
 (UInt.MIN_VALUE)` below the smallest. And a value
 converted to make two meet must not be changed by it: `5.toUInt() + 1.5` is refused, since 1.5 is no UInt.

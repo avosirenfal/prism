@@ -149,7 +149,7 @@ class CalculatorTest {
 			wrong("1 + "),
 		)
 		assertTrue(wrong("-5u").startsWith("a UInt can't be negated"))
-		assertEquals("Overflow: 300 > 127 (Byte.MAX_VALUE)", wrong("100.toByte() + 300"))
+		assertEquals("-112 : Byte", answer("100.toByte() + 300"))
 	}
 
 	@Test
@@ -272,8 +272,13 @@ class CalculatorTest {
 			"Overflow: 1E+400 > 1.7976931348623157E+308 (Double.MAX_VALUE)",
 			wrong("1e400.double"),
 		)
-		// And no more is a number made a type to be worked with one: 300 is no Byte to add.
-		assertEquals("Overflow: 300 > 127 (Byte.MAX_VALUE)", wrong("5.byte + 300"))
+		// An operation with a number of a type is worked out exactly, and its result wrapped: 600 overflows, not 500.
+		assertEquals("88 : Byte", answer("100.byte + 500"))
+		assertEquals(listOf("Overflow: 600 > 127 (Byte.MAX_VALUE)"), notes("100.byte + 500"))
+		assertEquals("-12 : Byte", answer("0.byte + 500"))
+		assertEquals("36 : Byte", answer("100.byte & 300"))
+		assertEquals("77 : Byte", answer("1000 / 3.byte"))
+		assertEquals("1.5 is not a whole number, so it can't be a Byte", wrong("5.byte + 1.5"))
 	}
 
 	@Test
