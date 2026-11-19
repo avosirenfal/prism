@@ -37,6 +37,7 @@ import prism.desktop.MimeType
 import prism.desktop.Opening
 import prism.desktop.Place
 import prism.desktop.Places
+import prism.desktop.SessionEnvironment
 import prism.desktop.Storage
 import prism.desktop.Trash
 import prism.desktop.TrashEntry
@@ -304,17 +305,20 @@ data class Services(
 	/** What time it is: when a picker was answered, and what "5 minutes ago" is counted from. */
 	val clock: () -> java.time.Instant = java.time.Instant::now,
 	/** What prism's environment names: which editor is the user's, where the preferences say none. */
-	val environment: (String) -> String? = System::getenv,
+	val environment: (String) -> String? = SessionEnvironment::get,
 ) {
 	/** What conditions are decided by: the desktop's types, the `PATH`, and the disk. */
 	val world: World by lazy { SystemWorld(home, desktop?.types) }
 }
 
-/** The world as this machine has it: types as the desktop names them, programs on the `PATH`, and what is on disk. */
+/**
+ * The world as this machine has it: types as the desktop names them, programs where [which] finds them (on the user's
+ * session's `PATH`, which on a Mac is not prism's own), and what is on disk.
+ */
 class SystemWorld(
 	override val home: Path,
 	private val types: FileTypes?,
-	private val path: String = System.getenv("PATH").orEmpty(),
+	private val which: (String) -> Path? = SessionEnvironment::which,
 ) : World {
 	private val found = ConcurrentHashMap<String, Boolean>()
 
@@ -335,12 +339,8 @@ class SystemWorld(
 
 	override fun installed(program: String): Boolean =
 		found.getOrPut(program) {
-			if ('/' in program)
-				Files.isExecutable(Path(program))
-			else
-				path.split(':').filter { it.isNotEmpty() }.any {
-					Path(it, program).let { at -> Files.isExecutable(at) && !Files.isDirectory(at) }
-				}
+			which(program) !=
+				null
 		}
 
 	override fun exists(path: Path): Boolean = Files.exists(path)

@@ -329,7 +329,7 @@ data class Settings(
 			listOf(Actions.SHIPPED, acting.file),
 			menus.hidden.toSet(),
 			acting.disabled,
-			System::getenv,
+			prism.desktop.SessionEnvironment::get,
 		)
 	}
 

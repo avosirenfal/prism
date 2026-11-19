@@ -1030,7 +1030,7 @@ data class Actions(
 		/** Prism's own and [preferences]' together. */
 		fun of(
 			preferences: Preferences,
-			environment: (String) -> String? = System::getenv,
+			environment: (String) -> String? = prism.desktop.SessionEnvironment::get,
 			installed: (String) -> Boolean = { true },
 		): Actions =
 			read(

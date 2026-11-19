@@ -174,7 +174,12 @@ object DaemonCommand : Command(
 				.map {
 					it.toAbsolutePath().normalize()
 				}.ifEmpty { listOf(Path("/")) }
+
 		// A Mac's applications, as the index holds them, kept current as the disk changes; none to keep elsewhere.
+		// The user's session's environment read as the daemon starts (on a Mac, of their login shell), so that the
+		// first window opened, and the first command run, need not wait for it.
+		prism.desktop.SessionEnvironment.warm()
+
 		val catalogue = KeptCatalogue().takeIf { Os.current == Os.MacOS }
 
 		val settings =
