@@ -122,7 +122,7 @@ machine. To have it, turn it on and put yourself in its group, then rebuild and 
 }
 ```
 
-`prism status` then says `changes: watched through the watcher pinned at /run/prism-watcher/...`. How it works, and
+`prism status` then says `changes: live monitoring via eBPF (probe pinned at /run/prism-watcher/...)`. How it works, and
 why the daemon is not simply given the privileges, is in docs/running.md ("The watcher, loaded by root and read by
 the daemon").
 

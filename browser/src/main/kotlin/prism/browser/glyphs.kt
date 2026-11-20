@@ -126,6 +126,9 @@ enum class Glyph {
 	/** A triangle, as a player's: something run. */
 	Play,
 
+	/** Two bars, as a player's: something held where it is. */
+	Pause,
+
 	/** An arrow round to where it set out from: something put back. */
 	Revert,
 
@@ -444,6 +447,14 @@ fun DrawScope.drawGlyph(
 				},
 				tint,
 			)
+		Glyph.Pause ->
+			for (left in listOf(7f, 13.5f))
+				drawRoundRect(
+					tint,
+					Offset(left * unit, 5.5f * unit),
+					Size(3.5f * unit, 13f * unit),
+					CornerRadius(unit, unit),
+				)
 		Glyph.Revert -> {
 			drawArc(
 				tint,

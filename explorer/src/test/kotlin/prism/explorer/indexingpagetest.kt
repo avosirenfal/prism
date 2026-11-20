@@ -1,8 +1,10 @@
 package prism.explorer
 
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.ComposeUiTest
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertTextEquals
@@ -12,6 +14,7 @@ import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performMouseInput
 import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.test.v2.runComposeUiTest
 import java.nio.file.Path
@@ -19,9 +22,11 @@ import java.time.Instant
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import prism.browser.BrowserTheme
 import prism.browser.Finder
+import prism.browser.LocalDateFormat
 import prism.index.Act
 import prism.index.ActivityLog
 import prism.index.FeedKind
@@ -32,8 +37,10 @@ import prism.index.Unfollowed
 import prism.index.query.Query
 import prism.platform.Dev
 import prism.platform.KernelDev
+import prism.preferences.DateFormat
 import prism.preferences.IndexUpkeep
 import prism.preferences.Preferences
+import prism.preferences.TimePrecision
 
 @OptIn(ExperimentalTestApi::class)
 class IndexingPageTest {
@@ -47,7 +54,7 @@ class IndexingPageTest {
 			window = 5.seconds,
 			keep = 60.seconds,
 			perBurst = 3,
-			processName = mapOf(5 to "touch", 6 to "cargo")::get,
+			processName = mapOf(5 to "touch", 6 to "cargo", 7 to "rsync")::get,
 			clock = { now },
 		)
 
@@ -74,9 +81,9 @@ class IndexingPageTest {
 		override fun folderAt(folder: FileId): String? = "/home/avery".takeIf { folder == home }
 	}
 
-	private fun ComposeUiTest.shows(tag: String, text: String) =
+	private fun ComposeUiTest.shows(tag: String, vararg text: String) =
 		waitUntil(timeoutMillis = 5_000) {
-			runCatching { onNodeWithTag(tag).assertTextEquals(text) }.isSuccess
+			runCatching { onNodeWithTag(tag).assertTextEquals(*text) }.isSuccess
 		}
 
 	/** [text] typed over what the monitor's find field holds. */
@@ -85,14 +92,24 @@ class IndexingPageTest {
 			hasSetTextAction() and hasAnyAncestor(hasTestTag("monitor-find")),
 		).performTextReplacement(text)
 
+	/** How many nodes are tagged [tag], within a row (whose clicking merges what is in it) or not. */
 	private fun ComposeUiTest.count(tag: String): Int =
-		onAllNodesWithTag(tag).fetchSemanticsNodes().size
+		onAllNodesWithTag(tag, useUnmergedTree = true).fetchSemanticsNodes().size
+
+	/**
+	 * The texts of the nodes tagged [tag], each node's joined: of the text itself, within a row or not; or, [merged],
+	 * of a node that merges its descendants' (a notice).
+	 */
+	private fun ComposeUiTest.texts(tag: String, merged: Boolean = false): List<String> =
+		onAllNodesWithTag(tag, useUnmergedTree = !merged).fetchSemanticsNodes().map {
+			it.config.getOrElse(SemanticsProperties.Text) { emptyList() }.joinToString()
+		}
 
 	@Test
-	fun thePageSaysHowTheIndexIsKept_AndItsSwitchesSetWhatTheIndexDoesOnItsOwn() =
+	fun theIndexCardSaysHowTheIndexIsKept_AndTheSwitchesSetWhatItDoesOnItsOwn() =
 		runComposeUiTest {
 			val index =
-				Kept(Keeping.Followed(FeedKind.EbpfProbe, "the watcher pinned at /sys/fs/bpf/prism"))
+				Kept(Keeping.Followed(FeedKind.EbpfProbe, "probe pinned at /run/prism-watcher"))
 			var settings by mutableStateOf(Settings(Preferences.DEFAULT, page = Page.Indexing))
 
 			setContent {
@@ -101,20 +118,26 @@ class IndexingPageTest {
 				}
 			}
 
-			shows("index-state", "Changes are followed as they happen by the eBPF probe.")
-			shows(
-				"index-state-detail",
-				"Through the watcher pinned at /sys/fs/bpf/prism. Rebuilding reads every folder again.",
-			)
+			shows("index-state", "Live monitoring via eBPF", "Probe pinned at /run/prism-watcher")
+
+			index.keeping = Keeping.Rescanned(Unfollowed.TurnedOff, 30.minutes, 12.minutes)
+			shows("index-state", "Periodic rescan, next in 12 minutes", "Live monitoring is off.")
 
 			index.keeping =
-				Keeping.Rescanned(Unfollowed.Failed("the kernel would not load it"), 30.minutes)
-			shows("index-state-detail", "The kernel would not load it.")
+				Keeping.Rescanned(Unfollowed.Failed("the kernel refused it"), 30.minutes, 30.seconds)
+			waitUntil(timeoutMillis = 5_000) {
+				texts(
+					"index-state",
+					merged = true,
+				).singleOrNull()?.startsWith("Periodic rescan, next in under a minute") ==
+					true
+			}
 
 			index.keeping = Keeping.Unkept(Unfollowed.TurnedOff)
 			shows(
 				"index-state",
-				"The index isn't kept up to date on its own: rebuild it to bring it up to date.",
+				"Indexing disabled",
+				"Live monitoring and periodic rescan are off. The index only changes when rebuilt.",
 			)
 
 			onNodeWithTag("index-rebuild").performClick()
@@ -135,10 +158,10 @@ class IndexingPageTest {
 		}
 
 	@Test
-	fun theMonitorShowsWhatWasHeard_FindsItByProcessThenByPath_AndHoldsItWhilePaused() =
+	fun theMonitorShowsWhatWasHeard_SearchesAndFiltersIt_HoldsItWhilePaused_AndCopiesIt() =
 		runComposeUiTest {
-			val index =
-				Kept(Keeping.Followed(FeedKind.EbpfProbe, "a watcher of this process's own"))
+			val index = Kept(Keeping.Followed(FeedKind.EbpfProbe, "probe loaded by prism"))
+			val copied = mutableListOf<String>()
 
 			log.heard {
 				repeat(5) { inFolder(5, Act.FileMade, home, "touched $it".encodeToByteArray()) }
@@ -152,6 +175,7 @@ class IndexingPageTest {
 						{},
 						onApply = {},
 						onClose = {},
+						onCopy = { copied += it },
 						index = index,
 					)
 				}
@@ -159,29 +183,34 @@ class IndexingPageTest {
 
 			onNodeWithTag("index-monitor-open").performClick()
 			waitUntil(timeoutMillis = 5_000) { count("burst-count") == 2 }
-			// Latest first; and of five changes, the three a burst keeps.
-			assertEquals(
-				listOf("1 change", "3 of 5 changes"),
-				onAllNodesWithTag("burst-count").fetchSemanticsNodes().map {
-					it.config[androidx.compose.ui.semantics.SemanticsProperties.Text].joinToString()
-				},
-			)
+			// Latest first; and of five events, the three a group keeps.
+			assertEquals(listOf("1", "5 (3 kept)"), texts("burst-count"))
 
-			// By the process's name; by a path only cargo's change has; and by one both have.
+			// By the process's name; by a path only cargo's event has; and by one both have.
 			typed("touch")
 			waitUntil(timeoutMillis = 5_000) { count("burst-count") == 1 }
 			typed("target")
 			waitUntil(timeoutMillis = 5_000) {
-				count("burst-count") == 1 &&
-					count("burst-open:${log.live.bursts().first().id}") == 1
+				count("burst-count") == 1 && count("burst:${log.live.bursts().first().id}") == 1
 			}
 			typed("avery")
 			waitUntil(timeoutMillis = 5_000) { count("burst-count") == 2 }
 			typed("")
 			waitUntil(timeoutMillis = 5_000) { count("burst-count") == 2 }
 
-			// Paused, what is heard meanwhile is noted, and not shown until the log is resumed.
+			// Narrowed to deletions there are none of; then to creations, which both made.
+			onNodeWithTag("monitor-kind:Deleted").performClick()
+			waitUntil(timeoutMillis = 5_000) { count("monitor-bursts-empty") == 1 }
+			onNodeWithTag("monitor-kind:Deleted").performClick()
+			onNodeWithTag("monitor-kind:Created").performClick()
+			waitUntil(timeoutMillis = 5_000) { count("burst-count") == 2 }
+			onNodeWithTag("monitor-kind:Created").performClick()
+
+			// Paused, what is heard meanwhile is recorded, and not shown until the log is resumed.
 			onNodeWithTag("monitor-pause").performClick()
+			waitUntil(timeoutMillis = 5_000) {
+				texts("monitor-state").single().startsWith("Paused at ")
+			}
 			log.heard { inFolder(7, Act.FileRemoved, home, "gone".encodeToByteArray()) }
 			Thread.sleep(1_200)
 			waitForIdle()
@@ -189,24 +218,78 @@ class IndexingPageTest {
 			onNodeWithTag("monitor-pause").performClick()
 			waitUntil(timeoutMillis = 5_000) { count("burst-count") == 3 }
 
-			// A burst's changes, in its place; narrowed by their paths; and back to the bursts.
+			// The whole table copied, a line a group, latest first.
+			onNodeWithTag("monitor-copy-list").performClick()
+			waitForIdle()
+			assertEquals(
+				listOf("rsync\t7\t1", "cargo\t6\t1", "touch\t5\t5"),
+				copied.last().lines().map { it.substringAfter('\t') },
+			)
+
+			// A group's events, in its place; filtered by their paths; their PID and paths copied; and back.
 			val touch = log.live.bursts().single { it.seen == 5 }
 
-			onNodeWithTag("burst-open:${touch.id}").performClick()
+			onNodeWithTag("burst:${touch.id}").performClick()
 			waitUntil(timeoutMillis = 5_000) { count("change") == 3 }
 			assertEquals(
 				listOf("/home/avery/touched 0", "/home/avery/touched 1", "/home/avery/touched 2"),
-				onAllNodesWithTag("change-path").fetchSemanticsNodes().map {
-					it.config[androidx.compose.ui.semantics.SemanticsProperties.Text].joinToString()
-				},
+				texts("change-path"),
 			)
+			onNodeWithTag("changes-copy-pid").performClick()
+			waitForIdle()
+			assertEquals("5", copied.last())
 			typed("touched 1")
 			waitUntil(timeoutMillis = 5_000) { count("change") == 1 }
+			onNodeWithTag("change").performMouseInput { moveTo(center) }
+			waitUntil(timeoutMillis = 5_000) { count("change-copy-path") == 1 }
+			onNodeWithTag("change-copy-path").performClick()
+			waitForIdle()
+			assertEquals("/home/avery/touched 1", copied.last())
+			// Narrowed to moves, of which it has none.
+			onNodeWithTag("monitor-kind:Moved").performClick()
+			waitUntil(timeoutMillis = 5_000) { count("monitor-changes-empty") == 1 }
 			onNodeWithTag("monitor-back").performClick()
 			waitUntil(timeoutMillis = 5_000) { count("burst-count") == 3 }
 			onNodeWithTag("monitor-close").performClick()
 			waitUntil(timeoutMillis = 5_000) {
 				onAllNodes(hasTestTag("index-monitor")).fetchSemanticsNodes().isEmpty()
 			}
+		}
+
+	@Test
+	fun theMonitorWritesItsTimesAsTheDateFormatSays() =
+		runComposeUiTest {
+			val index = Kept(Keeping.Followed(FeedKind.EbpfProbe, "probe loaded by prism"))
+
+			log.heard { inFolder(5, Act.FileMade, home, "a".encodeToByteArray()) }
+
+			setContent {
+				BrowserTheme {
+					CompositionLocalProvider(LocalDateFormat provides DateFormat.MonthFirst) {
+						SettingsView(
+							Settings(Preferences.DEFAULT, page = Page.Indexing),
+							{},
+							onApply = {},
+							onClose = {},
+							index = index,
+						)
+					}
+				}
+			}
+
+			onNodeWithTag("index-monitor-open").performClick()
+			waitUntil(timeoutMillis = 5_000) { count("burst-count") == 1 }
+
+			val from =
+				log.live
+					.bursts()
+					.single()
+					.from
+
+			waitUntil(timeoutMillis = 5_000) {
+				DateFormat.MonthFirst.writeTime(from, precision = TimePrecision.Seconds) in
+					texts("burst-time")
+			}
+			assertTrue(texts("burst-time").single().endsWith("M"), texts("burst-time").toString())
 		}
 }

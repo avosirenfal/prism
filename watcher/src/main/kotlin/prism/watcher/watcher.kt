@@ -102,7 +102,7 @@ class Watcher private constructor(
 			if (pinned is Sys.Ok)
 				return Start.Running(
 					Watcher(pinned.value, seen),
-					"the watcher pinned at ${pins.folder}",
+					"probe pinned at ${pins.folder}",
 				)
 
 			val unpinned = "none this user may read is pinned at ${pins.mount} ($pinned)"
@@ -111,7 +111,7 @@ class Watcher private constructor(
 				is Watching.Started ->
 					Start.Running(
 						Watcher(started.watch, seen),
-						"a watcher of this process's own",
+						"probe loaded by prism",
 					)
 				Watching.NotBuilt ->
 					Start.NotRunning(

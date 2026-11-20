@@ -20,30 +20,40 @@ import prism.shared.Published
  * the JVM's heap ([HeardRecords]), never more than a fixed amount of it.
  */
 
-/** What was done to an entry, as the index monitor says it. */
-enum class Act(
-	val said: String,
+/** Which of the three things that can happen to an entry a change is: what the index monitor filters by. */
+enum class ActKind(
+	val label: String,
 ) {
-	FileMade("File made"),
-	FolderMade("Folder made"),
-	LinkMade("Link made"),
+	Created("Created"),
+	Deleted("Deleted"),
+	Moved("Moved"),
+}
+
+/** What was done to an entry, as the index monitor names it. */
+enum class Act(
+	val label: String,
+	val kind: ActKind,
+) {
+	FileMade("File created", ActKind.Created),
+	FolderMade("Folder created", ActKind.Created),
+	LinkMade("Symlink created", ActKind.Created),
 
 	/** A FIFO, a socket or a device node. */
-	NodeMade("Node made"),
+	NodeMade("Special file created", ActKind.Created),
 
 	/** A second name for a file that had one. */
-	Linked("Linked"),
-	FileRemoved("File removed"),
-	FolderRemoved("Folder removed"),
+	Linked("Hard link created", ActKind.Created),
+	FileRemoved("File deleted", ActKind.Deleted),
+	FolderRemoved("Folder deleted", ActKind.Deleted),
 
 	/** Moved, or renamed, to where it is now; or, where the change does not say where, out of its folder. */
-	Moved("Moved"),
+	Moved("Moved", ActKind.Moved),
 
 	/** Two entries swapped (`RENAME_EXCHANGE`). */
-	Swapped("Swapped"),
+	Swapped("Swapped", ActKind.Moved),
 
 	/** Renamed, to or from the path it is said of: FSEvents does not say which. */
-	Renamed("Renamed"),
+	Renamed("Renamed", ActKind.Moved),
 }
 
 /** Who made a change: a process, by its id and what it was called; or nobody the feed can say (FSEvents says none). */
@@ -56,12 +66,12 @@ sealed interface Doer {
 
 	data object Unknown : Doer
 
-	/** As the monitor says it: "touch (PID 5123)". */
-	val said: String
+	/** The process's name, as the monitor shows it. */
+	val label: String
 		get() =
 			when (this) {
-				is Process -> "${name ?: "a process that has ended"} (PID $pid)"
-				Unknown -> "An unknown process"
+				is Process -> name ?: "Exited process"
+				Unknown -> "Unknown process"
 			}
 }
 
@@ -81,13 +91,12 @@ sealed interface Spot {
 		val path: String,
 	) : Spot
 
-	/** As the monitor says it: the folder by where [folders] says it is, or by its numbers where it is not known. */
+	/** Its path: the folder where [folders] places it, or by its device and inode where it is not known. */
 	fun said(folders: (FileId) -> String?): String =
 		when (this) {
 			is AtPath -> path
 			is InFolder -> {
-				val folder =
-					folders(folder) ?: "(the folder with inode ${folder.ino} on device ${folder.dev})"
+				val folder = folders(folder) ?: "<${folder.dev}, inode ${folder.ino}>"
 
 				name?.let { "${folder.trimEnd('/')}/$it" } ?: folder
 			}
@@ -128,10 +137,11 @@ interface Activity {
 	fun heardIn(id: Long): List<Heard>
 
 	/**
-	 * The bursts [text] finds, without case: first those whose process's name has it, then those with a change whose
-	 * path, as [folders] places a folder, has it; each latest first.
+	 * The bursts [text] finds, without case, among those with a change of one of [kinds]: first those whose process's
+	 * name has it, then those with a change of those kinds whose path, as [folders] places a folder, has it; each
+	 * latest first.
 	 */
-	fun found(text: String, folders: (FileId) -> String?): List<Burst>
+	fun found(text: String, kinds: Set<ActKind>, folders: (FileId) -> String?): List<Burst>
 }
 
 /**
@@ -293,9 +303,16 @@ class ActivityLog(
 						emptyList()
 				}
 
-			// Looking through every path takes long: done in a copy, so that nothing waits on it to note a change.
-			override fun found(text: String, folders: (FileId) -> String?): List<Burst> =
-				copy().found(text, folders)
+			// Looking through every change takes long: done in a copy, so that nothing waits on it to note a change.
+			override fun found(
+				text: String,
+				kinds: Set<ActKind>,
+				folders: (FileId) -> String?,
+			): List<Burst> =
+				if (text.isBlank() && kinds.containsAll(ActKind.entries))
+					bursts()
+				else
+					copy().found(text, kinds, folders)
 		}
 
 	/** What the log holds now, copied: its memory once, and its bursts, which this moment's are for good. */
@@ -322,20 +339,40 @@ class ActivityLog(
 			else
 				emptyList()
 
-		override fun found(text: String, folders: (FileId) -> String?): List<Burst> {
-			if (text.isBlank())
+		override fun found(
+			text: String,
+			kinds: Set<ActKind>,
+			folders: (FileId) -> String?,
+		): List<Burst> {
+			val every = kinds.containsAll(ActKind.entries)
+
+			if (text.isBlank() && every)
 				return bursts
 
-			val (named, unnamed) =
-				bursts.partition { burst ->
-					(burst.by as? Doer.Process)?.name?.contains(text, ignoreCase = true) == true
-				}
+			fun named(burst: Burst) =
+				text.isBlank() || burst.by.label.contains(text, ignoreCase = true)
+
 			// Each folder placed once, however many of its changes there are.
 			val placed = HashMap<FileId, String?>()
 			val place = { folder: FileId -> placed.getOrPut(folder) { folders(folder) } }
-			val pathed = records.burstsWhere { it.said(place).contains(text, ignoreCase = true) }
+			// The bursts with a change of the kinds asked for, and of those, the ones with such a change at a path
+			// that has the text.
+			val ofKinds =
+				if (every)
+					ids
+				else
+					records.burstsWhere { act, _ -> act.kind in kinds }
 
-			return named + unnamed.filter { it.id in pathed }
+			val pathed =
+				if (text.isBlank())
+					ofKinds
+				else
+					records.burstsWhere { act, spot ->
+						act.kind in kinds && spot.said(place).contains(text, ignoreCase = true)
+					}
+			val (byName, others) = bursts.filter { it.id in ofKinds }.partition(::named)
+
+			return byName + others.filter { it.id in pathed }
 		}
 	}
 

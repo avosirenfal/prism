@@ -45,6 +45,7 @@ import prism.desktop.asChildOfPrism
 import prism.desktop.macos.ApplicationSource
 import prism.index.ActivityLog
 import prism.index.Exclusion
+import prism.index.FeedKind
 import prism.index.IgnoreRules
 import prism.index.Ignored
 import prism.index.Included
@@ -536,20 +537,21 @@ object DaemonCommand : Command(
 
 	private fun watchingLine(daemon: Daemon): String =
 		when (val now = daemon.keeping) {
-			is Keeping.Followed ->
-				"changes: watched through ${now.through} and applied to the index as they happen"
+			is Keeping.Followed -> "changes: live monitoring via ${now.by.label} (${now.through})"
 			is Keeping.Rescanned ->
-				"changes: not watched (${saidOf(now.why)}); rescanning every " +
-					"${now.every.inWholeMinutes} minutes instead"
+				"changes: periodic rescan every ${now.every.inWholeMinutes} minutes (${saidOf(
+					now.why,
+				)})"
 			is Keeping.Unkept ->
-				"changes: not watched (${saidOf(now.why)}), and fallback rescans are turned off; " +
-					"the index changes only when it is rebuilt"
+				"changes: indexing disabled (${saidOf(now.why)}, periodic rescan off); " +
+					"the index changes only when rebuilt"
 		}
 
 	private fun saidOf(why: Unfollowed): String =
 		when (why) {
-			Unfollowed.TurnedOff -> "turned off in the preferences"
-			is Unfollowed.Failed -> why.why
+			Unfollowed.TurnedOff -> "live monitoring off"
+			is Unfollowed.Failed ->
+				"${FeedKind.here?.label ?: "live monitoring"} unavailable: ${why.why}"
 		}
 
 	/**

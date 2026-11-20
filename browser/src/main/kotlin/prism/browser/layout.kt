@@ -342,17 +342,21 @@ fun ListRow(
 	}
 }
 
-/** How a [Notice] reads: as it should be ([Good]), as it should not be ([Bad]), or neither ([Plain]). */
+/**
+ * How a [Notice] reads: as it should be ([Good]), as it should not be ([Bad]), turned off ([Off]), or neither
+ * ([Plain]).
+ */
 enum class Tone {
 	Good,
 	Bad,
+	Off,
 	Plain,
 }
 
 /**
- * A line of a card that says how something is, rather than setting it: a glyph for its [tone] (a tick, a warning, an
- * i), its [title], in red where it is [Tone.Bad], what more there is to say ([detail]), and under them whatever
- * [content] adds.
+ * A line of a card that says how something is, rather than setting it: a glyph for its [tone] (a tick, a warning, a
+ * cross, an i), its [title], in red where it is [Tone.Bad] or [Tone.Off], what more there is to say ([detail]), and
+ * under them whatever [content] adds.
  */
 @Composable
 fun Notice(
@@ -368,6 +372,7 @@ fun Notice(
 		when (tone) {
 			Tone.Good -> Glyph.Check to palette.accentText
 			Tone.Bad -> Glyph.Warning to palette.dangerText
+			Tone.Off -> Glyph.Close to palette.dangerText
 			Tone.Plain -> Glyph.Info to palette.textMuted
 		}
 
@@ -382,9 +387,7 @@ fun Notice(
 				style =
 					type.strong.copy(
 						color =
-							if (tone ==
-								Tone.Bad
-							)
+							if (tone == Tone.Bad || tone == Tone.Off)
 								palette.dangerText
 							else
 								palette.text,

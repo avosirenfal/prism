@@ -16,6 +16,7 @@ import kotlin.time.Duration
 import kotlin.time.Duration.Companion.days
 import kotlin.time.Duration.Companion.hours
 import kotlin.time.Duration.Companion.minutes
+import kotlin.time.Duration.Companion.nanoseconds
 import kotlin.time.Duration.Companion.seconds
 import prism.index.ActivityLog
 import prism.index.FeedKind
@@ -117,7 +118,7 @@ fun interface Feed {
 					if (since == EventStream.SINCE_NOW)
 						"FSEvents"
 					else
-						"FSEvents, from where the last daemon left off",
+						"FSEvents, resumed from the last session",
 					at = { last.get().takeIf { id -> id > 0 } },
 					kind = FeedKind.FsEvents,
 				)
@@ -161,7 +162,7 @@ sealed interface Feeding {
 		val stop: AutoCloseable,
 		val lost: () -> Long?,
 		val stopped: () -> String?,
-		/** What the changes come through, as it is said of a daemon: "the watcher pinned at ...". */
+		/** What the changes come through, as it is said of a daemon: "probe pinned at ...". */
 		val through: String = "a feed",
 		/**
 		 * The feed's place in the system's record of changes: the last one it gave. Null for a feed of no such
@@ -374,8 +375,11 @@ class Daemon private constructor(
 					Watching.TurnedOff -> Unfollowed.TurnedOff
 				}
 
+			val every = settings.rescanWithoutWatcher
+			val since = (System.nanoTime() - rescanned).nanoseconds
+
 			return if (upkeep.fallbackScans)
-				Keeping.Rescanned(why, settings.rescanWithoutWatcher)
+				Keeping.Rescanned(why, every, (every - since).coerceAtLeast(Duration.ZERO))
 			else
 				Keeping.Unkept(why)
 		}
@@ -401,7 +405,11 @@ class Daemon private constructor(
 	/** The watcher's count of what it lost, as last looked at. */
 	private var lost: Long = (feeding as? Feeding.On)?.lost?.invoke() ?: 0
 
-	/** When the roots were last read again for want of a watcher, in nanoseconds of [System.nanoTime]. */
+	/**
+	 * When the roots were last read again for want of a watcher, in nanoseconds of [System.nanoTime]: set by the thread
+	 * that ticks, and read by whoever asks how the index is kept.
+	 */
+	@Volatile
 	private var rescanned: Long = System.nanoTime()
 
 	/** What the last write of the index failed with, as text; null while it is written. */

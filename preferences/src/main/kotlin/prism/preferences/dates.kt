@@ -88,11 +88,56 @@ enum class DateFormat(
 			is DatePart.Words -> part.text
 		}
 
-	/** [instant], written this way, in [zone]: its date, then its time. */
-	fun write(instant: Instant, zone: ZoneId = ZoneId.systemDefault()): String =
-		(dateParts + DatePart.Words(writing.between) + timeParts).joinToString("") {
+	/** [instant], written this way, in [zone]: its date, then its time, to the [precision] asked. */
+	fun write(
+		instant: Instant,
+		zone: ZoneId = ZoneId.systemDefault(),
+		precision: TimePrecision = TimePrecision.Minutes,
+	): String =
+		(
+			dateParts +
+				DatePart.Words(
+					writing.between,
+				) + timePartsTo(precision)
+		).joinToString("") {
 			write(it, instant, zone)
 		}
+
+	/** [instant]'s time alone, written this way, in [zone], to the [precision] asked: `14:03:21`, `2:03:21.507 PM`. */
+	fun writeTime(
+		instant: Instant,
+		zone: ZoneId = ZoneId.systemDefault(),
+		precision: TimePrecision = TimePrecision.Minutes,
+	): String = timePartsTo(precision).joinToString("") { write(it, instant, zone) }
+
+	/**
+	 * The time's parts, to [precision]: the seconds after the minutes, set off as the minutes are from the hours
+	 * (a colon, or a point where the time is written `14.03`), and the milliseconds after them, after a point.
+	 */
+	private fun timePartsTo(precision: TimePrecision): List<DatePart> {
+		val parts = timeParts
+		val minutes = parts.indexOfFirst { it is DatePart.Field && it.pattern.startsWith('m') }
+
+		if (precision == TimePrecision.Minutes || minutes < 0)
+			return parts
+
+		val between = (parts.getOrNull(minutes - 1) as? DatePart.Words)?.text ?: ":"
+		val finer =
+			listOf(DatePart.Words(between), DatePart.Field("ss")) +
+				if (precision == TimePrecision.Milliseconds)
+					listOf(DatePart.Words("."), DatePart.Field("SSS"))
+				else
+					emptyList()
+
+		return parts.take(minutes + 1) + finer + parts.drop(minutes + 1)
+	}
+}
+
+/** How finely a time is written: to the minute, as a listing writes it, the second, or the millisecond. */
+enum class TimePrecision {
+	Minutes,
+	Seconds,
+	Milliseconds,
 }
 
 /**

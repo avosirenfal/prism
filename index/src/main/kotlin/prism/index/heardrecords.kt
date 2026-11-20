@@ -180,13 +180,13 @@ internal class HeardRecords(
 				}
 			}
 
-		/** The bursts that have a change whose place [where] takes. */
-		fun burstsWhere(where: (Spot) -> Boolean): Set<Long> =
+		/** The bursts that have a change [where] takes, by what was done and where. */
+		fun burstsWhere(where: (Act, Spot) -> Boolean): Set<Long> =
 			buildSet {
 				records(segment, used) {
 					val burst = burstAt(segment, it)
 
-					if (burst !in this && where(spotAt(segment, it)))
+					if (burst !in this && where(actAt(segment, it), spotAt(segment, it)))
 						add(burst)
 				}
 			}
@@ -264,10 +264,19 @@ internal class HeardRecords(
 			}
 		}
 
+		fun actAt(segment: MemorySegment, offset: Long): Act =
+			Act.entries[
+				segment
+					.get(
+						BYTE,
+						offset + ACT,
+					).toInt(),
+			]
+
 		fun heardAt(segment: MemorySegment, offset: Long): Heard =
 			Heard(
 				Instant.ofEpochMilli(segment.get(LONG, offset + AT)),
-				Act.entries[segment.get(BYTE, offset + ACT).toInt()],
+				actAt(segment, offset),
 				spotAt(segment, offset),
 			)
 	}

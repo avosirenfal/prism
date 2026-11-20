@@ -179,7 +179,7 @@ prism probe watch --pinned
 ```
 
 prints every change as `sudo prism probe watch` does. A daemon started from now on reads the same ring, and
-`prism status` says `changes: watched through the watcher pinned at /run/prism-watcher/...`.
+`prism status` says `changes: live monitoring via eBPF (probe pinned at /run/prism-watcher/...)`.
 
 What happened is this.
 

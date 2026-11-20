@@ -143,18 +143,52 @@ class ActivityTest {
 		now += 1_000
 		log.made(7)
 
-		val found = log.live.found("TOUCH", folders)
+		val every = ActKind.entries.toSet()
+		val found = log.live.found("TOUCH", every, folders)
 
 		// touch by its name; then cargo and the unknown process by what they changed; and rsync not at all.
 		assertEquals(
 			listOf(Doer.Process(5, "touch"), Doer.Unknown, Doer.Process(6, "cargo")),
 			found.map { it.by },
 		)
-		assertEquals(log.live.bursts(), log.live.found(" ", folders))
-		// A folder the index does not hold is said by its numbers.
+		assertEquals(log.live.bursts(), log.live.found(" ", every, folders))
+		// A folder the index does not hold is said by its device and inode.
 		assertEquals(
-			"(the folder with inode 1 on device 8:1)/x",
+			"<8:1, inode 1>/x",
 			Spot.InFolder(FileId(KernelDev(Dev(8, 1)), 1), "x").said(folders),
+		)
+	}
+
+	@Test
+	fun aSearchIsNarrowedToTheKindsOfEventAskedFor() {
+		val log = log()
+
+		log.heard { inFolder(6, Act.FolderMade, home, "touched".encodeToByteArray()) }
+		log.heard { atPath(null, Act.Renamed, "/Users/avery/touch-ups.txt") }
+		log.heard { inFolder(5, Act.FileRemoved, home, "gone".encodeToByteArray()) }
+
+		fun found(text: String, vararg kinds: ActKind) =
+			log.live.found(text, kinds.toSet(), folders).map {
+				it.by
+			}
+
+		// Only those with an event of the kinds asked for, whatever their names.
+		assertEquals(listOf(Doer.Process(5, "touch")), found("", ActKind.Deleted))
+		assertEquals(
+			listOf(Doer.Unknown, Doer.Process(6, "cargo")),
+			found("", ActKind.Created, ActKind.Moved),
+		)
+		// And of those, by name or by the path of an event of those kinds.
+		assertEquals(listOf(Doer.Process(6, "cargo")), found("touch", ActKind.Created))
+		assertEquals(emptyList<Doer>(), found("cargo", ActKind.Deleted))
+		// A copy is narrowed the same way.
+		assertEquals(
+			listOf(
+				Doer.Process(5, "touch"),
+			),
+			log.copy().found("", setOf(ActKind.Deleted), folders).map {
+				it.by
+			},
 		)
 	}
 

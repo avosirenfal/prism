@@ -220,6 +220,7 @@ fun SettingsView(
 					settings.indexing,
 					{ onChange(settings.copy(indexing = it)) },
 					index,
+					onCopy,
 				) { onChange(settings.copy(excluding = it)) }
 			Page.Thumbnails ->
 				ThumbnailsPage(

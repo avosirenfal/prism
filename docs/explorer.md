@@ -439,28 +439,35 @@ indexed) or Hidden (indexed, and found only by a search that includes its path),
 Reset puts prism's own back as they come. Applied, the running prism's index is made to agree at once. The launcher's
 settings have the same page (`ExcludingPage`, `explorer/excludingpage.kt`), without what is above the rules.
 
-Above them, in the preferences' own window, is the index itself. Its card says how the index is kept as the disk
-changes (`Keeping`, which the daemon says of itself): "Changes are followed as they happen by the eBPF probe" (or
-FSEvents), and through what; or that the probe isn't running, and why, so every folder is read again every 30 minutes;
-or that nothing keeps it, and it changes only when it is rebuilt. While it is being read, it says how far that has got
-instead. Beside it are Rebuild index and Monitor.
+Above them, in the preferences' own window, is the index itself. Its card says how the index is kept, as the
+Renderer page says how windows are drawn: a tick and "Live monitoring via eBPF" (or FSEvents), with where the probe
+is; a tick and "Periodic rescan, next in 12 minutes" where live monitoring is off, or a warning where it is on and
+unavailable, with why; or a red cross and "Indexing disabled" where nothing updates it. While it is being read, it
+says how far that has got instead. These come from what the daemon says of itself (`Keeping`). Beside them are
+Monitor and Rebuild index.
 
-Under it, "Keeping the index up to date" has four switches, all on unless turned off (`"indexing"`, `IndexUpkeep`):
-Scan on start (`scanOnStart`: every folder read as prism starts), Continuous monitoring (`watch`: the eBPF probe on
-Linux, FSEvents on a Mac), Fallback scans (`fallbackScans`: every folder read again now and then while nothing follows
-the changes) and Index monitoring (`monitor`: the last minute of what the index hears kept for the monitor). Applied,
-the running daemon does as they say at once (docs/daemon.md, "What the daemon does on its own"); with the first three
-off, the index changes only when it is rebuilt, and searches use it all the same.
+Under it, "Index updates" has four switches, all on unless turned off (`"indexing"`, `IndexUpkeep`): Rescan on
+startup (`scanOnStart`), Live monitoring (`watch`: eBPF on Linux, FSEvents on a Mac), Periodic rescan
+(`fallbackScans`: every 30 minutes while live monitoring is off or unavailable) and Event log (`monitor`: the last 60
+seconds of file system events, for the index monitor). Applied, the running daemon does as they say at once
+(docs/daemon.md, "What the daemon does on its own"); with the first three off, the index changes only when it is
+rebuilt, and searches use it all the same.
 
-**The index monitor** (`explorer/indexmonitor.kt`) is what the index heard happen on the disk in the last minute
-(docs/daemon.md, "The index monitor"), by who did it: each process's changes over five seconds are one entry, latest
-first, with the process's name and id, when it began and how many changes it has ("200 of 1,523 changes" where it
-kept the first 200). An entry's Changes shows its changes in its place, each with exactly when it was heard, what was
-done and the path it was done to; Back, or Escape, goes back. It is read again twice a second, unless Pause log is
-pressed: then it holds a copy of the log as it was until it is resumed or closed, and the log goes on noting what is
-heard. Ctrl+F (Cmd+F) finds, in either: the entries whose process's name has what is typed, then those with a change
-whose path has it; and an entry's changes by their paths. Its state is a small value (`Monitoring`: closed, the
-entries, or one entry's changes over them), and what each shows is worked out from it and the log alone.
+**The index monitor** (`explorer/indexmonitor.kt`) shows the file system events of the last 60 seconds
+(docs/daemon.md, "The index monitor"), grouped by process in 5-second windows. It opens on a table of the groups,
+latest first: when each began, the process's name and PID, and how many events it has ("1,523 (200 kept)" where it
+kept the first 200), with a button to copy the PID on the row under the pointer. A group's row opens its events in
+its place: when each was heard, to the millisecond, what was done (created, deleted, moved, with a glyph of its
+colour) and its path, its folder faint; Back, or Escape, goes back. Times are written as the Display page's date
+format writes them, to the second or the millisecond (`DateFormat.writeTime`).
+
+Both tables are read again twice a second, unless Pause is pressed: then the groups are a copy of the log as it was,
+held until Resume or until the monitor is closed, while the log goes on recording. Both are narrowed by the chips
+Created, Deleted and Moved (none picked shows every kind) and by the field Ctrl+F (Cmd+F) goes to: the groups by their
+process's name first, then by their events' paths; a group's events by their paths. A row's path, or a group's PID,
+is copied by the button on the row under the pointer, and Copy list copies the table as it is narrowed, a line a row,
+tab-separated. The monitor's state is a small value (`Monitoring`: closed, the groups, or one group's events over
+them, each with its search and its filter of kinds), and what each shows is worked out from it and the log alone.
 
 ![The Indexing page](indexing.png)
 

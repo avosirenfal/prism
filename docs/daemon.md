@@ -243,15 +243,15 @@ thread alone:
 
 | switch | on | off |
 |---|---|---|
-| scan on start | the roots read as the index opens (`OnOpen.ReadAll`) | none read (`OnOpen.ReadNone`): the index is as its file holds it, or empty, until it is rebuilt |
-| continuous monitoring | the feed started | the feed not started, or stopped; started again, it hears what happens from then on |
-| fallback scans | the roots read again every half hour while there is no feed | not read again |
+| rescan on startup | the roots read as the index opens (`OnOpen.ReadAll`) | none read (`OnOpen.ReadNone`): the index is as its file holds it, or empty, until it is rebuilt |
+| live monitoring | the feed started | the feed not started, or stopped; started again, it hears what happens from then on |
+| periodic rescan | the roots read again every half hour while there is no feed | not read again |
 
 What is mounted is looked at while either of the last two is on. With all three off, nothing changes the index but a
 rebuild (`LiveIndex.rescanRoots`, which reads the roots asked for whether or not the index holds them yet), and every
-search uses it as it is. How the index is kept now is said as a `Keeping` (`index/keeping.kt`): followed, and by what;
-read again every so often, and why nothing follows the changes; or not kept, and why. `prism status` and the
-preferences' Indexing page both say it.
+search uses it as it is. How the index is kept now is said as a `Keeping` (`index/keeping.kt`): live monitoring, and
+by what; periodic rescan, when the next is due, and why live monitoring is not running; or neither. `prism status`
+says it (`changes: live monitoring via eBPF (probe pinned at ...)`), and so does the preferences' Indexing page.
 
 ## The index monitor
 
@@ -282,7 +282,8 @@ The log is written by the feed's thread and read by the window's, each under its
 burst's 200 changes at most, are read under it as they are shown. What would take long (finding a path among all the
 changes) is done in a **copy**: the log's memory copied once into memory of the copy's own, with its bursts as they
 were, which is then that moment's for good and which nothing waits on. Pausing the monitor holds such a copy.
-`ActivityTest` has each of the above.
+Each event is one of ten kinds of change (`Act`), which are each one of three (`ActKind`: created, deleted, moved),
+and a search can be narrowed to any of the three. `ActivityTest` has each of the above.
 
 Nothing that fails in it stops it: each failure is reported and gone on from, by reading the disk again
 (docs/running.md, "What happens when something goes wrong", has each case). The daemon the command runs is also the

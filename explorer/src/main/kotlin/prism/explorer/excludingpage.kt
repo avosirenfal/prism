@@ -27,10 +27,13 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.minutes
 import kotlinx.coroutines.delay
 import prism.browser.Card
 import prism.browser.Emphasis
@@ -40,6 +43,7 @@ import prism.browser.Glyph
 import prism.browser.LocalIndexReading
 import prism.browser.LocalPalette
 import prism.browser.LocalType
+import prism.browser.Notice
 import prism.browser.Palette
 import prism.browser.PushButton
 import prism.browser.QueryColouring
@@ -47,6 +51,7 @@ import prism.browser.Segmented
 import prism.browser.SettingRow
 import prism.browser.Space
 import prism.browser.Switch
+import prism.browser.Tone
 import prism.browser.ToolButton
 import prism.browser.colouredQuery
 import prism.index.Exclusions
@@ -111,6 +116,8 @@ internal fun ExcludingPage(
 	onUpkeep: (IndexUpkeep) -> Unit = {},
 	/** The index kept here, to rebuild and to watch; null where none is kept. */
 	index: Finder? = null,
+	/** What copies text to the clipboard, from the index monitor. */
+	onCopy: (String) -> Unit = {},
 	onChange: (ExcludingEdits) -> Unit,
 ) {
 	val type = LocalType.current
@@ -121,7 +128,7 @@ internal fun ExcludingPage(
 			"includes their path. A rule also applies to everything inside what it matches.",
 	) {
 		if (index != null)
-			Rebuilding(index)
+			Rebuilding(index, onCopy)
 		if (upkeep != null)
 			Upkeeping(upkeep, onUpkeep)
 		Column(verticalArrangement = Arrangement.spacedBy(Space.s)) {
@@ -160,11 +167,11 @@ private val KEEPING_LOOKED_AT = 500.milliseconds
 
 /**
  * The index itself: whether it is being read and how far that has got, or, where it is not, how it is kept as the
- * disk changes; a button that reads it anew, for when something seems missing from it all the same; and one that
- * opens the index monitor, where what it hears is kept to be looked at.
+ * disk changes, as the Renderer page says how windows are drawn; a button that reads it anew, for when something seems
+ * missing from it all the same; and one that opens the index monitor, which shows what it hears.
  */
 @Composable
-private fun Rebuilding(index: Finder) {
+private fun Rebuilding(index: Finder, onCopy: (String) -> Unit) {
 	val palette = LocalPalette.current
 	val type = LocalType.current
 	val reading = LocalIndexReading.current
@@ -176,26 +183,22 @@ private fun Rebuilding(index: Finder) {
 	}
 	var monitoring by remember { mutableStateOf<Monitoring>(Monitoring.Closed) }
 	val log = index.activity
+	val said =
+		when {
+			reading != null -> KeptSaid(Tone.Plain, reading.said(), null)
+			else -> keeping?.let(::saidOf) ?: KeptSaid(Tone.Good, "Up to date", null)
+		}
 
 	Column(verticalArrangement = Arrangement.spacedBy(Space.s)) {
 		Text("Index", style = type.heading)
-		Card {
-			Row(
-				Modifier.fillMaxWidth().padding(Space.m),
-				horizontalArrangement = Arrangement.spacedBy(Space.m),
-				verticalAlignment = Alignment.CenterVertically,
-			) {
-				Column(
-					Modifier.weight(1f),
-					verticalArrangement = Arrangement.spacedBy(Space.s),
+		Card(Modifier.testTag("index-card")) {
+			Row(verticalAlignment = Alignment.CenterVertically) {
+				Notice(
+					said.title,
+					said.tone,
+					Modifier.weight(1f).semantics(mergeDescendants = true) {}.testTag("index-state"),
+					said.detail,
 				) {
-					val said = keeping?.let(::saidOf)
-
-					Text(
-						reading?.said() ?: said?.first ?: "The index is up to date.",
-						style = type.body,
-						modifier = Modifier.testTag("index-state"),
-					)
 					if (reading != null)
 						Box(
 							Modifier
@@ -212,146 +215,150 @@ private fun Rebuilding(index: Finder) {
 									.background(palette.accent),
 							)
 						}
-					else
-						Text(
-							said?.second ?: "Rebuilding reads every folder again.",
-							style = type.muted,
-							modifier = Modifier.testTag("index-state-detail"),
-						)
 				}
-				if (log != null)
+				Row(
+					Modifier.padding(end = Space.l),
+					horizontalArrangement = Arrangement.spacedBy(Space.s),
+				) {
+					if (log != null)
+						PushButton(
+							"Monitor",
+							Emphasis.Secondary,
+							enabled = true,
+							Modifier.testTag("index-monitor-open"),
+						) { monitoring = Monitoring.Bursts() }
 					PushButton(
-						"Monitor",
+						"Rebuild index",
 						Emphasis.Secondary,
-						enabled = true,
-						Modifier.testTag("index-monitor-open"),
-					) { monitoring = Monitoring.Bursts() }
-				PushButton(
-					"Rebuild index",
-					Emphasis.Secondary,
-					enabled = reading == null,
-					Modifier.testTag("index-rebuild"),
-					onClick = index::rebuild,
-				)
+						enabled = reading == null,
+						Modifier.testTag("index-rebuild"),
+						onClick = index::rebuild,
+					)
+				}
 			}
 		}
 	}
 	if (log != null)
-		IndexMonitor(monitoring, log, index::folderAt) { monitoring = it }
+		IndexMonitor(monitoring, log, index::folderAt, onCopy) { monitoring = it }
 }
 
-/** What follows changes as they happen on this platform, as the page names it. */
-private val followerHere: String
-	get() =
-		when (Os.current) {
-			Os.Linux -> "the eBPF probe"
-			Os.MacOS -> "FSEvents"
-			Os.Windows -> "continuous monitoring"
-		}
+/** How the index is kept, as the Index card says it: a [tone]'s glyph, a [title], and a [detail] under it. */
+internal data class KeptSaid(
+	val tone: Tone,
+	val title: String,
+	val detail: String?,
+)
 
-/** What follows the changes, as the page names it. */
-private fun nameOf(kind: FeedKind): String =
-	when (kind) {
-		FeedKind.EbpfProbe -> "the eBPF probe"
-		FeedKind.FsEvents -> "FSEvents"
-		FeedKind.Other -> "a watcher"
-	}
+/** What follows changes on this platform, as the page names it: eBPF, FSEvents, or live monitoring on Windows. */
+private val monitorHere: String get() = FeedKind.here?.label ?: "live monitoring"
 
-/** Why nothing follows the changes, as the page says it under how the index is kept. */
-private fun detailOf(why: Unfollowed): String =
+/** Why live monitoring is not running, as the card says it. */
+private fun whyOf(why: Unfollowed): String =
 	when (why) {
-		Unfollowed.TurnedOff -> "Continuous monitoring is turned off below."
+		Unfollowed.TurnedOff -> "Live monitoring is off."
 		is Unfollowed.Failed ->
-			why.why.replaceFirstChar(Char::uppercase).let {
-				if (it.endsWith('.'))
-					it
-				else
-					"$it."
-			}
+			"${monitorHere.replaceFirstChar(
+				Char::uppercase,
+			)} unavailable: ${why.why.removeSuffix(".")}."
 	}
 
-/** How the index is kept, as the page says it: a line, and a line under it of why, or of what Rebuild does. */
-internal fun saidOf(keeping: Keeping): Pair<String, String> =
+/** When the next periodic rescan is, as the card says it: "next in 12 minutes". */
+internal fun nextIn(next: Duration): String {
+	val minutes = (next.inWholeSeconds + 59) / 60
+
+	return when {
+		next < 1.minutes -> "next in under a minute"
+		minutes == 1L -> "next in 1 minute"
+		else -> "next in $minutes minutes"
+	}
+}
+
+/** How the index is kept, as the card says it: monitored live, rescanned now and then, or not updated at all. */
+internal fun saidOf(keeping: Keeping): KeptSaid =
 	when (keeping) {
 		is Keeping.Followed ->
-			"Changes are followed as they happen by ${nameOf(keeping.by)}." to
-				"Through ${keeping.through}. Rebuilding reads every folder again."
-		is Keeping.Rescanned -> {
-			val minutes = keeping.every.inWholeMinutes
-			val instead = "so every folder is read again every $minutes minutes"
-
-			when (keeping.why) {
-				Unfollowed.TurnedOff -> "Changes aren't followed as they happen, $instead."
-				is Unfollowed.Failed ->
-					"${followerHere.replaceFirstChar(Char::uppercase)} isn't running, $instead."
-			} to detailOf(keeping.why)
-		}
+			KeptSaid(
+				Tone.Good,
+				"Live monitoring via ${keeping.by.label}",
+				keeping.through
+					.removePrefix(keeping.by.label)
+					.trimStart(',', ' ')
+					.takeIf { it.isNotEmpty() }
+					?.replaceFirstChar(Char::uppercase),
+			)
+		is Keeping.Rescanned ->
+			KeptSaid(
+				// Turned off, that is as it was asked to be; unavailable, it is not.
+				if (keeping.why == Unfollowed.TurnedOff)
+					Tone.Good
+				else
+					Tone.Bad,
+				"Periodic rescan, ${nextIn(keeping.next)}",
+				whyOf(keeping.why),
+			)
 		is Keeping.Unkept ->
-			"The index isn't kept up to date on its own: rebuild it to bring it up to date." to
-				detailOf(keeping.why).let {
-					if (keeping.why == Unfollowed.TurnedOff)
-						"Continuous monitoring and fallback scans are turned off below."
-					else
-						"$it Fallback scans are turned off below."
-				}
+			KeptSaid(
+				Tone.Off,
+				"Indexing disabled",
+				when (keeping.why) {
+					Unfollowed.TurnedOff -> "Live monitoring and periodic rescan are off."
+					is Unfollowed.Failed -> "${whyOf(keeping.why)} Periodic rescan is off."
+				} + " The index only changes when rebuilt.",
+			)
 	}
 
-/**
- * What the index does on its own, each turned on or off: read every folder as prism starts, follow changes as they
- * happen, read every folder now and then while nothing follows them, and keep what it hears for the monitor.
- */
+/** The switches for what the index does on its own: rescan on startup, live monitoring, periodic rescan, the log. */
 @Composable
 private fun Upkeeping(upkeep: IndexUpkeep, onUpkeep: (IndexUpkeep) -> Unit) {
 	val type = LocalType.current
 
+	@Composable
+	fun Toggle(
+		title: String,
+		description: String,
+		on: Boolean,
+		tag: String,
+		set: (Boolean) -> IndexUpkeep,
+	) = SettingRow(title, description = description) {
+		Switch(on, Modifier.testTag(tag)) { onUpkeep(set(it)) }
+	}
+
 	Column(verticalArrangement = Arrangement.spacedBy(Space.s)) {
-		Text("Keeping the index up to date", style = type.heading)
+		Text("Index updates", style = type.heading)
 		Text(
-			"With the first three off, the index changes only when you rebuild it. Searches use it either way.",
+			"With the first three off, the index only changes when you rebuild it. Searches " +
+				"always use the index.",
 			style = type.muted,
 		)
 		Card {
-			SettingRow(
-				"Scan on start",
-				description =
-					"Read every folder when prism starts, to find what changed while it " +
-						"wasn't running.",
-			) {
-				Switch(upkeep.scanOnStart, Modifier.testTag("upkeep-scan-on-start")) {
-					onUpkeep(upkeep.copy(scanOnStart = it))
-				}
-			}
-			SettingRow(
-				"Continuous monitoring",
-				description =
-					if (Os.current == Os.Windows)
-						"Follow changes as they happen. Prism can't do this on Windows yet."
-					else
-						"Follow changes as they happen, with $followerHere.",
-			) {
-				Switch(upkeep.watch, Modifier.testTag("upkeep-watch")) {
-					onUpkeep(upkeep.copy(watch = it))
-				}
-			}
-			SettingRow(
-				"Fallback scans",
-				description =
-					"While changes aren't followed as they happen, read every folder " +
-						"again now and then.",
-			) {
-				Switch(upkeep.fallbackScans, Modifier.testTag("upkeep-fallback")) {
-					onUpkeep(upkeep.copy(fallbackScans = it))
-				}
-			}
-			SettingRow(
-				"Index monitoring",
-				description =
-					"Keep the last minute of changes the index hears, to look at with Monitor.",
-			) {
-				Switch(upkeep.monitor, Modifier.testTag("upkeep-monitor")) {
-					onUpkeep(upkeep.copy(monitor = it))
-				}
-			}
+			Toggle(
+				"Rescan on startup",
+				"Rescan all indexed folders when prism starts.",
+				upkeep.scanOnStart,
+				"upkeep-scan-on-start",
+			) { upkeep.copy(scanOnStart = it) }
+			Toggle(
+				"Live monitoring",
+				if (FeedKind.here == null)
+					"Update the index as files change. Not yet supported on Windows."
+				else
+					"Update the index as files change, using $monitorHere.",
+				upkeep.watch,
+				"upkeep-watch",
+			) { upkeep.copy(watch = it) }
+			Toggle(
+				"Periodic rescan",
+				"Rescan all indexed folders every 30 minutes while live monitoring is off or " +
+					"unavailable.",
+				upkeep.fallbackScans,
+				"upkeep-fallback",
+			) { upkeep.copy(fallbackScans = it) }
+			Toggle(
+				"Event log",
+				"Record the last 60 seconds of file system events, for the index monitor.",
+				upkeep.monitor,
+				"upkeep-monitor",
+			) { upkeep.copy(monitor = it) }
 		}
 	}
 }
