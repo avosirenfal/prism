@@ -37,15 +37,20 @@ value class ScrollSpeed private constructor(
 			if (times.isNaN())
 				USUAL
 			else
-				ScrollSpeed((times * QUARTERS).coerceIn(SLOWEST.toFloat(), FASTEST.toFloat()).roundToInt())
+				ScrollSpeed(
+					(times * QUARTERS).coerceIn(SLOWEST.toFloat(), FASTEST.toFloat()).roundToInt(),
+				)
 	}
 }
 
 /** A speed as the file writes it: how many times as far as usual, `1.5`; read back as the nearest there is. */
 object ScrollSpeedSerializer : KSerializer<ScrollSpeed> {
-	override val descriptor = PrimitiveSerialDescriptor("prism.ScrollSpeed", PrimitiveKind.FLOAT)
+	override val descriptor =
+		PrimitiveSerialDescriptor("prism.ScrollSpeed", PrimitiveKind.FLOAT)
 
-	override fun serialize(encoder: Encoder, value: ScrollSpeed) = encoder.encodeFloat(value.times)
+	override fun serialize(encoder: Encoder, value: ScrollSpeed) =
+		encoder.encodeFloat(value.times)
 
-	override fun deserialize(decoder: Decoder): ScrollSpeed = ScrollSpeed.nearest(decoder.decodeFloat())
+	override fun deserialize(decoder: Decoder): ScrollSpeed =
+		ScrollSpeed.nearest(decoder.decodeFloat())
 }

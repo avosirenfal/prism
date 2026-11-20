@@ -1077,7 +1077,12 @@ fun <T> Slider(
 	val source = remember { MutableInteractionSource() }
 	val felt = source.felt()
 	val at = options.indexOf(chosen).coerceAtLeast(0)
-	val fraction = if (options.size > 1) at / options.lastIndex.toFloat() else 0f
+	val fraction =
+		if (options.size > 1)
+			at / options.lastIndex.toFloat()
+		else
+			0f
+
 	// Read as the pointer moves, so that a slide goes on choosing from what is shown now, not from where it started.
 	val toward by rememberUpdatedState { index: Int ->
 		options.getOrNull(index)?.takeIf { it != chosen }?.let(onChoose)
@@ -1113,7 +1118,8 @@ fun <T> Slider(
 						val travel = (size.width - knob).coerceAtLeast(1f)
 
 						// The option whose place on the track is nearest [x].
-						fun slid(x: Float) = step(((x - knob / 2) / travel * options.lastIndex).roundToInt())
+						fun slid(x: Float) =
+							step(((x - knob / 2) / travel * options.lastIndex).roundToInt())
 
 						val down = awaitFirstDown()
 
@@ -1151,7 +1157,15 @@ fun <T> Slider(
 				.padding(start = Dims.knob / 2)
 				.width(travel * fraction)
 				.height(Dims.sliderTrack)
-				.background(if (felt.hovered && enabled) palette.accentHover else palette.accent, CircleShape),
+				.background(
+					if (felt.hovered &&
+						enabled
+					)
+						palette.accentHover
+					else
+						palette.accent,
+					CircleShape,
+				),
 		)
 		Box(
 			Modifier

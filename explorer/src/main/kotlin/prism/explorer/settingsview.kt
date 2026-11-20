@@ -286,7 +286,8 @@ private fun InputPage(settings: Settings, onChange: (Settings) -> Unit) {
 	) {
 		Section(
 			"Scrolling",
-			description = "How the mouse wheel and the touchpad scroll lists and pages in every window.",
+			description =
+				"How the mouse wheel and the touchpad scroll lists and pages in every window.",
 		) {
 			Card {
 				SettingRow(
@@ -310,7 +311,8 @@ private fun InputPage(settings: Settings, onChange: (Settings) -> Unit) {
 				}
 				SettingRow(
 					"Scroll sensitivity",
-					description = "How far a notch of the wheel, or a swipe, scrolls. 100 % is three rows a notch.",
+					description =
+						"How far a notch of the wheel, or a swipe, scrolls. 100 % is three rows a notch.",
 				) {
 					Text(
 						percentOf(settings.scrollSpeed),
@@ -329,7 +331,8 @@ private fun InputPage(settings: Settings, onChange: (Settings) -> Unit) {
 }
 
 /** A speed as the Input page says it: as a percentage of the usual, "150 %". */
-private fun percentOf(speed: ScrollSpeed): String = "${(speed.times * 100).roundToInt()} %"
+private fun percentOf(speed: ScrollSpeed): String =
+	"${(speed.times * 100).roundToInt()} %"
 
 /** The glyph a page is listed by. */
 private fun glyphOf(page: Page): Glyph =
