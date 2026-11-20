@@ -59,13 +59,22 @@ data class Changed(
 	val name: Name?,
 )
 
+/** Which of an index's roots are read as it opens. */
+enum class OnOpen {
+	/** Every one: those its file does not hold, and those it does, for what changed while nothing was watching. */
+	ReadAll,
+
+	/** Those its file does not hold: what changed in the rest is told by a feed that takes up where the last left off. */
+	ReadNew,
+
+	/** None: the index is as its file holds it, or empty, until it is told to read ([LiveIndex.rescanRoots]). */
+	ReadNone,
+}
+
 /** How a live index goes about its work. */
 data class LiveSettings(
-	/**
-	 * Whether the roots are read again as the index opens, where its file holds them already: what was changed while
-	 * nothing was watching is found so. Roots the file does not hold are read whatever this says.
-	 */
-	val readRootsOnOpen: Boolean = true,
+	/** Which roots are read as the index opens. */
+	val onOpen: OnOpen = OnOpen.ReadAll,
 	/** How long a place read for a search alone is kept, unasked for, before it is let go. */
 	val keepAdHoc: Duration = 10.minutes,
 	/** What is mounted, each time it is asked. */
@@ -134,6 +143,8 @@ class LiveIndex private constructor(
 	private val away: Away,
 	/** Called with what a scan read before what it read is made: for a test to hold a scan, and change the disk meanwhile. */
 	private val beforeMaking: (Set<Where>) -> Unit,
+	/** The roots asked for, which the index holds once they are read. */
+	roots: Set<Where>,
 	read: Set<Where>,
 ) : AutoCloseable {
 	/**
@@ -194,6 +205,12 @@ class LiveIndex private constructor(
 	 * search, which so need not wait for a change being made.
 	 */
 	private var adHoc: Map<Where, AdHoc> by Published(emptyMap())
+
+	/**
+	 * The roots asked for: those given as the index opened, and those added since ([index]). What [rescanRoots] reads,
+	 * whether or not the index holds them yet. Set as a change is made ([changing]).
+	 */
+	private var roots: Set<Where> by Published(roots)
 
 	private val scanIds = AtomicInteger()
 
@@ -341,7 +358,10 @@ class LiveIndex private constructor(
 		val places = paths.map(Where::of).toSet()
 
 		// Asked for outright, they are read whatever is mounted there.
-		changing.guarded { indexer = indexer.mounted(indexer.mounts, index.roots + places) }
+		changing.guarded {
+			roots = roots + places
+			indexer = indexer.mounted(indexer.mounts, index.roots + places)
+		}
 
 		return scan(places) { places.map(indexer::index) }
 	}
@@ -510,11 +530,15 @@ class LiveIndex private constructor(
 		}
 	}
 
-	/** Every root read again, as it is now: what is done where changes may have been missed. */
-	fun rescanRoots(): CompletableFuture<Unit> =
-		scan(index.roots, whole = true) {
-			index.roots.map(indexer::index)
-		}
+	/**
+	 * Every root read again, as it is now: what is done where changes may have been missed. A root asked for that the
+	 * index does not hold yet (none was read as it opened) is read too.
+	 */
+	fun rescanRoots(): CompletableFuture<Unit> {
+		val all = roots + index.roots
+
+		return scan(all, whole = true) { all.map(indexer::index) }
+	}
 
 	/**
 	 * Each of [paths], a file or a folder, read again as it is now, with everything under it. Completes once what was
@@ -663,9 +687,9 @@ class LiveIndex private constructor(
 	companion object {
 		/**
 		 * The live index whose file is [file] (null: in memory alone), of [roots], read by [indexer]. Opens at once,
-		 * with what the file holds (or nothing, where there is none), and reads its roots in the background: those the
-		 * file does not hold, and, unless [LiveSettings.readRootsOnOpen] says otherwise, those it does. Roots the file
-		 * holds that are no longer asked for are let go. [LiveIndex.opened] completes once the roots are read.
+		 * with what the file holds (or nothing, where there is none), and reads its roots in the background, as
+		 * [LiveSettings.onOpen] says: every one, those the file does not hold, or none. Roots the file holds that are
+		 * no longer asked for are let go. [LiveIndex.opened] completes once the roots are read.
 		 */
 		fun open(
 			file: Path?,
@@ -690,10 +714,11 @@ class LiveIndex private constructor(
 				store.make(forgotten.map(Change::Absent))
 
 			val read =
-				if (settings.readRootsOnOpen)
-					wanted
-				else
-					wanted - held
+				when (settings.onOpen) {
+					OnOpen.ReadAll -> wanted
+					OnOpen.ReadNew -> wanted - held
+					OnOpen.ReadNone -> emptySet()
+				}
 
 			val listed = LongAdder()
 
@@ -704,6 +729,7 @@ class LiveIndex private constructor(
 				settings,
 				Away.beside(file),
 				beforeMaking,
+				wanted,
 				read,
 			)
 		}

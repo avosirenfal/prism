@@ -576,7 +576,7 @@ private fun SettingsWindow(
 			terminals = terminals,
 			graphics = graphics,
 			onCopy = ::toClipboard,
-			onRebuild = explorer.finder?.takeIf { it.rebuilds }?.let { it::rebuild },
+			index = explorer.finder?.takeIf { it.rebuilds },
 			thumbnails = facts,
 			relocating = relocating,
 			onRelocate = relocator::ask,

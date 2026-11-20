@@ -437,7 +437,30 @@ hidden"). The user's own rules come first, with the field that adds one: a folde
 page is ever wrong. Under them are prism's own, each with a switch. Every rule says what it does, Ignored (not
 indexed) or Hidden (indexed, and found only by a search that includes its path), and is changed where it says so;
 Reset puts prism's own back as they come. Applied, the running prism's index is made to agree at once. The launcher's
-settings have the same page (`ExcludingPage`, `explorer/excludingpage.kt`).
+settings have the same page (`ExcludingPage`, `explorer/excludingpage.kt`), without what is above the rules.
+
+Above them, in the preferences' own window, is the index itself. Its card says how the index is kept as the disk
+changes (`Keeping`, which the daemon says of itself): "Changes are followed as they happen by the eBPF probe" (or
+FSEvents), and through what; or that the probe isn't running, and why, so every folder is read again every 30 minutes;
+or that nothing keeps it, and it changes only when it is rebuilt. While it is being read, it says how far that has got
+instead. Beside it are Rebuild index and Monitor.
+
+Under it, "Keeping the index up to date" has four switches, all on unless turned off (`"indexing"`, `IndexUpkeep`):
+Scan on start (`scanOnStart`: every folder read as prism starts), Continuous monitoring (`watch`: the eBPF probe on
+Linux, FSEvents on a Mac), Fallback scans (`fallbackScans`: every folder read again now and then while nothing follows
+the changes) and Index monitoring (`monitor`: the last minute of what the index hears kept for the monitor). Applied,
+the running daemon does as they say at once (docs/daemon.md, "What the daemon does on its own"); with the first three
+off, the index changes only when it is rebuilt, and searches use it all the same.
+
+**The index monitor** (`explorer/indexmonitor.kt`) is what the index heard happen on the disk in the last minute
+(docs/daemon.md, "The index monitor"), by who did it: each process's changes over five seconds are one entry, latest
+first, with the process's name and id, when it began and how many changes it has ("200 of 1,523 changes" where it
+kept the first 200). An entry's Changes shows its changes in its place, each with exactly when it was heard, what was
+done and the path it was done to; Back, or Escape, goes back. It is read again twice a second, unless Pause log is
+pressed: then it holds a copy of the log as it was until it is resumed or closed, and the log goes on noting what is
+heard. Ctrl+F (Cmd+F) finds, in either: the entries whose process's name has what is typed, then those with a change
+whose path has it; and an entry's changes by their paths. Its state is a small value (`Monitoring`: closed, the
+entries, or one entry's changes over them), and what each shows is worked out from it and the log alone.
 
 ![The Indexing page](indexing.png)
 

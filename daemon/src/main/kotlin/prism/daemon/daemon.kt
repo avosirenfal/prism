@@ -17,12 +17,16 @@ import kotlin.time.Duration.Companion.days
 import kotlin.time.Duration.Companion.hours
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
+import prism.index.ActivityLog
+import prism.index.FeedKind
 import prism.index.FileId
 import prism.index.IgnoreRules
 import prism.index.Index
 import prism.index.IndexStore
 import prism.index.Indexer
+import prism.index.Keeping
 import prism.index.Name
+import prism.index.Unfollowed
 import prism.index.Where
 import prism.macos.EventStream
 import prism.macos.FsEvent
@@ -42,10 +46,19 @@ fun interface Feed {
 	fun start(seen: (List<Changed>) -> Unit): Feeding
 
 	companion object {
-		/** The eBPF watcher's changes, each made into what a live index takes ([changedOf]). */
-		val KERNEL =
+		/**
+		 * The eBPF watcher's changes, each made into what a live index takes ([changedOf]), and noted as they are heard
+		 * in [log], where there is one.
+		 */
+		fun kernel(log: ActivityLog? = null) =
 			Feed { seen ->
-				when (val started = Watcher.start { batch -> seen(batch.flatMap(::changedOf)) }) {
+				val started =
+					Watcher.start { batch ->
+						log?.heardObserved(batch)
+						seen(batch.flatMap(::changedOf))
+					}
+
+				when (started) {
 					is Watcher.Start.NotRunning -> Feeding.Off(started.why)
 					is Watcher.Start.Running ->
 						Feeding.On(
@@ -53,6 +66,7 @@ fun interface Feed {
 							lost = started.watcher::lost,
 							stopped = { started.watcher.stopped },
 							through = started.through,
+							kind = FeedKind.EbpfProbe,
 						)
 				}
 			}
@@ -67,12 +81,13 @@ fun interface Feed {
 		 *
 		 * The changes are those [since] an event's id, where one is given ([History]): what FSEvents recorded while
 		 * no daemon ran is told first. Where its record no longer goes back that far, it says to read everything
-		 * again, which is counted as lost.
+		 * again, which is counted as lost. Each is noted as it is heard in [log], where there is one.
 		 */
 		fun fsEvents(
 			roots: List<Path>,
 			since: Long = EventStream.SINCE_NOW,
 			heard: (List<FsEvent>) -> Unit = {},
+			log: ActivityLog? = null,
 		) = Feed { seen ->
 			val lost = AtomicLong(0)
 			val last = AtomicLong(since)
@@ -87,6 +102,7 @@ fun interface Feed {
 				) { batch ->
 					if (batch.any { event -> event.flags.any { it in FSEVENTS_LOST } })
 						lost.incrementAndGet()
+					log?.heardFsEvents(batch)
 					seen(batch.mapNotNull(::changedOf))
 					heard(batch)
 					// Once given: a place kept is one whose changes were at least handed on.
@@ -103,16 +119,24 @@ fun interface Feed {
 					else
 						"FSEvents, from where the last daemon left off",
 					at = { last.get().takeIf { id -> id > 0 } },
+					kind = FeedKind.FsEvents,
 				)
 			}
 				?: Feeding.Off("macOS would not start a stream of FSEvents")
 		}
 
-		/** The feed of the platform this runs on, of changes under [roots]: the kernel's watcher on Linux, FSEvents on a Mac. */
-		fun of(roots: List<Path>, heard: (List<FsEvent>) -> Unit = {}): Feed =
+		/**
+		 * The feed of the platform this runs on, of changes under [roots]: the kernel's watcher on Linux, FSEvents on a
+		 * Mac; each noting what it hears in [log], where there is one.
+		 */
+		fun of(
+			roots: List<Path>,
+			heard: (List<FsEvent>) -> Unit = {},
+			log: ActivityLog? = null,
+		): Feed =
 			when (Os.current) {
-				Os.Linux -> KERNEL
-				Os.MacOS -> fsEvents(roots, heard = heard)
+				Os.Linux -> kernel(log)
+				Os.MacOS -> fsEvents(roots, heard = heard, log = log)
 				Os.Windows -> none("prism has no watcher for Windows yet")
 			}
 
@@ -144,12 +168,31 @@ sealed interface Feeding {
 		 * record, which can only say what happens while it watches.
 		 */
 		val at: () -> Long? = { null },
+		/** What hears the changes. */
+		val kind: FeedKind = FeedKind.Other,
 	) : Feeding
 
 	/** Not feeding, and [why]. */
 	data class Off(
 		val why: String,
 	) : Feeding
+
+	/** Not started: the daemon was told not to follow changes as they happen ([Upkeep.watch]). */
+	data object Unstarted : Feeding
+}
+
+/**
+ * What a daemon does on its own to keep its index as the disk is: read its roots again as it starts ([scanOnStart]),
+ * follow changes as they happen ([watch]), and read its roots again every so often while nothing follows them
+ * ([fallbackScans]). With none of them, the index changes only when it is told to read ([Daemon.rescanRoots]).
+ */
+data class Upkeep(
+	val scanOnStart: Boolean = true,
+	val watch: Boolean = true,
+	val fallbackScans: Boolean = true,
+) {
+	/** Whether anything keeps the index on its own once it is open. */
+	val keeps: Boolean get() = watch || fallbackScans
 }
 
 /**
@@ -231,6 +274,10 @@ data class DaemonSettings(
 	val roots: List<Path> = listOf(Path("/")),
 	val indexer: Indexer = Indexer(),
 	val live: LiveSettings = LiveSettings(),
+	/** What the daemon does on its own to keep the index, as it starts; changed as it runs by [Daemon.upkeep]. */
+	val upkeep: Upkeep = Upkeep(),
+	/** Where what the platform's feed hears is noted, for the index monitor; nowhere, where null. */
+	val log: ActivityLog? = null,
 	/** How often places read for searches alone are let go, the watcher looked at, and whether it is time to write asked. */
 	val tick: Duration = 5.seconds,
 	/**
@@ -268,6 +315,10 @@ data class DaemonSettings(
  * are read again, since what was lost cannot be known. Without a watcher (where the kernel will not load one), the
  * daemon runs all the same, and reads its roots again every [DaemonSettings.rescanWithoutWatcher].
  *
+ * **What it does on its own** is its [Upkeep], which can be changed as it runs ([upkeep]): changes followed as they
+ * happen or not (the feed started, or stopped), and the roots read again for want of a feed or not. Turned on again,
+ * the feed hears what happens from then on; what happened while it was off is found by a rebuild.
+ *
  * **What goes wrong.** Nothing that fails here stops the daemon: each failure is reported
  * ([DaemonSettings.report]) and gone on from, by the same means as everything else is recovered from, which is reading
  * the disk again. A scan that fails is read again at the next reading of the roots; changes that could not be made
@@ -278,6 +329,8 @@ data class DaemonSettings(
 class Daemon private constructor(
 	val live: LiveIndex,
 	feeding: Feeding,
+	/** The feed started again, as it was as the daemon started: its changes queued for the index, and told of. */
+	private val starting: () -> Feeding,
 	private val relay: Relay,
 	private val settings: DaemonSettings,
 	/** Where the feed's place is kept, for the daemon started next; null where the feed has none to keep. */
@@ -290,12 +343,42 @@ class Daemon private constructor(
 		data class Off(
 			val why: String,
 		) : Watching
+
+		/** Not running, as the daemon's [Upkeep] says. */
+		data object TurnedOff : Watching
 	}
 
+	/**
+	 * The feed, as it is now. Set on the thread that ticks alone ([ticks]), as it is started, stopped and found to
+	 * have stopped; read by any.
+	 */
 	private var feeding: Feeding by Published(feeding)
+
+	/** What the daemon does on its own to keep the index, as it is now: set as [feeding] is, read by any. */
+	var upkeep: Upkeep by Published(settings.upkeep)
+		private set
 
 	/** What the changes come through, while they are watched. */
 	val through: String? get() = (feeding as? Feeding.On)?.through
+
+	/** What hears the changes, while they are watched. */
+	val kind: FeedKind? get() = (feeding as? Feeding.On)?.kind
+
+	/** How the index is kept as the disk changes now, as the user is told of it. */
+	val keeping: Keeping
+		get() {
+			val why =
+				when (val now = watching) {
+					Watching.On -> return Keeping.Followed(kind ?: FeedKind.Other, through.orEmpty())
+					is Watching.Off -> Unfollowed.Failed(now.why)
+					Watching.TurnedOff -> Unfollowed.TurnedOff
+				}
+
+			return if (upkeep.fallbackScans)
+				Keeping.Rescanned(why, settings.rescanWithoutWatcher)
+			else
+				Keeping.Unkept(why)
+		}
 
 	/** Whether changes are being watched, and where they are not, why. */
 	val watching: Watching
@@ -303,6 +386,7 @@ class Daemon private constructor(
 			when (val now = feeding) {
 				is Feeding.On -> now.stopped()?.let(Watching::Off) ?: Watching.On
 				is Feeding.Off -> Watching.Off(now.why)
+				Feeding.Unstarted -> Watching.TurnedOff
 			}
 
 	private val ticks: ScheduledExecutorService =
@@ -345,10 +429,12 @@ class Daemon private constructor(
 		}, every, every, TimeUnit.MILLISECONDS)
 		// What is mounted, looked at from the first moment and often: a file system that goes has its tree kept, and
 		// one that comes is in the index, within a look of it happening.
+		// Not where nothing keeps the index on its own: a file system mounted is read only once a rebuild is asked for.
 		ticks.scheduleWithFixedDelay({
-			carrying("looking at what is mounted") {
-				reported("reading what was mounted", live.remounted())
-			}
+			if (upkeep.keeps)
+				carrying("looking at what is mounted") {
+					reported("reading what was mounted", live.remounted())
+				}
 		}, 0, settings.mounts.inWholeMilliseconds, TimeUnit.MILLISECONDS)
 		ticks.scheduleWithFixedDelay({
 			carrying("letting go of file systems long unmounted") { live.expire() }
@@ -395,13 +481,38 @@ class Daemon private constructor(
 				lost = count
 				now.stopped()?.let { why -> feeding = Feeding.Off(why) }
 			}
-			is Feeding.Off ->
-				if (System.nanoTime() - rescanned >
-					settings.rescanWithoutWatcher.inWholeNanoseconds
+			is Feeding.Off, Feeding.Unstarted ->
+				if (upkeep.fallbackScans &&
+					System.nanoTime() - rescanned > settings.rescanWithoutWatcher.inWholeNanoseconds
 				) {
 					rescanned = System.nanoTime()
 					rescanRoots()
 				}
+		}
+	}
+
+	/**
+	 * What the daemon does on its own made [wanted], from as soon as the thread that ticks gets to it: the feed
+	 * started where it is to watch and does not (or stopped watching), and stopped where it is not to. Started
+	 * again, it hears what happens from then on.
+	 */
+	fun upkeep(wanted: Upkeep) {
+		ticks.execute {
+			carrying("changing how the index is kept") {
+				val now = feeding
+
+				upkeep = wanted
+				if (wanted.watch && (now !is Feeding.On || now.stopped() != null)) {
+					(now as? Feeding.On)?.stop?.close()
+					feeding = starting()
+					lost = (feeding as? Feeding.On)?.lost?.invoke() ?: 0
+				} else if (!wanted.watch && now !is Feeding.Unstarted) {
+					(now as? Feeding.On)?.stop?.close()
+					feeding = Feeding.Unstarted
+				}
+				// Read again for want of a feed from now, not from when the daemon started.
+				rescanned = System.nanoTime()
+			}
 		}
 	}
 
@@ -554,9 +665,13 @@ class Daemon private constructor(
 		 * by FSEvents.
 		 */
 		fun start(settings: DaemonSettings): Daemon {
+			val feed = Feed.of(settings.roots, settings.telling.heard, settings.log)
+			// What FSEvents kept while no daemon ran is told only to a daemon that is to watch.
 			val history =
-				settings.file?.takeIf { Os.current == Os.MacOS }?.let(History::beside)
-					?: return start(settings, Feed.of(settings.roots, settings.telling.heard), null) {}
+				settings.file
+					?.takeIf { Os.current == Os.MacOS && settings.upkeep.watch }
+					?.let(History::beside)
+					?: return start(settings, feed, null) {}
 			val rules = rulesOf(settings.indexer.rules)
 			val kept =
 				history.read()?.takeIf {
@@ -568,11 +683,11 @@ class Daemon private constructor(
 			history.forget()
 
 			return if (kept == null)
-				start(settings, Feed.of(settings.roots, settings.telling.heard), history) {}
+				start(settings, feed, history) {}
 			else
 				start(
-					settings.copy(live = settings.live.copy(readRootsOnOpen = false)),
-					Feed.fsEvents(settings.roots, kept.id, settings.telling.heard),
+					settings.copy(live = settings.live.copy(onOpen = OnOpen.ReadNew)),
+					Feed.fsEvents(settings.roots, kept.id, settings.telling.heard, settings.log),
 					history,
 				) {}.also {
 					// Rules added while no daemon ran: what they leave out is taken out, which reads nothing.
@@ -591,7 +706,7 @@ class Daemon private constructor(
 
 			// The watcher first: from here on, nothing is missed, and what is seen waits in the queue for the index.
 			// A feed that cannot even say why it will not start is no feed, and the daemon runs without.
-			val feeding =
+			fun starting(): Feeding =
 				try {
 					feed.start { batch ->
 						relay.seen(batch)
@@ -608,22 +723,34 @@ class Daemon private constructor(
 					Feeding.Off("the watcher couldn't start: $failed")
 				}
 
+			val feeding =
+				if (settings.upkeep.watch)
+					starting()
+				else
+					Feeding.Unstarted
+
+			// Not read as the index opens, where it is not to be: it is as its file holds it until it is told to.
 			val live =
 				LiveIndex.open(
 					settings.file,
 					settings.roots,
 					settings.indexer,
-					settings.live,
+					if (settings.upkeep.scanOnStart)
+						settings.live
+					else
+						settings.live.copy(onOpen = OnOpen.ReadNone),
 					beforeMaking,
 				)
 
 			relay.into(live)
 
 			// A feed that did not start told nothing of what changed before: the roots are read after all.
-			if (feeding is Feeding.Off && !settings.live.readRootsOnOpen)
+			if (feeding !is Feeding.On && settings.upkeep.scanOnStart &&
+				settings.live.onOpen == OnOpen.ReadNew
+			)
 				live.rescanRoots()
 
-			return Daemon(live, feeding, relay, settings, history)
+			return Daemon(live, feeding, ::starting, relay, settings, history)
 		}
 	}
 }

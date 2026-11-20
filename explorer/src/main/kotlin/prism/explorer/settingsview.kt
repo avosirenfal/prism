@@ -75,6 +75,7 @@ import prism.browser.Dims
 import prism.browser.Divider
 import prism.browser.EmptyState
 import prism.browser.Field
+import prism.browser.Finder
 import prism.browser.Glyph
 import prism.browser.GlyphIcon
 import prism.browser.Keyboard
@@ -169,8 +170,8 @@ fun SettingsView(
 	onUndo: () -> Unit = {},
 	onRedo: () -> Unit = {},
 	commands: Commands = ProcessCommands,
-	/** What reads the index anew, from the Indexing page; null where there is no index kept to read. */
-	onRebuild: (() -> Unit)? = null,
+	/** The index kept here, which the Indexing page rebuilds and monitors; null where none is kept. */
+	index: Finder? = null,
 	/** What the running prism says of its thumbnails, which the Thumbnails page shows. */
 	thumbnails: ThumbnailFacts = ThumbnailFacts(),
 	/** What is being asked or done about a change of the thumbnails' folder, drawn over the pages. */
@@ -216,7 +217,9 @@ fun SettingsView(
 			Page.Indexing ->
 				ExcludingPage(
 					settings.excluding,
-					onRebuild,
+					settings.indexing,
+					{ onChange(settings.copy(indexing = it)) },
+					index,
 				) { onChange(settings.copy(excluding = it)) }
 			Page.Thumbnails ->
 				ThumbnailsPage(

@@ -13,7 +13,10 @@ import prism.browser.Finder
 import prism.browser.IndexReading
 import prism.daemon.LiveIndex
 import prism.daemon.LiveSearch
+import prism.index.ActivityLog
+import prism.index.FileId
 import prism.index.Hiding
+import prism.index.Keeping
 import prism.index.SearchContext
 import prism.index.Searched
 import prism.index.Sighting
@@ -40,6 +43,9 @@ internal class LiveFinder(
 	private val patience: Duration = 5.seconds,
 	/** What searches leave out of what they find, as it is at each search. */
 	private val hiding: () -> Hiding = { Hiding.NONE },
+	/** How the index is kept as the disk changes, as the daemon says it now. */
+	private val kept: () -> Keeping? = { null },
+	override val activity: ActivityLog? = null,
 ) : Finder {
 	override fun find(query: Query): Searched {
 		fun searched() =
@@ -84,6 +90,14 @@ internal class LiveFinder(
 				Report.problem("reading the index anew failed", failed)
 		}
 	}
+
+	override fun keeping(): Keeping? = kept()
+
+	override fun folderAt(folder: FileId): String? =
+		live.index
+			.foldersAt(folder)
+			.firstOrNull()
+			?.toString()
 
 	override fun newest(count: Int, named: (String) -> Boolean): List<Sighting> =
 		live.index.newestFiles(count, hiding(), named)

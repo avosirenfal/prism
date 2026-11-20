@@ -6,10 +6,13 @@ import java.nio.file.Path
 import java.time.Instant
 import java.util.stream.IntStream
 import kotlin.io.path.Path
+import prism.index.ActivityLog
 import prism.index.Exclusion
 import prism.index.Exclusions
+import prism.index.FileId
 import prism.index.Hiding
 import prism.index.Index
+import prism.index.Keeping
 import prism.index.Results
 import prism.index.SearchContext
 import prism.index.Searched
@@ -83,6 +86,15 @@ interface Finder {
 
 	/** Every root of the index read again, as the disk is now: [reading] says how far it has got. */
 	fun rebuild() = Unit
+
+	/** How the index is kept as the disk changes, now; null for an index nothing keeps. */
+	fun keeping(): Keeping? = null
+
+	/** Where what the disk is heard doing is noted, for the index monitor; null where nothing notes it. */
+	val activity: ActivityLog? get() = null
+
+	/** Where the index has the folder the kernel names [folder]: its path, or null where it holds no such folder. */
+	fun folderAt(folder: FileId): String? = null
 
 	/** What [query] finds, best first, or why it cannot be run. */
 	fun find(query: Query): Searched

@@ -11,6 +11,7 @@ import kotlin.io.path.createDirectories
 import kotlin.io.path.writeText
 import kotlin.time.Duration.Companion.milliseconds
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -296,6 +297,86 @@ class DaemonTest {
 	}
 
 	@Test
+	fun notScanningOnStartReadsNothingUntilTheRootsAreAskedToBeRead() {
+		made("docs/a.txt")
+
+		val upkeep = Upkeep(scanOnStart = false, watch = false, fallbackScans = false)
+
+		Daemon.start(settings().copy(upkeep = upkeep), Given()).use { daemon ->
+			daemon.live.opened.get(30, TimeUnit.SECONDS)
+			assertEquals(emptySet<String>(), daemon.live.index.names())
+
+			// Rebuilt by hand, the roots are read though the index never held them.
+			daemon.rescanRoots().get(30, TimeUnit.SECONDS)
+			assertTrue("docs/a.txt" in daemon.live.index.names())
+		}
+	}
+
+	@Test
+	fun watchingTurnedOffStartsNoFeed_AndTurnedOnAndOffAsTheDaemonRunsStartsAndStopsIt() {
+		made("docs/a.txt")
+
+		val stopped = AtomicLong()
+
+		val feed =
+			object : Feed {
+				val started = AtomicLong()
+				var seen: (List<Changed>) -> Unit = {}
+
+				override fun start(seen: (List<Changed>) -> Unit): Feeding {
+					started.incrementAndGet()
+					this.seen = seen
+
+					return Feeding.On(
+						stop = AutoCloseable { stopped.incrementAndGet() },
+						lost = { 0 },
+						stopped = { null },
+					)
+				}
+			}
+
+		Daemon.start(settings().copy(upkeep = Upkeep(watch = false)), feed).use { daemon ->
+			daemon.live.opened.get(30, TimeUnit.SECONDS)
+			assertEquals(Daemon.Watching.TurnedOff, daemon.watching)
+			assertEquals(0, feed.started.get())
+
+			daemon.upkeep(Upkeep(watch = true))
+			eventually { daemon.watching == Daemon.Watching.On }
+			assertEquals(1, feed.started.get())
+
+			// Started again, what it hears is made.
+			made("docs/late.txt")
+			feed.seen(listOf(Changed(idOf("docs"), Name.of("late.txt"))))
+			eventually { "docs/late.txt" in daemon.live.index.names() }
+
+			daemon.upkeep(Upkeep(watch = false))
+			eventually { daemon.watching == Daemon.Watching.TurnedOff }
+			assertEquals(1, stopped.get())
+			assertEquals(Upkeep(watch = false), daemon.upkeep)
+		}
+	}
+
+	@Test
+	fun withoutAWatcherTheRootsAreReadAgainNowAndThen_UnlessFallbackScansAreOff() {
+		made("docs/a.txt")
+
+		val often = settings().copy(rescanWithoutWatcher = 200.milliseconds)
+
+		Daemon.start(often, Feed { Feeding.Off("no watcher here") }).use { daemon ->
+			daemon.live.opened.get(30, TimeUnit.SECONDS)
+			made("docs/unseen.txt")
+			eventually { "docs/unseen.txt" in daemon.live.index.names() }
+
+			daemon.upkeep(Upkeep(fallbackScans = false))
+			// Whatever scan was under way when it was turned off has landed by now.
+			Thread.sleep(500)
+			made("docs/never.txt")
+			Thread.sleep(1_000)
+			assertFalse("docs/never.txt" in daemon.live.index.names())
+		}
+	}
+
+	@Test
 	fun theKernelsOwnWatcherRunsOrSaysWhyNot() {
 		made("docs/a.txt")
 
@@ -303,6 +384,7 @@ class DaemonTest {
 			when (val watching = daemon.watching) {
 				Daemon.Watching.On -> Unit
 				is Daemon.Watching.Off -> assertTrue(watching.why.isNotBlank())
+				Daemon.Watching.TurnedOff -> error("watching is on unless it is turned off")
 			}
 			daemon.live.opened.get(30, TimeUnit.SECONDS)
 			assertTrue("docs/a.txt" in daemon.live.index.names())

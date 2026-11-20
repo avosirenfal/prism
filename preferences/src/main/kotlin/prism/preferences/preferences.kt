@@ -127,6 +127,8 @@ data class Preferences(
 	val sidebarShown: ShownIn = ShownIn.EVERYWHERE,
 	/** What the index leaves out, and what it holds that searches leave out. */
 	val excluding: Excluding = Excluding(),
+	/** What the index does on its own to stay as the disk is, and whether what it hears is kept to be looked at. */
+	val indexing: IndexUpkeep = IndexUpkeep(),
 	/**
 	 * How the small pictures of files are made and kept, where they are shown ([thumbnails]): the folder they are
 	 * kept in, how much is kept, how large they are made, and the programs that make them.

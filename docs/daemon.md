@@ -235,6 +235,55 @@ Without a watcher (the kernel would not load it, or there was no build of it), t
 its roots again every half hour. `prism daemon --foreground` runs one in place, saying which it is doing, and
 `prism status` asks one that is running.
 
+### What the daemon does on its own
+
+Each of the three things above is the user's to turn off (`Upkeep`, from the preferences' `"indexing"`), and each is
+changed as the daemon runs (`Daemon.upkeep`), on the thread that ticks, so that the feed is started and stopped by one
+thread alone:
+
+| switch | on | off |
+|---|---|---|
+| scan on start | the roots read as the index opens (`OnOpen.ReadAll`) | none read (`OnOpen.ReadNone`): the index is as its file holds it, or empty, until it is rebuilt |
+| continuous monitoring | the feed started | the feed not started, or stopped; started again, it hears what happens from then on |
+| fallback scans | the roots read again every half hour while there is no feed | not read again |
+
+What is mounted is looked at while either of the last two is on. With all three off, nothing changes the index but a
+rebuild (`LiveIndex.rescanRoots`, which reads the roots asked for whether or not the index holds them yet), and every
+search uses it as it is. How the index is kept now is said as a `Keeping` (`index/keeping.kt`): followed, and by what;
+read again every so often, and why nothing follows the changes; or not kept, and why. `prism status` and the
+preferences' Indexing page both say it.
+
+## The index monitor
+
+A change the index seems to have missed is one of two things: the feed never heard it, or it heard it and the index
+made nothing of it (a folder the index does not hold, or one the rules leave out). The index monitor tells them apart.
+Every batch a feed hears is noted, before anything is made of it, in an `ActivityLog` (`index/activity.kt`): the eBPF
+probe's by the process that made each change (`tgid`), FSEvents' by nobody it can say, since FSEvents says no process.
+
+Say `touch` (process 5123) makes seven files in three seconds, and a build makes 1,523 in two:
+
+1. The first of `touch`'s changes begins a **burst**: process 5123, from now. Each of its changes in the five seconds
+   after that is one more of the burst's; the burst's process name is read once, as it begins (`/proc/5123/comm`),
+   since a process that runs for a moment is gone by the time anyone looks.
+2. The build's first 200 changes are kept in its burst, and the rest only counted: the burst says 200 kept of 1,523
+   seen. One busy program cannot push everything else out of the log.
+3. A burst is kept for a minute from when it began, and its changes with it.
+
+The changes are records in memory outside the heap (`HeardRecords`, `index/heardrecords.kt`): a fixed header (when,
+the folder's device and inode, the burst, what was done) and the entry's name (or FSEvents' whole path) after it.
+They are written into chunks of 64 KiB in the order they are heard, and since they are let go in that order too, a
+chunk is let go whole once its newest record is too old; chunks let go are kept to be written in again. The log never
+takes more than 16 MiB: where every chunk is full, the oldest is let go however new, and its bursts count fewer kept.
+So a log of a hundred thousand changes is a few megabytes of bytes, with no object a change for the collector to walk.
+A folder is said by its device and inode as the kernel names it, and placed as a path only when it is shown (by the
+index's `foldersAt`), so noting a change looks nothing up.
+
+The log is written by the feed's thread and read by the window's, each under its lock (`Guarded`). Its bursts, and a
+burst's 200 changes at most, are read under it as they are shown. What would take long (finding a path among all the
+changes) is done in a **copy**: the log's memory copied once into memory of the copy's own, with its bursts as they
+were, which is then that moment's for good and which nothing waits on. Pausing the monitor holds such a copy.
+`ActivityTest` has each of the above.
+
 Nothing that fails in it stops it: each failure is reported and gone on from, by reading the disk again
 (docs/running.md, "What happens when something goes wrong", has each case). The daemon the command runs is also the
 session's prism: every prism window opens in it, and searches this index through a `Finder` over `LiveIndex.search`

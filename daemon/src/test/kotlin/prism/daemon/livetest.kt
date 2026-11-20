@@ -87,7 +87,7 @@ class LiveIndexTest {
 		// Opened again, its roots not read again: what the file holds, until it is told to read a place again.
 		made("docs/b.txt")
 
-		val asIs = LiveSettings(readRootsOnOpen = false)
+		val asIs = LiveSettings(onOpen = OnOpen.ReadNew)
 
 		LiveIndex.open(file, listOf(root), indexer, asIs).use { live ->
 			live.opened.done()
@@ -245,7 +245,7 @@ class LiveIndexTest {
 				file,
 				listOf(root.resolve("a")),
 				indexer,
-				LiveSettings(readRootsOnOpen = false),
+				LiveSettings(onOpen = OnOpen.ReadNew),
 			).use { live ->
 				assertEquals(setOf(where("a")), live.index.roots)
 				assertNull(live.index.find(where("b/y.txt")))

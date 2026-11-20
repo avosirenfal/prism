@@ -38,16 +38,20 @@ import prism.daemon.Listening
 import prism.daemon.LiveIndex
 import prism.daemon.LiveSearch
 import prism.daemon.Telling
+import prism.daemon.Upkeep
 import prism.dbus.Connection
 import prism.dbus.Opening
 import prism.desktop.asChildOfPrism
 import prism.desktop.macos.ApplicationSource
+import prism.index.ActivityLog
 import prism.index.Exclusion
 import prism.index.IgnoreRules
 import prism.index.Ignored
 import prism.index.Included
 import prism.index.IndexStore
 import prism.index.Indexer
+import prism.index.Keeping
+import prism.index.Unfollowed
 import prism.index.Usage
 import prism.index.UsageFile
 import prism.index.query.QueryText
@@ -58,6 +62,7 @@ import prism.macos.fullDiskAccess
 import prism.macos.protectedFolders
 import prism.platform.Os
 import prism.platform.OwnFolders
+import prism.preferences.IndexUpkeep
 import prism.preferences.preferences
 import prism.shared.Loaded
 import prism.shared.Stored
@@ -185,6 +190,9 @@ object DaemonCommand : Command(
 		prism.desktop.SessionEnvironment.warm()
 
 		val catalogue = KeptCatalogue().takeIf { Os.current == Os.MacOS }
+		// What the feed hears, kept for the last minute for the index monitor, as the preferences say.
+		val indexing = preferencesHere.preferences.value.indexing
+		val log = ActivityLog().apply { recording = indexing.monitor }
 		// The folders listened to in the feed that the index does not hold: the thumbnails' own.
 		val listening = Listening()
 
@@ -199,6 +207,8 @@ object DaemonCommand : Command(
 						Telling(it.whole, it.heard, listening::heard)
 					},
 				indexer = Indexer(rules = daemonRules()),
+				upkeep = upkeepOf(indexing),
+				log = log,
 				report = Report::whileDoing,
 			)
 
@@ -224,7 +234,7 @@ object DaemonCommand : Command(
 		followOwnApplication(::say)
 
 		say("$STARTED (process ${ProcessHandle.current().pid()})")
-		say(watchingLine(daemon, settings))
+		say(watchingLine(daemon))
 		say("reading ${settings.roots.joinToString()} (${originOf(daemon.live.origin)})")
 		daemon.live.opened.whenCompleteAsync { _, failed ->
 			// What it failed with is said by the daemon; what it holds is said either way.
@@ -253,6 +263,20 @@ object DaemonCommand : Command(
 			}
 		}
 
+		// What the index does on its own, changed in a settings window: done from then on.
+		Thread.ofPlatform().name("prism-upkeep").daemon().start {
+			runBlocking {
+				preferencesHere.preferences
+					.map { it.indexing }
+					.distinctUntilChanged()
+					.drop(1)
+					.collect {
+						daemon.upkeep(upkeepOf(it))
+						log.recording = it.monitor
+					}
+			}
+		}
+
 		if (Os.current == Os.MacOS)
 			watchDiskAccess(daemon)
 
@@ -266,7 +290,8 @@ object DaemonCommand : Command(
 						args[decorated],
 						Search.Ready(),
 						finderOf(
-							daemon.live,
+							daemon,
+							log,
 							home,
 							file != null,
 						),
@@ -302,7 +327,7 @@ object DaemonCommand : Command(
 				)
 
 			instance.says += { indexLine(daemon, settings) }
-			instance.says += { watchingLine(daemon, settings) }
+			instance.says += { watchingLine(daemon) }
 			instance.says += { keptLine(daemon) }
 			instance.says += { rulesLine() }
 			if (Os.current == Os.MacOS)
@@ -351,8 +376,16 @@ object DaemonCommand : Command(
 		)
 	}
 
-	/** What the daemon's windows search: its index as it is, ranked by what was picked, which is kept where [written]. */
-	private fun finderOf(live: LiveIndex, home: Path, written: Boolean): LiveFinder {
+	/**
+	 * What the daemon's windows search: its index as it is, ranked by what was picked, which is kept where [written];
+	 * and what they say of how it is kept, and of what the disk was heard doing ([log]).
+	 */
+	private fun finderOf(
+		daemon: Daemon,
+		log: ActivityLog,
+		home: Path,
+		written: Boolean,
+	): LiveFinder {
 		val file = UsageFile.default()
 		val read = UsageFile.read(file)
 
@@ -367,8 +400,23 @@ object DaemonCommand : Command(
 			else
 				Stored.inMemory(read.orElse(Usage.NONE))
 
-		return LiveFinder(live, home, usage) { exclusionsNow().hiding }
+		return LiveFinder(
+			daemon.live,
+			home,
+			usage,
+			hiding = { exclusionsNow().hiding },
+			kept = daemon::keeping,
+			activity = log,
+		)
 	}
+
+	/** What the daemon does on its own, as the preferences say. */
+	private fun upkeepOf(indexing: IndexUpkeep) =
+		Upkeep(
+			scanOnStart = indexing.scanOnStart,
+			watch = indexing.watch,
+			fallbackScans = indexing.fallbackScans,
+		)
 
 	/** How the index was opened, as the daemon says it as it starts. */
 	private fun originOf(origin: IndexStore.Origin): String =
@@ -486,13 +534,22 @@ object DaemonCommand : Command(
 					kept.joinToString { "${it.at}, ${"%,d".format(it.entries)} entries" } + ")"
 	}
 
-	private fun watchingLine(daemon: Daemon, settings: DaemonSettings): String =
-		when (val now = daemon.watching) {
-			Daemon.Watching.On ->
-				"changes: watched through ${daemon.through} and applied to the index as they happen"
-			is Daemon.Watching.Off ->
-				"changes: not watched (${now.why}); rescanning every " +
-					"${settings.rescanWithoutWatcher.inWholeMinutes} minutes instead"
+	private fun watchingLine(daemon: Daemon): String =
+		when (val now = daemon.keeping) {
+			is Keeping.Followed ->
+				"changes: watched through ${now.through} and applied to the index as they happen"
+			is Keeping.Rescanned ->
+				"changes: not watched (${saidOf(now.why)}); rescanning every " +
+					"${now.every.inWholeMinutes} minutes instead"
+			is Keeping.Unkept ->
+				"changes: not watched (${saidOf(now.why)}), and fallback rescans are turned off; " +
+					"the index changes only when it is rebuilt"
+		}
+
+	private fun saidOf(why: Unfollowed): String =
+		when (why) {
+			Unfollowed.TurnedOff -> "turned off in the preferences"
+			is Unfollowed.Failed -> why.why
 		}
 
 	/**
