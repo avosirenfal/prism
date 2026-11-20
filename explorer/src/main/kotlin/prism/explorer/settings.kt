@@ -23,6 +23,7 @@ import prism.preferences.Preferences
 import prism.preferences.Role
 import prism.preferences.Rows
 import prism.preferences.Scales
+import prism.preferences.ScrollSpeed
 import prism.preferences.TerminalChoiceSerializer
 import prism.preferences.Typography
 import prism.preferences.WhenSpec
@@ -46,6 +47,7 @@ enum class Page(
 	Layout("Layout"),
 	Menus("Context menus"),
 	Terminal("Terminal"),
+	Input("Input"),
 	Bindings("Key bindings"),
 	Aliases("Aliases"),
 	Actions("File actions"),
@@ -290,6 +292,8 @@ data class Settings(
 	val titlebar: Boolean = base.titlebar,
 	/** Which way the wheel scrolls the windows. */
 	val scrolling: ScrollDirection = base.scrolling,
+	/** How far the wheel scrolls the windows' lists. */
+	val scrollSpeed: ScrollSpeed = base.scrollSpeed,
 	val page: Page = Page.Display,
 	val looking: LookKey = LookKey(Role.Explorer, ListingKind.Folder),
 	val filteringIn: Layout = Layout.List,
@@ -436,6 +440,7 @@ data class Settings(
 			dates = kept(Preferences::dates, dates),
 			titlebar = kept(Preferences::titlebar, titlebar),
 			scrolling = kept(Preferences::scrolling, scrolling),
+			scrollSpeed = kept(Preferences::scrollSpeed, scrollSpeed),
 			// The other windows' sizes are each window's own, as Ctrl and the wheel leave them: never this window's.
 			scales =
 				current.scales.copy(

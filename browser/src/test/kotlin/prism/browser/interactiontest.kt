@@ -80,6 +80,7 @@ import prism.preferences.PreferenceStore
 import prism.preferences.Preferences
 import prism.preferences.QuickAccess
 import prism.preferences.QuickItem
+import prism.preferences.ScrollSpeed
 import prism.preferences.ShownIn
 import prism.preferences.Sort
 import prism.preferences.preferences
@@ -123,6 +124,7 @@ class InteractionTest {
 		width: State<Dp>? = null,
 		finder: Finder? = null,
 		preferences: PreferenceStore = MemoryPreferences(),
+		speed: ScrollSpeed = ScrollSpeed.USUAL,
 		check: ComposeUiTest.(Session) -> Unit,
 	) = runComposeUiTest {
 		val running = arrayOfNulls<Session>(1)
@@ -156,6 +158,7 @@ class InteractionTest {
 					LocalBindings provides Bindings.of(Preferences()),
 					// Nothing moves for its own sake, so that the view comes to rest and can be looked at.
 					LocalMotion provides false,
+					LocalScrollSpeed provides speed,
 				) {
 					Box(width?.let { Modifier.width(it.value) } ?: Modifier) { SessionBrowser(session) }
 				}
@@ -1895,6 +1898,26 @@ class InteractionTest {
 			zoomByWheel(4)
 			waitForIdle()
 			assertEquals(first, top("dir 04"), 1.5f)
+			wheel(1)
+			assertEquals(first, top("dir 07"), 1.5f)
+		}
+
+	@Test
+	fun aNotchMovesTheListAsManyTimesFurtherAsTheUserSpeedsItUp() =
+		picking(
+			folder =
+				work.also {
+					(1..60).forEach { n ->
+						it.resolve("dir %02d".format(n)).createDirectories()
+					}
+				},
+			speed = ScrollSpeed.nearest(2f),
+		) {
+			waitForIdle()
+
+			val first = top("dir 01")
+
+			// Twice as fast: a notch down moves six rows, and the seventh is where the first was.
 			wheel(1)
 			assertEquals(first, top("dir 07"), 1.5f)
 		}

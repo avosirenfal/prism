@@ -73,6 +73,9 @@ enum class Glyph {
 	/** A keyboard: what keys do. */
 	Keyboard,
 
+	/** A mouse, its wheel marked: how the pointer and the wheel are taken. */
+	Mouse,
+
 	/** A bolt: what is done on command, an action. */
 	Bolt,
 
@@ -251,6 +254,16 @@ fun DrawScope.drawGlyph(
 			for (x in listOf(6.5f, 10f, 13.5f, 17f))
 				drawCircle(tint, 0.9f * unit, at(unit, x, 10f))
 			stroked(unit, tint, listOf(8f to 14.5f, 16f to 14.5f))
+		}
+		Glyph.Mouse -> {
+			drawRoundRect(
+				tint,
+				at(unit, 6.5f, 3f),
+				Size(11f * unit, 18f * unit),
+				CornerRadius(5.5f * unit),
+				style = line(unit),
+			)
+			stroked(unit, tint, listOf(12f to 7f, 12f to 10f))
 		}
 		Glyph.Bolt ->
 			stroked(

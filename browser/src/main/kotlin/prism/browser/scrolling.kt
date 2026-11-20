@@ -22,9 +22,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.v2.ScrollbarAdapter
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.composed
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.isCtrlPressed
@@ -37,21 +39,27 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
+import prism.preferences.ScrollSpeed
 
 /*
  * What scrolls, and how. Everything in prism that scrolls is one of these: a column of anything ([ScrollArea]) or a lazy
  * list ([LazyScrollArea]), each with its bar beside it whenever there is more than fits, so that it is plain to see
  * that it scrolls, and each scrolled by the wheel a number of its own lines a notch ([wheelScrolled]), so that a notch
- * moves as far through what is shown however large it is drawn. A desktop's lists scroll three lines a notch.
+ * moves as far through what is shown however large it is drawn. A desktop's lists scroll three lines a notch; the user
+ * can have every list scroll so many times further, or less far ([LocalScrollSpeed]).
  */
 
-/** How many lines a notch of the wheel moves a list. */
+/** How many lines a notch of the wheel moves a list, at the usual speed. */
 const val LINES_A_NOTCH = 3f
+
+/** How far the wheel scrolls the lists composed within, as the user has it: so many times its usual lines a notch. */
+val LocalScrollSpeed = compositionLocalOf { ScrollSpeed.USUAL }
 
 /**
  * The wheel turned over [state]'s content scrolling it by [lines] of [line] a notch, gliding there, rather than by a
  * distance that knows nothing of what is shown: at any size, a notch moves as many rows. A touchpad's small scrolls
- * move it as much less as they are smaller. Ctrl with the wheel is left alone, for whatever zooms.
+ * move it as much less as they are smaller. Both go as many times further as [LocalScrollSpeed] says. Ctrl with the
+ * wheel is left alone, for whatever zooms, which counts notches as they come.
  *
  * Where what is shown is wider than its room too, the wheel with Shift held, and a touchpad's sideways scrolls, move it
  * [across] as far a notch.
@@ -65,6 +73,17 @@ fun Modifier.wheelScrolled(
 	line: Dp,
 	lines: Float = LINES_A_NOTCH,
 	across: ScrollableState? = null,
+): Modifier =
+	composed {
+		wheelScrolledBy(state, line, lines * LocalScrollSpeed.current.times, across)
+	}
+
+/** [wheelScrolled], a notch moving [lines] of [line], the user's speed already in them. */
+private fun Modifier.wheelScrolledBy(
+	state: ScrollableState,
+	line: Dp,
+	lines: Float,
+	across: ScrollableState?,
 ): Modifier =
 	pointerInput(state, line, lines, across) {
 		val down = Glide(state)

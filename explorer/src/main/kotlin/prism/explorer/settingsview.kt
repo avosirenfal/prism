@@ -97,6 +97,7 @@ import prism.browser.Section
 import prism.browser.Segmented
 import prism.browser.Select
 import prism.browser.SettingRow
+import prism.browser.Slider
 import prism.browser.Space
 import prism.browser.Stepper
 import prism.browser.Switch
@@ -122,6 +123,7 @@ import prism.preferences.Look
 import prism.preferences.Order
 import prism.preferences.Role
 import prism.preferences.Rows
+import prism.preferences.ScrollSpeed
 import prism.preferences.Sort
 import prism.preferences.TextPart
 import prism.preferences.Typography
@@ -204,6 +206,7 @@ fun SettingsView(
 			Page.Layout -> LayoutPage(settings, onChange)
 			Page.Menus -> MenusPage(settings, world, onChange)
 			Page.Terminal -> TerminalPage(settings, onChange, terminalPreview, terminals)
+			Page.Input -> InputPage(settings, onChange)
 			Page.Bindings -> ExplorerBindingsPage(settings, filter, onChange)
 			Page.Aliases ->
 				AliasesPage(
@@ -252,27 +255,6 @@ private fun ExplorerBindingsPage(
 			)
 		},
 	) {
-		Card {
-			SettingRow(
-				"Reverse scroll direction",
-				description = "Scroll the opposite way to the system's setting.",
-			) {
-				Switch(
-					settings.scrolling == ScrollDirection.Reversed,
-					Modifier.testTag("scroll-reversed"),
-				) {
-					onChange(
-						settings.copy(
-							scrolling =
-								if (it)
-									ScrollDirection.Reversed
-								else
-									ScrollDirection.AsTheSystem,
-						),
-					)
-				}
-			}
-		}
 		Tabs(
 			KeyTab.entries,
 			settings.keys,
@@ -293,6 +275,62 @@ private fun ExplorerBindingsPage(
 	}
 }
 
+/**
+ * How the wheel, and a touchpad, scroll every window: which way, as the system is set or the other way; and how far,
+ * as so many times the usual three rows a notch, slid along from a quarter to three times.
+ */
+@Composable
+private fun InputPage(settings: Settings, onChange: (Settings) -> Unit) {
+	PageLayout(
+		"Input",
+	) {
+		Section(
+			"Scrolling",
+			description = "How the mouse wheel and the touchpad scroll lists and pages in every window.",
+		) {
+			Card {
+				SettingRow(
+					"Reverse scroll direction",
+					description = "Scroll the opposite way to the system's setting.",
+				) {
+					Switch(
+						settings.scrolling == ScrollDirection.Reversed,
+						Modifier.testTag("scroll-reversed"),
+					) {
+						onChange(
+							settings.copy(
+								scrolling =
+									if (it)
+										ScrollDirection.Reversed
+									else
+										ScrollDirection.AsTheSystem,
+							),
+						)
+					}
+				}
+				SettingRow(
+					"Scroll sensitivity",
+					description = "How far a notch of the wheel, or a swipe, scrolls. 100 % is three rows a notch.",
+				) {
+					Text(
+						percentOf(settings.scrollSpeed),
+						style = LocalType.current.body.tabular(),
+						modifier = Modifier.testTag("scroll-speed-shown"),
+					)
+					Slider(
+						ScrollSpeed.ALL,
+						settings.scrollSpeed,
+						tag = "scroll-speed",
+					) { onChange(settings.copy(scrollSpeed = it)) }
+				}
+			}
+		}
+	}
+}
+
+/** A speed as the Input page says it: as a percentage of the usual, "150 %". */
+private fun percentOf(speed: ScrollSpeed): String = "${(speed.times * 100).roundToInt()} %"
+
 /** The glyph a page is listed by. */
 private fun glyphOf(page: Page): Glyph =
 	when (page) {
@@ -301,6 +339,7 @@ private fun glyphOf(page: Page): Glyph =
 		Page.Layout -> Glyph.ViewList
 		Page.Menus -> Glyph.Menu
 		Page.Terminal -> Glyph.Terminal
+		Page.Input -> Glyph.Mouse
 		Page.Bindings -> Glyph.Keyboard
 		Page.Aliases -> Glyph.At
 		Page.Indexing -> Glyph.Filter

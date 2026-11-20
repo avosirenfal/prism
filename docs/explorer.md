@@ -618,8 +618,12 @@ Either left null is the default's, so a later default reaches whoever never chos
 is drawn: a notch moves as far through the folder at 300 % as at 100 %. A touchpad's small scrolls move it as much
 less as they are smaller. Every list and page that scrolls has its bar beside it whenever there is more than fits.
 Which way is the system's: what the wheel and a touchpad give is taken as it comes, which on a Mac is as natural
-scrolling is set, as in every other application. "Reverse scroll direction", on the Key bindings page
-(`"scrolling": "Reversed"`), turns it the other way in every window.
+scrolling is set, as in every other application. "Reverse scroll direction", on the Input page
+(`"scrolling": "Reversed"`), turns it the other way in every window. "Scroll sensitivity", beside it
+(`"scrollSpeed": 1.5`), makes every list's wheel and touchpad go so many times as far, from a quarter to three times
+in steps of a quarter (`ScrollSpeed`): at 1, the default, a notch moves three rows, at 2 six, and a gallery two lines
+of tiles. A file that says some other number is read as the nearest step. Ctrl and the wheel still zoom a step a
+notch, whatever the speed.
 
 `scales` says how large things are drawn, as many times their usual size: the listing of a new explorer's window and
 of a new picker's (the nearest of the steps Ctrl and the wheel zoom the listing through), the sidebar's quick access
@@ -666,7 +670,7 @@ writes it, or by its chords; and, as JetBrains' keymap has it, a button that ope
 next shortcut pressed (a key with its modifiers, or the mouse's middle, back or forward button over its lower part) for
 as long as it is open, and shows what it does, binding nothing. Closed, the keys are the page's again, and what it
 found stays shown, beside the filter, until its × or the button again. The list's scrollbar is drawn while there is
-more than fits. File actions and Text searches: every action and text search there is, prism's and the
+more than fits. Input: which way the wheel and a touchpad scroll, and how far, by a slider. File actions and Text searches: every action and text search there is, prism's and the
 user's, each turned off by a switch, changed, copied, moved and tested (docs/menus.md and docs/text.md, "Changing them
 in the preferences").
 

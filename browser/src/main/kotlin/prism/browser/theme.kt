@@ -476,6 +476,11 @@ object Dims {
 	/** How wide a scrollbar is, and the room kept for it beside what scrolls. */
 	val scrollbar = 8.dp
 	val scrollbarRoom = 12.dp
+
+	/** How wide a slider is, how thick its track, and how large the knob slid along it (a switch's knob too). */
+	val slider = 200.dp
+	val sliderTrack = 4.dp
+	val knob = 18.dp
 }
 
 /** How tall a list's row is, for [rows] of [type]'s text: an icon of [rowIconOf], and room above and below it. */

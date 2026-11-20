@@ -22,6 +22,7 @@ import prism.browser.Finder
 import prism.browser.FolderWatcher
 import prism.browser.HostedBrowser
 import prism.browser.JvmDisk
+import prism.browser.LocalScrollSpeed
 import prism.browser.LocalThumbnails
 import prism.browser.Search
 import prism.browser.Services
@@ -209,6 +210,7 @@ object PickCommand : Command(
 
 				CompositionLocalProvider(
 					LocalScrollDirection provides preferences.scrolling,
+					LocalScrollSpeed provides preferences.scrollSpeed,
 					LocalThumbnails provides thumbnails,
 				) {
 					Window(

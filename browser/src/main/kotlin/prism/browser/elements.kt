@@ -9,12 +9,17 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.horizontalDrag
+import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
@@ -42,6 +47,7 @@ import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.withFrameNanos
@@ -69,13 +75,18 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.MeasurePolicy
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.disabled
+import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.setProgress
 import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
@@ -86,12 +97,13 @@ import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
+import kotlin.math.roundToInt
 
 /*
  * The controls prism is made of: buttons, icon buttons, a text field, a check box, a switch, a radio, a segmented
- * choice, a stepper, a chip, tabs, and the ring that shows where the keyboard is. Each is built from the theme's tokens
- * alone (theme.kt): its height from the type of its text, its room from the spacing scale, its colours from the
- * palette, so no caller sizes or pads one. Each draws its own looks (hovered, pressed, focused, disabled), takes the
+ * choice, a stepper, a slider, a chip, tabs, and the ring that shows where the keyboard is. Each is built from the
+ * theme's tokens alone (theme.kt): its height from the type of its text, its room from the spacing scale, its colours
+ * from the palette, so no caller sizes or pads one. Each draws its own looks (hovered, pressed, focused, disabled), takes the
  * keys a desktop's controls take, and reports only what it is for: pressed, typed, chosen.
  *
  * What a control keeps of its own is what a control keeps on any desktop: whether the pointer is over it, whether
@@ -1044,6 +1056,111 @@ fun Stepper(
 		)
 		Divider(vertical = true)
 		StepButton(Glyph.Plus, "larger", larger, 1)
+	}
+}
+
+/**
+ * One of [options], in order along a track, the one [chosen] where its knob is, the track filled in the accent up to
+ * it: chosen by the pointer, pressed anywhere on the track or sliding the knob along it, or by Left and Right (Home and
+ * End for the ends) when the keyboard is on it. It is tagged [tag].
+ */
+@Composable
+fun <T> Slider(
+	options: List<T>,
+	chosen: T,
+	modifier: Modifier = Modifier,
+	tag: String = "",
+	enabled: Boolean = true,
+	onChoose: (T) -> Unit,
+) {
+	val palette = LocalPalette.current
+	val source = remember { MutableInteractionSource() }
+	val felt = source.felt()
+	val at = options.indexOf(chosen).coerceAtLeast(0)
+	val fraction = if (options.size > 1) at / options.lastIndex.toFloat() else 0f
+	// Read as the pointer moves, so that a slide goes on choosing from what is shown now, not from where it started.
+	val toward by rememberUpdatedState { index: Int ->
+		options.getOrNull(index)?.takeIf { it != chosen }?.let(onChoose)
+	}
+
+	fun step(to: Int): Boolean {
+		toward(to.coerceIn(0, options.lastIndex))
+
+		return true
+	}
+
+	BoxWithConstraints(
+		modifier
+			.width(Dims.slider)
+			.height(LocalType.current.control)
+			.alpha(if (enabled) 1f else 0.45f)
+			.testTag(tag)
+			.semantics {
+				progressBarRangeInfo =
+					ProgressBarRangeInfo(
+						at.toFloat(),
+						0f..options.lastIndex.toFloat(),
+						steps = (options.size - 2).coerceAtLeast(0),
+					)
+				if (enabled)
+					setProgress { to -> step(to.roundToInt()) }
+				else
+					disabled()
+			}.pointerInput(enabled, options) {
+				if (enabled)
+					awaitEachGesture {
+						val knob = Dims.knob.toPx()
+						val travel = (size.width - knob).coerceAtLeast(1f)
+
+						// The option whose place on the track is nearest [x].
+						fun slid(x: Float) = step(((x - knob / 2) / travel * options.lastIndex).roundToInt())
+
+						val down = awaitFirstDown()
+
+						slid(down.position.x)
+						down.consume()
+						horizontalDrag(down.id) {
+							slid(it.position.x)
+							it.consume()
+						}
+					}
+			}.onKeyEvent {
+				when {
+					!enabled || it.type != KeyEventType.KeyDown -> false
+					it.key == Key.DirectionLeft -> step(at - 1)
+					it.key == Key.DirectionRight -> step(at + 1)
+					it.key == Key.MoveHome -> step(0)
+					it.key == Key.MoveEnd -> step(options.lastIndex)
+					else -> false
+				}
+			}.hoverable(source, enabled)
+			.focusable(enabled, source),
+		contentAlignment = Alignment.CenterStart,
+	) {
+		val travel = maxWidth - Dims.knob
+
+		Box(
+			Modifier
+				.padding(horizontal = Dims.knob / 2)
+				.fillMaxWidth()
+				.height(Dims.sliderTrack)
+				.background(palette.borderStrong, CircleShape),
+		)
+		Box(
+			Modifier
+				.padding(start = Dims.knob / 2)
+				.width(travel * fraction)
+				.height(Dims.sliderTrack)
+				.background(if (felt.hovered && enabled) palette.accentHover else palette.accent, CircleShape),
+		)
+		Box(
+			Modifier
+				.offset(x = travel * fraction)
+				.ring(felt.ringed, palette.focus, corner = Dims.knob / 2)
+				.size(Dims.knob)
+				.shadow(1.dp, CircleShape)
+				.background(if (palette.isDark) palette.text else Color.White, CircleShape),
+		)
 	}
 }
 

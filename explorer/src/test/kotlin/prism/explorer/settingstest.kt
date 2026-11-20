@@ -20,6 +20,7 @@ import prism.preferences.Look
 import prism.preferences.Preferences
 import prism.preferences.QuickAccess
 import prism.preferences.Role
+import prism.preferences.ScrollSpeed
 import prism.preferences.WindowKind
 import prism.shared.ScrollDirection
 
@@ -53,6 +54,19 @@ class SettingsTest {
 		assertEquals(DateFormat.Iso, saved.dates)
 		// And left as it is where the window did not change it.
 		assertEquals(ScrollDirection.Reversed, Settings(base).over(saved).scrolling)
+	}
+
+	@Test
+	fun aFasterWheelIsKeptAsAppliedOverWhatChangedElsewhere() {
+		val base = Preferences.DEFAULT
+		val faster = ScrollSpeed.nearest(2f)
+		val elsewhere = base.copy(dates = DateFormat.Iso)
+		val saved = Settings(base).copy(scrollSpeed = faster).over(elsewhere)
+
+		assertEquals(faster, saved.scrollSpeed)
+		assertEquals(DateFormat.Iso, saved.dates)
+		// And left as it is where the window did not change it.
+		assertEquals(faster, Settings(base).over(saved).scrollSpeed)
 	}
 
 	@Test

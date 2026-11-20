@@ -102,6 +102,8 @@ data class Preferences(
 	val titlebar: Boolean = true,
 	/** Which way the wheel, and a touchpad, scrolls every window: as the system is set, or the other way. */
 	val scrolling: ScrollDirection = ScrollDirection.AsTheSystem,
+	/** How far the wheel, and a touchpad, scrolls every window's lists: so many times as far as usual. */
+	val scrollSpeed: ScrollSpeed = ScrollSpeed.USUAL,
 	/** How the launcher looks and what it finds. */
 	val launcher: LauncherPreferences = LauncherPreferences(),
 	/**

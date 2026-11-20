@@ -90,6 +90,8 @@ listing's text and a menu's rows with the menus'.
   filled in the accent, one off is only its name, so that down a long list of rows only what is on stands out (the
   keys an entry of a context menu waits for).
 - `Stepper`: a value, and − and + either side of it.
+- `Slider`: one of a few values in order along a track, the chosen one where its knob is and the track filled up to
+  it; pressed anywhere on the track, or its knob slid, or Left, Right, Home and End.
 - `Chip`, `Tabs`, `Spinner` and `EmptyState`.
 - `Select` (`select.kt`): a drop-down list, with a field that narrows a long one (every font the system has).
 - `ComboBox` (`combo.kt`): a field that is a drop-down list too. Clicked, it lists every option; typed into, those whose
@@ -120,7 +122,7 @@ None of them takes padding from its caller.
 
 **Scrolling** (`browser/scrolling.kt`): everything that scrolls is a `ScrollArea` (a column of anything) or a
 `LazyScrollArea` (a lazy list), each with its bar drawn whenever there is more than fits. The wheel scrolls either by
-`LINES_A_NOTCH` (three) of its own lines a notch, gliding there, rather than by a distance that knows nothing of what
+`LINES_A_NOTCH` (three) of its own lines a notch, times the user's speed (`LocalScrollSpeed`), gliding there, rather than by a distance that knows nothing of what
 is shown. The listing and the gallery use the same rule with their rows and lines of tiles (`wheelScrolled`), so a
 notch moves three rows at any zoom. A touchpad's scrolls, and a wheel's that turns smoothly (fractions of a notch,
 many a second), move the list at once, by what they say. A notched wheel's glide to where the notches turned so far

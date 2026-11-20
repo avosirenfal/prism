@@ -7,6 +7,8 @@ import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertTextEquals
+import androidx.compose.ui.test.click
 import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasTestTag
@@ -19,6 +21,7 @@ import androidx.compose.ui.test.performKeyInput
 import androidx.compose.ui.test.performMouseInput
 import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.test.pressKey
+import androidx.compose.ui.test.requestFocus
 import androidx.compose.ui.test.v2.runComposeUiTest
 import androidx.compose.ui.test.withKeyDown
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -39,6 +42,8 @@ import prism.preferences.Layout
 import prism.preferences.ListingKind
 import prism.preferences.Preferences
 import prism.preferences.Role
+import prism.preferences.ScrollSpeed
+import prism.shared.ScrollDirection
 
 /**
  * The bindings window as a player rebinds a game's keys: a binding clicked waits, and the next chord pressed, a key with
@@ -247,6 +252,47 @@ class SettingsViewTest {
 			waitForIdle()
 			assertTrue(settings.listings.ownLook(Role.Picker, zip))
 			onNodeWithText("Apply").assertIsEnabled()
+		}
+
+	@Test
+	fun theInputPageReversesTheWheel_AndSlidesItsSpeedByThePointerAndTheKeys() =
+		runComposeUiTest {
+			var settings by mutableStateOf(Settings(Preferences.DEFAULT, page = Page.Bindings))
+
+			setContent {
+				BrowserTheme {
+					SettingsView(settings, { settings = it }, onApply = {}, onClose = {})
+				}
+			}
+
+			// Scrolling is no longer the key bindings' to set.
+			onNodeWithTag("scroll-reversed").assertDoesNotExist()
+			settings = settings.copy(page = Page.Input)
+			waitForIdle()
+
+			// The wheel's way, turned round.
+			onNodeWithTag("scroll-reversed").performClick()
+			waitForIdle()
+			assertEquals(ScrollDirection.Reversed, settings.scrolling)
+
+			// As fast as it usually is, until the track is pressed at its far end: as fast as it goes.
+			onNodeWithTag("scroll-speed-shown").assertTextEquals("100 %")
+			onNodeWithTag("scroll-speed").performMouseInput { click(centerRight) }
+			waitForIdle()
+			assertEquals(ScrollSpeed.ALL.last(), settings.scrollSpeed)
+			onNodeWithTag("scroll-speed-shown").assertTextEquals("300 %")
+
+			// A step back by the keys, then to the slowest.
+			onNodeWithTag("scroll-speed").requestFocus()
+			onNodeWithTag("scroll-speed").performKeyInput { pressKey(Key.DirectionLeft) }
+			waitForIdle()
+			onNodeWithTag("scroll-speed-shown").assertTextEquals("275 %")
+			onNodeWithTag("scroll-speed").performKeyInput { pressKey(Key.MoveHome) }
+			waitForIdle()
+			assertEquals(ScrollSpeed.ALL.first(), settings.scrollSpeed)
+
+			onNodeWithText("Apply").assertIsEnabled()
+			assertEquals(ScrollSpeed.ALL.first(), settings.over(Preferences.DEFAULT).scrollSpeed)
 		}
 
 	@Test

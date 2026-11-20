@@ -50,6 +50,25 @@ class PreferencesTest {
 	}
 
 	@Test
+	fun theWheelScrollsAsFarAsUsualUnlessSpedUp_WrittenAsTimesAndReadAsTheNearestSpeedThereIs() {
+		assertEquals(1f, Preferences.DEFAULT.scrollSpeed.times)
+
+		val faster = Preferences.DEFAULT.copy(scrollSpeed = ScrollSpeed.nearest(1.5f))
+		val written = PreferenceFormat.written(faster).toString(Charsets.UTF_8)
+
+		assertTrue("\"scrollSpeed\": 1.5" in written, written)
+		assertEquals(Loaded.Read(faster), PreferenceFormat.read(written.toByteArray()))
+
+		// Written by hand past the fastest, or between two speeds: read as the nearest there is.
+		fun read(times: String) =
+			(PreferenceFormat.read("{ \"scrollSpeed\": $times }".toByteArray()) as Loaded.Read).value.scrollSpeed
+
+		assertEquals(ScrollSpeed.ALL.last(), read("40"))
+		assertEquals(ScrollSpeed.ALL.first(), read("0"))
+		assertEquals(1.25f, read("1.3").times)
+	}
+
+	@Test
 	fun preferencesWrittenAreReadBackAndTheFileShowsEverySetting() {
 		val set =
 			Preferences.DEFAULT
