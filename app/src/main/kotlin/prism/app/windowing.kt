@@ -1,11 +1,13 @@
 package prism.app
 
 import java.nio.file.Path
+import java.time.Instant
 import kotlin.io.path.Path
 import kotlin.io.path.isDirectory
 import prism.browser.Action
 import prism.browser.BrowserState
 import prism.browser.Finder
+import prism.browser.IndexSource
 import prism.browser.Search
 import prism.browser.StaticFinder
 import prism.cli.Args
@@ -98,18 +100,40 @@ internal class Indexing(
 	fun given(args: Args): Boolean = args[index] != null
 
 	/**
-	 * The search [args] ask for, and what it searches: none without `--index`; with it, the index in its file, with the
-	 * usage (`$XDG_STATE_HOME/prism/usage.prism`), or, where there is no index there or it cannot be read, a warning
-	 * and no search.
+	 * The search [args] ask for, what it searches, and where that comes from: none without `--index`, unless this
+	 * prism is [isolated], which reads the index's own file; with it, the index in its file, with the usage
+	 * (`$XDG_STATE_HOME/prism/usage.prism`); or, where there is no index there or it cannot be read, no search, and a
+	 * warning where `--index` asked for one.
 	 */
-	fun searchOf(args: Args, home: Path): Pair<Search, Finder?> {
+	fun searchOf(
+		args: Args,
+		home: Path,
+		isolated: Boolean = false,
+		/** The index's own file: what `--index` alone reads, and an isolated prism without it. */
+		usual: Path = defaultIndexFile(),
+	): Searching {
+		val given = args[index]
+
 		val file =
-			when (val given = args[index]) {
-				null -> return Search.Unavailable(
-					"${BrowserState.NO_INDEX} Start prism ${command.name} with --index to search one.",
-				) to
-					null
-				Given.Alone -> defaultIndexFile()
+			when (given) {
+				null ->
+					if (isolated)
+						usual
+					else
+						return Searching(
+							Search.Unavailable(
+								"${BrowserState.NO_INDEX} Start prism ${command.name} with --index to " +
+									"search one.",
+							),
+							null,
+							IndexSource.None(
+								usual,
+								"No index loaded. Start prism daemon to keep one, or start with " +
+									"--index to read the index file.",
+								isolated = false,
+							),
+						)
+				Given.Alone -> usual
 				is Given.With -> given.value
 			}
 
@@ -123,25 +147,52 @@ internal class Indexing(
 						"can't read the usage file (${usage.why}); results are ranked without it",
 					)
 
-				Search.Ready() to
+				Searching(
+					Search.Ready(),
 					StaticFinder(read.index, usage.orElse(Usage.NONE), home) {
 						exclusionsNow().hiding
-					}
+					},
+					IndexSource.File(file, Instant.now(), read.index.size.toLong(), isolated),
+				)
 			}
 			IndexRead.Missing -> {
-				warn(
-					command,
-					"no index at $file, so search is unavailable; run prism index to create one",
+				if (given != null)
+					warn(
+						command,
+						"no index at $file, so search is unavailable; run prism index to create one",
+					)
+				Searching(
+					Search.Unavailable("No index at $file. Run prism index to create one."),
+					null,
+					IndexSource.None(
+						file,
+						"No index file yet. Run prism daemon or prism index to create one.",
+						isolated,
+					),
 				)
-				Search.Unavailable("No index at $file. Run prism index to create one.") to null
 			}
 			is IndexRead.Unreadable -> {
-				warn(command, "can't read the index at $file (${read.why}), so search is unavailable")
-				Search.Unavailable("Can't read the index at $file: ${read.why}") to null
+				if (given != null)
+					warn(
+						command,
+						"can't read the index at $file (${read.why}), so search is unavailable",
+					)
+				Searching(
+					Search.Unavailable("Can't read the index at $file: ${read.why}"),
+					null,
+					IndexSource.None(file, "Can't read the index file: ${read.why}", isolated),
+				)
 			}
 		}
 	}
 }
+
+/** What a prism's windows search ([finder], none where there is no index), how a search starts, and where it is from. */
+internal data class Searching(
+	val search: Search,
+	val finder: Finder?,
+	val source: IndexSource,
+)
 
 /** [line] on standard error, as [command]'s warning. */
 internal fun warn(command: Command, line: String) =

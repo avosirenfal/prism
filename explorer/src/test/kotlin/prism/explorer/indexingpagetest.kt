@@ -26,6 +26,7 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import prism.browser.BrowserTheme
 import prism.browser.Finder
+import prism.browser.IndexSource
 import prism.browser.LocalDateFormat
 import prism.index.Act
 import prism.index.ActivityLog
@@ -81,9 +82,20 @@ class IndexingPageTest {
 		override fun folderAt(folder: FileId): String? = "/home/avery".takeIf { folder == home }
 	}
 
-	private fun ComposeUiTest.shows(tag: String, vararg text: String) =
+	/** What the Index card says, line by line: its title, what is said under it, and its file. */
+	private fun ComposeUiTest.said(): List<String> =
+		onNodeWithTag(
+			"index-state",
+		).fetchSemanticsNode()
+			.config
+			.getOrElse(SemanticsProperties.Text) {
+				emptyList()
+			}.map { it.text }
+
+	/** Waits for the Index card to say [lines] first. */
+	private fun ComposeUiTest.shows(vararg lines: String) =
 		waitUntil(timeoutMillis = 5_000) {
-			runCatching { onNodeWithTag(tag).assertTextEquals(*text) }.isSuccess
+			runCatching { said().take(lines.size) == lines.toList() }.getOrDefault(false)
 		}
 
 	/** [text] typed over what the monitor's find field holds. */
@@ -118,10 +130,10 @@ class IndexingPageTest {
 				}
 			}
 
-			shows("index-state", "Live monitoring via eBPF", "Probe pinned at /run/prism-watcher")
+			shows("Live monitoring via eBPF", "Probe pinned at /run/prism-watcher")
 
 			index.keeping = Keeping.Rescanned(Unfollowed.TurnedOff, 30.minutes, 12.minutes)
-			shows("index-state", "Periodic rescan, next in 12 minutes", "Live monitoring is off.")
+			shows("Periodic rescan, next in 12 minutes", "Live monitoring is off.")
 
 			index.keeping =
 				Keeping.Rescanned(Unfollowed.Failed("the kernel refused it"), 30.minutes, 30.seconds)
@@ -135,7 +147,6 @@ class IndexingPageTest {
 
 			index.keeping = Keeping.Unkept(Unfollowed.TurnedOff)
 			shows(
-				"index-state",
 				"Indexing disabled",
 				"Live monitoring and periodic rescan are off. The index only changes when rebuilt.",
 			)
@@ -291,5 +302,125 @@ class IndexingPageTest {
 					texts("burst-time")
 			}
 			assertTrue(texts("burst-time").single().endsWith("M"), texts("burst-time").toString())
+		}
+
+	@Test
+	fun theCardNamesTheDaemonsIndexFile_AndAClickShowsIt() =
+		runComposeUiTest {
+			val index = Kept(Keeping.Followed(FeedKind.EbpfProbe, "probe loaded by prism"))
+			val file = Path.of(System.getProperty("user.home"), ".local/share/prism/index.prism")
+			val shown = mutableListOf<Path>()
+
+			setContent {
+				BrowserTheme {
+					SettingsView(
+						Settings(Preferences.DEFAULT, page = Page.Indexing),
+						{},
+						onApply = {},
+						onClose = {},
+						index = index,
+						source = IndexSource.Daemon(file),
+						onShowFile = { shown.add(it) },
+					)
+				}
+			}
+
+			// The path is a link of its own, beside its label.
+			shows("Live monitoring via eBPF", "Probe loaded by prism", "Index file")
+			assertEquals(listOf("~/.local/share/prism/index.prism"), texts("index-file"))
+			onNodeWithTag("index-file", useUnmergedTree = true).performClick()
+			waitForIdle()
+			assertEquals(listOf(file), shown)
+			assertEquals(1, count("index-rebuild"))
+		}
+
+	@Test
+	fun anIsolatedPrismSaysItReadItsIndexFromItsFile_AndOffersNoRebuild() =
+		runComposeUiTest {
+			val file = Path.of("/var/tmp/prism/index.prism")
+
+			var source by mutableStateOf<IndexSource>(
+				IndexSource.File(
+					file,
+					Instant.parse("2026-11-20T14:03:00Z"),
+					1_234_567,
+					isolated = true,
+				),
+			)
+
+			setContent {
+				BrowserTheme {
+					CompositionLocalProvider(LocalDateFormat provides DateFormat.Iso) {
+						SettingsView(
+							Settings(Preferences.DEFAULT, page = Page.Indexing),
+							{},
+							onApply = {},
+							onClose = {},
+							// What an isolated prism searches: the file's index, as it was read.
+							index =
+								Kept(Keeping.Followed(FeedKind.Other, "")).let { kept ->
+									object : Finder by kept {
+										override val rebuilds: Boolean get() = false
+
+										override fun keeping(): Keeping? = null
+
+										override val activity: ActivityLog? get() = null
+									}
+								},
+							source = source,
+						)
+					}
+				}
+			}
+
+			val at = DateFormat.Iso.write(Instant.parse("2026-11-20T14:03:00Z"))
+
+			shows(
+				"Isolated instance",
+				"Loaded at $at, 1,234,567 entries. Not updated while isolated.",
+				"Index file",
+			)
+			assertEquals(listOf("/var/tmp/prism/index.prism"), texts("index-file"))
+			assertEquals(0, count("index-rebuild"))
+			assertEquals(0, count("index-monitor-open"))
+
+			// None in the file: said so, with where it was looked for.
+			source =
+				IndexSource.None(
+					file,
+					"No index file yet. Run prism daemon or prism index to create one.",
+					true,
+				)
+			shows(
+				"Isolated instance",
+				"No index file yet. Run prism daemon or prism index to create one.",
+				"Index file",
+			)
+			assertEquals(listOf("/var/tmp/prism/index.prism"), texts("index-file"))
+			assertEquals(0, count("index-rebuild"))
+		}
+
+	@Test
+	fun aDaemonKeepingItsIndexInMemorySaysSo() =
+		runComposeUiTest {
+			setContent {
+				BrowserTheme {
+					SettingsView(
+						Settings(Preferences.DEFAULT, page = Page.Indexing),
+						{},
+						onApply = {},
+						onClose = {},
+						index = Kept(Keeping.Followed(FeedKind.EbpfProbe, "probe loaded by prism")),
+						source = IndexSource.Daemon(null),
+					)
+				}
+			}
+
+			shows(
+				"Live monitoring via eBPF",
+				"Probe loaded by prism",
+				"Kept in memory only, never written to disk",
+			)
+			assertEquals(1, count("index-rebuild"))
 		}
 }

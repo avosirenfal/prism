@@ -94,7 +94,9 @@ neither.
 and waits. When that prism's last window is closed, the daemon takes the place, and says so.
 
 **`--isolated`** takes no place and asks nobody: a process with its own windows, which ends when they are closed.
-It is for looking at one prism without another being involved.
+It is for looking at one prism without another being involved. It searches the index's own file (or `--index`'s), read
+once as it starts and never updated, and the preferences' Indexing page says so, with the file's path, and offers no
+rebuild.
 
 ### How long it takes
 

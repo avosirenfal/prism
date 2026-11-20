@@ -78,6 +78,7 @@ import prism.browser.Field
 import prism.browser.Finder
 import prism.browser.Glyph
 import prism.browser.GlyphIcon
+import prism.browser.IndexSource
 import prism.browser.Keyboard
 import prism.browser.Labelled
 import prism.browser.LazyScrollArea
@@ -170,8 +171,12 @@ fun SettingsView(
 	onUndo: () -> Unit = {},
 	onRedo: () -> Unit = {},
 	commands: Commands = ProcessCommands,
-	/** The index kept here, which the Indexing page rebuilds and monitors; null where none is kept. */
+	/** The index searched here, which the Indexing page rebuilds and monitors where it can; null where there is none. */
 	index: Finder? = null,
+	/** Where the index comes from, as the Indexing page says it; null where nothing says, and the page shows no index. */
+	source: IndexSource? = index?.let { IndexSource.Daemon(null) },
+	/** What shows a file in a window of its folder: the index's, from the Indexing page. */
+	onShowFile: (Path) -> Unit = {},
 	/** What the running prism says of its thumbnails, which the Thumbnails page shows. */
 	thumbnails: ThumbnailFacts = ThumbnailFacts(),
 	/** What is being asked or done about a change of the thumbnails' folder, drawn over the pages. */
@@ -220,7 +225,9 @@ fun SettingsView(
 					settings.indexing,
 					{ onChange(settings.copy(indexing = it)) },
 					index,
+					source,
 					onCopy,
+					onShowFile,
 				) { onChange(settings.copy(excluding = it)) }
 			Page.Thumbnails ->
 				ThumbnailsPage(

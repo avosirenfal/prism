@@ -35,6 +35,7 @@ import prism.browser.AppKey
 import prism.browser.BrowserState
 import prism.browser.Finder
 import prism.browser.FolderWatcher
+import prism.browser.IndexSource
 import prism.browser.JvmDisk
 import prism.browser.RecentStore
 import prism.browser.RecentsFiles
@@ -105,6 +106,9 @@ internal data class Hosting(
 	val search: Search = Search.Unavailable(BrowserState.NO_INDEX),
 	/** What a search searches; none where there is no index. */
 	val finder: Finder? = null,
+	/** Where the index searched comes from, as the preferences' Indexing page says it. */
+	val index: IndexSource =
+		IndexSource.None(defaultIndexFile(), BrowserState.NO_INDEX, isolated = false),
 	/** Where a Mac's applications are found: the daemon's catalogue of them, where there is a daemon. */
 	val applicationsFrom: ApplicationSource = ApplicationSource.Folders,
 	/** What says another program has added to the folder thumbnails are kept in, or taken from it. */
@@ -440,6 +444,7 @@ internal class Windows(
 							LaunchFile(stateFolder().resolve("launches"), Report::problem),
 							recentFolders(),
 							thumbnails,
+							hosting.index,
 						)
 					}
 

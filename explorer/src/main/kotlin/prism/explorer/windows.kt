@@ -576,7 +576,12 @@ private fun SettingsWindow(
 			terminals = terminals,
 			graphics = graphics,
 			onCopy = ::toClipboard,
-			index = explorer.finder?.takeIf { it.rebuilds },
+			index = explorer.finder,
+			source = explorer.index,
+			// The index's file, chosen in a window of its folder.
+			onShowFile = { file ->
+				file.parent?.let { explorer.browse(it, file.fileName.toString()) }
+			},
 			thumbnails = facts,
 			relocating = relocating,
 			onRelocate = relocator::ask,

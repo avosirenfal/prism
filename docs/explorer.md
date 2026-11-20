@@ -443,8 +443,12 @@ Above them, in the preferences' own window, is the index itself. Its card says h
 Renderer page says how windows are drawn: a tick and "Live monitoring via eBPF" (or FSEvents), with where the probe
 is; a tick and "Periodic rescan, next in 12 minutes" where live monitoring is off, or a warning where it is on and
 unavailable, with why; or a red cross and "Indexing disabled" where nothing updates it. While it is being read, it
-says how far that has got instead. These come from what the daemon says of itself (`Keeping`). Beside them are
-Monitor and Rebuild index.
+says how far that has got instead. These come from what the daemon says of itself (`Keeping`). A prism with no daemon
+says so instead: "Isolated instance" (`--isolated`) or "Daemon not running", and when it loaded the index from its
+file and how many entries it has, or why it has none; it offers no Rebuild index, since what it read stays as it was
+read. Every one of them names the index's file, which a click shows chosen in a window of its folder, or says that the
+daemon keeps its index in memory only (`--in-memory`). Where the index comes from is an `IndexSource`, which the
+command that started the prism sets. Beside them, for the daemon's index, are Monitor and Rebuild index.
 
 Under it, "Index updates" has four switches, all on unless turned off (`"indexing"`, `IndexUpkeep`): Rescan on
 startup (`scanOnStart`), Live monitoring (`watch`: eBPF on Linux, FSEvents on a Mac), Periodic rescan

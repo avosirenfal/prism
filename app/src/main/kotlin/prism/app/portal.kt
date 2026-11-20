@@ -68,11 +68,14 @@ object PortalServe : Command(
 			}
 
 		val home = Path(System.getProperty("user.home"))
-		val (search, finder) = indexing.searchOf(args, home)
+		val (search, finder, index) = indexing.searchOf(args, home)
 
 		val instance =
 			Instance(
-				Windows(Hosting(args[theme], args[decorated], search, finder), Lasting.UntilStopped),
+				Windows(
+					Hosting(args[theme], args[decorated], search, finder, index),
+					Lasting.UntilStopped,
+				),
 				"prism portal serve (process ${ProcessHandle.current().pid()}): opens this " +
 					"session's windows while it runs; it has no index (prism daemon keeps one)",
 			)

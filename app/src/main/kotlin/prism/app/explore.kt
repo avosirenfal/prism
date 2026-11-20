@@ -99,9 +99,9 @@ internal object ExploreCommand :
 			Request(listOf(name, "--") + args[items], Caller.here()),
 			apart = apart(args),
 		) {
-			val (search, finder) = indexing.searchOf(args, home)
+			val (search, finder, index) = indexing.searchOf(args, home, isolated = args[isolated])
 
-			Hosting(args[theme], args[decorated], search, finder)
+			Hosting(args[theme], args[decorated], search, finder, index)
 		}
 	}
 }

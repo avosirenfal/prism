@@ -24,6 +24,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.runBlocking
 import prism.browser.Action
 import prism.browser.FolderWatcher
+import prism.browser.IndexSource
 import prism.browser.Search
 import prism.browser.watching
 import prism.cli.Args
@@ -296,6 +297,7 @@ object DaemonCommand : Command(
 							home,
 							file != null,
 						),
+						IndexSource.Daemon(file),
 						applicationsFrom =
 							catalogue?.let { ApplicationSource.Kept(it::now) } ?: ApplicationSource.Folders,
 						// What other programs add to the thumbnails is heard of through the daemon's own feed, which

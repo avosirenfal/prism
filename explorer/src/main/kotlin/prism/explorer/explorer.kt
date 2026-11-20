@@ -29,6 +29,7 @@ import prism.browser.FileClip
 import prism.browser.FileClipboard
 import prism.browser.Finder
 import prism.browser.FolderWatcher
+import prism.browser.IndexSource
 import prism.browser.Landing
 import prism.browser.Location
 import prism.browser.MemoryRecents
@@ -287,6 +288,8 @@ class Explorer(
 	 * own are given (`thumbnailsFor`), which keep thumbnails and make them of whatever there is a way to.
 	 */
 	val thumbnails: Thumbnails = Thumbnails(),
+	/** Where the index [finder] searches comes from, as the preferences say it; null where nothing says. */
+	val index: IndexSource? = null,
 ) {
 	/** What a search is asked of: the launcher's, as every window's. */
 	internal val finder = finder

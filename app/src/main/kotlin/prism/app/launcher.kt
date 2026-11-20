@@ -42,9 +42,9 @@ internal object LaunchCommand :
 		val home = Path(System.getProperty("user.home"))
 
 		return opened(this, Request(listOf(name), Caller.here()), apart = apart(args)) {
-			val (search, finder) = indexing.searchOf(args, home)
+			val (search, finder, index) = indexing.searchOf(args, home, isolated = args[isolated])
 
-			Hosting(args[theme], decorated = false, search, finder)
+			Hosting(args[theme], decorated = false, search, finder, index)
 		}
 	}
 }

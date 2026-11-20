@@ -1,6 +1,9 @@
 package prism.explorer
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,11 +29,16 @@ import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import java.nio.file.Path
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.minutes
@@ -40,6 +48,8 @@ import prism.browser.Emphasis
 import prism.browser.Field
 import prism.browser.Finder
 import prism.browser.Glyph
+import prism.browser.IndexSource
+import prism.browser.LocalDateFormat
 import prism.browser.LocalIndexReading
 import prism.browser.LocalPalette
 import prism.browser.LocalType
@@ -62,6 +72,7 @@ import prism.index.Unfollowed
 import prism.index.query.Aliases
 import prism.index.query.QueryText
 import prism.platform.Os
+import prism.preferences.DateFormat
 import prism.preferences.Excluded
 import prism.preferences.IndexUpkeep
 import prism.browser.Page as PageLayout
@@ -114,10 +125,14 @@ internal fun ExcludingPage(
 	/** What the index does on its own; null where this page does not set it (the launcher's settings). */
 	upkeep: IndexUpkeep? = null,
 	onUpkeep: (IndexUpkeep) -> Unit = {},
-	/** The index kept here, to rebuild and to watch; null where none is kept. */
+	/** The index searched here, to rebuild and to watch where it can be; null where there is none. */
 	index: Finder? = null,
+	/** Where the index comes from; null where this page shows no index (the launcher's settings). */
+	source: IndexSource? = null,
 	/** What copies text to the clipboard, from the index monitor. */
 	onCopy: (String) -> Unit = {},
+	/** What shows the index's file in a window of its folder. */
+	onShowFile: (Path) -> Unit = {},
 	onChange: (ExcludingEdits) -> Unit,
 ) {
 	val type = LocalType.current
@@ -127,8 +142,8 @@ internal fun ExcludingPage(
 		"Ignored items aren't indexed. Hidden items are indexed, but found only when a search " +
 			"includes their path. A rule also applies to everything inside what it matches.",
 	) {
-		if (index != null)
-			Rebuilding(index, onCopy)
+		if (source != null)
+			Rebuilding(index, source, edits.home, onCopy, onShowFile)
 		if (upkeep != null)
 			Upkeeping(upkeep, onUpkeep)
 		Column(verticalArrangement = Arrangement.spacedBy(Space.s)) {
@@ -166,27 +181,36 @@ internal fun ExcludingPage(
 private val KEEPING_LOOKED_AT = 500.milliseconds
 
 /**
- * The index itself: whether it is being read and how far that has got, or, where it is not, how it is kept as the
- * disk changes, as the Renderer page says how windows are drawn; a button that reads it anew, for when something seems
- * missing from it all the same; and one that opens the index monitor, which shows what it hears.
+ * The index itself: whether it is being read and how far that has got; or, where it is not, how it is kept as the
+ * disk changes (the daemon's), or that it was read once from its file (a prism of its own, or one with no daemon), as
+ * the Renderer page says how windows are drawn; and under that, the index's file, which a click shows in a window of
+ * its folder ([onShowFile]). Beside them, where the index is the daemon's, a button that reads it anew, and one that
+ * opens the index monitor, which shows what it hears.
  */
 @Composable
-private fun Rebuilding(index: Finder, onCopy: (String) -> Unit) {
+private fun Rebuilding(
+	index: Finder?,
+	source: IndexSource,
+	home: Path,
+	onCopy: (String) -> Unit,
+	onShowFile: (Path) -> Unit,
+) {
 	val palette = LocalPalette.current
 	val type = LocalType.current
+	val format = LocalDateFormat.current
 	val reading = LocalIndexReading.current
-	val keeping by produceState(index.keeping(), index) {
-		while (true) {
+	val keeping by produceState(index?.keeping(), index) {
+		while (index != null) {
 			value = index.keeping()
 			delay(KEEPING_LOOKED_AT)
 		}
 	}
 	var monitoring by remember { mutableStateOf<Monitoring>(Monitoring.Closed) }
-	val log = index.activity
+	val log = index?.activity
 	val said =
 		when {
 			reading != null -> KeptSaid(Tone.Plain, reading.said(), null)
-			else -> keeping?.let(::saidOf) ?: KeptSaid(Tone.Good, "Up to date", null)
+			else -> saidOf(source, keeping, format)
 		}
 
 	Column(verticalArrangement = Arrangement.spacedBy(Space.s)) {
@@ -197,8 +221,10 @@ private fun Rebuilding(index: Finder, onCopy: (String) -> Unit) {
 					said.title,
 					said.tone,
 					Modifier.weight(1f).semantics(mergeDescendants = true) {}.testTag("index-state"),
-					said.detail,
 				) {
+					said.detail?.let {
+						Text(it, style = type.muted, modifier = Modifier.testTag("index-state-detail"))
+					}
 					if (reading != null)
 						Box(
 							Modifier
@@ -215,6 +241,7 @@ private fun Rebuilding(index: Finder, onCopy: (String) -> Unit) {
 									.background(palette.accent),
 							)
 						}
+					IndexFileLine(source.file, home, onShowFile)
 				}
 				Row(
 					Modifier.padding(end = Space.l),
@@ -227,19 +254,106 @@ private fun Rebuilding(index: Finder, onCopy: (String) -> Unit) {
 							enabled = true,
 							Modifier.testTag("index-monitor-open"),
 						) { monitoring = Monitoring.Bursts() }
-					PushButton(
-						"Rebuild index",
-						Emphasis.Secondary,
-						enabled = reading == null,
-						Modifier.testTag("index-rebuild"),
-						onClick = index::rebuild,
-					)
+					// Only the daemon's index can be read anew: one read from its file stays as it was read.
+					if (index?.rebuilds == true)
+						PushButton(
+							"Rebuild index",
+							Emphasis.Secondary,
+							enabled = reading == null,
+							Modifier.testTag("index-rebuild"),
+							onClick = index::rebuild,
+						)
 				}
 			}
 		}
 	}
 	if (log != null)
 		IndexMonitor(monitoring, log, index::folderAt, onCopy) { monitoring = it }
+}
+
+/**
+ * The index's [file], from `~` where it is under [home], which a click shows ([onShow]); or, for a daemon's index kept
+ * in memory alone, that it is.
+ */
+@Composable
+private fun IndexFileLine(file: Path?, home: Path, onShow: (Path) -> Unit) {
+	val palette = LocalPalette.current
+	val type = LocalType.current
+
+	if (file == null) {
+		Text(
+			"Kept in memory only, never written to disk",
+			style = type.muted,
+			modifier = Modifier.testTag("index-file"),
+		)
+
+		return
+	}
+
+	Row(
+		horizontalArrangement = Arrangement.spacedBy(Space.s),
+		verticalAlignment = Alignment.CenterVertically,
+	) {
+		Text("Index file", style = type.muted)
+		run {
+			val source = remember { MutableInteractionSource() }
+			val hovered by source.collectIsHoveredAsState()
+
+			Text(
+				if (file.startsWith(home))
+					"~/" + home.relativize(file)
+				else
+					file.toString(),
+				style =
+					type.mono.copy(
+						color = palette.accentText,
+						textDecoration =
+							if (hovered)
+								TextDecoration.Underline
+							else
+								TextDecoration.None,
+					),
+				maxLines = 1,
+				overflow = TextOverflow.MiddleEllipsis,
+				modifier =
+					Modifier
+						.weight(1f, fill = false)
+						.pointerHoverIcon(PointerIcon.Hand)
+						.clickable(source, indication = null, role = Role.Button) { onShow(file) }
+						.testTag("index-file"),
+			)
+		}
+	}
+}
+
+/** What the Index card says of an index read from [source] (kept by the daemon as [keeping] says, or not), times as [format] writes them. */
+internal fun saidOf(
+	source: IndexSource,
+	keeping: Keeping?,
+	format: DateFormat,
+): KeptSaid {
+	fun alone(isolated: Boolean) =
+		if (isolated)
+			"Isolated instance"
+		else
+			"Daemon not running"
+
+	return when (source) {
+		is IndexSource.Daemon ->
+			keeping?.let(::saidOf)
+				?: KeptSaid(Tone.Good, "Up to date", null)
+		is IndexSource.File ->
+			KeptSaid(
+				Tone.Plain,
+				alone(source.isolated),
+				"Loaded at ${format.write(source.at)}, %,d entries. ".format(source.entries) +
+					if (source.isolated)
+						"Not updated while isolated."
+					else
+						"Not updated until the daemon runs.",
+			)
+		is IndexSource.None -> KeptSaid(Tone.Plain, alone(source.isolated), source.why)
+	}
 }
 
 /** How the index is kept, as the Index card says it: a [tone]'s glyph, a [title], and a [detail] under it. */

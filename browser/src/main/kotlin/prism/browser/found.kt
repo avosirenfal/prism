@@ -74,6 +74,40 @@ data class IndexReading(
 			"Indexing: %,d items read".format(listed)
 }
 
+/**
+ * Where the index a prism searches comes from, as the preferences' Indexing page says it, and the [file] it is kept
+ * in or read from (none, for an index kept in memory alone).
+ */
+sealed interface IndexSource {
+	val file: Path?
+
+	/** This prism is the daemon, which keeps its index as the disk changes, in [file]. */
+	data class Daemon(
+		override val file: Path?,
+	) : IndexSource
+
+	/**
+	 * Read once from [file] as this prism opened ([at]), [entries] entries, and never updated after: by a prism of its
+	 * own ([isolated], `--isolated`), or by one given `--index` that found no daemon running.
+	 */
+	data class File(
+		override val file: Path,
+		val at: Instant,
+		val entries: Long,
+		val isolated: Boolean,
+	) : IndexSource
+
+	/**
+	 * No index, and [why]: in a prism of its own ([isolated]), or in one that found no daemon running. [file] is where
+	 * it was looked for, or would be.
+	 */
+	data class None(
+		override val file: Path,
+		val why: String,
+		val isolated: Boolean,
+	) : IndexSource
+}
+
 /** The reading of the index there is now, for whatever shows it; null while the index is as the disk is. */
 val LocalIndexReading = staticCompositionLocalOf<IndexReading?> { null }
 
