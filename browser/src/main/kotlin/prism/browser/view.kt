@@ -51,6 +51,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
@@ -2049,6 +2050,7 @@ private fun Gallery(
 		val scale = scaleOf(state.zoom, whole)
 
 		LaunchedEffect(whole) { onEvent(BrowserEvent.Measured(whole)) }
+		NearPictures(state.rows, grid)
 
 		// A notch of the wheel moves the gallery a line of tiles, however large they are drawn.
 		Box(
@@ -2079,6 +2081,44 @@ private fun Gallery(
 			}
 			ScrollbarBeside(rememberScrollbarAdapter(grid), Modifier.matchParentSize())
 		}
+	}
+}
+
+/**
+ * The thumbnails of the files near what the gallery shows asked for, as it is scrolled: so many after the tiles in
+ * sight and as many before (the preferences say how many), the nearest first, which are made once those in sight have
+ * theirs. A gallery jumped far down a long folder asks for those around where it landed, and no longer for those
+ * where it was. Shown another folder, it asks for that folder's; gone, or with pictures turned off, for none.
+ */
+@Composable
+private fun NearPictures(rows: Rows, grid: LazyGridState) {
+	val thumbnails = LocalThumbnails.current
+	val pictured = LocalPictured.current
+	val owner = remember { Any() }
+	val listed by rememberUpdatedState(rows)
+	// A tile's picture is drawn in the tile's room, less the room it keeps about itself.
+	val inset = with(LocalDensity.current) { (Space.s * 2).roundToPx() }
+
+	DisposableEffect(thumbnails, owner) { onDispose { thumbnails.forget(owner) } }
+	LaunchedEffect(thumbnails, grid, pictured, inset) {
+		if (!pictured || thumbnails.ahead == 0)
+			thumbnails.forget(owner)
+		else
+			snapshotFlow {
+				val shown = grid.layoutInfo.visibleItemsInfo
+
+				shown.firstOrNull()?.let { first ->
+					Triple(listed, first.index..shown.last().index, first.size.width - inset)
+				}
+			}.filterNotNull()
+				.distinctUntilChanged()
+				.collect { (rows, shown, side) ->
+					thumbnails.near(
+						owner,
+						Thumbnails.around(rows, shown.first, shown.last, thumbnails.ahead),
+						side,
+					)
+				}
 	}
 }
 

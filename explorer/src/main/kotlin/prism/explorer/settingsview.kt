@@ -145,7 +145,9 @@ import prism.browser.Page as PageLayout
  * The Renderer page shows [graphics] (while it is looked at, null), and copies its report by [onCopy]. The Context
  * menus page decides the user's actions in [world], as the menus it shows would. The keys for undo and redo, wherever
  * nothing that has the keyboard takes them (a field's own typing), are [onUndo] and [onRedo]. An action or a text
- * search tried out from the window that edits it is run by [commands].
+ * search tried out from the window that edits it is run by [commands]. The Thumbnails page shows what [thumbnails]
+ * says of the thumbnails kept, and changes the folder they are kept in through [onRelocate], at once: what is asked
+ * or shown meanwhile is [relocating].
  */
 @Composable
 fun SettingsView(
@@ -166,6 +168,12 @@ fun SettingsView(
 	commands: Commands = ProcessCommands,
 	/** What reads the index anew, from the Indexing page; null where there is no index kept to read. */
 	onRebuild: (() -> Unit)? = null,
+	/** What the running prism says of its thumbnails, which the Thumbnails page shows. */
+	thumbnails: ThumbnailFacts = ThumbnailFacts(),
+	/** What is being asked or done about a change of the thumbnails' folder, drawn over the pages. */
+	relocating: Relocating? = null,
+	/** A change of the thumbnails' folder asked for, which is made at once and not when the window applies. */
+	onRelocate: (Relocate) -> Unit = {},
 ) {
 	// The keys as they are applied, not as the bindings page is changing them.
 	val bindings = remember(settings.base) { Bindings.of(settings.base) }
@@ -206,12 +214,19 @@ fun SettingsView(
 					settings.excluding,
 					onRebuild,
 				) { onChange(settings.copy(excluding = it)) }
+			Page.Thumbnails ->
+				ThumbnailsPage(
+					settings.thumbnailing,
+					thumbnails,
+					onRelocate,
+				) { onChange(settings.copy(thumbnailing = it)) }
 			Page.Actions -> ScriptsPage(ScriptKind.Action, settings, world, filter, onChange)
 			Page.Searches -> SearchesPage(settings, world, filter, onChange)
 		}
 	}
 	// Whatever is open over the pages of actions and text searches: one being made, changed or moved.
 	ActingModals(settings, world, commands, onChange)
+	RelocatingModal(relocating, onRelocate)
 }
 
 /**
@@ -289,6 +304,7 @@ private fun glyphOf(page: Page): Glyph =
 		Page.Bindings -> Glyph.Keyboard
 		Page.Aliases -> Glyph.At
 		Page.Indexing -> Glyph.Filter
+		Page.Thumbnails -> Glyph.Pictures
 		Page.Actions -> Glyph.Bolt
 		Page.Searches -> Glyph.Search
 	}

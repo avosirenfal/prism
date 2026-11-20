@@ -12,6 +12,7 @@ import kotlinx.serialization.encoding.Encoder
 import kotlinx.serialization.json.JsonElement
 import prism.desktop.TerminalChoice
 import prism.shared.ScrollDirection
+import prism.thumbnails.ThumbnailSettings
 
 /*
  * What the user has set, as one immutable value. Every window reads the same one, and a change to it is a new value
@@ -122,6 +123,11 @@ data class Preferences(
 	val sidebarShown: ShownIn = ShownIn.EVERYWHERE,
 	/** What the index leaves out, and what it holds that searches leave out. */
 	val excluding: Excluding = Excluding(),
+	/**
+	 * How the small pictures of files are made and kept, where they are shown ([thumbnails]): the folder they are
+	 * kept in, how much is kept, how large they are made, and the programs that make them.
+	 */
+	val thumbnailing: ThumbnailSettings = ThumbnailSettings(),
 ) {
 	/** The actions, places and text searches written here, and the editor. */
 	val written: ActionsFile get() = ActionsFile(actions, places, textSearches, editor)

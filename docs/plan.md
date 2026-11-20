@@ -175,8 +175,7 @@ It browses, chooses and accepts as a desktop's own dialog does, by the pointer a
 forward and up (the mouse's side buttons too), the places, a path typed, a search of the folder shown, sorting,
 Ctrl- and Shift-click, type-ahead, saving over a file only when the user says so. A filter menu chooses a kind of
 entry (images, videos, folders, ...), or several with Ctrl; hidden files are shown and hidden folders are not until
-the user says otherwise. The listing is rows in columns or a gallery of tiles, with thumbnails of images made on IO
-threads, drawn larger or smaller with Ctrl and the wheel, the gallery up to one picture at a time. Context menus (menus as data, worked out from the state
+the user says otherwise. The listing is rows in columns or a gallery of tiles, with thumbnails made and kept (docs/thumbnails.md), drawn larger or smaller with Ctrl and the wheel, the gallery up to one picture at a time. Context menus (menus as data, worked out from the state
 for what was pressed, and one component that draws any of them) rename, trash and make folders, and Ctrl+Z undoes
 any of it. Nothing is deleted for good: the trash is as far as anything goes.
 
@@ -187,7 +186,7 @@ best first, millions of them without making millions of rows, and Back returns t
 
 Features to come, roughly in order: type filters from the portal's request (MIME types as well as patterns); the
 folders read from the index; a details pane with a preview;
-thumbnails of videos and documents, and the desktop's own thumbnail cache; the list's column widths and order kept per
+thumbnails of documents by programs prism ships (docs/thumbnails.md has what is made now); the list's column widths and order kept per
 user; drag and drop out of the picker.
 
 ## The explorer

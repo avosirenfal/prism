@@ -17,8 +17,14 @@ a device, so a test that ran and a test that could not run are never confused.
 | the picker's model, source and headless drawing (`PickerTest`) | the JDK | never |
 | the picker's rules (`StepTest`) | the JDK | never |
 | the picker clicked, typed and scrolled at, headless, around a running session: among the rest, a notch of the wheel moving the list three rows at any zoom, a touchpad's scroll moving it on the next frame and a notch turned mid-glide adding to it, a listing zoomed wider than its window scrolled across with its headings, and a modal put away by Escape (`InteractionTest`) | the JDK | never |
-| the gallery's thumbnails (`ThumbnailTest`) | the JDK | never |
-| the shared thumbnail cache read as freedesktop.org's standard has it (`ThumbnailCacheTest`); its addresses against GLib's own `g_filename_to_uri`, and a thumbnail made by ImageMagick | the JDK; GLib and ImageMagick | the two that ask GLib or ImageMagick, where it is not installed |
+| the gallery's thumbnails: images decoded by Skia, a film made by ffmpeg and a raw photograph from its preview, the files near what is shown (`ThumbnailTest`) | the JDK; ffmpeg for its case | the one that runs ffmpeg, without it |
+| the thumbnail cache read and written as freedesktop.org's standard has it (`ThumbnailCacheTest`); its addresses against GLib's own `g_filename_to_uri`, and a thumbnail made by ImageMagick | the JDK; GLib and ImageMagick | the two that ask GLib or ImageMagick, where it is not installed |
+| previews read out of raw photographs and JPEGs laid out as each camera's are, and files that say what is not so (`EmbeddedTest`) | the JDK | never |
+| ffmpeg: what it says it reads, in two versions' words; films, covers, pictures and damaged files, with the ffmpeg installed; a program killed when it is no longer waited for (`FfmpegTest`) | the JDK; ffmpeg, `sh` | the cases that run ffmpeg, without it |
+| declared thumbnailers: commands read and filled, the commands desktops' thumbnailers are run by, and a PDF, an e-book's cover and a PCX made for real (`ThumbnailersTest`) | the JDK; `sh`; pdftoppm, unzip, ImageMagick | each real case, without its program |
+| which thumbnails are kept, over caches as they come to be: a folder of thousands scrolled once, a month of new pictures, heavy thumbnails, another program's cache taken on (`KeepingTest`); a cache moved, stopped part of the way, and removed (`RelocationTest`) | the JDK | never |
+| the thumbnail service around a real cache: what is made first and what stops it, failures remembered, other programs' thumbnails counted and removed, another folder set (`ThumbnailServiceTest`) | the JDK | never |
+| the Thumbnails page of the preferences, its folder changed at once with a move stopped part of the way on real folders, and the page drawn (`ThumbnailingTest`, `-Pexplorer.screenshots`) | the JDK | never |
 | the picker's menus, as values (`MenuTest`) | the JDK | never |
 | the browser exploring: files opened, or offered to an application; copied, cut and pasted, with undo; made; quick access arranged, and an older version's pins read as it (`ExploreTest`) | Linux | never |
 | the user's actions: commands read and filled word by word, what is refused and why, conditions, the menus they are in, their keys, and each step of doing one (`ActionsTest`) | the JDK | never |

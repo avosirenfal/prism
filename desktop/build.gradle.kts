@@ -16,6 +16,8 @@ dependencies {
 	implementation(project(":macos"))
 	// `mimeapps.list`, changed as it is at that moment, and state shared between threads.
 	implementation(project(":shared"))
+	// What the system's own maker of pictures is to the thumbnails: Quick Look, on a Mac.
+	api(project(":thumbnails"))
 	// `zfs list -j`, read for what each dataset holds.
 	implementation(libs.kotlinx.serialization.json)
 }

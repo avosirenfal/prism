@@ -22,6 +22,7 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.key.Key
@@ -50,6 +51,7 @@ import prism.browser.HostedWindow
 import prism.browser.IndexReading
 import prism.browser.LocalIndexReading
 import prism.browser.LocalPalette
+import prism.browser.LocalThumbnails
 import prism.browser.LocalType
 import prism.browser.Palette
 import prism.browser.Scaled
@@ -144,7 +146,10 @@ private val PRISM_ICON: ByteArray? by lazy {
 fun ExplorerWindows(explorer: Explorer, palette: Palette, alwaysDecorated: Boolean) {
 	val preferences by explorer.preferences.preferences.collectAsState()
 
-	CompositionLocalProvider(LocalScrollDirection provides preferences.scrolling) {
+	CompositionLocalProvider(
+		LocalScrollDirection provides preferences.scrolling,
+		LocalThumbnails provides explorer.thumbnails,
+	) {
 		EveryWindow(explorer, palette, alwaysDecorated)
 	}
 }
@@ -501,6 +506,38 @@ private fun SettingsWindow(
 		}
 	}
 
+	// The folder thumbnails are kept in is changed at once, apart from what the window applies: the preferences are
+	// written as it is, and the window then edits from them, its other changes kept. What was done before it cannot
+	// be undone past it.
+	val scope = rememberCoroutineScope()
+
+	val relocator =
+		remember {
+			Relocator(explorer.preferences, scope, written = {
+				settings = settings.relocated(it)
+				edits = Edits()
+			})
+		}
+
+	val relocating by relocator.state.collectAsState()
+	// What the running prism says of its thumbnails, looked at again each second while their page is shown.
+	val service = explorer.thumbnails.service
+	val pictured = settings.page == Page.Thumbnails
+
+	val facts by produceState(ThumbnailFacts(), service, pictured) {
+		if (service != null && pictured) {
+			val ffmpeg =
+				withContext(Dispatchers.IO) { service.ffmpeg.await() }
+					?.let(ThumbnailFacts.Found::Installed)
+					?: ThumbnailFacts.Found.Missing
+
+			while (true) {
+				value = ThumbnailFacts(totals = service.totals, ffmpeg = ffmpeg)
+				delay(1000)
+			}
+		}
+	}
+
 	// The terminals there are to choose from, found on the disk as the window opens.
 	val terminals by produceState(TerminalOptions.NONE) {
 		value = withContext(Dispatchers.IO) { explorer.desktop.launcher.terminals() }
@@ -536,6 +573,9 @@ private fun SettingsWindow(
 			graphics = graphics,
 			onCopy = ::toClipboard,
 			onRebuild = explorer.finder?.takeIf { it.rebuilds }?.let { it::rebuild },
+			thumbnails = facts,
+			relocating = relocating,
+			onRelocate = relocator::ask,
 			world = explorer.world,
 			onUndo = { stepped(edits.undo(settings)) },
 			onRedo = { stepped(edits.redo(settings)) },

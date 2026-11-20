@@ -40,8 +40,9 @@ enum class Page(
 	val label: String,
 ) {
 	Display("Display"),
-	Indexing("Indexing"),
 	Renderer("Renderer"),
+	Indexing("Indexing"),
+	Thumbnails("Thumbnails"),
 	Layout("Layout"),
 	Menus("Context menus"),
 	Terminal("Terminal"),
@@ -309,6 +310,8 @@ data class Settings(
 	val aliasing: AliasEdits = AliasEdits.of(base.aliases),
 	/** What the index leaves out, as the Indexing page has it. */
 	val excluding: ExcludingEdits = ExcludingEdits.of(base.excluding),
+	/** How thumbnails are made and kept, as the Thumbnails page has it. */
+	val thumbnailing: ThumbnailEdits = ThumbnailEdits(base.thumbnailing),
 	/** The user's actions and text searches, which are turned off, and the editor, as their two pages have them. */
 	val acting: Acting = Acting.of(base),
 	/** Which actions the File actions page shows. */
@@ -375,6 +378,17 @@ data class Settings(
 	/** What the window would write over its preferences, as these are. */
 	val written: Preferences get() = over(base)
 
+	/**
+	 * These, the folder thumbnails are kept in changed to what is [written], which the preferences already hold: it is
+	 * changed at once, by itself (thumbnailing.kt), so it is what the window edits from, and whatever else is changed
+	 * here still waits to be applied.
+	 */
+	fun relocated(written: String?): Settings =
+		copy(
+			base = base.copy(thumbnailing = base.thumbnailing.copy(folder = written)),
+			thumbnailing = thumbnailing.relocated(written),
+		)
+
 	/** Whether anything is changed from what the window opened on, or last applied. */
 	val changed: Boolean get() = written != base
 
@@ -433,6 +447,7 @@ data class Settings(
 			// Never written with anything wrong in them: what is typed stays on the page until it is right.
 			aliases = aliasing.written?.let { kept(Preferences::aliases, it) } ?: current.aliases,
 			excluding = kept(Preferences::excluding, excluding.kept),
+			thumbnailing = kept(Preferences::thumbnailing, thumbnailing.kept),
 			actions = kept(Preferences::actions, acting.actions),
 			textSearches = kept(Preferences::textSearches, acting.searches),
 			disabled = kept(Preferences::disabled, acting.disabled),

@@ -19,18 +19,31 @@ import kotlin.io.path.Path
 import kotlin.io.path.createDirectories
 import kotlin.io.path.writeBytes
 import kotlin.io.path.writeText
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.runBlocking
+import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotSame
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Assumptions.assumeTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
-import prism.desktop.freedesktop.ThumbnailCache
-import prism.desktop.freedesktop.ThumbnailSize
 import prism.desktop.freedesktop.XdgPlaces
 import prism.preferences.Layout
+import prism.thumbnails.Encoded
+import prism.thumbnails.Extent
+import prism.thumbnails.Ffmpeg
+import prism.thumbnails.Png
+import prism.thumbnails.ThumbnailCache
+import prism.thumbnails.ThumbnailService
+import prism.thumbnails.ThumbnailSettings
+import prism.thumbnails.ThumbnailSize
 
 /**
  * The gallery's pictures: made from real image files, scaled to fit, kept, and not made from what is not an image;
@@ -121,6 +134,28 @@ class ThumbnailTest {
 
 	private fun cache() = ThumbnailCache(work.resolve("cache/thumbnails"))
 
+	private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+	@AfterEach
+	fun stop() {
+		scope.cancel()
+	}
+
+	/**
+	 * The pictures of a window whose thumbnails are kept in [cache], with no program to make any: what is there is
+	 * what other programs left, and what Skia makes of images.
+	 */
+	private fun thumbnails(cache: ThumbnailCache, now: () -> Long = System::nanoTime) =
+		Thumbnails(
+			ThumbnailService(
+				scope,
+				ThumbnailSettings(folder = cache.root.toString()),
+				pictures = SkiaPictures,
+				ffmpeg = CompletableDeferred<Ffmpeg?>(value = null),
+			),
+			now = now,
+		)
+
 	private fun modifiedOf(file: Path) = Files.getLastModifiedTime(file).toInstant()
 
 	private fun colourAt(picture: ImageBitmap, x: Int, y: Int): Color {
@@ -143,7 +178,7 @@ class ThumbnailTest {
 
 			thumbnail(cache, film, ThumbnailSize.Large, plain(256, 144, Color.GREEN))
 
-			val thumbnails = Thumbnails(shared = cache)
+			val thumbnails = thumbnails(cache)
 			val picture = thumbnails.of(film, modified, 200, Files.size(film))!!
 
 			// The thumbnail as it is kept, and kept here too.
@@ -166,7 +201,7 @@ class ThumbnailTest {
 			// A file whose time is not known cannot be told from one that changed.
 			assertNull(thumbnails.of(film, null, 200))
 			// With no shared cache, as before: no picture of what is no image.
-			assertNull(Thumbnails(shared = null).of(film, modified, 200))
+			assertNull(Thumbnails().of(film, modified, 200))
 		}
 
 	@Test
@@ -178,7 +213,7 @@ class ThumbnailTest {
 
 			thumbnail(cache, photo, ThumbnailSize.XLarge, plain(512, 384, Color.GREEN))
 
-			val thumbnails = Thumbnails(shared = cache)
+			val thumbnails = thumbnails(cache)
 
 			// Wanted no larger than the thumbnail kept: that is the picture, and the photograph is not decoded.
 			val small = thumbnails.of(photo, modified, 400)!!
@@ -204,7 +239,7 @@ class ThumbnailTest {
 			val film = work.resolve("clip.mp4").also { it.writeText("not really a film") }
 			val modified = modifiedOf(film)
 			var now = 0L
-			val thumbnails = Thumbnails(shared = cache, now = { now })
+			val thumbnails = thumbnails(cache) { now }
 
 			assertNull(thumbnails.of(film, modified, 200))
 
@@ -326,7 +361,7 @@ class ThumbnailTest {
 			val state = shown(cache)
 
 			setContent {
-				CompositionLocalProvider(LocalThumbnails provides Thumbnails(shared = cache)) {
+				CompositionLocalProvider(LocalThumbnails provides thumbnails(cache)) {
 					BrowserTheme { FileBrowser(state) }
 				}
 			}
@@ -349,7 +384,7 @@ class ThumbnailTest {
 		runBlocking {
 			val cache = cache()
 			val state = shown(cache)
-			val thumbnails = Thumbnails(shared = cache)
+			val thumbnails = thumbnails(cache)
 
 			// Made before it is drawn, at every size a tile could ask for: a headless picture is of two frames, and
 			// does not wait for an IO thread.
@@ -378,7 +413,7 @@ class ThumbnailTest {
 	@Test
 	fun anImageIsScaledToFitAndKept() =
 		runBlocking {
-			val thumbnails = Thumbnails(shared = null)
+			val thumbnails = Thumbnails()
 			val photo = picture(work, "photo.png", 400, 300)
 			val modified = Files.getLastModifiedTime(photo).toInstant()
 			val small = thumbnails.of(photo, modified, 200)!!
@@ -397,7 +432,7 @@ class ThumbnailTest {
 	fun aSmallImageIsNotScaledUp() =
 		runBlocking {
 			val icon = picture(work, "icon.jpg", 32, 24)
-			val small = Thumbnails(shared = null).of(icon, Instant.EPOCH, 256)!!
+			val small = Thumbnails().of(icon, Instant.EPOCH, 256)!!
 
 			assertEquals(32, small.width)
 			assertEquals(24, small.height)
@@ -463,8 +498,8 @@ class ThumbnailTest {
 
 			fun bluish(colour: Color) = colour.blue > 180 && colour.red < 80
 
-			val upright = Thumbnails(shared = null).of(plain, Instant.EPOCH, 256)!!
-			val onItsSide = Thumbnails(shared = null).of(turned, Instant.EPOCH, 256)!!
+			val upright = Thumbnails().of(plain, Instant.EPOCH, 256)!!
+			val onItsSide = Thumbnails().of(turned, Instant.EPOCH, 256)!!
 
 			assertEquals(80 to 40, upright.width to upright.height)
 			assertTrue(reddish(colourAt(upright, 10, 20)) && bluish(colourAt(upright, 70, 20)))
@@ -479,7 +514,7 @@ class ThumbnailTest {
 		runBlocking {
 			for (format in listOf("png", "jpg", "gif", "bmp")) {
 				val made =
-					Thumbnails(shared = null).of(
+					Thumbnails().of(
 						picture(work, "picture.$format", 300, 200),
 						Instant.EPOCH,
 						128,
@@ -492,7 +527,7 @@ class ThumbnailTest {
 	@Test
 	fun whatIsNotAnImageHasNoPicture() =
 		runBlocking {
-			val thumbnails = Thumbnails(shared = null)
+			val thumbnails = Thumbnails()
 
 			work.resolve("notes.txt").writeText("not a picture")
 			work.resolve("fake.png").writeText("not a picture either")
@@ -500,5 +535,127 @@ class ThumbnailTest {
 			assertNull(thumbnails.of(work.resolve("notes.txt"), null))
 			assertNull(thumbnails.of(work.resolve("fake.png"), null))
 			assertNull(thumbnails.of(work.resolve("gone.png"), null))
+		}
+
+	@Test
+	fun skiaMakesAThumbnailsPngOfAPictureTurnedAsItIsToldAndNoneOfOneTooLarge() {
+		val photo = picture(work, "wide.jpg", 1200, 800)
+		val made = SkiaPictures.png(Encoded.InFile(photo), 256)!!
+
+		assertEquals(Extent(256, 171), made.extent)
+		assertEquals(Extent(256, 171), Png.extent(made.png))
+		assertEquals(Extent(1200, 800), SkiaPictures.extentOf(photo))
+		// A raw file's preview is turned as the raw file says, whatever the preview says of itself: on its side.
+		assertEquals(
+			Extent(171, 256),
+			SkiaPictures
+				.png(
+					Encoded.Bytes(Files.readAllBytes(photo)),
+					256,
+					orientation = 6,
+				)!!
+				.extent,
+		)
+		// Never scaled up; nothing made of what is no picture, nor of one with more pixels than may be decoded.
+		assertEquals(Extent(1200, 800), SkiaPictures.png(Encoded.InFile(photo), 2048)!!.extent)
+		assertNull(SkiaPictures.png(Encoded.Bytes("not a picture".toByteArray()), 256))
+		assertNull(SkiaPictures.extentOf(work.resolve("gone.png")))
+		assertNull(SkiaPictures.scaled(Encoded.InFile(photo), 256, limit = 500_000))
+		assertTrue("webp" in SkiaPictures.extensions && "heic" !in SkiaPictures.extensions)
+	}
+
+	@Test
+	fun theFilesNearWhatIsShownAreTheNearestFirstEitherWayAndNoMoreThanAreAskedFor() {
+		val folder = work.resolve("many").createDirectories()
+
+		(0 until 40).forEach { folder.resolve("%02d.jpg".format(it)).writeBytes(ByteArray(8)) }
+		folder.resolve("a folder").createDirectories()
+
+		val rows =
+			step(
+				pickerOf(folder, Choosing.OneFile(), home = work, places = XdgPlaces()),
+				BrowserEvent.Viewed(Layout.Gallery),
+			).state.rows
+
+		val names = (0 until rows.size).map { rows[it].name }
+
+		fun near(first: Int, last: Int, ahead: Int) =
+			Thumbnails.around(rows, first, last, ahead).map { it.file.fileName.toString() }
+
+		// Rows 10 to 14 in sight: the one after, the one before, the second after, and so on.
+		assertEquals(
+			listOf(15, 9, 16, 8, 17, 7).map { names[it] },
+			near(10, 14, 3),
+		)
+		// At the top of the folder there is nothing before; a folder has no picture, and is not among them.
+		assertTrue("a folder" !in near(0, 2, 100))
+		// The folder is listed first, with two files in sight after it: the other thirty-eight are near.
+		assertEquals(38, near(0, 2, 100).size)
+		assertEquals(emptyList<String>(), near(10, 14, 0))
+	}
+
+	@Test
+	fun aFilmHasItsPictureMadeByFfmpegAndARawPhotographByThePreviewInIt() =
+		runBlocking {
+			val ffmpeg = Ffmpeg.find()
+
+			assumeTrue(ffmpeg != null, "no ffmpeg here")
+
+			val film = work.resolve("clip.mp4")
+
+			val made =
+				ProcessBuilder(
+					"${ffmpeg!!.program}",
+					"-v",
+					"error",
+					"-y",
+					"-f",
+					"lavfi",
+					"-i",
+					"testsrc2=size=640x360:rate=25:duration=2",
+					"-c:v",
+					"libx264",
+					"-pix_fmt",
+					"yuv420p",
+					"$film",
+				).inheritIO().start().waitFor()
+
+			assertEquals(0, made)
+
+			val cache = cache()
+
+			val thumbnails =
+				Thumbnails(
+					ThumbnailService(
+						scope,
+						ThumbnailSettings(folder = cache.root.toString()),
+						pictures = SkiaPictures,
+						ffmpeg = CompletableDeferred<Ffmpeg?>(value = ffmpeg),
+					),
+				)
+
+			val picture = thumbnails.of(film, modifiedOf(film), 200, Files.size(film))!!
+
+			assertEquals(256 to 144, picture.width to picture.height)
+			// Kept where other programs look for it, as the standard has it.
+			assertTrue(Files.exists(cache.entry(film, ThumbnailSize.Large)))
+
+			// A photograph in a raw format, as Fuji's are laid out: a header that says where its JPEG lies.
+			val preview = Files.readAllBytes(picture(work, "preview.jpg", 1620, 1080))
+			val header = ByteArray(160)
+
+			"FUJIFILMCCD-RAW 0201".toByteArray().copyInto(header)
+			java.nio.ByteBuffer
+				.wrap(header)
+				.putInt(84, header.size)
+				.putInt(88, preview.size)
+
+			val raw =
+				work.resolve("photo.raf").also {
+					it.writeBytes(header + preview + ByteArray(50_000))
+				}
+			val shown = thumbnails.of(raw, modifiedOf(raw), 200, Files.size(raw))!!
+
+			assertEquals(256 to 171, shown.width to shown.height)
 		}
 }

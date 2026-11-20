@@ -16,11 +16,14 @@ data class Used(
 	val weight: Double,
 	val at: Instant,
 ) {
-	/** What the uses weigh at [now], halved for every [HALF_LIFE] since. */
-	fun weightAt(now: Instant): Double {
+	/**
+	 * What the uses weigh at [now], halved for every [halfLife] since: two weeks, unless what is weighed is used
+	 * over longer than that (a picture looked at again after a season is still one that is looked at).
+	 */
+	fun weightAt(now: Instant, halfLife: Duration = HALF_LIFE): Double {
 		val age = Duration.between(at, now).seconds.coerceAtLeast(0)
 
-		return weight * 0.5.pow(age.toDouble() / HALF_LIFE.seconds)
+		return weight * 0.5.pow(age.toDouble() / halfLife.seconds)
 	}
 
 	/**

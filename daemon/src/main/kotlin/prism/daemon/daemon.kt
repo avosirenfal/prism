@@ -211,6 +211,11 @@ class Telling(
 	val whole: (Index) -> Unit = {},
 	/** Each batch of FSEvents' changes, as it is seen, on a Mac: every one, whatever the index makes of it. */
 	val heard: (List<FsEvent>) -> Unit = {},
+	/**
+	 * Each batch of changes the feed gives, on any platform, as the index is given it: whatever the index makes of
+	 * it, and so of folders the index leaves out too (the thumbnails' own, in the user's cache: [Listening]).
+	 */
+	val changed: (List<Changed>) -> Unit = {},
 ) {
 	companion object {
 		val NOBODY = Telling()
@@ -588,7 +593,16 @@ class Daemon private constructor(
 			// A feed that cannot even say why it will not start is no feed, and the daemon runs without.
 			val feeding =
 				try {
-					feed.start(relay::seen)
+					feed.start { batch ->
+						relay.seen(batch)
+						// Whoever else is told is told after the index, and whatever comes of telling them is theirs:
+						// the feed goes on.
+						try {
+							settings.telling.changed(batch)
+						} catch (failed: RuntimeException) {
+							settings.report("telling of ${batch.size} changes", failed)
+						}
+					}
 				} catch (failed: Throwable) {
 					settings.report("starting the watcher", failed)
 					Feeding.Off("the watcher couldn't start: $failed")

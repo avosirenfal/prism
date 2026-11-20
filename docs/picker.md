@@ -305,13 +305,13 @@ same: what is chosen, the filters, the double click, the keys. In a gallery, Lef
 and Up and Down move a whole line; the headings that sort become a row of the same choices after "Sort by". The
 gallery stays the gallery from folder to folder, until it is switched back.
 
-An image's picture is a **thumbnail** (`Thumbnails`): the file decoded by Skia, the library Compose draws with, scaled
-down (never up) to fit 128, 256, 512, 1024 or 2048 pixels, the first at least as large as the tile draws it, and kept, by the
-file's path, the time it last changed and that size, so it is made once however often its tile is drawn, and again
-once the file changes or the gallery is drawn larger. Decoding a photograph takes tens of milliseconds and the whole
-picture's memory while it lasts, so it happens on IO threads, at most four at a time, while the tile shows the icon;
-a tile scrolled away before its turn comes is never decoded at all, because asking for it is cancelled with the tile.
-What is kept is the pictures used most recently, up to 16 million pixels (64 MB) in all.
+A file's picture is a **thumbnail** (docs/thumbnails.md). A small image is decoded by Skia, the library Compose
+draws with, each time it is shown. Anything else has a thumbnail kept on disk, found there or made: a large image
+by Skia, a raw photograph from the preview inside it, a film by ffmpeg. What a window has decoded it keeps in memory
+(`Thumbnails`), by the file's path, the time it last changed and the size it is drawn at, up to 16 million pixels
+(64 MB), the pictures used most recently. Decoding happens on IO threads, at most four at a time, while the tile shows
+the icon; a tile scrolled away before its turn comes is never decoded, because asking for it is cancelled with the
+tile.
 
 The picture above is the real window, on a virtual display, over a folder of generated pictures.
 
@@ -326,37 +326,13 @@ it is so in every window at once, and in the next one opened.
 
 ![A gallery of films and a document, drawn from the shared thumbnail cache](picker-shared-thumbnails.png)
 
-A file Skia cannot decode (a video, a PDF, a document) has a picture where another program has made one: prism reads
-the thumbnails the desktop's programs share, as freedesktop.org's Thumbnail Managing Standard keeps them
-(`ThumbnailCache`, in the desktop module). Nautilus, Thunar and Dolphin all write there, so a film one of them has
-shown has its frame in prism's gallery too. Prism **reads** the cache and writes nothing to it: it makes no
-thumbnails of videos or documents yet, so a file nothing else has shown has its icon (in the picture, the two films
-with icons: one whose thumbnail was made before the file last changed, and one that has none).
+On Linux, thumbnails are kept where the desktop's programs share them, as freedesktop.org's Thumbnail Managing
+Standard has it: Nautilus, Thunar and Dolphin write there, and so does prism. A film one of them has shown has its
+frame in prism's gallery without being made again, and one prism made is shown by them. docs/thumbnails.md says how a
+thumbnail is found and known to be current, what makes one, which are made first, and how many are kept.
 
-Take `~/Videos/Lisbon, day one.mkv`. Its thumbnail is found by its address alone: the file's `file://` URI
-(`file:///home/u/Videos/Lisbon,%20day%20one.mkv`, written exactly as GLib writes one, since that is what the programs
-that fill the cache name their thumbnails by), its MD5 in hexadecimal, and `.png`, in a folder for each size under
-`$XDG_CACHE_HOME/thumbnails` (`~/.cache/thumbnails`): `normal` (128 pixels), `large` (256), `x-large` (512) and
-`xx-large` (1024). The one used is the smallest at least as large as the tile draws it, or the largest there is. The
-cache is never listed: each size is one file looked for by name, and for most files that is four names that are not
-there.
-
-A thumbnail says, in its PNG's text, which file it is of (`Thumb::URI`) and when that file was last changed
-(`Thumb::MTime`, in seconds), and may say how large it was (`Thumb::Size`). It is the file's picture only while the
-address is the file's and the time is exactly the file's (a file moved over another may be the older of the two), and
-the size too where it says one; a thumbnail that does not say whose it is, or when, is nobody's. Only the text is
-read to tell (the PNG's chunks are gone through, wherever in the file its text is, and its picture is not decoded), so
-a stale thumbnail costs a small read and the file shows its icon.
-
-An image has a thumbnail there as well, once a file manager has shown it. Prism takes it only where it is at least as
-large as the tile wants, so the picture is as sharp as one made from the image: a 50-megapixel JPEG takes about 220 ms
-to decode and a 256-pixel thumbnail of it about 3 ms to read. Wanted larger than the cache has, the image is decoded as
-before.
-
-That a file has no picture is remembered for ten seconds, so a folder of films with no thumbnails is not looked
-through again each time it is scrolled, and a thumbnail another program makes meanwhile shows up soon after. The
-standard's other two folders are not read: `fail`, where a program that could not make a thumbnail says so (of use to
-whoever makes them), and `.sh_thumbnails` folders kept beside the files on shared media, which nothing common writes.
+That a file has no picture is remembered by the window for ten seconds, so a folder of files with none is not looked
+through again each time it is scrolled, and a thumbnail another program makes meanwhile shows up soon after.
 
 ### Larger and smaller
 
@@ -914,7 +890,7 @@ list by one row, not a page, and a row far away is scrolled to directly (never b
   test while it is still the film's picture, an image's only where it is large enough, a file found to have none
   looked at again after a while; and the gallery, headless, showing a film's thumbnail and the icon of one whose
   thumbnail is stale.
-- **The shared thumbnail cache** (`ThumbnailCacheTest`, in the desktop module): a thumbnail's name by the standard's
+- **The shared thumbnail cache** (`ThumbnailCacheTest`, in the thumbnails module): a thumbnail's name by the standard's
   own example; a file's address written as GLib writes it, for awkward names kept in the test and, where GLib is
   installed, for every ASCII character asked of `g_filename_to_uri` itself; a PNG's text read plain, compressed and
   international, before its picture and after it, and from a thumbnail ImageMagick made, where that is installed;

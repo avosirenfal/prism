@@ -22,16 +22,19 @@ import prism.browser.Finder
 import prism.browser.FolderWatcher
 import prism.browser.HostedBrowser
 import prism.browser.JvmDisk
+import prism.browser.LocalThumbnails
 import prism.browser.Search
 import prism.browser.Services
 import prism.browser.Session
 import prism.browser.StaticFinder
 import prism.browser.Step
 import prism.browser.SystemFileClipboard
+import prism.browser.Thumbnails
 import prism.browser.opened
 import prism.browser.pickerOf
 import prism.browser.renderedPng
 import prism.browser.sidebarOf
+import prism.browser.watching
 import prism.browser.zoomOf
 import prism.cli.Args
 import prism.cli.Command
@@ -184,6 +187,10 @@ object PickCommand : Command(
 		decorated: Boolean,
 	): Ended {
 		val ended = CompletableDeferred<Ended>()
+		val thumbnails =
+			services.desktop?.let {
+				processThumbnails(services.preferences, it, services.watcher.watching())
+			} ?: Thumbnails()
 
 		Appearance.follow(theme).use { appearance ->
 			application(APP_ID) {
@@ -200,7 +207,10 @@ object PickCommand : Command(
 				val palette = paletteOf(theme, scheme)
 				val preferences by services.preferences.preferences.collectAsState()
 
-				CompositionLocalProvider(LocalScrollDirection provides preferences.scrolling) {
+				CompositionLocalProvider(
+					LocalScrollDirection provides preferences.scrolling,
+					LocalThumbnails provides thumbnails,
+				) {
 					Window(
 						onCloseRequest = { session.send(BrowserEvent.Cancelled) },
 						title = state.title,

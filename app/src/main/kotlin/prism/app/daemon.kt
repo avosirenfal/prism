@@ -23,7 +23,9 @@ import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.runBlocking
 import prism.browser.Action
+import prism.browser.FolderWatcher
 import prism.browser.Search
+import prism.browser.watching
 import prism.cli.Args
 import prism.cli.Command
 import prism.cli.InputError
@@ -32,6 +34,7 @@ import prism.cli.ParamType
 import prism.daemon.Daemon
 import prism.daemon.DaemonSettings
 import prism.daemon.KeptCatalogue
+import prism.daemon.Listening
 import prism.daemon.LiveIndex
 import prism.daemon.LiveSearch
 import prism.daemon.Telling
@@ -59,6 +62,7 @@ import prism.preferences.preferences
 import prism.shared.Loaded
 import prism.shared.Stored
 import prism.shared.orElse
+import prism.thumbnails.Watching
 
 /**
  * `prism daemon`: the one prism that stays. It keeps the index current (the watcher started first, then the index read
@@ -181,6 +185,8 @@ object DaemonCommand : Command(
 		prism.desktop.SessionEnvironment.warm()
 
 		val catalogue = KeptCatalogue().takeIf { Os.current == Os.MacOS }
+		// The folders listened to in the feed that the index does not hold: the thumbnails' own.
+		val listening = Listening()
 
 		val settings =
 			DaemonSettings(
@@ -188,7 +194,10 @@ object DaemonCommand : Command(
 				// The places held though a folder above them is left out, where they are under what is indexed: a
 				// Mac's system's applications, under its system's tree.
 				roots = asked + Included.DEFAULTS.filter { it.under(asked) }.map { it.path },
-				telling = catalogue?.telling ?: Telling.NOBODY,
+				telling =
+					(catalogue?.telling ?: Telling.NOBODY).let {
+						Telling(it.whole, it.heard, listening::heard)
+					},
 				indexer = Indexer(rules = daemonRules()),
 				report = Report::whileDoing,
 			)
@@ -263,6 +272,13 @@ object DaemonCommand : Command(
 						),
 						applicationsFrom =
 							catalogue?.let { ApplicationSource.Kept(it::now) } ?: ApplicationSource.Folders,
+						// What other programs add to the thumbnails is heard of through the daemon's own feed, which
+						// sees every change there is; and where it has none, as a window hears of a folder it shows.
+						watching =
+							if (daemon.watching == Daemon.Watching.On)
+								Watching(listening::watch)
+							else
+								FolderWatcher.SYSTEM.watching(),
 					),
 					Lasting.UntilStopped,
 				)

@@ -41,6 +41,7 @@ import prism.browser.Services
 import prism.browser.Session
 import prism.browser.Start
 import prism.browser.Step
+import prism.browser.Thumbnails
 import prism.browser.TypeFilter
 import prism.browser.World
 import prism.browser.aliasesOf
@@ -281,6 +282,11 @@ class Explorer(
 	private val launches: LaunchStore = MemoryLaunches(),
 	/** The folders pickers were lately answered from: kept in memory alone, unless a file's is given. */
 	val recents: RecentStore = MemoryRecents(),
+	/**
+	 * The pictures every window's gallery draws its files by: of images alone and kept nowhere, unless the process's
+	 * own are given (`thumbnailsFor`), which keep thumbnails and make them of whatever there is a way to.
+	 */
+	val thumbnails: Thumbnails = Thumbnails(),
 ) {
 	/** What a search is asked of: the launcher's, as every window's. */
 	internal val finder = finder

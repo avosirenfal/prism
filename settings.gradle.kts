@@ -52,6 +52,7 @@ include(
 	":probe",
 	":index",
 	":watcher",
+	":thumbnails",
 	":daemon",
 	":preferences",
 	":window",

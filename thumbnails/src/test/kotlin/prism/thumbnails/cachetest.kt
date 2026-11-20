@@ -1,4 +1,4 @@
-package prism.desktop
+package prism.thumbnails
 
 import java.awt.image.BufferedImage
 import java.io.ByteArrayOutputStream
@@ -11,6 +11,7 @@ import java.lang.foreign.ValueLayout
 import java.nio.ByteBuffer
 import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.attribute.PosixFilePermissions
 import java.time.Instant
 import java.util.zip.CRC32
 import java.util.zip.Deflater
@@ -19,15 +20,16 @@ import kotlin.io.path.createDirectories
 import kotlin.io.path.writeBytes
 import kotlin.io.path.writeText
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Assumptions.assumeTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
-import prism.desktop.freedesktop.PngText
-import prism.desktop.freedesktop.ThumbnailCache
-import prism.desktop.freedesktop.ThumbnailOf
-import prism.desktop.freedesktop.ThumbnailSize
-import prism.desktop.freedesktop.Xdg
+import prism.platform.Os
+import prism.platform.OwnFolders
+import prism.platform.XdgHomes
 
 /**
  * The thumbnails the desktop's programs share (thumbnailcache.kt): where one is, by the standard's own example and by
@@ -162,16 +164,16 @@ class ThumbnailCacheTest {
 
 		assertEquals(
 			Path.of("/home/u/.cache/thumbnails"),
-			ThumbnailCache.of(Xdg(emptyMap(), home)).root,
+			ThumbnailCache.of(XdgHomes(emptyMap(), home)).root,
 		)
 		assertEquals(
 			Path.of("/var/cache/u/thumbnails"),
-			ThumbnailCache.of(Xdg(mapOf("XDG_CACHE_HOME" to "/var/cache/u"), home)).root,
+			ThumbnailCache.of(XdgHomes(mapOf("XDG_CACHE_HOME" to "/var/cache/u"), home)).root,
 		)
 		// Set and blank, or no path from the root, is not set.
 		assertEquals(
 			Path.of("/home/u/.cache/thumbnails"),
-			ThumbnailCache.of(Xdg(mapOf("XDG_CACHE_HOME" to ""), home)).root,
+			ThumbnailCache.of(XdgHomes(mapOf("XDG_CACHE_HOME" to ""), home)).root,
 		)
 	}
 
@@ -466,5 +468,196 @@ class ThumbnailCacheTest {
 
 		assertEquals(Files.getLastModifiedTime(picture).toInstant().epochSecond, says.modified)
 		assertEquals("640", PngText.read(thumbnail)!!["Thumb::Image::Width"])
+	}
+
+	/** A real picture's PNG: [side] across, so that there is something to keep. */
+	private fun pictured(side: Int = 8): ByteArray =
+		ByteArrayOutputStream()
+			.also {
+				ImageIO.write(
+					BufferedImage(side, side, BufferedImage.TYPE_INT_ARGB),
+					"png",
+					it,
+				)
+			}.toByteArray()
+
+	@Test
+	fun aThumbnailWrittenIsFoundAndSaysWhatItIsOfAsTheStandardHasIt() {
+		val cache = cache()
+		val film = work.resolve("a film.mkv").also { it.writeText("not really a film") }
+		val subject = Subject.of(film)!!
+		val png = pictured()
+
+		val written = cache.write(subject, ThumbnailSize.Large, png)!!
+
+		assertEquals(cache.entry(film, ThumbnailSize.Large), written)
+		assertEquals(written, cache.find(subject, listOf(ThumbnailSize.Large)))
+		assertEquals(
+			mapOf(
+				"Thumb::URI" to ThumbnailCache.uriOf(film),
+				"Thumb::MTime" to "${subject.modified.epochSecond}",
+				"Thumb::Size" to "${Files.size(film)}",
+				"Software" to "prism",
+			),
+			PngText.read(written),
+		)
+		// The picture is as it was given: what was added is text, and any decoder still reads it.
+		assertEquals(Extent(8, 8), Png.extent(Files.readAllBytes(written)))
+		assertEquals(8, ImageIO.read(written.toFile()).width)
+		// The user's alone, the folders made for it too; and nothing left beside it.
+		assertEquals(
+			"rw-------",
+			PosixFilePermissions.toString(Files.getPosixFilePermissions(written)),
+		)
+		assertEquals(
+			"rwx------",
+			PosixFilePermissions.toString(Files.getPosixFilePermissions(written.parent)),
+		)
+		assertEquals(listOf(written), Files.list(written.parent).use { it.toList() })
+
+		// The file changed: no longer its picture. Written again, it is.
+		val later = subject.copy(modified = subject.modified.plusSeconds(60))
+
+		assertNull(cache.find(later, ThumbnailSize.entries))
+		assertNotNull(cache.write(later, ThumbnailSize.Large, png))
+		assertEquals(written, cache.find(later, ThumbnailSize.entries))
+
+		// What is no PNG is not kept.
+		assertNull(cache.write(subject, ThumbnailSize.Normal, "<html>".toByteArray()))
+		assertNull(cache.find(subject, listOf(ThumbnailSize.Normal)))
+	}
+
+	@Test
+	fun whatAPngAlreadySaidUnderTheSameWordsIsSaidOnce() {
+		val before =
+			png(
+				text("Thumb::URI", "file:///stale"),
+				text("Title", "kept"),
+				text("Thumb::MTime", "1"),
+			)
+
+		val file = work.resolve("t.png")
+
+		file.writeBytes(
+			Png.saying(
+				before,
+				mapOf(
+					"Thumb::URI" to "file:///a",
+					"Thumb::MTime" to "17",
+				),
+			)!!,
+		)
+		assertEquals(
+			mapOf("Thumb::URI" to "file:///a", "Thumb::MTime" to "17", "Title" to "kept"),
+			PngText.read(file),
+		)
+		// Said once: the stale text is gone, not merely read second.
+		assertEquals(
+			1,
+			Regex(
+				"Thumb::URI",
+			).findAll(String(Files.readAllBytes(file), Charsets.ISO_8859_1)).count(),
+		)
+		// What is cut short, or is no PNG, says nothing.
+		assertNull(Png.saying(before.copyOf(before.size - 6), mapOf("a" to "b")))
+		assertNull(Png.saying("GIF89a".toByteArray(), mapOf("a" to "b")))
+		// The picture of no picture is a PNG any reader takes.
+		assertEquals(Extent(1, 1), Png.extent(Png.BLANK))
+		assertEquals(1, ImageIO.read(Png.BLANK.inputStream()).width)
+	}
+
+	@Test
+	fun thatAThumbnailCouldNotBeMadeIsKeptUntilTheFileChanges() {
+		val cache = cache()
+		val film = work.resolve("broken.mkv").also { it.writeText("not a film") }
+		val subject = Subject.of(film)!!
+
+		assertFalse(cache.failed(subject))
+
+		val record = cache.fail(subject)!!
+
+		assertEquals(
+			cache.root.resolve("fail/prism-1").resolve(ThumbnailCache.nameOf(subject.uri)),
+			record,
+		)
+		assertTrue(cache.failed(subject))
+		// Changed since, it may be tried again; another file is not this one.
+		assertFalse(cache.failed(subject.copy(modified = subject.modified.plusSeconds(1))))
+		assertFalse(cache.failed(subject.copy(file = work.resolve("other.mkv"))))
+		// It is no thumbnail: nothing is found for the file.
+		assertNull(cache.find(subject, ThumbnailSize.entries))
+	}
+
+	@Test
+	fun theCachesEntriesAreItsThumbnailsWhoeverMadeThemAndNothingElse() {
+		val cache = cache()
+		val film = work.resolve("film.mkv").also { it.writeText("film") }
+		val subject = Subject.of(film)!!
+
+		val large = cache.write(subject, ThumbnailSize.Large, pictured())!!
+		val failed = cache.fail(subject)!!
+		// Another program's: a thumbnail, and its record of one it could not make.
+		val theirs =
+			cache.root.resolve("normal/00000000000000000000000000000001.png").also {
+				it.parent.createDirectories()
+				it.writeBytes(pictured())
+			}
+
+		val theirFailure =
+			cache.root
+				.resolve(
+					"fail/gnome-thumbnail-factory/00000000000000000000000000000002.png",
+				).also {
+					it.parent.createDirectories()
+					it.writeBytes(Png.BLANK)
+				}
+
+		// What is not a thumbnail by its name, or is not in a folder thumbnails are in, is not the cache's.
+		cache.root.resolve("large/notes.txt").writeText("mine")
+		cache.root.resolve("large/.prism123.tmp").writeText("half written")
+		cache.root.resolve("other").createDirectories()
+		cache.root.resolve("other/00000000000000000000000000000003.png").writeBytes(pictured())
+
+		assertEquals(
+			setOf(
+				Entry("large/${large.fileName}"),
+				Entry("fail/prism-1/${failed.fileName}"),
+				Entry("normal/${theirs.fileName}"),
+				Entry("fail/gnome-thumbnail-factory/${theirFailure.fileName}"),
+			),
+			cache.entries().map { it.entry }.toSet(),
+		)
+		assertEquals(Files.size(large), cache.lying(large)!!.bytes)
+		assertEquals(ThumbnailSize.Large, Entry("large/x.png").size)
+		assertNull(Entry("fail/prism-1/x.png").size)
+		assertEquals(large, cache.path(cache.entryAt(large)!!))
+		assertNull(cache.entryAt(work.resolve("elsewhere.png")))
+
+		// Removed, an entry is gone; what is not one is never removed through the cache.
+		assertTrue(cache.remove(Entry("normal/${theirs.fileName}")))
+		assertFalse(Files.exists(theirs))
+		assertFalse(cache.remove(Entry("large/notes.txt")))
+		assertTrue(Files.exists(cache.root.resolve("large/notes.txt")))
+	}
+
+	@Test
+	fun whereThumbnailsAreKeptByDefaultOnEachPlatform() {
+		val home = Path.of("/home/u")
+		val own = { os: Os -> OwnFolders.of(os, emptyMap(), home, null) }
+
+		// On Linux, the folder the desktop's programs share; elsewhere, prism's own cache.
+		assertEquals(
+			Path.of("/home/u/.cache/thumbnails"),
+			ThumbnailCache.defaultRoot(Os.Linux, XdgHomes(emptyMap(), home)) { own(Os.Linux) },
+		)
+		assertEquals(
+			Path.of("/home/u/Library/Caches/prism/thumbnails"),
+			ThumbnailCache.defaultRoot(Os.MacOS, XdgHomes(emptyMap(), home)) { own(Os.MacOS) },
+		)
+		assertTrue(
+			ThumbnailCache
+				.defaultRoot(Os.Windows, XdgHomes(emptyMap(), home)) { own(Os.Windows) }
+				.endsWith(Path.of("prism/cache/thumbnails")),
+		)
 	}
 }

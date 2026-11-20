@@ -40,6 +40,9 @@ import prism.browser.RecentStore
 import prism.browser.RecentsFiles
 import prism.browser.Search
 import prism.browser.SystemFileClipboard
+import prism.browser.Thumbnails
+import prism.browser.thumbnailsFor
+import prism.browser.watching
 import prism.cli.Args
 import prism.cli.Command
 import prism.cli.InputError
@@ -70,6 +73,8 @@ import prism.portal.serveFileChooser
 import prism.portal.serveFileManager
 import prism.preferences.PreferenceStore
 import prism.shared.Guarded
+import prism.shared.Once
+import prism.thumbnails.Watching
 import prism.window.NoDisplay
 import prism.window.SystemClipboard
 import prism.window.WindowsFailed
@@ -102,7 +107,31 @@ internal data class Hosting(
 	val finder: Finder? = null,
 	/** Where a Mac's applications are found: the daemon's catalogue of them, where there is a daemon. */
 	val applicationsFrom: ApplicationSource = ApplicationSource.Folders,
+	/** What says another program has added to the folder thumbnails are kept in, or taken from it. */
+	val watching: Watching = FolderWatcher.SYSTEM.watching(),
 )
+
+/**
+ * The pictures of this process's windows, and what makes and keeps them: made once, on a scope of their own that
+ * lasts as long as the process (so they go on through its windows being started again), and what is known of how
+ * they are used written as the process ends.
+ */
+internal fun processThumbnails(
+	preferences: PreferenceStore,
+	desktop: Desktop,
+	watching: Watching,
+): Thumbnails =
+	thumbnailsFor(
+		preferences,
+		CoroutineScope(SupervisorJob() + Dispatchers.Default),
+		desktop,
+		watching,
+		report = Report::problem,
+	).also { thumbnails ->
+		java.lang.Runtime
+			.getRuntime()
+			.addShutdownHook(Thread { thumbnails.service?.close() })
+	}
 
 /** The folders pickers were lately answered from, where every prism of the session keeps them. */
 internal fun recentFolders(): RecentStore = RecentsFiles(stateFolder(), Report::problem)
@@ -195,6 +224,9 @@ internal class Windows(
 
 	private val asks = Channel<Ask<*>>(Channel.UNLIMITED)
 	private val stopping = CompletableDeferred<Unit>()
+
+	/** The pictures every window draws its files by: one set for the process, whichever explorer its windows are of. */
+	private val pictures = Once<Thumbnails>()
 
 	/**
 	 * How the windows stand: one thing at a time, so that there is never an explorer and a reason for there being
@@ -382,6 +414,11 @@ internal class Windows(
 	 * it is asked.
 	 */
 	private fun shown(desktop: Desktop, preferences: PreferenceStore, first: Ask<*>?) {
+		// Made as the windows first open, and theirs each time they open again.
+		val thumbnails =
+			pictures.value
+				?: processThumbnails(preferences, desktop, hosting.watching).also(pictures::set)
+
 		Appearance.follow(hosting.theme).use { appearance ->
 			application(APP_ID) {
 				val scheme by appearance.changes.collectAsState(appearance.first)
@@ -402,6 +439,7 @@ internal class Windows(
 							Report::problem,
 							LaunchFile(stateFolder().resolve("launches"), Report::problem),
 							recentFolders(),
+							thumbnails,
 						)
 					}
 

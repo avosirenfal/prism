@@ -14,4 +14,6 @@ dependencies {
 	api(project(":desktop"))
 	// The preferences are a value kept in a file, handed to every window as it changes (prism.shared.Stored).
 	api(project(":shared"))
+	// What is set of thumbnails: where they are kept, how much may be, and the programs that make them.
+	api(project(":thumbnails"))
 }

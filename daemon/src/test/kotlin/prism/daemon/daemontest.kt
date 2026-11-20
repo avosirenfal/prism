@@ -31,6 +31,7 @@ import prism.macos.Catalogue
 import prism.platform.Dev
 import prism.platform.FileKind
 import prism.platform.KernelDev
+import prism.platform.Mount
 import prism.watcher.Done
 import prism.watcher.EntryName
 import prism.watcher.Observed
@@ -395,5 +396,92 @@ class DaemonTest {
 		assertEquals(Place("abc", rulesOf(one), 42), history.read())
 		history.forget()
 		assertEquals(null, history.read())
+	}
+
+	@Test
+	fun aFolderTheIndexLeavesOutIsListenedToThroughTheFeed() {
+		made("docs/a.txt")
+
+		// A folder that is under no root of the index, as the thumbnails' is: the feed sees what changes in it all
+		// the same, and whoever listens for it is told, by name.
+		val cache = state.resolve("cache/thumbnails/large").createDirectories()
+		val other = state.resolve("cache/other").createDirectories()
+
+		// The one file system there is to the test: what the folder's device is the kernel's device of.
+		val mounted =
+			listOf(
+				Mount(
+					1,
+					KernelDev(statx(Fd.CWD, "$cache").orThrow().dev),
+					"/",
+					Path.of("/"),
+					"ext4",
+					"/dev/x",
+				),
+			)
+
+		val listening = Listening { mounted }
+		val told = CopyOnWriteArrayList<Set<String>?>()
+		val feed = Given()
+
+		fun id(folder: Path) =
+			statx(Fd.CWD, "$folder").orThrow().let { FileId(KernelDev(it.dev), it.ino) }
+
+		assertEquals(id(cache), Listening.idOf(cache, mounted))
+
+		Daemon
+			.start(
+				settings().copy(telling = Telling(changed = listening::heard)),
+				feed,
+			).use { daemon ->
+				daemon.live.opened.get(30, TimeUnit.SECONDS)
+
+				val watch = listening.watch(cache) { told += it }
+
+				feed.seen(
+					listOf(
+						Changed(id(cache), Name.of("0123.png")),
+						Changed(idOf("docs"), Name.of("b.txt")),
+						Changed(id(other), Name.of("elsewhere.png")),
+						Changed(id(cache), Name.of("4567.png")),
+					),
+				)
+				assertEquals(listOf<Set<String>?>(setOf("0123.png", "4567.png")), told.toList())
+				// A change that names no entry is of the folder as a whole.
+				feed.seen(listOf(Changed(id(cache), Name.of("89ab.png")), Changed(id(cache), null)))
+				assertEquals(null, told.last())
+				// The index was given every change too, and holds nothing of the folder it leaves out.
+				assertTrue(
+					daemon.live.index
+						.names()
+						.none { "thumbnails" in it },
+				)
+
+				// No longer listened to, nothing more is told; a folder that is not there is not listened to at all.
+				watch.close()
+				feed.seen(listOf(Changed(id(cache), Name.of("cdef.png"))))
+				assertEquals(2, told.size)
+				listening.watch(state.resolve("gone")) { told += it }.close()
+			}
+		assertEquals(null, Listening.idOf(cache, emptyList()))
+
+		// One who is told and fails does not stop the feed, nor the index: it is said, and the change is made.
+		val reported = CopyOnWriteArrayList<String>()
+		val given = Given()
+
+		Daemon
+			.start(
+				settings().copy(
+					telling = Telling(changed = { error("a listener that fails") }),
+					report = { doing, _ -> reported += doing },
+				),
+				given,
+			).use { daemon ->
+				daemon.live.opened.get(30, TimeUnit.SECONDS)
+				made("docs/late.txt")
+				given.seen(listOf(Changed(idOf("docs"), Name.of("late.txt"))))
+				eventually { "docs/late.txt" in daemon.live.index.names() }
+				assertEquals(listOf("telling of 1 changes"), reported.toList())
+			}
 	}
 }
