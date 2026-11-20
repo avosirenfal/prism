@@ -73,6 +73,27 @@ class PreferencesTest {
 	}
 
 	@Test
+	fun theJumpPauseIsASecondAndAHalf_WrittenAsSecondsAndReadAsTheNearest() {
+		assertEquals(1500L, Preferences.DEFAULT.jumpPause.millis)
+
+		val longer = Preferences.DEFAULT.copy(jumpPause = JumpPause.nearest(2.5f))
+		val written = PreferenceFormat.written(longer).toString(Charsets.UTF_8)
+
+		assertTrue("\"jumpPause\": 2.5" in written, written)
+		assertEquals(Loaded.Read(longer), PreferenceFormat.read(written.toByteArray()))
+
+		// Written by hand past the longest, or between two pauses: read as the nearest there is.
+		fun read(seconds: String) =
+			(PreferenceFormat.read("{ \"jumpPause\": $seconds }".toByteArray()) as Loaded.Read)
+				.value
+				.jumpPause
+
+		assertEquals(JumpPause.ALL.last(), read("40"))
+		assertEquals(JumpPause.ALL.first(), read("0"))
+		assertEquals(1250L, read("1.3").millis)
+	}
+
+	@Test
 	fun preferencesWrittenAreReadBackAndTheFileShowsEverySetting() {
 		val set =
 			Preferences.DEFAULT

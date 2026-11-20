@@ -116,6 +116,7 @@ import prism.preferences.Align
 import prism.preferences.ColumnId
 import prism.preferences.DateFormat
 import prism.preferences.Filters
+import prism.preferences.JumpPause
 import prism.preferences.Kind
 import prism.preferences.Layout
 import prism.preferences.ListingKind
@@ -330,6 +331,10 @@ private fun InputPage(settings: Settings, onChange: (Settings) -> Unit) {
 	}
 }
 
+/** A pause as the Display page says it: in seconds, "1.5 s". */
+private fun secondsOf(pause: JumpPause): String =
+	"${pause.seconds.toString().removeSuffix(".0")} s"
+
 /** A speed as the Input page says it: as a percentage of the usual, "150 %". */
 private fun percentOf(speed: ScrollSpeed): String =
 	"${(speed.times * 100).roundToInt()} %"
@@ -360,8 +365,8 @@ private fun descriptionOf(part: TextPart): String =
 	}
 
 /**
- * How things are drawn: each part's font and size; the list's rows; how large a new window's listing is drawn, and the
- * sidebar; and how dates are written.
+ * How things are drawn: each part's font and size; the list's rows, and how long the letters typed into it to jump
+ * to a name last; how large a new window's listing is drawn, and the sidebar; and how dates are written.
  */
 @Composable
 private fun DisplayPage(settings: Settings, onChange: (Settings) -> Unit) {
@@ -422,6 +427,23 @@ private fun DisplayPage(settings: Settings, onChange: (Settings) -> Unit) {
 					}, tag = "rows") {
 						onChange(settings.copy(rows = it))
 					}
+				}
+				SettingRow(
+					"Type to jump",
+					description =
+						"How long after the last letter typed into the file list it stops " +
+							"jumping to the name typed, and starts anew.",
+				) {
+					Text(
+						secondsOf(settings.jumpPause),
+						style = LocalType.current.body.tabular(),
+						modifier = Modifier.testTag("jump-pause-shown"),
+					)
+					Slider(
+						JumpPause.ALL,
+						settings.jumpPause,
+						tag = "jump-pause",
+					) { onChange(settings.copy(jumpPause = it)) }
 				}
 			}
 		}

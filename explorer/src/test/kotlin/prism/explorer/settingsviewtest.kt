@@ -38,6 +38,7 @@ import prism.desktop.TerminalOption
 import prism.desktop.TerminalOptions
 import prism.preferences.Align
 import prism.preferences.ColumnId
+import prism.preferences.JumpPause
 import prism.preferences.Layout
 import prism.preferences.ListingKind
 import prism.preferences.Preferences
@@ -293,6 +294,34 @@ class SettingsViewTest {
 
 			onNodeWithText("Apply").assertIsEnabled()
 			assertEquals(ScrollSpeed.ALL.first(), settings.over(Preferences.DEFAULT).scrollSpeed)
+		}
+
+	@Test
+	fun theDisplayPageSlidesHowLongTypingToANameLasts() =
+		runComposeUiTest {
+			var settings by mutableStateOf(Settings(Preferences.DEFAULT, page = Page.Display))
+
+			setContent {
+				BrowserTheme {
+					SettingsView(settings, { settings = it }, onApply = {}, onClose = {})
+				}
+			}
+
+			// A second and a half, until the track is pressed at its far end: as long as it goes.
+			onNodeWithTag("jump-pause-shown").assertTextEquals("1.5 s")
+			onNodeWithTag("jump-pause").performMouseInput { click(centerRight) }
+			waitForIdle()
+			assertEquals(JumpPause.ALL.last(), settings.jumpPause)
+			onNodeWithTag("jump-pause-shown").assertTextEquals("4 s")
+
+			// A step back by the keys.
+			onNodeWithTag("jump-pause").requestFocus()
+			onNodeWithTag("jump-pause").performKeyInput { pressKey(Key.DirectionLeft) }
+			waitForIdle()
+			onNodeWithTag("jump-pause-shown").assertTextEquals("3.75 s")
+
+			onNodeWithText("Apply").assertIsEnabled()
+			assertEquals(3.75f, settings.over(Preferences.DEFAULT).jumpPause.seconds)
 		}
 
 	@Test

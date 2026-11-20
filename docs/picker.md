@@ -814,9 +814,20 @@ on, the last row pressed (for a double click), and the context menu open.
 ### Letters typed in the listing
 
 Typing in the listing goes to a row by its name: `no` goes to `notes.md`. The letters are a `Jump` in the state (what
-was typed, when the last of it was, and whether a row was found for it), each one a `BrowserEvent.Jumped(letter, at)`:
-within a second of the letter before it, it is one more of them; after that, the first of new ones. The view ends
-them a second after the last (`JumpEnded`), which is what takes what was typed off the listing's foot.
+was typed, when the pause after the last of it runs out, and whether any row is named by it), each one a
+`BrowserEvent.Jumped(letter, at, pause)`: before the pause after the letter before it has run out, it is one more of
+them; after that, the first of new ones. How long the pause is, is the user's (`JumpPause`, a second and a half unless
+they say otherwise), which the view is given as `LocalJumpPause`. The view ends the letters when the pause runs out
+(`JumpEnded`), which is what takes what was typed off the listing's foot.
+
+The rows the letters name are those whose names start with them, or, where none does, those that have them anywhere;
+case is not told apart. The cursor stays where it is while its row is one of them, so a letter more only narrows what
+it is on: in a folder of `llm` and `l0hngpczj11i1.jpeg`, `l` goes to whichever is first, and `ll` and `llm` to `llm`,
+which they stay on. Otherwise it goes to the next of them after it, round from the top past the last. A letter typed
+again is one more letter of the name, as any other is: `lll` names nothing, and nothing moves, however many more are
+typed; the chip at the listing's foot is red to say so. While the letters are being typed, Down and Up (as they are
+bound) go to the next and the one before of the rows they name, round past the last and the first
+(`JumpStepped`), and keep the letters going for the pause again.
 
 A letter reaches the listing in one of two ways, and is taken once. Compose's own windows, and its tests, say the
 character with the key's press. Prism's window (docs/window.md) says a press with no character, and then the
@@ -851,7 +862,7 @@ keyboard is on the listing, or on the name for a picker that saves.
 | arrows, Page Up and Down, Home, End | listing | the cursor; with Shift, choosing a run; with Ctrl, not choosing (in a gallery, Left and Right along a line, Up and Down a line at a time) |
 | Space | listing | the row at the cursor chosen, or no longer |
 | Enter | listing, name | accept (a chosen folder is gone into); saving, Enter on a file in the listing asks whether to replace it |
-| letters | listing | the row they name: the next whose name starts with them, or, where none does, the next that has them in it; the same letter again, the next row it starts. What is typed is shown at the listing's foot, and a second's pause ends it. While it is being typed, Space is one of its letters, Backspace takes the last back, and Escape lets it go |
+| letters | listing | the row they name: the one at the cursor while its name starts with them, and otherwise the next whose name does, or, where none does, the next that has them in it. What is typed is shown at the listing's foot, and a pause (a second and a half, or as the preferences say) ends it. While it is being typed, Space is one of its letters, Backspace takes the last back, Up and Down go to the rows before and after that it names, and Escape lets it go |
 | Backspace | listing | the folder above |
 | Ctrl+A | listing | every row chosen |
 | F2 | listing | rename the row chosen |

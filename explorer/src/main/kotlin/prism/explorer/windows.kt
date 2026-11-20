@@ -50,6 +50,7 @@ import prism.browser.HostedBrowser
 import prism.browser.HostedWindow
 import prism.browser.IndexReading
 import prism.browser.LocalIndexReading
+import prism.browser.LocalJumpPause
 import prism.browser.LocalPalette
 import prism.browser.LocalScrollSpeed
 import prism.browser.LocalThumbnails
@@ -150,6 +151,7 @@ fun ExplorerWindows(explorer: Explorer, palette: Palette, alwaysDecorated: Boole
 	CompositionLocalProvider(
 		LocalScrollDirection provides preferences.scrolling,
 		LocalScrollSpeed provides preferences.scrollSpeed,
+		LocalJumpPause provides preferences.jumpPause,
 		LocalThumbnails provides explorer.thumbnails,
 	) {
 		EveryWindow(explorer, palette, alwaysDecorated)

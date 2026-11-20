@@ -12,6 +12,7 @@ import prism.browser.Edits
 import prism.desktop.TerminalChoice
 import prism.preferences.DateFormat
 import prism.preferences.Held
+import prism.preferences.JumpPause
 import prism.preferences.Layout
 import prism.preferences.ListingKind
 import prism.preferences.Listings
@@ -294,6 +295,8 @@ data class Settings(
 	val scrolling: ScrollDirection = base.scrolling,
 	/** How far the wheel scrolls the windows' lists. */
 	val scrollSpeed: ScrollSpeed = base.scrollSpeed,
+	/** How long a pause in typing into a listing ends the letters that go to a row by its name. */
+	val jumpPause: JumpPause = base.jumpPause,
 	val page: Page = Page.Display,
 	val looking: LookKey = LookKey(Role.Explorer, ListingKind.Folder),
 	val filteringIn: Layout = Layout.List,
@@ -441,6 +444,7 @@ data class Settings(
 			titlebar = kept(Preferences::titlebar, titlebar),
 			scrolling = kept(Preferences::scrolling, scrolling),
 			scrollSpeed = kept(Preferences::scrollSpeed, scrollSpeed),
+			jumpPause = kept(Preferences::jumpPause, jumpPause),
 			// The other windows' sizes are each window's own, as Ctrl and the wheel leave them: never this window's.
 			scales =
 				current.scales.copy(

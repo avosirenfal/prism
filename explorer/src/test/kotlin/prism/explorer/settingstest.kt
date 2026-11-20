@@ -15,6 +15,7 @@ import prism.desktop.TerminalChoice
 import prism.preferences.ActionsFile
 import prism.preferences.ColumnId
 import prism.preferences.DateFormat
+import prism.preferences.JumpPause
 import prism.preferences.ListingKind
 import prism.preferences.Look
 import prism.preferences.Preferences
@@ -67,6 +68,19 @@ class SettingsTest {
 		assertEquals(DateFormat.Iso, saved.dates)
 		// And left as it is where the window did not change it.
 		assertEquals(faster, Settings(base).over(saved).scrollSpeed)
+	}
+
+	@Test
+	fun aLongerPauseForTypingToANameIsKeptAsAppliedOverWhatChangedElsewhere() {
+		val base = Preferences.DEFAULT
+		val longer = JumpPause.nearest(3f)
+		val elsewhere = base.copy(dates = DateFormat.Iso)
+		val saved = Settings(base).copy(jumpPause = longer).over(elsewhere)
+
+		assertEquals(longer, saved.jumpPause)
+		assertEquals(DateFormat.Iso, saved.dates)
+		// And left as it is where the window did not change it.
+		assertEquals(longer, Settings(base).over(saved).jumpPause)
 	}
 
 	@Test

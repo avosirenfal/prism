@@ -13,6 +13,7 @@ import prism.index.query.QueryText
 import prism.preferences.Builtin
 import prism.preferences.ColumnId
 import prism.preferences.Filters
+import prism.preferences.JumpPause
 import prism.preferences.Kind
 import prism.preferences.Layout
 import prism.preferences.Listings
@@ -220,11 +221,13 @@ private fun did(state: BrowserState, event: BrowserEvent): Step =
 		is BrowserEvent.Moved -> Step(state.moved(event.move, event.carry))
 		BrowserEvent.Toggled -> Step(state.toggled())
 		BrowserEvent.ChoseAll -> Step(state.choseAll())
-		is BrowserEvent.Jumped -> Step(state.jumped(event.typed, event.at))
-		is BrowserEvent.JumpErased -> Step(state.jumpErased(event.at))
+		is BrowserEvent.Jumped -> Step(state.jumped(event.typed, event.at, event.pause))
+		is BrowserEvent.JumpErased -> Step(state.jumpErased(event.at + event.pause.millis))
+		is BrowserEvent.JumpStepped ->
+			Step(state.jumpStepped(event.onward, event.at + event.pause.millis))
 		is BrowserEvent.JumpEnded ->
 			Step(
-				if (event.at == null || state.jump?.at == event.at)
+				if (event.until == null || state.jump?.until == event.until)
 					state.copy(jump = null)
 				else
 					state,
@@ -1035,71 +1038,107 @@ private fun BrowserState.choseAll(): BrowserState =
 		this
 
 /**
- * [typed] typed into the listing at [at]: added to the letters typed before it, where the last of them was within
- * the pause ([Jump.PAUSE]), and the first of new ones otherwise; and the cursor to the row they name ([sought]). A
- * space begins nothing: it is a letter only of a name already begun.
+ * [typed] typed into the listing at [at]: added to the letters typed before it, where their [pause] had not run out,
+ * and the first of new ones otherwise; and the cursor to a row they name ([sought]). A space begins nothing: it is a
+ * letter only of a name already begun.
  */
-private fun BrowserState.jumped(typed: Char, at: Long): BrowserState {
+private fun BrowserState.jumped(typed: Char, at: Long, pause: JumpPause): BrowserState {
 	val before =
 		jump
-			?.takeIf { at - it.at < Jump.PAUSE }
+			?.takeIf { at < it.until }
 			?.typed
 			.orEmpty()
 
 	if (before.isEmpty() && typed.isWhitespace())
 		return this
 
-	return sought(before + typed, at, onward = true)
+	return sought(before + typed, at + pause.millis)
 }
 
-/** The last of the letters being typed taken back, at [at]: the cursor to what the rest name, or nothing typed. */
-private fun BrowserState.jumpErased(at: Long): BrowserState {
+/**
+ * The last of the letters being typed taken back, the rest going on [until] then: the cursor to a row they name, or
+ * nothing typed.
+ */
+private fun BrowserState.jumpErased(until: Long): BrowserState {
 	val left = jump?.typed?.dropLast(1) ?: return this
 
 	return if (left.isEmpty())
 		copy(jump = null)
 	else
-		sought(left, at, onward = false)
+		sought(left, until)
 }
 
 /**
- * The cursor to the row [typed] names, typed at [at]: the next whose name starts with it, from the cursor's own row
- * (a second letter narrows where it is) or, for one letter or the same letter again and going [onward], from the
- * row after it, so that pressing a letter again goes through the rows it starts; and where no name starts with it,
- * the next that has it anywhere. Case is not told apart. Where none has it, nothing moves, and the jump says so.
+ * The cursor to a row [typed] names, the letters going on [until] then: where it is, while its row is one of them, so
+ * that a letter more only narrows what the cursor is on; and otherwise the next of them after it, round from the top
+ * past the last. Where none is named, nothing moves, and the jump says so.
  */
-private fun BrowserState.sought(typed: String, at: Long, onward: Boolean): BrowserState {
-	val cycling = onward && typed.all { it.equals(typed[0], ignoreCase = true) }
-	val sought =
-		if (cycling)
-			typed.take(1)
-		else
-			typed
+private fun BrowserState.sought(typed: String, until: Long): BrowserState {
+	val named = rows.namedBy(typed)
 	val from = cursor?.at?.let(rows::indexOf)
+
+	return landed(
+		named?.let { from?.takeIf(named) ?: rows.next(from, onward = true, named) },
+		Jump(typed, until, found = named != null),
+	)
+}
+
+/**
+ * The cursor to the next row the letters being typed name, going [onward] or back, round past the last or the first;
+ * the letters going on [until] then. Where none is named, nothing moves.
+ */
+private fun BrowserState.jumpStepped(onward: Boolean, until: Long): BrowserState {
+	val jump = jump ?: return this
+	val from = cursor?.at?.let(rows::indexOf)
+
+	return landed(
+		rows.namedBy(jump.typed)?.let { rows.next(from, onward, it) },
+		jump.copy(until = until),
+	)
+}
+
+/**
+ * Whether the row at a place is one [typed] names: where any name starts with it, those that do; where none does, those
+ * that have it anywhere. Case is not told apart. None, where no name has it at all.
+ */
+private fun Rows.namedBy(typed: String): ((Int) -> Boolean)? =
+	sequenceOf<(String) -> Boolean>(
+		{ it.startsWith(typed, ignoreCase = true) },
+		{ it.contains(typed, ignoreCase = true) },
+	).map { names -> { place: Int -> names(nameAt(place)) } }
+		.firstOrNull { named -> (0 until size).any(named) }
+
+/**
+ * The place of the next row [named] from [from], going [onward] or back, and round past the last or the first, to
+ * [from] itself again last of all; from nowhere, the first such row, or the last going back.
+ */
+private fun Rows.next(from: Int?, onward: Boolean, named: (Int) -> Boolean): Int? {
+	val step =
+		if (onward)
+			1
+		else
+			-1
+
 	val start =
-		when {
-			from == null -> 0
-			cycling -> from + 1
-			else -> from
-		}
+		from ?: if (onward)
+			-1
+		else
+			size
 
-	// Every row once, from where the search starts and round to it again.
-	fun first(names: (String) -> Boolean): RowId? =
-		(0 until rows.size)
-			.asSequence()
-			.map { (start + it).mod(rows.size) }
-			.firstOrNull { names(rows.nameAt(it)) }
-			?.let(rows::idAt)
+	return (1..size)
+		.asSequence()
+		.map { (start + it * step).mod(size) }
+		.firstOrNull(named)
+}
 
-	val found =
-		first { it.startsWith(sought, ignoreCase = true) }
-			?: first { it.contains(sought, ignoreCase = true) }
-			?: return copy(jump = Jump(typed, at, found = false))
+/** [jump] being typed, and the cursor on the row at [place], chosen, where there is one; where not, it stays. */
+private fun BrowserState.landed(place: Int?, jump: Jump): BrowserState {
+	val found = place?.let(rows::idAt) ?: return copy(jump = jump)
 
 	return copy(
 		chose = choosing.chose(setOf(found), rows),
 		pointed = Cursor(found, found),
-		jump = Jump(typed, at, found = true),
+		jump = jump,
 	)
 }
 

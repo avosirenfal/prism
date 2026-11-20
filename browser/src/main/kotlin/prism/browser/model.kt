@@ -1097,22 +1097,18 @@ sealed interface Choosing {
 }
 
 /**
- * What is being typed into the listing to go to a row by its name: the letters [typed] so far, each within [PAUSE] of
- * the one before; when the last of them was typed ([at], in milliseconds), which is what a pause is measured from;
- * and whether a row was [found] for them. It is there only while it is being typed: a pause ends it, and what is
- * typed after that names a row anew.
+ * What is being typed into the listing to go to a row by its name: the letters [typed] so far, each typed before the
+ * pause after the one before it ran out; when the pause after the last of them runs out ([until], in milliseconds),
+ * unless more is typed, or Up or Down pressed, first; and whether any row is named by them ([found]). It is there only
+ * while it is being typed: the pause run out ends it, and what is typed after that names a row anew. How long a pause
+ * is, is the user's ([prism.preferences.JumpPause]).
  */
 @Immutable
 data class Jump(
 	val typed: String,
-	val at: Long,
+	val until: Long,
 	val found: Boolean,
-) {
-	companion object {
-		/** How long a pause in typing ends the letters that name a row, in milliseconds. */
-		const val PAUSE = 1000L
-	}
-}
+)
 
 /** Where the keyboard is in the listing: on [at], with a range chosen by Shift reaching from [anchor]. */
 @Immutable

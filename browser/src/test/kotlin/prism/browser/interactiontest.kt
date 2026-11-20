@@ -74,6 +74,7 @@ import prism.desktop.freedesktop.XdgPlaces
 import prism.preferences.Builtin
 import prism.preferences.ColumnId
 import prism.preferences.Hidden
+import prism.preferences.JumpPause
 import prism.preferences.Layout
 import prism.preferences.MemoryPreferences
 import prism.preferences.PreferenceStore
@@ -1781,10 +1782,18 @@ class InteractionTest {
 			waitForIdle()
 			assertEquals(null, jump())
 
-			// A pause ends the letters: the chip goes, and what is typed next names a row anew.
+			// While they are typed, Down and Up go to the next and the one before of the rows they name ("Music"
+			// and "main.kt" start with an m), and not to the rows next to the cursor.
 			keyed(Key.M, 'm')
 			waitUntil(timeoutMillis = TIMEOUT) { chosen() == listOf("Music") }
-			mainClock.advanceTimeBy(Jump.PAUSE + 100)
+			press(Key.DirectionDown)
+			waitUntil(timeoutMillis = TIMEOUT) { chosen() == listOf("main.kt") }
+			press(Key.DirectionUp)
+			waitUntil(timeoutMillis = TIMEOUT) { chosen() == listOf("Music") }
+			assertEquals("m", jump()?.typed)
+
+			// A pause ends the letters: the chip goes, and what is typed next names a row anew.
+			mainClock.advanceTimeBy(JumpPause.USUAL.millis + 100)
 			waitUntil(timeoutMillis = TIMEOUT) { jump() == null }
 			assertEquals(0, onAllNodes(hasTestTag("jump")).fetchSemanticsNodes().size)
 		}

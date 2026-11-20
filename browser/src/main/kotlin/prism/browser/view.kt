@@ -55,6 +55,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
@@ -140,6 +141,7 @@ import prism.preferences.Columns
 import prism.preferences.DateFormat
 import prism.preferences.DatePart
 import prism.preferences.Held
+import prism.preferences.JumpPause
 import prism.preferences.Kind
 import prism.preferences.Layout
 import prism.preferences.RecentSection
@@ -1215,6 +1217,8 @@ private fun ListingPane(
 	// Whether the last key pressed was dealt with as it was pressed: what it then types, told of apart from the
 	// press by prism's own window, is no letter of a row's name.
 	var spent by remember { mutableStateOf(false) }
+	// How long a pause ends the letters typed to go to a row by its name: the user's.
+	val pause = LocalJumpPause.current
 	var pressed by remember { mutableStateOf<Pressed?>(null) }
 	// A row of several chosen, pressed with no key held: they all stay chosen until the press ends without a drag, as
 	// it would drag them all, and it alone is chosen then.
@@ -1599,7 +1603,8 @@ private fun ListingPane(
 	 * to the row. A letter is told of in one of two ways, and is taken once: with the key's press, as Compose's own
 	 * windows and its tests tell of it; or after the press and apart from it, as prism's own window does (a press
 	 * there says no character). While a name is being typed, Space is one of its letters, Backspace takes the last
-	 * back, and Escape lets it go; otherwise they are what they are bound to.
+	 * back, Up and Down (as they are bound) go to the rows before and after that it names too, and Escape lets it go;
+	 * otherwise they are what they are bound to.
 	 */
 	fun key(key: KeyEvent): Boolean {
 		// A name being typed over has the keys; what it leaves is not the listing's.
@@ -1614,7 +1619,7 @@ private fun ListingPane(
 			val names = !spent && (typed > ' ' || (typed == ' ' && jumping))
 
 			if (names)
-				onEvent(BrowserEvent.Jumped(typed, now))
+				onEvent(BrowserEvent.Jumped(typed, now, pause))
 
 			return names
 		}
@@ -1629,10 +1634,15 @@ private fun ListingPane(
 		if (jumping && !chord.ctrl && !chord.alt && !chord.meta) {
 			val named =
 				when (key.key) {
-					Key.Spacebar -> carried?.let { BrowserEvent.Jumped(it, now) }
-					Key.Backspace -> BrowserEvent.JumpErased(now)
+					Key.Spacebar -> carried?.let { BrowserEvent.Jumped(it, now, pause) }
+					Key.Backspace -> BrowserEvent.JumpErased(now, pause)
 					Key.Escape -> BrowserEvent.JumpEnded()
-					else -> null
+					else ->
+						when (bindings.movement(chord).takeIf { !chord.shift }) {
+							Action.MoveUp -> BrowserEvent.JumpStepped(onward = false, now, pause)
+							Action.MoveDown -> BrowserEvent.JumpStepped(onward = true, now, pause)
+							else -> null
+						}
 				}
 
 			// Space with no character said is typed after: that is the letter, and the press is only kept from
@@ -1652,7 +1662,7 @@ private fun ListingPane(
 		val letter = carried?.takeIf { it > ' ' } ?: return false
 
 		spent = true
-		onEvent(BrowserEvent.Jumped(letter, now))
+		onEvent(BrowserEvent.Jumped(letter, now, pause))
 
 		return true
 	}
@@ -1941,17 +1951,20 @@ private fun ListingPane(
 			ContextMenuHost(menus, onEvent)
 		}
 
-		// The letters being typed to name a row, at the listing's foot for as long as they are; a pause after the
+		// The letters being typed to name a row, at the listing's foot for as long as they are; the pause after the
 		// last of them ends them, so that what is typed next names a row anew.
 		state.jump?.let { jump ->
 			LaunchedEffect(jump) {
-				delay(Jump.PAUSE)
-				onEvent(BrowserEvent.JumpEnded(jump.at))
+				delay(jump.until - System.currentTimeMillis())
+				onEvent(BrowserEvent.JumpEnded(jump.until))
 			}
 			JumpChip(jump, Modifier.align(Alignment.BottomStart))
 		}
 	}
 }
+
+/** How long a pause in typing ends the letters typed into the listings composed within, as the user has it. */
+val LocalJumpPause = compositionLocalOf { JumpPause.USUAL }
 
 /** What is being typed to go to a row by its name: over the listing's foot, tinted where no row is named so. */
 @Composable

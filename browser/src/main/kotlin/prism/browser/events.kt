@@ -13,6 +13,7 @@ import prism.index.query.Aliases
 import prism.index.query.Query
 import prism.preferences.Align
 import prism.preferences.ColumnId
+import prism.preferences.JumpPause
 import prism.preferences.Kind
 import prism.preferences.Layout
 import prism.preferences.Listings
@@ -189,26 +190,41 @@ sealed interface BrowserEvent : Input {
 	data object ChoseAll : BrowserEvent
 
 	/**
-	 * A character typed in the listing, at [at] (milliseconds): one more of the letters that name a row ([Jump]),
-	 * where the one before it was typed within the pause, and the first of them otherwise; the cursor goes to the
-	 * row they name.
+	 * A character typed in the listing, at [at] (milliseconds), where the user's pause is [pause]: one more of the
+	 * letters that name a row ([Jump]), where the pause after the one before it had not run out, and the first of
+	 * them otherwise; the cursor goes to the row they name.
 	 */
 	data class Jumped(
 		val typed: Char,
 		val at: Long,
-	) : BrowserEvent
-
-	/** The last of the letters that name a row taken back (Backspace while they are being typed), at [at]. */
-	data class JumpErased(
-		val at: Long,
+		val pause: JumpPause,
 	) : BrowserEvent
 
 	/**
-	 * The letters that name a row are done with: the pause after the one typed at [at] ran out, which ends them
-	 * only where none was typed since; or, with no [at], they were let go (Escape).
+	 * The last of the letters that name a row taken back (Backspace while they are being typed), at [at], where the
+	 * user's pause is [pause].
+	 */
+	data class JumpErased(
+		val at: Long,
+		val pause: JumpPause,
+	) : BrowserEvent
+
+	/**
+	 * The cursor to the next row the letters being typed name, going [onward] (Down) or back (Up), at [at], where the
+	 * user's pause is [pause]: the letters go on for that long again.
+	 */
+	data class JumpStepped(
+		val onward: Boolean,
+		val at: Long,
+		val pause: JumpPause,
+	) : BrowserEvent
+
+	/**
+	 * The letters that name a row are done with: the pause that ran out at [until] ended them, which ends them only
+	 * where nothing was typed since (it is still their pause); or, with no [until], they were let go (Escape).
 	 */
 	data class JumpEnded(
-		val at: Long? = null,
+		val until: Long? = null,
 	) : BrowserEvent
 
 	data class Sorted(

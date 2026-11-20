@@ -614,6 +614,12 @@ points, as desktops measure type (11 points by default, 12 for the menus: GNOME'
 Either left null is the default's, so a later default reaches whoever never chose one. An older version's `text` and
 `fonts` are no longer read: they wrote the defaults of the day as though the user had chosen them.
 
+**Typing to a name.** Letters typed into a listing go to the row they name (docs/picker.md, "Letters typed in the
+listing"), for as long as each comes before the pause after the one before it runs out. "Type to jump", on the
+Display page (`"jumpPause": 2.5`), says how long that pause is, in seconds: from half a second to four, in steps of a
+quarter (`JumpPause`), and a second and a half by default. A file that says some other number is read as the nearest
+step.
+
 **Scrolling.** The wheel scrolls a list by its own rows, three a notch (a gallery by a line of tiles), however large it
 is drawn: a notch moves as far through the folder at 300 % as at 100 %. A touchpad's small scrolls move it as much
 less as they are smaller. Every list and page that scrolls has its bar beside it whenever there is more than fits.
@@ -638,7 +644,7 @@ it. A file's properties write dates in full, to the second, whatever it says.
 are undone and done again by the keys for that (Ctrl+Z, Ctrl+Shift+Z), each as it was made, the window going back to
 where it was made; a move about the window (another page, another menu shown) is no change to undo, and a field
 undoes its own typing first. Applied, or closed, they are forgotten; no other window's are touched. Display: each part's font
-and size, the rows, the sizes, the dates. Renderer: whether prism's windows are drawn on the GPU or the CPU, and why,
+and size, the rows and how long the letters typed into them last, the sizes, the dates. Renderer: whether prism's windows are drawn on the GPU or the CPU, and why,
 first, in a sentence and what to do about it (a window that OpenGL could not draw, though it runs, says so, with the
 reason it was given); then each graphics device the computer has, with its driver, its nodes and
 the library OpenGL reaches its driver through, and why it is used or not (docs/window.md, "Why a window is drawn as it

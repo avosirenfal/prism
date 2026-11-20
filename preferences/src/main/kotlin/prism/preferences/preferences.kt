@@ -104,6 +104,8 @@ data class Preferences(
 	val scrolling: ScrollDirection = ScrollDirection.AsTheSystem,
 	/** How far the wheel, and a touchpad, scrolls every window's lists: so many times as far as usual. */
 	val scrollSpeed: ScrollSpeed = ScrollSpeed.USUAL,
+	/** How long a pause in typing into a listing ends the letters that go to a row by its name. */
+	val jumpPause: JumpPause = JumpPause.USUAL,
 	/** How the launcher looks and what it finds. */
 	val launcher: LauncherPreferences = LauncherPreferences(),
 	/**
