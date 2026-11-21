@@ -12,10 +12,14 @@ import prism.shared.Published
  * [seen] takes, so [seen] should hand it on (to a queue) rather than act on it, or the ring fills while it acts.
  *
  * A watcher counts what it could not send ([lost]); where that grows, whoever keeps an index from it reads again what
- * the lost changes may have been in. Where reading the ring fails, the thread stops, and [stopped] says why.
+ * the lost changes may have been in. Where reading the ring fails, the thread stops, and [stopped] says why; and so it
+ * says where the watcher it reads was pinned by a loader, and that loader has since taken it away or pinned another
+ * ([pin]), which nothing reading the ring would ever find out.
  */
 class Watcher private constructor(
 	private val watch: Watch,
+	/** The pin of the ring read, where it is a watcher a loader left pinned; none for one of this process's own. */
+	private val pin: Pin?,
 	private val seen: (List<Observed>) -> Unit,
 ) : AutoCloseable {
 	// A flag or a number of one word, set by one thread and read by others: volatile is all it needs, unboxed.
@@ -23,8 +27,13 @@ class Watcher private constructor(
 	private var running = true
 
 	/** Why the thread stopped reading, if it did before it was closed. */
-	var stopped: String? by Published(null)
-		private set
+	private var readFailure: String? by Published(null)
+
+	/**
+	 * Why what it reads tells of no changes any more, if it does not: the thread stopped reading, or the watcher it
+	 * reads is no longer the one pinned.
+	 */
+	val stopped: String? get() = readFailure ?: pin?.gone()
 
 	private val thread: Thread =
 		Thread
@@ -48,7 +57,7 @@ class Watcher private constructor(
 				when (val read = watch.await(Wait.AtMost(READ_EVERY_MILLIS), batch::add)) {
 					is Sys.Failed ->
 						if (read.errno.name != "EINTR") {
-							stopped = "reading the ring failed: $read"
+							readFailure = "reading the ring failed: $read"
 
 							return
 						}
@@ -59,7 +68,7 @@ class Watcher private constructor(
 			}
 		} catch (failed: Throwable) {
 			// Never ended without saying so: whoever keeps an index from this reads its places again instead.
-			stopped = "reading the ring failed: $failed"
+			readFailure = "reading the ring failed: $failed"
 		}
 	}
 
@@ -97,20 +106,41 @@ class Watcher private constructor(
 			pins: WatcherPins = WatcherPins.default(),
 			seen: (List<Observed>) -> Unit,
 		): Start {
-			val pinned = openPinnedWatcher(pins)
+			// The pin as it was before the ring was opened, and as it is after: where a loader pinned another between
+			// the two, which this has opened is not known, and it is opened again.
+			fun opened(): Pair<Sys<Watch>, Pin?> {
+				val before = Pin.at(Pin.ringIn(pins.folder))
+				val watch = openPinnedWatcher(pins)
+
+				return if (watch is Sys.Ok && before?.gone() != null) {
+					watch.value.close()
+					opened()
+				} else {
+					watch to before
+				}
+			}
+
+			val (pinned, pin) = opened()
 
 			if (pinned is Sys.Ok)
 				return Start.Running(
-					Watcher(pinned.value, seen),
+					Watcher(pinned.value, pin, seen),
 					"probe pinned at ${pins.folder}",
 				)
 
 			val unpinned = "none this user may read is pinned at ${pins.mount} ($pinned)"
 
+			// A process that may not load one is not asked to: the kernel would refuse it, and libbpf say so on
+			// standard error, each time a daemon tries again.
+			if (!Capabilities.mayLoadBpf())
+				return Start.NotRunning(
+					"$unpinned, and this process may not load one (it has no CAP_BPF and CAP_PERFMON)",
+				)
+
 			return when (val started = startWatching()) {
 				is Watching.Started ->
 					Start.Running(
-						Watcher(started.watch, seen),
+						Watcher(started.watch, null, seen),
 						"probe loaded by prism",
 					)
 				Watching.NotBuilt ->

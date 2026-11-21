@@ -229,7 +229,9 @@ shows it: the place is read for that search (in this container, in under a secon
    is made now, and kept beside the scans in flight to be made again when they land.
 4. Every few seconds, a tick writes what was made, lets go of places read for searches no longer asked for, and looks
    at the watcher: where it lost changes (its ring was full), the roots are read again, since which changes were lost
-   cannot be known.
+   cannot be known; where it stopped (reading failed, or the loader took away the watcher it reads and pinned another:
+   docs/running.md), it is started again at once, and every minute after until it starts, and the roots are read again
+   once it has, for what nothing told of meanwhile. Each of these is said in the daemon's log.
 
 Without a watcher (the kernel would not load it, or there was no build of it), the daemon runs all the same, and reads
 its roots again every half hour. `prism daemon --foreground` runs one in place, saying which it is doing, and

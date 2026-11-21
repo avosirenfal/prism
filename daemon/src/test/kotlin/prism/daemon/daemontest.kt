@@ -16,6 +16,7 @@ import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
+import prism.index.FeedKind
 import prism.index.FileId
 import prism.index.IgnoreRules
 import prism.index.Index
@@ -374,6 +375,104 @@ class DaemonTest {
 			Thread.sleep(1_000)
 			assertFalse("docs/never.txt" in daemon.live.index.names())
 		}
+	}
+
+	@Test
+	fun aFeedThatStopsIsReattached_AndWhatChangedMeanwhileIsRead() {
+		made("docs/a.txt")
+
+		/** A feed whose first watcher goes quiet (its loader pinned another), and whose next is read. */
+		val feed =
+			object : Feed {
+				val started = AtomicLong()
+				val replaced =
+					java.util.concurrent.atomic
+						.AtomicBoolean()
+				var seen: (List<Changed>) -> Unit = {}
+
+				override fun start(seen: (List<Changed>) -> Unit): Feeding {
+					val which = started.incrementAndGet()
+
+					this.seen = seen
+
+					return Feeding.On(
+						stop = AutoCloseable { },
+						lost = { 0 },
+						stopped = {
+							"the watcher pinned at /run/prism-watcher/x was replaced by a new one"
+								.takeIf { which == 1L && replaced.get() }
+						},
+						through = "probe pinned at /run/prism-watcher/x",
+						kind = FeedKind.EbpfProbe,
+					)
+				}
+			}
+
+		val said = CopyOnWriteArrayList<String>()
+
+		Daemon.start(settings().copy(say = { said += it }), feed).use { daemon ->
+			daemon.live.opened.get(30, TimeUnit.SECONDS)
+
+			// The loader run again: the watcher read tells of nothing more, and a file is made meanwhile, unheard.
+			feed.replaced.set(true)
+			made("docs/unheard.txt")
+
+			eventually { feed.started.get() == 2L }
+			eventually { "docs/unheard.txt" in daemon.live.index.names() }
+			assertEquals(Daemon.Watching.On, daemon.watching)
+			assertEquals(
+				listOf(
+					"changes: live monitoring stopped (the watcher pinned at " +
+						"/run/prism-watcher/x was replaced by a new one); reattaching",
+					"changes: live monitoring via eBPF again (probe pinned at " +
+						"/run/prism-watcher/x); rescanning for changes missed meanwhile",
+				),
+				said.toList(),
+			)
+
+			// And what the new one hears is made, as ever.
+			made("docs/heard.txt")
+			feed.seen(listOf(Changed(idOf("docs"), Name.of("heard.txt"))))
+			eventually { "docs/heard.txt" in daemon.live.index.names() }
+		}
+	}
+
+	@Test
+	fun aFeedThatWillNotStartIsTriedAgain_AndOnceItStartsTheRootsAreRead() {
+		made("docs/a.txt")
+
+		val ready =
+			java.util.concurrent.atomic
+				.AtomicBoolean()
+		val said = CopyOnWriteArrayList<String>()
+		val feed =
+			Feed {
+				if (ready.get())
+					Feeding.On(stop = AutoCloseable { }, lost = { 0 }, stopped = { null })
+				else
+					Feeding.Off("nothing is pinned yet")
+			}
+
+		Daemon
+			.start(settings().copy(reattach = 200.milliseconds, say = { said += it }), feed)
+			.use { daemon ->
+				daemon.live.opened.get(30, TimeUnit.SECONDS)
+				eventually { said.isNotEmpty() }
+				// Said once, however many times it is tried.
+				Thread.sleep(600)
+				assertEquals(
+					listOf(
+						"changes: live monitoring isn't running (nothing is pinned yet); trying again every 200ms",
+					),
+					said.toList(),
+				)
+
+				// The loader runs after the daemon started: from then on, watched, and what changed before read.
+				made("docs/before.txt")
+				ready.set(true)
+				eventually { daemon.watching == Daemon.Watching.On }
+				eventually { "docs/before.txt" in daemon.live.index.names() }
+			}
 	}
 
 	@Test

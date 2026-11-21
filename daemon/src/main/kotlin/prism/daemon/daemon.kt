@@ -289,6 +289,11 @@ data class DaemonSettings(
 	val write: Duration = 1.hours,
 	/** How often the roots are read again where there is no watcher to say what changed. */
 	val rescanWithoutWatcher: Duration = 30.minutes,
+	/**
+	 * How often a feed that stopped, or never started, is started again, while the daemon is to watch: a watcher's
+	 * loader run again leaves a new one to read, and one that started after the daemon one to read at all.
+	 */
+	val reattach: Duration = 1.minutes,
 	/** How often what is mounted is looked at, for file systems that have come or gone. */
 	val mounts: Duration = 2.seconds,
 	/** How often the trees kept of file systems long unmounted are looked through, for those to let go. */
@@ -300,6 +305,8 @@ data class DaemonSettings(
 	val report: (String, Throwable) -> Unit = { doing, failure ->
 		System.err.println("prism: $doing failed: ${failure.stackTraceToString().trimEnd()}")
 	},
+	/** Where what the daemon does of its own accord is said, as it does it: standard error, unless told otherwise. */
+	val say: (String) -> Unit = { System.err.println("prism: $it") },
 )
 
 /**
@@ -415,6 +422,12 @@ class Daemon private constructor(
 	/** What the last write of the index failed with, as text; null while it is written. */
 	private var unwritten: String? = null
 
+	/** When the feed was last started, or tried, in nanoseconds of [System.nanoTime]. */
+	private var tried: Long = System.nanoTime()
+
+	/** Why the feed would not start again, as last said: said again only where it changes. */
+	private var said: String? = null
+
 	/** When the index was last written, or the daemon started, in nanoseconds of [System.nanoTime]. */
 	private var wrote: Long = System.nanoTime()
 
@@ -482,20 +495,73 @@ class Daemon private constructor(
 
 		when (val now = feeding) {
 			is Feeding.On -> {
-				val count = now.lost() ?: lost
+				val stopped = now.stopped()
 
-				if (count > lost)
-					rescanRoots()
-				lost = count
-				now.stopped()?.let { why -> feeding = Feeding.Off(why) }
-			}
-			is Feeding.Off, Feeding.Unstarted ->
-				if (upkeep.fallbackScans &&
-					System.nanoTime() - rescanned > settings.rescanWithoutWatcher.inWholeNanoseconds
-				) {
-					rescanned = System.nanoTime()
-					rescanRoots()
+				if (stopped == null) {
+					val count = now.lost() ?: lost
+
+					if (count > lost)
+						rescanRoots()
+					lost = count
+				} else {
+					// What it reads tells of nothing any more: started again at once, which a loader run again has
+					// left a new watcher for, and every so often after, where it will not start.
+					settings.say("changes: live monitoring stopped ($stopped); reattaching")
+					carrying("stopping the watcher") { now.stop.close() }
+					feeding = Feeding.Off(stopped)
+					reattached()
 				}
+			}
+			is Feeding.Off -> {
+				if (upkeep.watch && System.nanoTime() - tried >= settings.reattach.inWholeNanoseconds)
+					reattached()
+				rescannedForWantOfAFeed()
+			}
+			Feeding.Unstarted -> rescannedForWantOfAFeed()
+		}
+	}
+
+	/** The roots read again, where it is time to and the daemon does so for want of a feed ([Upkeep.fallbackScans]). */
+	private fun rescannedForWantOfAFeed() {
+		if (upkeep.fallbackScans &&
+			System.nanoTime() - rescanned > settings.rescanWithoutWatcher.inWholeNanoseconds
+		) {
+			rescanned = System.nanoTime()
+			rescanRoots()
+		}
+	}
+
+	/**
+	 * The feed started again, where it is not feeding: from then on it is, and the roots are read again for what
+	 * changed while it was not, which nothing told of; or it is not, and why is said, once for each reason.
+	 */
+	private fun reattached() {
+		tried = System.nanoTime()
+
+		when (val started = starting()) {
+			is Feeding.On -> {
+				feeding = started
+				lost = started.lost() ?: 0
+				said = null
+				settings.say(
+					"changes: live monitoring via ${started.kind.label} again (${started.through}); " +
+						"rescanning for changes missed meanwhile",
+				)
+				rescanRoots()
+			}
+			is Feeding.Off -> {
+				feeding = started
+				if (started.why != said)
+					settings.say(
+						"changes: live monitoring isn't running (${started.why}); trying again every " +
+							if (settings.reattach == 1.minutes)
+								"minute"
+							else
+								"${settings.reattach}",
+					)
+				said = started.why
+			}
+			Feeding.Unstarted -> feeding = started
 		}
 	}
 

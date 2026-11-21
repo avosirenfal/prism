@@ -55,4 +55,27 @@ class PinnedTest {
 		)
 		assertEquals(Path.of("/run/prism-watcher"), WatcherPins.default(emptyMap()).mount)
 	}
+
+	@Test
+	fun aRingWhosePinWasTakenAwayOrPinnedAnewIsSaidToBeGone() {
+		val folder = Files.createDirectory(mount.resolve("ea0285c31f2ed2a0"))
+		val ring = Pin.ringIn(folder)
+
+		Files.createFile(ring)
+
+		val pin = Pin.at(ring)!!
+
+		assertEquals(null, pin.gone())
+
+		// The loader run again: what it pinned taken away, and a new ring pinned in its place.
+		Files.delete(ring)
+		assertEquals("the watcher pinned at $folder was unloaded", pin.gone())
+		// (Made a moment later, as a loader run again makes it: a file system other than a BPF one may give it the
+		// inode let go, and only when it was made tells the two apart.)
+		Thread.sleep(50)
+		Files.createFile(ring)
+		assertEquals("the watcher pinned at $folder was replaced by a new one", pin.gone())
+		// And nothing pinned to begin with is no pin.
+		assertEquals(null, Pin.at(folder.resolve("nothing")))
+	}
 }

@@ -212,6 +212,7 @@ object DaemonCommand : Command(
 				upkeep = upkeepOf(indexing),
 				log = log,
 				report = Report::whileDoing,
+				say = ::say,
 			)
 
 		val began = System.nanoTime()
