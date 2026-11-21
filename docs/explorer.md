@@ -689,8 +689,9 @@ picker: its order, its columns, dragged into order (several chosen together: a c
 ticked shown or not, and aligned; and its filters,
 for a list and for a gallery. A picker's are the explorer's until its switch gives it its own (changing anything does
 too). Context menus: the same list down the side, and the sidebar after it; beside it, the menu chosen, opened on a
-file, a folder, several, or the empty space around them, drawn as a menu is, with every entry it can hold, prism's and
-the actions'; a submenu's items are drawn in under it, and its arrow folds them away and back. Each entry is dragged by
+file, a folder, several, or the empty space around them, drawn as a menu is, with every entry it can hold, prism's, the
+actions' and the text searches' (prism's own, "Search in files…" among them, and the user's, each said to be a text
+search), where that menu would offer them; a submenu's items are drawn in under it, and its arrow folds them away and back. Each entry is dragged by
 anywhere on it but its controls into order, or several chosen together (a click chooses one, Shift and a click
 another), a submenu's items among themselves; its keys
 (Shift, Ctrl, Alt) lit keep it for a menu opened with them held; switched off, it never shows. A right-click on an entry

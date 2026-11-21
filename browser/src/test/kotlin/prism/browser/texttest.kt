@@ -1268,6 +1268,40 @@ class TextTest {
 		assertTrue("Strings in files…" in space.labels())
 		assertTrue("Strings in files…" !in row.labels())
 
+		// Arranged as any entry of a menu is (the Context menus page): here, shown only with Shift held.
+		val key = folder.menuKeyOf(Target.Folder)
+
+		val shifted =
+			folder.copy(
+				menus =
+					prism.preferences.MenuSpec(
+						arranged =
+							mapOf(
+								key to
+									listOf(
+										prism.preferences.Placed.Slot(
+											"text.search",
+											prism.preferences.Show.With(setOf(prism.preferences.Held.Shift)),
+										),
+									),
+							),
+					),
+			)
+
+		assertTrue(
+			"Search in files…" !in contextMenuOf(shifted, Target.Folder, bindings, world).labels(),
+		)
+		assertTrue(
+			"Search in files…" in
+				contextMenuOf(
+					shifted,
+					Target.Folder,
+					bindings,
+					world,
+					held = setOf(prism.preferences.Held.Shift),
+				).labels(),
+		)
+
 		// A picker chooses for another application, and looks into nothing.
 		val picker =
 			step(

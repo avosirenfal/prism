@@ -4,8 +4,11 @@ import androidx.compose.runtime.Immutable
 import prism.browser.Actions
 import prism.browser.BUILTINS
 import prism.browser.Item
+import prism.browser.Offering
 import prism.browser.On
 import prism.browser.Subject
+import prism.browser.Takes
+import prism.browser.TextSearch
 import prism.browser.Thing
 import prism.browser.ThingKind
 import prism.browser.UserAction
@@ -18,6 +21,7 @@ import prism.browser.inOrderOf
 import prism.browser.submenuId
 import prism.preferences.ActionSpec
 import prism.preferences.ActionsFile
+import prism.preferences.Declared
 import prism.preferences.Held
 import prism.preferences.ListingKind
 import prism.preferences.MenuKey
@@ -36,10 +40,11 @@ import prism.browser.Placed as PlacedIn
  * the lines between them ([menuLinesOf]), every entry it can hold whether or not it would now; and what each change
  * the page makes to one comes to, as the arrangement the preferences keep ([placedOf]).
  *
- * An entry of the user's actions is there where it could be offered in that menu at all. The page shows those of them
- * offered for the file it sees the menu for ([SeenMenu]): for all files, the actions for every file, and not those only
- * for some (a .zip, an image); for a file of a name and a type ([Sample]), the actions offered for it. What it does not
- * show stays where it is, among the rest, whatever is moved around it.
+ * An entry of the user's actions, or of the text searches (prism's and the user's), is there where it could be offered
+ * in that menu at all. The page shows those of them offered for the file it sees the menu for ([SeenMenu]): for all
+ * files, those for every file, and not those only for some (a .zip, an image); for a file of a name and a type
+ * ([Sample]), those offered for it. What it does not show stays where it is, among the rest, whatever is moved around
+ * it.
  *
  * A line is kept where the user puts it, before or after an entry ([lined]). Two lines together are one.
  *
@@ -80,10 +85,11 @@ data class Sample(
 	val types: List<String> = emptyList(),
 )
 
-/** What an entry of a menu is: one of prism's own, one of the user's actions, or a submenu of them. */
+/** What an entry of a menu is: one of prism's own, one of the user's actions, a text search, or a submenu of them. */
 enum class EntryKind {
 	Builtin,
 	Action,
+	Search,
 	Submenu,
 }
 
@@ -156,9 +162,10 @@ data class SeenMenu(
 }
 
 /**
- * The menu [key] as [menus] arrange it, every entry it can hold among prism's and [actions], seen for [sample] (all
- * files, where null) in [world]: in order, with the lines between groups, never two together; and, where it is arranged
- * as prism arranges it, none first or last.
+ * The menu [key] as [menus] arrange it, every entry it can hold among prism's and [actions] (its actions and its text
+ * searches), seen for [sample] (all files, where null) in [world]: in order, with the lines between groups, never two
+ * together; and, where it is arranged as prism arranges it, none first or last. The actions come before the searches,
+ * as a menu offers them.
  */
 fun seenMenuOf(
 	key: MenuKey,
@@ -168,7 +175,10 @@ fun seenMenuOf(
 	sample: Sample?,
 	world: World,
 ): SeenMenu {
-	val possible = actions.actions.filter { it.id !in actions.hidden && possibleIn(it, key) }
+	// Only a search that looks in files is offered in a menu: one of lines follows something that found some.
+	val offerings: List<Offering> =
+		actions.actions + actions.searches.filter { it.takes == Takes.Files }
+	val possible = offerings.filter { it.id !in actions.hidden && possibleIn(it, key) }
 	val (top, nested) = possible.partition { it.submenu.isEmpty() }
 	val submenus = nested.groupBy { it.submenu.first() }
 	val actionSlots = top.map { it.id } + submenus.keys.map(::submenuId)
@@ -178,19 +188,28 @@ fun seenMenuOf(
 	val subject = sample?.let { subjectOf(key, it, actions) }
 	val seen = sample?.let { SampleWorld(world, it) } ?: world
 
-	// For all files, an action is offered to each where it is not only for some: of a name, or of a type.
-	fun fits(action: UserAction): Boolean =
-		subject?.let { action.offered(it, seen) }
-			?: (action.conditions.names == null && action.conditions.types == null)
+	// For all files, an action or a search is offered to each where it is not only for some: of a name, or of a type.
+	fun fits(offering: Offering): Boolean =
+		subject?.let { offering.offered(it, seen) }
+			?: (offering.conditions.names == null && offering.conditions.types == null)
 
-	fun actionEntry(action: UserAction): MenuLine.Entry =
-		MenuLine.Entry(
-			Placed.Slot(action.id, shows[action.id] ?: Show.Always),
-			action.label,
-			EntryKind.Action,
-			specs[action.id]?.let(::noteOf),
-			fits(action),
+	fun actionEntry(offering: Offering): MenuLine.Entry {
+		val note = specs[offering.id]?.let(::noteOf)
+
+		return MenuLine.Entry(
+			Placed.Slot(offering.id, shows[offering.id] ?: Show.Always),
+			offering.label,
+			when (offering) {
+				is UserAction -> EntryKind.Action
+				is TextSearch -> EntryKind.Search
+			},
+			when (offering) {
+				is UserAction -> note
+				is TextSearch -> listOfNotNull("Text search", note).joinToString(" · ")
+			},
+			fits(offering),
 		)
+	}
 
 	val entries =
 		builtins.associateWith { id ->
@@ -525,19 +544,30 @@ private fun labelOf(words: List<String>): String =
 /** What each action of prism's and the [base] preferences' is written to be offered for, by its id; a later one's over an earlier. */
 fun specsOf(vararg files: ActionsFile): Map<String, WhenSpec> =
 	files
-		.flatMap { it.actionSpecs() }
-		.mapNotNull { (it as? Spec.Read<ActionSpec>)?.value }
+		.flatMap { it.actionSpecs() + it.textSearchSpecs() }
+		.mapNotNull { (it as? Spec.Read<Declared>)?.value }
 		.associate { it.id to it.conditions }
 
 /**
- * Whether [action] could be offered in the menu [key] at all: for what that menu is of, in that listing, for as many
- * as it is of, of the kind they are; what it is for beyond that (a name, a type) is the file's to decide.
+ * Whether [offering] could be offered in the menu [key] at all: for what that menu is of (whatever it is of, where its
+ * conditions do not say, as a text search's need not), in that listing, for as many as it is of, of the kind they are;
+ * what it is for beyond that (a name, a type) is the file's to decide. A text search looks in files on disk, so it is
+ * not offered in a place's listing or the trash's.
  */
-private fun possibleIn(action: UserAction, key: MenuKey): Boolean {
-	val conditions = action.conditions
+private fun possibleIn(offering: Offering, key: MenuKey): Boolean {
+	val conditions = offering.conditions
+
+	fun offeredOn(menu: On) = conditions.on == null || conditions.on == menu
+
+	// What a menu of a listing is of is on disk, to search, but in a place's or the trash's.
+	val onDisk =
+		(key as? MenuKey.Listing)?.kind.let {
+			it !is ListingKind.Place &&
+				it != ListingKind.Trash
+		}
 
 	return when (key) {
-		MenuKey.Sidebar -> conditions.on == On.Place
+		MenuKey.Sidebar -> offeredOn(On.Place)
 		is MenuKey.Listing -> {
 			val kind = key.kind
 			val word =
@@ -569,7 +599,8 @@ private fun possibleIn(action: UserAction, key: MenuKey): Boolean {
 				}
 
 			// The trash's rows only go back or go for good: no action of the user's is offered for them.
-			conditions.on == on &&
+			offeredOn(on) &&
+				(offering !is TextSearch || onDisk) &&
 				!(kind == ListingKind.Trash && on == On.Files) &&
 				conditions.within?.let { word in it } != false &&
 				(count == null || conditions.count?.holds?.invoke(count) != false) &&

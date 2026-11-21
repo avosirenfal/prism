@@ -815,25 +815,42 @@ sealed interface Deed {
 	) : Deed
 }
 
+/**
+ * What the user's context menus offer besides prism's own, as it is declared: an action ([UserAction]) or a text search
+ * ([TextSearch]). Each is known by its [id], called its [label], put in its [submenu], and offered where its
+ * [conditions] hold; and each is arranged among a menu's entries by its id.
+ */
+@Immutable
+sealed interface Offering {
+	val id: String
+	val label: String
+	val conditions: Conditions
+
+	/** The submenus it is under, outermost first; none for the menu itself. */
+	val submenu: List<String>
+
+	/** Whether it is offered for [subject], in [world]. */
+	fun offered(subject: Subject, world: World): Boolean
+}
+
 /** An action of the user's: when it is offered, what it asks, and what it does. */
 @Immutable
 data class UserAction(
-	val id: String,
-	val label: String,
-	val conditions: Conditions,
+	override val id: String,
+	override val label: String,
+	override val conditions: Conditions,
 	val questions: List<Question>,
 	/** Answers given beforehand: questions an action made [like][ActionSpec.like] another does not ask. */
 	val given: Map<String, Phrase>,
 	val deed: Deed,
 	/** A question to answer yes before it is done. */
 	val confirm: String?,
-	/** The submenus it is under, outermost first; none for the menu itself. */
-	val submenu: List<String>,
+	override val submenu: List<String>,
 	/** The chord that does it until the user binds another. */
 	val key: Chord?,
 	/** Whether a double click on what it is offered for does it. */
 	val default: Boolean,
-) {
+) : Offering {
 	private val phrases: List<Phrase> get() =
 		given.values +
 			questions.mapNotNull {
@@ -871,7 +888,7 @@ data class UserAction(
 	 * Whether it is offered for [subject]: its conditions hold, and what its placeholders name is there. So a command
 	 * with `{path}` in it is never offered for an entry of an archive, without a condition having to say so.
 	 */
-	fun offered(subject: Subject, world: World): Boolean =
+	override fun offered(subject: Subject, world: World): Boolean =
 		conditions.hold(subject, world) && fits(subject)
 
 	/** Whether what its placeholders name is there in [subject], its conditions aside. */

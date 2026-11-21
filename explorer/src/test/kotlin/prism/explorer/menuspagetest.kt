@@ -271,8 +271,10 @@ class MenusPageTest {
 		assertFalse(menuOf(settings, fileMenu, zip).shows("mine.read"))
 
 		// A search's results, several chosen, for all files: their actions are all for some, so the lines either side of
-		// them set apart nothing here. One is shown; the other is kept, for when they are.
-		val several = menuOf(settings, MenuKey.Listing(ListingKind.Results, MenuOf.Several))
+		// them set apart nothing here. One is shown; the other is kept, for when they are. (Search in files is for
+		// every file, and is among them: hidden here, so that they are all for some.)
+		val unsearched = Settings(reader.copy(menu = MenuSpec(hidden = listOf("text.search"))))
+		val several = menuOf(unsearched, MenuKey.Listing(ListingKind.Results, MenuOf.Several))
 
 		assertFalse(
 			several.shown.zipWithNext().any { (a, b) ->
@@ -493,6 +495,7 @@ class MenusPageTest {
 			}
 
 			// Compress's arrow folds its items away, and shows them again.
+			wheelTo("fold:submenu:Compress")
 			onNodeWithTag("entry:compress.zip").assertExists()
 			onNodeWithTag("fold:submenu:Compress").performClick()
 			waitForIdle()
@@ -640,5 +643,90 @@ class MenusPageTest {
 						.writeBytes(png)
 				}
 			}
+	}
+
+	/** The preferences of someone with a text search of their own, for the Markdown they write. */
+	private val writer =
+		Preferences(
+			textSearches =
+				ActionsFile
+					.parse(
+						"""{"textSearches": [
+							{"id": "mine.headings", "label": "Headings in notes…", "when": {"ext": ["md"]},
+							 "query": "typed",
+							 "ways": [{"run": ["xargs", "-0", "-r", "grep", "-Hn", "--null", "-e", "{query}", "--"],
+							           "read": "lines", "nul": true}]}
+						]}""",
+					).textSearches,
+		)
+
+	@Test
+	fun theTextSearchesAreAMenusEntries_PrismsAndTheUsers_WhereverItOffersThem() {
+		val settings = Settings(writer)
+		val space = menuOf(settings, spaceMenu)
+
+		assertEquals(emptyList<Any>(), settings.actions.broken)
+
+		val file = menuOf(settings, fileMenu)
+
+		// The space around the rows: every search of files; those for a folder alone only here.
+		for (id in listOf("text.search", "text.strings", "text.files", "mine.headings"))
+			assertTrue(space.holds(id), id)
+		assertEquals(EntryKind.Search, entryOf(space.all, "text.search").kind)
+		assertEquals("Text search", entryOf(space.all, "text.search").note)
+		// A search of lines is offered only after something found some, and in no menu.
+		assertFalse(space.holds("text.lines"))
+
+		// A file's menu: the searches for whatever the menu is of, not those for the folder alone.
+		assertTrue(file.holds("text.search"))
+		assertFalse(file.holds("text.strings"))
+		// The user's own for Markdown is there, for Markdown: seen for all files, it is not shown, and says what for.
+		assertTrue(file.holds("mine.headings"))
+		assertFalse(file.shows("mine.headings"))
+		assertEquals("Text search · For .md", entryOf(file.all, "mine.headings").note)
+		assertTrue(
+			menuOf(settings, fileMenu, Sample("notes.md", "notes.md")).shows("mine.headings"),
+		)
+
+		// A folder in the sidebar is searched too; an archive's entries and the trash's are on no disk to search.
+		assertTrue(menuOf(settings, MenuKey.Sidebar).holds("text.search"))
+		assertFalse(
+			menuOf(
+				settings,
+				MenuKey.Listing(ListingKind.Place("archive.zip"), MenuOf.Space),
+			).holds("text.search"),
+		)
+		assertFalse(
+			menuOf(
+				settings,
+				MenuKey.Listing(ListingKind.Trash, MenuOf.Space),
+			).holds("text.search"),
+		)
+	}
+
+	@Test
+	fun aTextSearchIsMovedAndHiddenAsAnyEntryIs_AndTheMenuItselfIsArrangedSo() {
+		val settings = Settings(Preferences.DEFAULT)
+		val space = menuOf(settings, spaceMenu)
+		val search = space.shown.indexOfFirst { it.key == "text.search" }
+
+		// Moved to the top, it is first; the arrangement names it, and the menu prism opens puts it there.
+		val top = arranged(settings, spaceMenu, moved(space, Moved.of(search, 0)))
+
+		assertEquals("text.search", top.shown.first().key)
+
+		val placed = moved(space, Moved.of(search, 0))
+		val menus = settings.menus.arranging(spaceMenu, placed)
+
+		assertEquals(
+			"text.search",
+			(menus.arrangementOf(spaceMenu)!!.first() as Placed.Slot).id,
+		)
+
+		// Hidden, it is in the page still, and not shown in the menu.
+		val hidden = arranged(settings, spaceMenu, showing(space, "text.strings", Show.Never))
+
+		assertTrue(hidden.holds("text.strings"))
+		assertEquals(Show.Never, entryOf(hidden.all, "text.strings").show)
 	}
 }

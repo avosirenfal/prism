@@ -226,11 +226,10 @@ data class Opener(
 /** A text search, declared: when it is offered, the command that finds, how what it prints is read, and what is shown. */
 @Immutable
 data class TextSearch(
-	val id: String,
-	val label: String,
-	val conditions: Conditions,
-	/** The submenus it is under, outermost first; none for the menu itself. */
-	val submenu: List<String>,
+	override val id: String,
+	override val label: String,
+	override val conditions: Conditions,
+	override val submenu: List<String>,
 	/** The chord that opens it until the user binds another. */
 	val key: Chord?,
 	val query: QueryUse,
@@ -244,9 +243,10 @@ data class TextSearch(
 	val preview: Command?,
 	/** What opens a line found, in place of the user's editor. */
 	val open: Opener?,
-) {
+) : Offering {
 	/** Whether it is offered for [subject]: whatever the menu is of, unless its conditions say which. */
-	fun offered(subject: Subject, world: World): Boolean = conditions.hold(subject, world)
+	override fun offered(subject: Subject, world: World): Boolean =
+		conditions.hold(subject, world)
 
 	/** The values with names an action offered for one of its lines can name. */
 	val named: Set<String> get() = setOf(positions.hole, TEXT, QUERY)

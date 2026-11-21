@@ -302,7 +302,7 @@ window's "Context menus" page does it by dragging; the file keeps it under `menu
 
 A menu is named by where it opens and what on: `folder`, `results`, `trash` or a place's type (`archive.zip`), then
 `/` and `file`, `folder`, `several` or `space` (the empty space around the rows); or `sidebar`. An entry is its id:
-prism's, an action's, or `submenu:` and a submenu's name. After it, ` hidden` never shows it, and ` with ` and keys
+prism's, an action's, a text search's (`text.search`, or the user's own), or `submenu:` and a submenu's name. After it, ` hidden` never shows it, and ` with ` and keys
 (`Shift`, `Ctrl`, `Alt`, joined by `+`) shows it only when they are held as the menu opens, whatever else is. `-` is a
 line; the menu draws none first, last, or two together, nor one between groups it shows nothing of.
 
