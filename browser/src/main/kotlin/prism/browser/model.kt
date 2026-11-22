@@ -385,6 +385,24 @@ data class Undoable(
 )
 
 /**
+ * What chosen files take: [bytes], summed of those whose sizes are known; [partial] where a file's is not yet (a search's
+ * result is read once it is in sight), which makes it the least they take.
+ */
+@Immutable
+data class ChosenSize(
+	val bytes: Long,
+	val partial: Boolean,
+) {
+	/** As the status line says it: "12.3 MB", or "at least 12.3 MB". */
+	val said: String
+		get() =
+			if (partial)
+				"at least ${sizeOf(bytes)}"
+			else
+				sizeOf(bytes)
+}
+
+/**
  * The rows the listing shows, in order, with where each is: what the view draws and what the keyboard moves
  * through, so a row is found by its identity without searching for it. A folder's are a list; a search's are made as
  * they are asked for, so that a million results are not a million rows.
@@ -429,6 +447,25 @@ sealed class Rows {
 
 	/** [ids] in the order they are shown. */
 	fun inOrder(ids: Set<RowId>): List<Row> = ids.mapNotNull(::indexOf).sorted().map(::get)
+
+	/**
+	 * What the files among [chosen] take, their sizes summed, as a file manager says it beside how many are chosen:
+	 * folders are not counted, nor gone into. Null where no file is chosen.
+	 */
+	fun chosenSize(chosen: Set<RowId>): ChosenSize? {
+		val files = chosen.mapNotNull(::get).filterNot { it.isFolder }
+
+		return files.takeIf { it.isNotEmpty() }?.let {
+			ChosenSize(
+				it.sumOf { row -> row.size?.value ?: 0 },
+				partial =
+					it.any { row ->
+						row.size ==
+							null
+					},
+			)
+		}
+	}
 
 	/** The rows from [from] to [to], whichever way round, both included. */
 	fun between(from: RowId, to: RowId): Set<RowId> {

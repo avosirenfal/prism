@@ -590,6 +590,12 @@ they can be shown in it. What is waited for (`BrowserState.wait`: a folder being
 in the status line, with a spinner, only once it has lasted a tenth of a second (`Wait.GRACE_MILLIS`): a folder read
 sooner than that, as nearly all are, shows nothing of the wait.
 
+**The status line** says how many items are shown (of how many, where a filter leaves some out) and how many are
+selected, and with them what the selected files take, their sizes summed: `18 items  ·  3 selected (8.5 KB)`. A folder
+selected is counted and not gone into, so it adds nothing; folders alone say only how many. A search's results have
+their sizes read once they are in sight, so where some of those selected are not read yet it says the least they take
+(`at least 1.2 GB`). The sum is worked out again only as what is selected, or the rows, change (`Rows.chosenSize`).
+
 **The filters** (which hidden entries are shown, and which kinds of file) are kept the same way, for each kind of
 listing and each layout: a gallery can leave out hidden files that a list of the same folder shows. The filter menu
 (a box for each kind, ticked or not, under "Clear filters": docs/picker.md) changes the window's own, for what it

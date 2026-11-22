@@ -3249,9 +3249,13 @@ private fun StatusLine(state: BrowserState, modifier: Modifier = Modifier) {
 		// What a search finds while the index is being read through is what has been read so far: said beside it,
 		// and not said at all while the index is as the disk is.
 		val reading = LocalIndexReading.current.takeIf { state.listing is Listing.Found }
+		// Worked out again only as what is chosen, or the rows (a result's size read), change: everything chosen of a
+		// million results is not summed again at every move of the cursor.
+		val chosen = state.choosing.rows
+		val size = remember(chosen, state.rows) { state.rows.chosenSize(chosen) }
 
 		Text(
-			statusOf(state, waited) +
+			statusOf(state, waited, size) +
 				(reading?.let { "  ·  ${it.said()}; results may be incomplete" } ?: ""),
 			style = type.muted,
 			maxLines = 1,
@@ -3265,11 +3269,15 @@ private fun StatusLine(state: BrowserState, modifier: Modifier = Modifier) {
 private val STATUS_SPINNER = 14.dp
 
 /**
- * How many rows are shown (of how many, where some are left out) and how many chosen, as the status line says it; of
- * a search's results, what they are being put in order by, where they wait for that. What is waited for is said
- * only once it has been [waited] for a moment.
+ * How many rows are shown (of how many, where some are left out) and how many chosen, with what the files chosen take
+ * ([size]), as the status line says it; of a search's results, what they are being put in order by, where they wait
+ * for that. What is waited for is said only once it has been [waited] for a moment.
  */
-private fun statusOf(state: BrowserState, waited: Boolean): String {
+internal fun statusOf(
+	state: BrowserState,
+	waited: Boolean,
+	size: ChosenSize? = state.rows.chosenSize(state.choosing.rows),
+): String {
 	state.system?.let { return statusOf(it) }
 	state.text?.let { return textStatus(it) }
 
@@ -3311,7 +3319,7 @@ private fun statusOf(state: BrowserState, waited: Boolean): String {
 			"Loading…".takeIf { waited }
 		else
 			counted,
-		"$chosen selected".takeIf {
+		("$chosen selected" + size?.let { " (${it.said})" }.orEmpty()).takeIf {
 			chosen > 0 && state.listing !is Listing.Reading
 		},
 		ordering.takeIf { state.listing !is Listing.Reading },
