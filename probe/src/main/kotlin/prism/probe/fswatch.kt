@@ -3,7 +3,9 @@ package prism.probe
 import prism.ebpf.Body
 import prism.ebpf.Counters
 import prism.ebpf.Expr
+import prism.ebpf.HookNaming
 import prism.ebpf.KernelFunction
+import prism.ebpf.KernelVersion
 import prism.ebpf.ProgramBuilder
 import prism.ebpf.Ptr
 import prism.ebpf.Record
@@ -100,9 +102,16 @@ class FsWatchMaps(
 /** `RENAME_EXCHANGE`: the two entries swap. */
 private const val EXCHANGE = 1L shl 1
 
-/** The watcher. */
+/**
+ * The watcher. Its hooks are named for prism and for the oldest version of Linux each works on, 6.19 being the
+ * oldest prism is for (`prism_exit_vfs_unlink_6_19`, `prism_exit_do_file_open_7_0`), so that `bpftool` says whose
+ * they are and which shape of a function each is.
+ */
 val FsWatch =
-	declared("fswatch") {
+	declared(
+		"fswatch",
+		naming = HookNaming.Versioned("prism", oldest = KernelVersion(6, 19)),
+	) {
 		// 4 MiB: about 13,000 changes, enough for a burst (a large `git checkout`, an `npm install`) between reads.
 		val changes by ringBuffer(FsChange, bytes = 1 shl 22)
 		val lost by counters(Lost.entries)

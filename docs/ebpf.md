@@ -52,6 +52,18 @@ So a field that was renamed or retyped between kernels is a named mismatch befor
 run time. The offsets themselves are never taken from the declarations: every access carries a CO-RE relocation
 and the kernel's own offsets are used at load time.
 
+## What a hook is called
+
+A hook's C function is what the verifier's log, the loader's errors, `bpftool prog list` and the names a loader pins
+it under call it. By default it is its kind and the kernel function, with the shape it is of where two are declared
+(`exit_vfs_mkdir_since_6_19`). A program can name its hooks for itself instead (`HookNaming.Versioned`): the watcher's
+are `prism_`, the kind and function, and the oldest version of Linux each works on, 6.19 being the oldest prism is
+for: `prism_exit_vfs_unlink_6_19` for a function of one shape, `prism_exit_do_file_open_7_0` for the shape since 7.0.
+So `bpftool` says whose they are, and which shape of a function each is. A shape's versions are typed (`Shape`, of two
+`KernelVersion`s), not words, so its name is worked out from them. A shape kept only for the kernels a program's tests
+run on, which ended before the oldest version it is for, is named for the version it began in
+(`prism_exit_vfs_mkdir_6_15`), which no newer shape is.
+
 ## The emitted C
 
 The emitted C **includes nothing**: it declares the widths it uses, the kernel structures as the subsets the

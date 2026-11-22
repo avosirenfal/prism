@@ -9,6 +9,7 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.io.path.createDirectories
 import kotlin.io.path.writeText
+import kotlin.time.Duration.Companion.hours
 import kotlin.time.Duration.Companion.milliseconds
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -473,6 +474,70 @@ class DaemonTest {
 				eventually { daemon.watching == Daemon.Watching.On }
 				eventually { "docs/before.txt" in daemon.live.index.names() }
 			}
+	}
+
+	@Test
+	fun aFeedThatSaysWhenToLookAgainIsLookedAtThenAndNotEverySoOften() {
+		made("docs/a.txt")
+
+		/** A feed whose loader the test runs, and which says so, as the pins being watched would. */
+		val feed =
+			object : Feed {
+				val pinned =
+					java.util.concurrent.atomic
+						.AtomicInteger()
+				val starts = AtomicLong()
+				var notice: () -> Unit = {}
+
+				override fun start(seen: (List<Changed>) -> Unit): Feeding {
+					starts.incrementAndGet()
+
+					val which = pinned.get()
+
+					if (which == 0)
+						return Feeding.Off("nothing is pinned yet")
+
+					val replaced =
+						java.util.concurrent.atomic
+							.AtomicReference<String?>()
+
+					return Feeding.On(
+						stop = AutoCloseable { },
+						lost = { 0 },
+						stopped = { replaced.get() },
+						recheck = {
+							replaced.set("replaced".takeIf { pinned.get() != which })
+						},
+					)
+				}
+
+				override fun notices(changed: () -> Unit): AutoCloseable {
+					notice = changed
+
+					return AutoCloseable { }
+				}
+			}
+
+		// Tried again every hour, were nothing to say when: what it says is what is waited on.
+		Daemon.start(settings().copy(reattach = 1.hours, say = {}), feed).use { daemon ->
+			daemon.live.opened.get(30, TimeUnit.SECONDS)
+			assertTrue(daemon.watching is Daemon.Watching.Off)
+
+			// The loader pins a watcher, and the feed says so: started, and what changed before it read.
+			made("docs/before.txt")
+			feed.pinned.set(1)
+			feed.notice()
+			eventually { daemon.watching == Daemon.Watching.On }
+			eventually { "docs/before.txt" in daemon.live.index.names() }
+
+			// Pinned anew under it: looked at again when told, and started again.
+			val starts = feed.starts.get()
+
+			feed.pinned.set(2)
+			feed.notice()
+			eventually { feed.starts.get() == starts + 1 }
+			assertEquals(Daemon.Watching.On, daemon.watching)
+		}
 	}
 
 	@Test

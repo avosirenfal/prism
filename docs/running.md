@@ -213,11 +213,15 @@ Three things follow from how it works.
 - **The loader can be run again under a running daemon**, and is, whenever a system updates prism and restarts its
   service: it removes what it pinned, which detaches the hooks, and pins a new watcher with a ring of its own. The
   daemon's old ring is kept for as long as it holds it open, and reading it never fails, but nothing writes to it
-  again. So the daemon looks at the ring's pin every few seconds: gone, or a file other than the one it opened (a BPF
-  file system never gives a new file an inode it gave before), and it opens the watcher pinned now, reads its roots
-  again for what changed while nobody told it, and says so in its log (`changes: live monitoring stopped (...);
-  reattaching`). Where none is pinned, it tries again every minute, and runs meanwhile as it does without one. A
-  daemon started before the loader ran finds its watcher the same way.
+  again. So the daemon is told when the pins change, and looks then, with no timer: a thread of its own (`PinWatch`)
+  waits on inotify watches of the loader's file system and of the watcher's folder in it (a pin made, removed, or
+  given to its readers), and on `/proc/self/mountinfo`, which says when the mounts change (the loader mounts its file
+  system afresh, and unmounts it, which inotify does not tell of). Told, it looks at the ring's pin: gone, or a file
+  other than the one it opened (a BPF file system never gives a new file an inode it gave before), and it opens the
+  watcher pinned now, reads its roots again for what changed while nobody told it, and says so in its log
+  (`changes: live monitoring stopped (...); reattaching`). Where none is pinned yet, it waits to be told again. A
+  daemon started before the loader ran finds its watcher the same way. (A feed nothing tells of in this way, as
+  FSEvents, is started again every minute instead.)
 
 **For a service**, the loader is a system service that runs it once at boot for a group (the package's
 `prism-watcher.service`, which gives it to the group `prism`; on NixOS, `programs.prism.watcher.enable`,

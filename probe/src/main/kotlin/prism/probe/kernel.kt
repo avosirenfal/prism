@@ -3,11 +3,13 @@ package prism.probe
 import prism.ebpf.Bytes
 import prism.ebpf.KernelFunction
 import prism.ebpf.KernelStruct
+import prism.ebpf.KernelVersion
 import prism.ebpf.Opaque
 import prism.ebpf.Parameter
 import prism.ebpf.Ptr
 import prism.ebpf.Returned
 import prism.ebpf.S32
+import prism.ebpf.Shape
 import prism.ebpf.U16
 import prism.ebpf.U32
 import prism.ebpf.U64
@@ -69,8 +71,18 @@ object RenameData : KernelStruct<RenameData>("renamedata") {
 /** A parameter only passed along: the idmap of the mount the change was made through. */
 object MntIdmap : KernelStruct<MntIdmap>("mnt_idmap")
 
+/** The versions of Linux the watcher's declarations are told apart by. */
+private val V6_15 = KernelVersion(6, 15)
+private val V6_17 = KernelVersion(6, 17)
+private val V6_18 = KernelVersion(6, 18)
+private val V6_19 = KernelVersion(6, 19)
+private val V7_0 = KernelVersion(7, 0)
+
 /** The shape a function has had since 6.19, as its declaration is told from the one before. */
-private const val SINCE_6_19 = "since 6.19"
+private val SINCE_6_19 = Shape(since = V6_19)
+
+/** The shape a function had up to 6.18, as far back as the watcher declares it (6.17). */
+private val TO_6_18 = Shape(since = V6_17, until = V6_18)
 
 /** A function that changes an entry of a directory, and is given both: what the watcher's hooks of them read. */
 interface OfEntry<F : KernelFunction<F>> {
@@ -84,7 +96,9 @@ interface GivesStatus<F : KernelFunction<F>> {
 }
 
 /** `struct dentry *vfs_mkdir(struct mnt_idmap *, struct inode *dir, struct dentry *, umode_t)`, from 6.15 to 6.18. */
-object VfsMkdir : KernelFunction<VfsMkdir>("vfs_mkdir"), OfEntry<VfsMkdir> {
+object VfsMkdir :
+	KernelFunction<VfsMkdir>("vfs_mkdir", Shape(since = V6_15, until = V6_18)),
+	OfEntry<VfsMkdir> {
 	val idmap by param(Ptr(MntIdmap))
 	override val dir by param(Ptr(Inode))
 	override val dentry by param(Ptr(Dentry))
@@ -114,6 +128,7 @@ object VfsMkdirDelegated :
 object VfsRmdir :
 	KernelFunction<VfsRmdir>(
 		"vfs_rmdir",
+		TO_6_18,
 	),
 	OfEntry<VfsRmdir>,
 	GivesStatus<VfsRmdir> {
@@ -169,6 +184,7 @@ object VfsRename : KernelFunction<VfsRename>("vfs_rename") {
 object VfsCreate :
 	KernelFunction<VfsCreate>(
 		"vfs_create",
+		TO_6_18,
 	),
 	OfEntry<VfsCreate>,
 	GivesStatus<VfsCreate> {
@@ -198,6 +214,7 @@ object VfsCreateDelegated : KernelFunction<VfsCreateDelegated>("vfs_create", SIN
 object VfsSymlink :
 	KernelFunction<VfsSymlink>(
 		"vfs_symlink",
+		TO_6_18,
 	),
 	OfEntry<VfsSymlink>,
 	GivesStatus<VfsSymlink> {
@@ -241,6 +258,7 @@ object VfsLink : KernelFunction<VfsLink>("vfs_link") {
 object VfsMknod :
 	KernelFunction<VfsMknod>(
 		"vfs_mknod",
+		TO_6_18,
 	),
 	OfEntry<VfsMknod>,
 	GivesStatus<VfsMknod> {
@@ -281,7 +299,9 @@ const val FMODE_CREATED = 1L shl 20
  * that made the file they open included, which is how a file made by `open(O_CREAT)` is seen, since that path does
  * not go through [VfsCreate].
  */
-object DoFilpOpen : KernelFunction<DoFilpOpen>("do_filp_open"), Opens<DoFilpOpen> {
+object DoFilpOpen :
+	KernelFunction<DoFilpOpen>("do_filp_open", Shape(until = V6_19)),
+	Opens<DoFilpOpen> {
 	val dfd by param(S32)
 	val pathname by param(Ptr(Opaque))
 	val flags by param(Ptr(Opaque))
@@ -291,7 +311,7 @@ object DoFilpOpen : KernelFunction<DoFilpOpen>("do_filp_open"), Opens<DoFilpOpen
 
 /** `struct file *do_file_open(int dfd, struct filename *, const struct open_flags *)`: the same, by its name since 7.0. */
 object DoFileOpen :
-	KernelFunction<DoFileOpen>("do_file_open", "since 7.0", formerly = DoFilpOpen),
+	KernelFunction<DoFileOpen>("do_file_open", Shape(since = V7_0), formerly = DoFilpOpen),
 	Opens<DoFileOpen> {
 	val dfd by param(S32)
 	val pathname by param(Ptr(Opaque))

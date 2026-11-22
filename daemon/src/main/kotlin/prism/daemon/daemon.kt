@@ -29,6 +29,7 @@ import prism.index.Keeping
 import prism.index.Name
 import prism.index.Unfollowed
 import prism.index.Where
+import prism.linux.Sys
 import prism.macos.EventStream
 import prism.macos.FsEvent
 import prism.macos.FsFlag
@@ -39,37 +40,55 @@ import prism.shared.Once
 import prism.shared.Published
 import prism.watcher.Done
 import prism.watcher.Observed
+import prism.watcher.PinWatch
 import prism.watcher.Watcher
+import prism.watcher.WatcherPins
 
 /** Where a daemon's changes come from: the kernel, through the watcher; or, for a test, whatever it gives. */
 fun interface Feed {
 	/** Changes from now on, each batch given to [seen] as it is seen; or why there will be none. */
 	fun start(seen: (List<Changed>) -> Unit): Feeding
 
+	/**
+	 * What tells, as it happens, that this feed may have stopped, or may start where it would not: [changed] called
+	 * each time, until what is given back is closed. None, for a feed nothing tells of, which the daemon starts again
+	 * every so often instead ([DaemonSettings.reattach]).
+	 */
+	fun notices(changed: () -> Unit): AutoCloseable? = null
+
 	companion object {
 		/**
 		 * The eBPF watcher's changes, each made into what a live index takes ([changedOf]), and noted as they are heard
 		 * in [log], where there is one.
 		 */
-		fun kernel(log: ActivityLog? = null) =
-			Feed { seen ->
-				val started =
-					Watcher.start { batch ->
-						log?.heardObserved(batch)
-						seen(batch.flatMap(::changedOf))
-					}
+		fun kernel(log: ActivityLog? = null): Feed =
+			object : Feed {
+				private val pins = WatcherPins.default()
 
-				when (started) {
-					is Watcher.Start.NotRunning -> Feeding.Off(started.why)
-					is Watcher.Start.Running ->
-						Feeding.On(
-							stop = started.watcher,
-							lost = started.watcher::lost,
-							stopped = { started.watcher.stopped },
-							through = started.through,
-							kind = FeedKind.EbpfProbe,
-						)
+				override fun start(seen: (List<Changed>) -> Unit): Feeding {
+					val started =
+						Watcher.start(pins) { batch ->
+							log?.heardObserved(batch)
+							seen(batch.flatMap(::changedOf))
+						}
+
+					return when (started) {
+						is Watcher.Start.NotRunning -> Feeding.Off(started.why)
+						is Watcher.Start.Running ->
+							Feeding.On(
+								stop = started.watcher,
+								lost = started.watcher::lost,
+								stopped = { started.watcher.stopped },
+								through = started.through,
+								kind = FeedKind.EbpfProbe,
+								recheck = started.watcher::recheck,
+							)
+					}
 				}
+
+				// The loader pinning a watcher anew, or taking it away, as it happens.
+				override fun notices(changed: () -> Unit): AutoCloseable? =
+					(PinWatch.start(pins, changed) as? Sys.Ok)?.value
 			}
 
 		/** No feed at all, and [why]: a daemon that reads its roots again now and then, and is told nothing between. */
@@ -171,6 +190,8 @@ sealed interface Feeding {
 		val at: () -> Long? = { null },
 		/** What hears the changes. */
 		val kind: FeedKind = FeedKind.Other,
+		/** What looks again at whether it has stopped, where it is told it may have ([Feed.notices]). */
+		val recheck: () -> Unit = {},
 	) : Feeding
 
 	/** Not feeding, and [why]. */
@@ -339,6 +360,8 @@ class Daemon private constructor(
 	feeding: Feeding,
 	/** The feed started again, as it was as the daemon started: its changes queued for the index, and told of. */
 	private val starting: () -> Feeding,
+	/** What tells the daemon, as it happens, to look at its feed again ([Feed.notices]). */
+	private val noticing: (() -> Unit) -> AutoCloseable?,
 	private val relay: Relay,
 	private val settings: DaemonSettings,
 	/** Where the feed's place is kept, for the daemon started next; null where the feed has none to keep. */
@@ -407,6 +430,15 @@ class Daemon private constructor(
 				.name("prism-tick")
 				.daemon()
 				.unstarted(it)
+		}
+
+	/**
+	 * What tells, as it happens, that the feed may have stopped or may now start, each time looked at on the thread
+	 * that ticks; none where nothing tells, and the feed is started again every [DaemonSettings.reattach] instead.
+	 */
+	private val notices: AutoCloseable? =
+		noticing {
+			ticks.execute { carrying("looking at the watcher again", ::lookedAgain) }
 		}
 
 	/** The watcher's count of what it lost, as last looked at. */
@@ -504,21 +536,45 @@ class Daemon private constructor(
 						rescanRoots()
 					lost = count
 				} else {
-					// What it reads tells of nothing any more: started again at once, which a loader run again has
-					// left a new watcher for, and every so often after, where it will not start.
-					settings.say("changes: live monitoring stopped ($stopped); reattaching")
-					carrying("stopping the watcher") { now.stop.close() }
-					feeding = Feeding.Off(stopped)
-					reattached()
+					// What it reads tells of nothing any more (reading it failed): started again at once.
+					stopped(now, stopped)
 				}
 			}
 			is Feeding.Off -> {
-				if (upkeep.watch && System.nanoTime() - tried >= settings.reattach.inWholeNanoseconds)
+				// Where something tells when to try again, nothing is tried until it does.
+				if (notices == null && upkeep.watch &&
+					System.nanoTime() - tried >= settings.reattach.inWholeNanoseconds
+				)
 					reattached()
 				rescannedForWantOfAFeed()
 			}
 			Feeding.Unstarted -> rescannedForWantOfAFeed()
 		}
+	}
+
+	/**
+	 * The feed looked at again, told that it may have stopped or may now start: one that has stopped is started again,
+	 * and one that would not start is tried again.
+	 */
+	private fun lookedAgain() {
+		when (val now = feeding) {
+			is Feeding.On -> {
+				now.recheck()
+				now.stopped()?.let { stopped(now, it) }
+			}
+			is Feeding.Off ->
+				if (upkeep.watch)
+					reattached()
+			Feeding.Unstarted -> Unit
+		}
+	}
+
+	/** [now], which tells of nothing any more and why, let go, and the feed started again. */
+	private fun stopped(now: Feeding.On, why: String) {
+		settings.say("changes: live monitoring stopped ($why); reattaching")
+		carrying("stopping the watcher") { now.stop.close() }
+		feeding = Feeding.Off(why)
+		reattached()
 	}
 
 	/** The roots read again, where it is time to and the daemon does so for want of a feed ([Upkeep.fallbackScans]). */
@@ -553,11 +609,12 @@ class Daemon private constructor(
 				feeding = started
 				if (started.why != said)
 					settings.say(
-						"changes: live monitoring isn't running (${started.why}); trying again every " +
-							if (settings.reattach == 1.minutes)
-								"minute"
-							else
-								"${settings.reattach}",
+						"changes: live monitoring isn't running (${started.why}); " +
+							when {
+								notices != null -> "reattaching when the probe is loaded again"
+								settings.reattach == 1.minutes -> "trying again every minute"
+								else -> "trying again every ${settings.reattach}"
+							},
 					)
 				said = started.why
 			}
@@ -648,6 +705,7 @@ class Daemon private constructor(
 	 * came to, so that the index is written even where stopping the watcher failed.
 	 */
 	override fun close() {
+		carrying("stopping looking at the watcher") { notices?.close() }
 		ticks.shutdownNow()
 		carrying("stopping the watcher") { (feeding as? Feeding.On)?.stop?.close() }
 		carrying("making the last changes") { relay.close() }
@@ -824,7 +882,7 @@ class Daemon private constructor(
 			)
 				live.rescanRoots()
 
-			return Daemon(live, feeding, ::starting, relay, settings, history)
+			return Daemon(live, feeding, ::starting, feed::notices, relay, settings, history)
 		}
 	}
 }

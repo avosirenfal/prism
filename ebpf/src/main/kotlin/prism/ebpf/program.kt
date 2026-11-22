@@ -12,21 +12,21 @@ sealed interface HookKind {
 	/** The section name libbpf attaches by. */
 	fun section(callable: Callable<*>): String
 
-	/** The name of the C function, which is what the verifier's log and the loader's errors name. */
+	/** What the C function of a hook of this kind on [callable] is called before its shape is told: `exit_vfs_mkdir`. */
 	fun function(callable: Callable<*>): String
 
 	/** On the way into a kernel function, before it has done anything. */
 	data object Entry : HookKind {
 		override fun section(callable: Callable<*>) = "fentry/${callable.cName}"
 
-		override fun function(callable: Callable<*>) = "entry_${shaped(callable)}"
+		override fun function(callable: Callable<*>) = "entry_${callable.cName}"
 	}
 
 	/** On the way out of a kernel function, where what it did and what it gave back are both known. */
 	data object Exit : HookKind {
 		override fun section(callable: Callable<*>) = "fexit/${callable.cName}"
 
-		override fun function(callable: Callable<*>) = "exit_${shaped(callable)}"
+		override fun function(callable: Callable<*>) = "exit_${callable.cName}"
 	}
 
 	/** A kernel tracepoint, reached through BTF so its arguments are typed. */
@@ -42,32 +42,64 @@ sealed interface HookKind {
 
 		override fun function(callable: Callable<*>) = "sys_${callable.cName}"
 	}
+}
 
-	companion object {
-		/**
-		 * [callable]'s name with its shape, as a C function's name may have it: two shapes of one kernel function
-		 * are two C functions in one section's name, told apart by this.
-		 */
-		private fun shaped(callable: Callable<*>): String =
-			callable.cName +
+/**
+ * What a program's hooks' C functions are called, which is what the verifier's log, the loader's errors, `bpftool` and
+ * the names a loader pins them under say. Two shapes of one kernel function are two C functions, so a name tells them
+ * apart.
+ */
+sealed interface HookNaming {
+	/** The C function of a hook of [kind] on [callable]. */
+	fun name(kind: HookKind, callable: Callable<*>): String
+
+	/** As its kind has it, and the shape it is of, where it says one: `exit_vfs_mkdir_since_6_19`. */
+	data object ByShape : HookNaming {
+		override fun name(kind: HookKind, callable: Callable<*>): String =
+			kind.function(callable) +
 				callable.shape
 					?.let { shape ->
 						"_" +
-							shape.map { if (it.isLetterOrDigit()) it else '_' }.joinToString("")
+							shape.toString().map { if (it.isLetterOrDigit()) it else '_' }.joinToString("")
 					}.orEmpty()
+	}
+
+	/**
+	 * [prefix], as its kind has it, and the oldest version it works on that is [oldest] or newer:
+	 * `prism_exit_do_file_open_7_0`, and `prism_exit_vfs_unlink_6_19` for a function of one shape, which works on
+	 * versions before the oldest the program is for too. A shape that ended before [oldest] (one kept for the kernels
+	 * a program's tests run on) is named for the version it began in, which no shape for [oldest] and after is.
+	 */
+	data class Versioned(
+		val prefix: String,
+		val oldest: KernelVersion,
+	) : HookNaming {
+		override fun name(kind: HookKind, callable: Callable<*>): String =
+			"${prefix}_${kind.function(callable)}_${versionOf(callable.shape).cName}"
+
+		/** The oldest version [shape] works on, as these name it. */
+		fun versionOf(shape: Shape?): KernelVersion {
+			val until = shape?.until
+			val since = shape?.since
+
+			return if (until != null && until < oldest)
+				requireNotNull(since) { "a shape that ended before $oldest says when it began" }
+			else
+				maxOf(since ?: oldest, oldest)
+		}
 	}
 }
 
-/** One hook of a program: where it sits, what it hooks, and what it says. */
+/** One hook of a program: where it sits, what it hooks, what it says, and what its C function is called. */
 class Hook internal constructor(
 	val kind: HookKind,
 	val callable: Callable<*>,
 	val body: List<Stmt>,
 	/** The bytes of the verifier's stack the hook's own records take. */
 	val stackBytes: Int,
+	val cName: String,
 ) {
 	val section: String get() = kind.section(callable)
-	val cName: String get() = kind.function(callable)
 
 	override fun toString(): String = section + callable.shape?.let { " ($it)" }.orEmpty()
 }
@@ -85,6 +117,7 @@ class EnumGroup internal constructor(
 class ProgramBuilder internal constructor(
 	val name: String,
 	val license: License,
+	private val naming: HookNaming,
 ) {
 	private val maps = ArrayList<BpfMap>()
 	private val hooks = ArrayList<Hook>()
@@ -156,15 +189,17 @@ class ProgramBuilder internal constructor(
 
 		// Twice is the same declaration again, or two declarations the C could not tell apart (two shapes of one
 		// function under one name).
+		val cName = naming.name(kind, callable)
+
 		if (hooks.any {
 				it.kind == kind &&
-					(it.callable === callable || it.cName == kind.function(callable))
+					(it.callable === callable || it.cName == cName)
 			}
 		)
 			errors += ProgramError.HookedTwice(kind.section(callable))
 		if (stackBytes > STACK_BYTES)
 			errors += ProgramError.StackTooLarge(kind.section(callable), stackBytes)
-		hooks += Hook(kind, callable, body.statements(), stackBytes)
+		hooks += Hook(kind, callable, body.statements(), stackBytes, cName)
 	}
 
 	internal fun uses(helper: Helper) {
@@ -225,8 +260,9 @@ class ProgramBuilder internal constructor(
 fun program(
 	name: String,
 	license: License = License.Gpl,
+	naming: HookNaming = HookNaming.ByShape,
 	declared: ProgramBuilder.() -> Unit,
-): Program = declared(name, license, declared).program
+): Program = declared(name, license, naming, declared).program
 
 /**
  * A program and what its declaration handed back: the maps the host reaches it through, as the declaration's own
@@ -238,13 +274,14 @@ class Declared<M> internal constructor(
 	val maps: M,
 )
 
-/** [declared] as a program named [name], with the maps it hands back for the host. */
+/** [declared] as a program named [name], its hooks named as [naming] says, with the maps it hands back for the host. */
 fun <M> declared(
 	name: String,
 	license: License = License.Gpl,
+	naming: HookNaming = HookNaming.ByShape,
 	declared: ProgramBuilder.() -> M,
 ): Declared<M> {
-	val builder = ProgramBuilder(name, license)
+	val builder = ProgramBuilder(name, license, naming)
 	val maps = builder.declared()
 
 	return Declared(builder.built(), maps)

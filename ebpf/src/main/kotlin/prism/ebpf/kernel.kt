@@ -11,6 +11,37 @@ package prism.ebpf
  * [Inode]'s fields is a compile error, because a field carries the structure that declared it in its type.
  */
 
+/** A version of Linux, as far as a program's declarations tell versions apart: `6.19`. */
+data class KernelVersion(
+	val major: Int,
+	val minor: Int,
+) : Comparable<KernelVersion> {
+	override fun compareTo(other: KernelVersion): Int =
+		compareValuesBy(this, other, { it.major }, { it.minor })
+
+	override fun toString(): String = "$major.$minor"
+
+	/** As a C name may have it: `6_19`. */
+	val cName: String get() = "${major}_$minor"
+}
+
+/**
+ * Which versions of Linux a declaration of one of a kernel function's shapes is right for: [since] the version that
+ * made it so (null: since before any version declared), and [until] the last it was so in (null: it still is).
+ */
+data class Shape(
+	val since: KernelVersion? = null,
+	val until: KernelVersion? = null,
+) {
+	override fun toString(): String =
+		when {
+			since != null && until != null -> "$since to $until"
+			since != null -> "since $since"
+			until != null -> "to $until"
+			else -> "every version"
+		}
+}
+
 /**
  * Something with parameters a hook's body reads: a kernel function, or a tracepoint.
  *
@@ -24,7 +55,7 @@ sealed class Callable<Self : Callable<Self>>(
 	/** The name the kernel knows it by, which the hook's section names. */
 	val cName: String,
 	/** Which of the kernel's shapes of it this declares, where more than one is declared; null where one is. */
-	val shape: String? = null,
+	val shape: Shape? = null,
 	/** What this was called before the kernel renamed it, where it was: the two are one place, in two shapes. */
 	formerly: Callable<*>? = null,
 ) {
@@ -75,7 +106,7 @@ class Parameter<out F : Callable<*>, out T : BpfType> internal constructor(
  */
 abstract class KernelFunction<Self : KernelFunction<Self>>(
 	cName: String,
-	shape: String? = null,
+	shape: Shape? = null,
 	formerly: KernelFunction<*>? = null,
 ) : Callable<Self>(cName, shape, formerly) {
 	/** What it gives back: [returning] for a value, [NoReturn] for a `void` function. */

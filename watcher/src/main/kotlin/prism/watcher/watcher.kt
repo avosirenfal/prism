@@ -29,11 +29,22 @@ class Watcher private constructor(
 	/** Why the thread stopped reading, if it did before it was closed. */
 	private var readFailure: String? by Published(null)
 
+	/** Why the watcher it reads is no longer the one pinned, as last looked at ([recheck]). */
+	private var replaced: String? by Published(null)
+
 	/**
 	 * Why what it reads tells of no changes any more, if it does not: the thread stopped reading, or the watcher it
-	 * reads is no longer the one pinned.
+	 * reads is no longer the one pinned, as last looked at ([recheck]). Asking looks at nothing.
 	 */
-	val stopped: String? get() = readFailure ?: pin?.gone()
+	val stopped: String? get() = readFailure ?: replaced
+
+	/**
+	 * Whether the watcher it reads is still the one pinned, looked at again: what is told that the pins may have
+	 * changed ([PinWatch]) asks.
+	 */
+	fun recheck() {
+		replaced = pin?.gone()
+	}
 
 	private val thread: Thread =
 		Thread

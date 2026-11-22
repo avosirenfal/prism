@@ -19,6 +19,13 @@ private val unalignedLong = JAVA_LONG.withByteAlignment(1)
 
 /** `EPOLLIN`: there is something to read. */
 private const val EPOLLIN = 1
+
+/**
+ * `EPOLLPRI` and `EPOLLERR`: what a file of the kernel's says something about it changed with, as
+ * `/proc/self/mountinfo` says the mounts did.
+ */
+private const val EPOLLPRI = 2
+private const val EPOLLERR = 8
 private const val EPOLL_CTL_ADD = 1
 private const val EPOLL_CLOEXEC = 0x80000
 
@@ -72,11 +79,24 @@ class Epoll private constructor(
 	private val capacity: Int,
 ) : AutoCloseable {
 	/** Watches [watched] for input, reported under [tag]. */
-	fun watchInput(watched: Fd, tag: Long): Sys<Unit> =
+	fun watchInput(watched: Fd, tag: Long): Sys<Unit> = watch(watched, tag, EPOLLIN)
+
+	/**
+	 * Watches [watched] for what a file of the kernel's says changed (`/proc/self/mountinfo`: the mounts), reported
+	 * under [tag]. Such a file says it once a change: looking at it is what takes the change as seen.
+	 */
+	fun watchChange(watched: Fd, tag: Long): Sys<Unit> =
+		watch(
+			watched,
+			tag,
+			EPOLLPRI or EPOLLERR,
+		)
+
+	private fun watch(watched: Fd, tag: Long, events: Int): Sys<Unit> =
 		Arena.ofConfined().use { arena ->
 			val event = arena.allocate(eventSize, 8)
 
-			event.set(JAVA_INT, 0, EPOLLIN)
+			event.set(JAVA_INT, 0, events)
 			event.set(unalignedLong, dataOffset, tag)
 
 			val result =

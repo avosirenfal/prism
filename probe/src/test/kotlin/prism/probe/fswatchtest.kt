@@ -87,16 +87,43 @@ class FsWatchTest {
 		val mkdir = FsWatch.program.hooks.filter { it.section == "fexit/vfs_mkdir" }
 
 		assertEquals(
-			listOf("exit_vfs_mkdir", "exit_vfs_mkdir_since_6_19"),
+			listOf("prism_exit_vfs_mkdir_6_15", "prism_exit_vfs_mkdir_6_19"),
 			mkdir.map {
 				it.cName
 			},
 		)
 		assertEquals(
-			listOf("fexit/vfs_mkdir", "fexit/vfs_mkdir (since 6.19)"),
+			listOf("fexit/vfs_mkdir (6.15 to 6.18)", "fexit/vfs_mkdir (since 6.19)"),
 			mkdir.map {
 				it.toString()
 			},
 		)
+	}
+
+	@Test
+	fun eachHookIsNamedForPrismAndTheOldestVersionItWorksOn_SixNineteenAtLeast() {
+		val names =
+			FsWatch.program.hooks
+				.map { it.cName }
+				.toSet()
+
+		// What 6.19 and after attach: those of one shape at 6.19, opening as renamed at 7.0, as it was at 6.19.
+		assertTrue(
+			names.containsAll(
+				listOf(
+					"prism_exit_vfs_unlink_6_19",
+					"prism_exit_vfs_rename_6_19",
+					"prism_exit_vfs_link_6_19",
+					"prism_exit_vfs_rmdir_6_19",
+					"prism_exit_vfs_create_6_19",
+					"prism_exit_do_file_open_7_0",
+					"prism_exit_do_filp_open_6_19",
+				),
+			),
+			"$names",
+		)
+		// The shapes of the kernels before, kept for those the tests run on, named for when they began.
+		assertTrue("prism_exit_vfs_rmdir_6_17" in names, "$names")
+		assertTrue(names.all { it.startsWith("prism_exit_") }, "$names")
 	}
 }
