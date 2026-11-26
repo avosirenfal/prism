@@ -39,6 +39,7 @@ import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -548,6 +549,22 @@ private fun Toolbar(state: BrowserState, stops: Stops, onEvent: (BrowserEvent) -
 			)
 		}
 		Spacer(Modifier.width(Space.s))
+		// The Recents page's own, and no other listing's: how its most relevant folders are found, and whether its
+		// sections are tabs or groups. Every window's, and kept.
+		if (state.at == Location.Recents) {
+			val view = state.recentsView
+
+			RelevanceButton(view.relevance) { onEvent(BrowserEvent.RelevanceTuned(it)) }
+			ToolButton(
+				if (view.tabbed)
+					Glyph.Tabs
+				else
+					Glyph.Groups,
+				"Sections as tabs",
+				enabled = true,
+				modifier = Modifier.testTag("recent-tabbed").semantics { selected = view.tabbed },
+			) { onEvent(BrowserEvent.RecentsTabbed(!view.tabbed)) }
+		}
 		// Every window's, and kept: so it is here in a list too, where no picture is drawn to be seen going.
 		ToolButton(
 			if (state.thumbnails)
@@ -573,8 +590,7 @@ private fun Toolbar(state: BrowserState, stops: Stops, onEvent: (BrowserEvent) -
 			state.layout,
 			{ it.name },
 			tag = "layout",
-			// Nor is the Recents page's list of sections drawn as a gallery.
-			enabled = state.listsFiles && state.at != Location.Recents,
+			enabled = state.listsFiles,
 			focusable = false,
 			glyph = {
 				when (it) {
@@ -1197,18 +1213,30 @@ private fun ListingPane(
 	val cursor = state.cursor?.at
 	val cursorAt = cursor?.let(rows::indexOf)
 	val query = state.arrangement.query
-	// The Recents page, where that is what is shown: its rows under their sections' headings, as a list always.
+	// The Recents page, where that is what is shown: its rows under their sections' headings, or a tab's alone.
 	val recent = (state.listing as? Listing.Recent)?.page
 
 	// Its sections' headings, each over the row it is drawn before; those of sections collapsed after the last row,
-	// past the rows.
+	// past the rows. Or its tabs, where it is shown as tabs, which have no headings.
 	val pageShown = (state.listing as? Listing.Recent)?.shown(state.arrangement)
 	val headings = pageShown?.over.orEmpty()
+	val tabs = pageShown?.grouping as? RecentPage.Grouping.Tabs
+	// What it says of each row: its section, when, and whether that is long before the rest.
+	val marks = pageShown?.marks.orEmpty()
 	// Its rows that are hidden from it, and shown all the same: drawn faint.
 	val dimmed = pageShown?.dimmed.orEmpty()
 
 	val paged = state.at == Location.Recents
-	val gallery = state.layout == Layout.Gallery && !paged
+	val gallery = state.layout == Layout.Gallery
+	// Where the gallery lays out the rows: a place each, or, under the Recents page's headings, a place each after
+	// the places of the headings over them.
+	val places =
+		remember(rows, headings) {
+			if (headings.isEmpty())
+				GalleryPlaces.Plain(rows.size)
+			else
+				GalleryPlaces.Headed(headings, rows.size)
+		}
 	// The rows as large as the listing's type makes them, and Ctrl and the wheel zooming from there.
 	val zoom = state.scale
 	val rowHeight = rowHeightOf(LocalRows.current, LocalType.current) * zoom
@@ -1274,7 +1302,7 @@ private fun ListingPane(
 	LaunchedEffect(cursorAt, state.layout) {
 		cursorAt?.let {
 			if (gallery)
-				grid.reveal(it)
+				grid.reveal(places.placeOf(it))
 			else
 				list.reveal(it)
 		}
@@ -1416,7 +1444,7 @@ private fun ListingPane(
 				?.let { at ->
 					if (gallery)
 						grid.layoutInfo.visibleItemsInfo
-							.firstOrNull { it.index == at }
+							.firstOrNull { it.index == places.placeOf(at) }
 							?.let {
 								Offset(
 									it.offset.x + it.size.width / 2f,
@@ -1567,6 +1595,14 @@ private fun ListingPane(
 				list.layoutInfo.visibleItemsInfo.size
 		val page = line * (lines - 1).coerceAtLeast(1)
 
+		// A line up or down: in a gallery under headings, the tile over or under, the rows under each heading laid out
+		// apart from the next's.
+		fun lined(by: Int): Move =
+			if (gallery && cursorAt != null)
+				Move.By(places.down(cursorAt, by, line) - cursorAt)
+			else
+				Move.By(by * line)
+
 		// Shift extends what is chosen as the cursor moves, and Ctrl (Option, on a Mac) moves it without choosing,
 		// whatever key moves it.
 		val carry =
@@ -1578,8 +1614,8 @@ private fun ListingPane(
 
 		val move =
 			when (bindings.movement(chord)) {
-				Action.MoveUp -> Move.By(-line)
-				Action.MoveDown -> Move.By(line)
+				Action.MoveUp -> lined(-1)
+				Action.MoveDown -> lined(1)
 				Action.MoveLeft -> Move.By(-1).takeIf { gallery }
 				Action.MoveRight -> Move.By(1).takeIf { gallery }
 				Action.PageUp -> Move.By(-page)
@@ -1655,6 +1691,18 @@ private fun ListingPane(
 			}
 		}
 
+		// In tabs, Ctrl+Page Up and Ctrl+Page Down go to the tab before and the tab after, round.
+		if (tabs != null && chord.ctrl && !chord.shift && !chord.alt && !chord.meta &&
+			(key.key == Key.PageUp || key.key == Key.PageDown)
+		) {
+			tabAfter(tabs.tabs, tabs.chosen, onward = key.key == Key.PageDown)?.let {
+				onEvent(BrowserEvent.RecentTabChosen(it.kind.section))
+			}
+			spent = true
+
+			return true
+		}
+
 		spent = done(chord)
 		if (spent)
 			return true
@@ -1679,12 +1727,14 @@ private fun ListingPane(
 	fun within(rect: Rect): Set<RowId> {
 		val laid =
 			if (gallery)
-				grid.layoutInfo.visibleItemsInfo.map {
-					it.index to
-						Rect(
-							Offset(it.offset.x + tileInset, it.offset.y + tileInset),
-							Size(it.size.width.toFloat(), it.size.height.toFloat()),
-						)
+				grid.layoutInfo.visibleItemsInfo.mapNotNull { laid ->
+					places.rowAt(laid.index)?.let { row ->
+						row to
+							Rect(
+								Offset(laid.offset.x + tileInset, laid.offset.y + tileInset),
+								Size(laid.size.width.toFloat(), laid.size.height.toFloat()),
+							)
+					}
 				}
 			else
 				list.layoutInfo.visibleItemsInfo.map {
@@ -1754,8 +1804,13 @@ private fun ListingPane(
 		// How wide the Recents page's last column is: what says when, in a few words.
 		val ago = character * RECENT_AGO_CHARACTERS + Dims.cell * 2
 
-		// And how far in from their headings its rows are: so much less room for their names, which give it up.
-		val indent = recentIndent(zoom)
+		// And how far in from their headings its rows are: so much less room for their names, which give it up. In
+		// tabs, there are no headings to be in from.
+		val indent =
+			if (tabs == null)
+				recentIndent(zoom)
+			else
+				0.dp
 
 		val layout =
 			if (paged)
@@ -1773,14 +1828,18 @@ private fun ListingPane(
 		val sideways = wide > maxWidth
 
 		Column(Modifier.fillMaxSize()) {
-			// The Recents page's rows are in its own order, under its own headings: there is none to choose.
+			// The Recents page's rows are in its own order, under its own headings or tabs: there is none to choose.
 			if (!paged) {
 				if (gallery)
 					SortHeadings(state, menus, onEvent)
 				else
 					ColumnHeadings(state, layout, wide, across, menus, onEvent)
 				Line(palette.divider)
-			}
+			} else if (tabs != null)
+				RecentTabs(tabs.tabs, tabs.chosen, start = LIST_INSET + Dims.edge + Dims.cell) {
+					stops.listing.requestFocus()
+					onEvent(BrowserEvent.RecentTabChosen(it))
+				}
 
 			Box(
 				Modifier
@@ -1846,7 +1905,25 @@ private fun ListingPane(
 								)
 							}
 							gallery ->
-								Gallery(state, grid, nowhere, onEvent) { row, scale ->
+								Gallery(
+									state,
+									grid,
+									nowhere,
+									places,
+									onEvent,
+									headings = { over, place ->
+										// In from the tiles' edge no further than their own room; and apart from the tiles
+										// over them by the gallery's gap alone.
+										RecentHeadings(
+											over,
+											first = place == 0,
+											1f,
+											::fold,
+											ground = 0.dp,
+											apart = 0.dp,
+										)
+									},
+								) { row, scale ->
 									Tile(
 										row,
 										row.path,
@@ -1885,15 +1962,16 @@ private fun ListingPane(
 											items(rows.size, key = rows::idAt, contentType = { "row" }) { index ->
 												val row = rows[index]
 												// What the Recents page says of the row: its section, and when.
-												val mark = recent?.marks?.get(row.id)
+												val mark = marks[row.id]
 
 												RecentSlot(
 													mark,
 													over = headings[index].orEmpty(),
-													before = recent?.marks?.get(rows.idAt((index - 1).coerceAtLeast(0))),
+													before = marks[rows.idAt((index - 1).coerceAtLeast(0))],
 													first = index == 0,
 													zoom = zoom,
 													dimmed = row.id in dimmed,
+													indented = tabs == null,
 													onToggle = ::fold,
 												) {
 													EntryRow(
@@ -2053,7 +2131,9 @@ private fun Gallery(
 	state: BrowserState,
 	grid: LazyGridState,
 	nowhere: Modifier,
+	places: GalleryPlaces,
 	onEvent: (BrowserEvent) -> Unit,
+	headings: @Composable (List<RecentPage.Heading>, Int) -> Unit = { _, _ -> },
 	tile: @Composable (Row, Float) -> Unit,
 ) {
 	BoxWithConstraints(Modifier.fillMaxSize()) {
@@ -2063,7 +2143,7 @@ private fun Gallery(
 		val scale = scaleOf(state.zoom, whole)
 
 		LaunchedEffect(whole) { onEvent(BrowserEvent.Measured(whole)) }
-		NearPictures(state.rows, grid)
+		NearPictures(state.rows, grid, places)
 
 		// A notch of the wheel moves the gallery a line of tiles, however large they are drawn.
 		Box(
@@ -2086,11 +2166,39 @@ private fun Gallery(
 			) {
 				val rows = state.rows
 
-				items(
-					rows.size,
-					key = rows::idAt,
-					contentType = { "tile" },
-				) { tile(rows[it], scale) }
+				when (places) {
+					is GalleryPlaces.Plain ->
+						items(
+							rows.size,
+							key = rows::idAt,
+							contentType = { "tile" },
+						) { tile(rows[it], scale) }
+					// Headings across the whole of a line, before the tiles they are over.
+					is GalleryPlaces.Headed ->
+						items(
+							places.size,
+							key = { place -> places.rowAt(place)?.let(rows::idAt) ?: "headings:$place" },
+							span = { place ->
+								GridItemSpan(
+									if (places.rowAt(place) == null)
+										maxLineSpan
+									else
+										1,
+								)
+							},
+							contentType = { place ->
+								if (places.rowAt(place) == null)
+									"headings"
+								else
+									"tile"
+							},
+						) { place ->
+							when (val row = places.rowAt(place)) {
+								null -> headings(places.headingsAt(place).orEmpty(), place)
+								else -> tile(rows[row], scale)
+							}
+						}
+				}
 			}
 			ScrollbarBeside(rememberScrollbarAdapter(grid), Modifier.matchParentSize())
 		}
@@ -2104,11 +2212,13 @@ private fun Gallery(
  * where it was. Shown another folder, it asks for that folder's; gone, or with pictures turned off, for none.
  */
 @Composable
-private fun NearPictures(rows: Rows, grid: LazyGridState) {
+private fun NearPictures(rows: Rows, grid: LazyGridState, places: GalleryPlaces) {
 	val thumbnails = LocalThumbnails.current
 	val pictured = LocalPictured.current
 	val owner = remember { Any() }
 	val listed by rememberUpdatedState(rows)
+	// The rows' places among the gallery's: past headings, where there are any.
+	val placed by rememberUpdatedState(places)
 	// A tile's picture is drawn in the tile's room, less the room it keeps about itself.
 	val inset = with(LocalDensity.current) { (Space.s * 2).roundToPx() }
 
@@ -2118,10 +2228,13 @@ private fun NearPictures(rows: Rows, grid: LazyGridState) {
 			thumbnails.forget(owner)
 		else
 			snapshotFlow {
-				val shown = grid.layoutInfo.visibleItemsInfo
+				val shown =
+					grid.layoutInfo.visibleItemsInfo.mapNotNull { laid ->
+						placed.rowAt(laid.index)?.let { it to laid.size.width }
+					}
 
-				shown.firstOrNull()?.let { first ->
-					Triple(listed, first.index..shown.last().index, first.size.width - inset)
+				shown.firstOrNull()?.let { (first, width) ->
+					Triple(listed, first..shown.last().first, width - inset)
 				}
 			}.filterNotNull()
 				.distinctUntilChanged()

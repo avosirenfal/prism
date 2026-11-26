@@ -132,6 +132,15 @@ enum class Glyph {
 	/** An arrow round to where it set out from: something put back. */
 	Revert,
 
+	/** A window whose top is a row of tabs, the first open onto the page under it: what is shown a part at a time. */
+	Tabs,
+
+	/** Two headings, each with its arrow, over lines in from it: what is shown in groups, each under its heading. */
+	Groups,
+
+	/** Three sliders, each with its knob somewhere else along it: what is tuned, a little at a time. */
+	Tune,
+
 	/** A pair of braces: something that stands for something else, to be put in. */
 	Braces,
 }
@@ -495,6 +504,29 @@ fun DrawScope.drawGlyph(
 				),
 			)
 		}
+		Glyph.Tabs -> {
+			drawRoundRect(
+				tint,
+				at(unit, 3.5f, 4.5f),
+				Size(17f * unit, 15f * unit),
+				CornerRadius(2f * unit),
+				style = line(unit),
+			)
+			stroked(unit, tint, listOf(11f to 4.5f, 11f to 9f, 20.5f to 9f))
+			stroked(unit, tint, listOf(15.75f to 4.5f, 15.75f to 9f))
+		}
+		Glyph.Groups ->
+			for (y in listOf(4.5f, 13.5f)) {
+				stroked(unit, tint, listOf(3.5f to y, 5.5f to y + 2f, 7.5f to y))
+				stroked(unit, tint, listOf(10f to y + 1f, 20f to y + 1f))
+				stroked(unit, tint, listOf(10f to y + 5.5f, 17f to y + 5.5f))
+			}
+		Glyph.Tune ->
+			for ((y, x) in listOf(6.5f to 15f, 12f to 8.5f, 17.5f to 13.5f)) {
+				stroked(unit, tint, listOf(4f to y, x - 2.4f to y))
+				stroked(unit, tint, listOf(x + 2.4f to y, 20f to y))
+				drawCircle(tint, 2.4f * unit, at(unit, x, y), style = line(unit))
+			}
 		Glyph.Pin ->
 			rotate(45f) {
 				stroked(unit, tint, listOf(8.5f to 3.5f, 15.5f to 3.5f))

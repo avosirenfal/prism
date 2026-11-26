@@ -24,6 +24,7 @@ import prism.preferences.Order
 import prism.preferences.QuickAccess
 import prism.preferences.QuickItem
 import prism.preferences.RecentSection
+import prism.preferences.RecentsView
 import prism.preferences.Role
 import prism.preferences.ShownIn
 import prism.preferences.Sort
@@ -1636,6 +1637,16 @@ data class BrowserState(
 	val recentsHidden: Set<Path> = emptySet(),
 	/** Whether this window's Recents page shows what is hidden from it all the same: an explorer's alone, asked to. */
 	val recentsShowHidden: Boolean = false,
+	/** How the Recents page is shown, as tabs or as groups, and how its most relevant are found: the user's, every window's. */
+	val recentsView: RecentsView = RecentsView(),
+	/** The tab of the Recents page chosen in this window, where one is: where none is, the first with anything in it. */
+	val recentsTab: RecentSection? = null,
+	/**
+	 * The last of what this window asked to keep of how the Recents page is shown, by its count, until it is kept:
+	 * meanwhile what the preferences say of it is what was asked before (a slider dragged asks many times over), on
+	 * the way to it, and is not taken up. Nothing waits, where it is null.
+	 */
+	val recentsKeeping: Int? = null,
 	/** What was last read of the marks given, for a copy that changes none of them to be given again. */
 	private val marked: Marked = Marked(),
 ) {
@@ -1748,7 +1759,14 @@ data class BrowserState(
 			entryFilters,
 			typeFilter,
 			query,
-			recentAt(at, recentsCollapsed, recentsHidden, recentsShowHidden),
+			recentAt(
+				at,
+				recentsCollapsed,
+				recentsHidden,
+				recentsShowHidden,
+				recentsView,
+				recentsTab,
+			),
 		)
 
 	/** The search whose results are shown, where they are. */
@@ -1901,7 +1919,8 @@ fun scaleOf(zoom: Zoom, whole: Float): Float =
 
 /**
  * What an arrangement puts away and leaves out [at] a place: on the Recents page, the sections the user has
- * [collapsed] and what they have [hidden] from it (shown all the same, where [showsHidden]); nothing anywhere else,
+ * [collapsed] and what they have [hidden] from it (shown all the same, where [showsHidden]), whether its sections are
+ * tabs, and which [tab] is chosen, and how its most relevant folders are found, as [view] says; nothing anywhere else,
  * so that no other listing is arranged again for what does not arrange it.
  */
 internal fun recentAt(
@@ -1909,9 +1928,18 @@ internal fun recentAt(
 	collapsed: Set<RecentSection>,
 	hidden: Set<Path>,
 	showsHidden: Boolean,
+	view: RecentsView,
+	tab: RecentSection?,
 ): RecentArranged =
 	if (at == Location.Recents)
-		RecentArranged(collapsed, hidden, showsHidden && hidden.isNotEmpty())
+		RecentArranged(
+			collapsed,
+			hidden,
+			showsHidden && hidden.isNotEmpty(),
+			view.tabbed,
+			tab,
+			view.relevance,
+		)
 	else
 		RecentArranged.NONE
 

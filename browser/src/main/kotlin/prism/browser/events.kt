@@ -20,6 +20,8 @@ import prism.preferences.Listings
 import prism.preferences.MenuSpec
 import prism.preferences.QuickAccess
 import prism.preferences.RecentSection
+import prism.preferences.RecentsView
+import prism.preferences.Relevance
 import prism.preferences.Role
 import prism.preferences.Sort
 
@@ -443,6 +445,21 @@ sealed interface BrowserEvent : Input {
 	/** This window's Recents page showing what is hidden from it all the same ([shown]), or no longer. */
 	data class RecentHiddenShown(
 		val shown: Boolean,
+	) : BrowserEvent
+
+	/** The Recents page shown as tabs, a section at a time ([tabbed]), or as groups under headings: in every window. */
+	data class RecentsTabbed(
+		val tabbed: Boolean,
+	) : BrowserEvent
+
+	/** The tab of the Recents page's [section] chosen, in this window: its entries are the listing's rows. */
+	data class RecentTabChosen(
+		val section: RecentSection,
+	) : BrowserEvent
+
+	/** How the Recents page's most relevant folders are found, tuned to [relevance]: in every window, and kept. */
+	data class RelevanceTuned(
+		val relevance: Relevance,
 	) : BrowserEvent
 
 	/** The System page shown: the machine's drives, and how full each is. */
@@ -876,6 +893,23 @@ sealed interface Answer : Input {
 	/** What is hidden from the Recents page, as the preferences (which any window may have changed) now say. */
 	data class RecentsHid(
 		val hidden: Set<Path>,
+	) : Answer
+
+	/**
+	 * How the Recents page is shown, as the preferences now say: changed in another window, or on the way to what
+	 * this one asked ([BrowserState.recentsKeeping]), which it then waits on instead.
+	 */
+	data class RecentsViewed(
+		val view: RecentsView,
+	) : Answer
+
+	/**
+	 * What this window asked to keep of how the Recents page is shown, by the count it was asked by ([ask]), kept; and
+	 * how the preferences then show it ([view]): as it was asked, or as another window has asked since.
+	 */
+	data class RecentsViewKept(
+		val ask: Int,
+		val view: RecentsView,
 	) : Answer
 }
 
@@ -1312,11 +1346,13 @@ sealed interface Effect {
 
 	/**
 	 * The Recents page read, and sent back as [Answer.RecentsRead]: the recent folders, [asker]'s own among them,
-	 * and the newest files that [files] admits; no files at all, where it is null (a picker of folders).
+	 * and the newest files that [files] admits; no files at all, where it is null (a picker of folders). Its most
+	 * relevant folders are found among the folders of the files [asker] was answered with of the kinds [picks] says.
 	 */
 	data class ReadRecents(
 		val asker: AppKey?,
 		val files: TypeFilter?,
+		val picks: Set<Picked> = Picked.entries.toSet(),
 	) : Asking
 
 	/** The machine's storage read, and sent back as [Answer.StorageRead]. */
@@ -1476,6 +1512,15 @@ sealed interface Effect {
 	data class HideRecent(
 		val paths: List<Path>,
 		val hidden: Boolean,
+	) : Effect
+
+	/**
+	 * The Recents page kept shown as [view] says: a preference, so every window, and the next, has it so. The window's
+	 * [ask]th, which it is told of once it is kept ([Answer.RecentsViewKept]).
+	 */
+	data class KeepRecentsView(
+		val view: RecentsView,
+		val ask: Int,
 	) : Effect
 
 	/** [request] made of the application around the browser. */

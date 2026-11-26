@@ -22,6 +22,7 @@ import prism.preferences.Order
 import prism.preferences.Preferences
 import prism.preferences.QuickAccess
 import prism.preferences.RecentSection
+import prism.preferences.RecentsView
 import prism.preferences.Role
 import prism.preferences.Sort
 
@@ -361,6 +362,13 @@ private fun did(state: BrowserState, event: BrowserEvent): Step =
 				listOf(Effect.HideRecent(event.paths, event.hidden)),
 			)
 		is BrowserEvent.RecentHiddenShown -> Step(state.rearranged(showHidden = event.shown))
+		is BrowserEvent.RecentsTabbed ->
+			state.viewing(
+				state.recentsView.copy(tabbed = event.tabbed),
+			)
+		is BrowserEvent.RecentTabChosen -> Step(state.rearranged(tab = event.section))
+		is BrowserEvent.RelevanceTuned ->
+			state.viewing(state.recentsView.copy(relevance = event.relevance))
 		BrowserEvent.OpenedSystem ->
 			if (state.system != null)
 				state.reread()
@@ -767,7 +775,13 @@ internal fun BrowserState.shown(to: Location, history: History, landing: Landing
  * files its filter of names admits; none, for a picker of folders, which shows no files.
  */
 private fun BrowserState.readingRecents(): Effect.ReadRecents =
-	Effect.ReadRecents(asker, typeFilter.takeUnless { choosing is Choosing.Folder })
+	Effect.ReadRecents(
+		asker,
+		typeFilter.takeUnless {
+			choosing is Choosing.Folder
+		},
+		picksOf(choosing),
+	)
 
 /**
  * [finding]'s results in the listing, nothing of them read on disk yet: few enough, every one read at once, the best
@@ -903,6 +917,8 @@ private fun BrowserState.rearranged(
 	collapsed: Set<RecentSection> = this.recentsCollapsed,
 	hidden: Set<Path> = this.recentsHidden,
 	showHidden: Boolean = this.recentsShowHidden,
+	view: RecentsView = this.recentsView,
+	tab: RecentSection? = this.recentsTab,
 ): BrowserState {
 	val rows =
 		rowsOf(
@@ -912,7 +928,7 @@ private fun BrowserState.rearranged(
 				looks.filters(role, kind, layout),
 				offered.using,
 				query,
-				recentAt(at, collapsed, hidden, showHidden),
+				recentAt(at, collapsed, hidden, showHidden, view, tab),
 			),
 		)
 
@@ -925,6 +941,8 @@ private fun BrowserState.rearranged(
 		recentsCollapsed = collapsed,
 		recentsHidden = hidden,
 		recentsShowHidden = showHidden,
+		recentsView = view,
+		recentsTab = tab,
 		chose = choosing.within(rows),
 		pointed = cursor.within(rows),
 		naming = renaming?.takeIf { it.row in rows },
@@ -960,6 +978,19 @@ private fun BrowserState.folding(section: RecentSection): Step {
 	return Step(
 		nearest?.let { folded.copy(pointed = Cursor(it, it)) } ?: folded,
 		listOf(Effect.FoldRecents(section, collapsing)),
+	)
+}
+
+/**
+ * The Recents page shown as [view] says: here at once, and kept so, for every window. What the preferences say of it
+ * is not taken up until it is kept ([BrowserState.recentsKeeping]).
+ */
+private fun BrowserState.viewing(view: RecentsView): Step {
+	val ask = (recentsKeeping ?: 0) + 1
+
+	return Step(
+		rearranged(view = view).copy(recentsKeeping = ask),
+		listOf(Effect.KeepRecentsView(view, ask)),
 	)
 }
 
@@ -1378,6 +1409,21 @@ private fun answered(state: BrowserState, answer: Answer): Step =
 		is Answer.Thumbnailed -> Step(state.copy(thumbnails = answer.shown))
 		is Answer.Located -> state.located(answer)
 		is Answer.RecentsHid -> Step(state.rearranged(hidden = answer.hidden))
+		// Taken up, unless what this window asked last is still to be kept: then it is a step on the way to that.
+		is Answer.RecentsViewed ->
+			Step(
+				if (state.recentsKeeping == null)
+					state.rearranged(view = answer.view)
+				else
+					state,
+			)
+		is Answer.RecentsViewKept ->
+			Step(
+				if (state.recentsKeeping == answer.ask)
+					state.rearranged(view = answer.view).copy(recentsKeeping = null)
+				else
+					state,
+			)
 		// A read of a folder no longer shown is too late to matter.
 		is Answer.Arrived ->
 			if (answer.folder == state.folder)

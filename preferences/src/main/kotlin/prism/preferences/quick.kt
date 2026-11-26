@@ -52,6 +52,10 @@ enum class Builtin {
  */
 @Serializable
 enum class RecentSection {
+	/** The folders most relevant to whoever asks, by how lately and how much they are used. */
+	@SerialName("relevant")
+	Relevant,
+
 	/** The files lately made. */
 	@SerialName("new-files")
 	NewFiles,

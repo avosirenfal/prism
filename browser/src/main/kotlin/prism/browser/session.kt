@@ -112,6 +112,11 @@ class Session(
 	private val filters =
 		MutableSharedFlow<Effect.FilterText>(replay = 1, onBufferOverflow = DROP_OLDEST)
 
+	// How the Recents page is to be shown, as this window last asked: kept in the preferences one after another, the
+	// latest taking the place of any not yet kept (a slider dragged asks many times over).
+	private val views =
+		MutableSharedFlow<Effect.KeepRecentsView>(replay = 1, onBufferOverflow = DROP_OLDEST)
+
 	/** How the picker ended, once it has. */
 	val outcome: Deferred<Outcome> get() = ending
 
@@ -189,6 +194,31 @@ class Session(
 				.map { it.recentsCollapsed }
 				.distinctUntilChanged()
 				.collect { inputs.send(Answer.RecentsFolded(it)) }
+		}
+
+		// How the Recents page is shown, as this window asked: kept, the latest asked for, one after another; and
+		// each kept told, with what the preferences then say.
+		scope.launch(io) {
+			views.collect { asked ->
+				try {
+					services.preferences.update { copy(recentsView = asked.view) }
+				} finally {
+					inputs.send(
+						Answer.RecentsViewKept(
+							asked.ask,
+							services.preferences.preferences.value.recentsView,
+						),
+					)
+				}
+			}
+		}
+
+		// How the Recents page is shown, as any window asked.
+		scope.launch(io) {
+			services.preferences.preferences
+				.map { it.recentsView }
+				.distinctUntilChanged()
+				.collect { inputs.send(Answer.RecentsViewed(it)) }
 		}
 
 		// What the user has hidden from the Recents page, in any window.
@@ -486,6 +516,7 @@ class Session(
 				scope.launch(io) {
 					services.preferences.update { folding(effect.section, effect.collapsed) }
 				}
+			is Effect.KeepRecentsView -> views.tryEmit(effect)
 			is Effect.HideRecent ->
 				scope.launch(io) {
 					services.preferences.update {

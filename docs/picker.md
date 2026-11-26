@@ -166,9 +166,11 @@ the folder you came from, so that going down again is Enter.
 ![The Recents page in a picker Firefox asked for](picker-recents.png)
 
 "Recents", first in quick access, is a page of what was lately made and where pickers were lately used
-(`recents.kt`, `recentsview.kt`). It has up to six sections, in this order, each left out when it has nothing to
-show:
+(`recents.kt`, `recentsview.kt`). It has up to seven sections, in this order, each left out when it has nothing to
+show, and in each the newest first:
 
+- **Most relevant folders**: the eight folders this picker is most likely to want, found by how lately and how much
+  each is used (below).
 - **New files**: the ten newest files the index saw made (the stamps `new:` asks about, `Index.newestFiles`): files
   only, not hidden and not inside a hidden folder, and only those the picker's filter of names admits. A folder
   picker shows none. Nothing of this is stored: each time the page is read (as it opens, on Refresh, when the filter
@@ -176,40 +178,55 @@ show:
   file a program wrote and deleted again never takes one of the ten places. Where fewer than ten of the hundred are
   left, twice as many are asked for, until there are ten or the index has no more. Without an index (no daemon), the
   section is not there.
-- **Recent files for this application**: the files this application's file pickers were last answered with, to
+- **Recent files for this application**: the ten files this application's file pickers were last answered with, to
   open or to save.
-- **Recent files**: the files any application's were, without those already listed for this one.
+- **Recent files**: the ten any application's were, without those already listed for this one.
 - **Recent folders for this application**: the folders this application's folder pickers were last answered with.
 - **Recent folders**: the folders any application's were, without those already listed for this one.
-- **Frequently accessed**: the ten folders gone to and picked from most, the most used first, each with when it was
-  last used.
+- **Frequently accessed**: the ten folders gone to and picked from most, each with when it was last used.
 
-A folder picker shows no files, so it has the three sections of folders alone; a picker that is nobody's, and the
-explorer, have no "for this application" sections. A folder can be in two sections (lately picked, and often gone
-to): it is a row in each (`RowId.Recent` is the path and the section).
+Every section is in the order of time, the newest first, whatever it is chosen by: the frequently accessed are the
+ten used most, shown by when each was last used. A section shows ten of what it holds (the most relevant, as many as
+the tuning says): the first ten the picker's filter, the search and what is hidden leave, so a filter of PDFs shows the
+ten latest PDFs. A folder picker shows no files, so it has the sections of folders alone; a picker that is nobody's,
+and the explorer, have no "for this application" sections. A folder can be in several sections (lately picked, often
+gone to, most relevant): it is a row in each (`RowId.Recent` is the path and the section).
 
 Each row says where it is and when: when the index saw a file made, when a folder was last used ("5 minutes ago",
-"Yesterday", "12 days ago", then a date). Within a section, rows more than ten days older than that section's newest
-(not than today) come after a thin line and are drawn quieter. The rows are the listing's own rows: selected, opened,
-dragged, renamed and given a menu as a folder's are (the menu adds "Show in folder", which a search's results have
-too); a folder is gone into, and a file is opened, chosen, or asked to be replaced, as the picker is for. The page is
-always a list, in its own order.
+"Yesterday", "12 days ago", then a date). Within a section, rows more than ten days older than the newest it shows
+(not than today) come after a thin line and are drawn quieter; not of the two sections chosen by use, where an old
+row is there for how much it is used. The rows are the listing's own rows: selected, opened, dragged, renamed and
+given a menu as a folder's are (the menu adds "Show in folder", which a search's results have too); a folder is gone
+into, and a file is opened, chosen, or asked to be replaced, as the picker is for. The page is in its own order, as
+a list or as a gallery (the list and gallery buttons); it has no column headings to order it by.
 
-Each section's heading is at the listing's edge, with a small arrow close before its title (down where the section
-is open, across where it is collapsed), and its rows are in from it, their icons under its title, so that they read
-as the heading's own; a row's ground, lit or chosen, starts in from the heading too, and so does the line before a
-section's older entries. Arrow and title are one thing to press, to collapse the section to the heading alone or to
-open it again: under the pointer they darken together on a soft ground that holds the two and no more of the row,
-and say what a press does ("Hide files", "Show folders"). Collapsed, the heading says how many entries the section holds ("New files 10"),
-and those entries are not rows of the listing: the cursor, Select all, a name typed and the status line's count pass
-them by, and a cursor or a selection that was on them leaves (the cursor to the nearest row left). Which sections are
-collapsed is the user's, not a window's: it is kept in the preferences (`recentsCollapsed`, by the kind of section,
-so the application's folders are one section whichever application is asking), written as a heading is pressed and
-taken up by every open window, the picker's and the explorer's alike. In the list, a heading is drawn in the place of
-the row it is over (its section's first row, or, collapsed, the next section's first), and the headings of sections
-collapsed after the last row in one place past the rows, so that the list's places are still the listing's rows, one
-each (`RecentPage.Shown`). There is no key for it: a collapsed heading is no row for the cursor to be on, so a key
-could collapse a section and never open it.
+**Tabs or groups.** The page is shown as tabs at first: a row of tabs over the listing, one a section with anything
+to show, each with how many it shows ("Relevant 8", "This app's files 10"), and only the chosen tab's rows below. The
+button with tabs on it, beside the thumbnails' button, and on the Recents page alone, shows the sections as groups
+instead, each under its heading in one list (and pressed again, as tabs). Which it is, is the user's: kept in the
+preferences (`recentsView.tabbed`) and taken up by every window. The tab chosen is the window's own, and is the first
+tab where none is (or where the one chosen has nothing to show); pressed, a tab is shown and the keyboard is the
+listing's, and in the listing Ctrl+Page Down and Ctrl+Page Up go to the next tab and the one before, round. A tab
+chosen lets go of what was chosen in another, as a section collapsed does. Too many tabs for the window's width are
+scrolled across by the wheel, and fade out at the edge where there are more. In a gallery, a tab's tiles are the
+gallery's; in groups, each heading is across the whole of a line, and its tiles are in lines of their own under it,
+so the arrow keys keep to a column from one section's lines into the next.
+
+In groups, each section's heading is at the listing's edge, with a small arrow close before its title (down where the
+section is open, across where it is collapsed), and its rows are in from it, their icons under its title, so that they
+read as the heading's own; a row's ground, lit or chosen, starts in from the heading too, and so does the line before
+a section's older entries. Arrow and title are one thing to press, to collapse the section to the heading alone or to
+open it again: under the pointer they darken together on a soft ground that holds the two and no more of the row, and
+say what a press does ("Hide files", "Show folders"). Collapsed, the heading says how many entries the section holds
+("New files 10"), and those entries are not rows of the listing: the cursor, Select all, a name typed and the status
+line's count pass them by, and a cursor or a selection that was on them leaves (the cursor to the nearest row left).
+Which sections are collapsed is the user's, not a window's: it is kept in the preferences (`recentsCollapsed`, by the
+kind of section, so the application's folders are one section whichever application is asking), written as a heading
+is pressed and taken up by every open window, the picker's and the explorer's alike. In the list, a heading is drawn
+in the place of the row it is over (its section's first row, or, collapsed, the next section's first), and the
+headings of sections collapsed after the last row in one place past the rows, so that the list's places are still the
+listing's rows, one each (`RecentPage.Shown`). There is no key for it: a collapsed heading is no row for the cursor to
+be on, so a key could collapse a section and never open it.
 
 **Which application is asking** is the portal's `app_id` (`AppId`, in `portal/filechooser.kt`). The portal gives none
 for a program it cannot identify, and `prism pick` has none: such a picker is nobody's, shows "Recent folders" alone,
@@ -218,13 +235,48 @@ and its folders are "for this application".
 
 **What is recorded** (`RecentStore.picked`): when a folder picker is accepted, the folder chosen goes to the front
 of the recent folders, this application's and everyone's, with the time; when a file picker is (to open one file or
-many, or to save), the files chosen go to the front of the recent files, the same two ways. A file picked does not
-make its folder a recent folder. A picker cancelled records nothing, and the explorer records neither. Each list
-keeps ten, each once (`RecentList`). They are kept in `$XDG_STATE_HOME/prism/recent-folders` and `recent-files`, a
-line a use (the time in milliseconds, the application or nothing, the path, between tabs), each a `Stored` value:
-every prism writes the one file, under its lock, whole and renamed over. What no longer exists is not shown, and is
-dropped the next time its file is written. (`recent-folders` is the file earlier versions wrote, when a file's
-folder was recorded there too: what it holds is kept.)
+many, or to save), the files chosen go to the front of the recent files, the same two ways, each marked as opened or
+as saved. A file picked does not make its folder a recent folder. A picker cancelled records nothing, and the
+explorer records neither. Each list keeps the 30 latest of each kind (opened, saved), each once (`RecentList`), so
+an application's uploads never put out its saves. They are kept in `$XDG_STATE_HOME/prism/recent-folders` and
+`recent-files`, a line a use (the time in milliseconds, the application or nothing, `open` or `save`, and the path,
+between tabs; a line an older version wrote has no `open` or `save`, and was to open), each a `Stored` value: every
+prism writes the one file, under its lock, whole and renamed over. What no longer exists is not shown, and is dropped
+the next time its file is written, except what was just chosen: a file to save is not on disk until the application
+that asked writes it, which it does once the picker has answered. (`recent-folders` is the file earlier versions
+wrote, when a file's folder was recorded there too: what it holds is kept.)
+
+And each pick is a use of where the application was answered from (`Recents.answered`: the folder of each file
+chosen, or the folder chosen itself, by application and by opened or saved), weighed as every use is (below); 1,000
+of every application's are kept, in `$XDG_STATE_HOME/prism/answered-from`, a line a folder (its weight, the second it
+was last used, the application or nothing, `open` or `save`, and the path, between tabs). This, and not the 30 files
+of each list, says where an application opens from and saves into, so a burst of 30 saves into one folder does not
+make it forget the rest.
+
+**The most relevant folders** (`Candidate`, in `recents.kt`). The candidates are the folders the page's other
+sections show (the application's and everyone's recent folders, and the ten frequently accessed), and every folder
+the application was answered from as this picker picks: for a picker to save, the folders it saved into; for one to
+open files, the folders it opened files from; for a folder picker, both. (For nobody, and the explorer, every
+application's.) Each is scored by three things, each from 0 to 1, each times its weight, added up:
+
+- **recency**: 1 for a folder used just now, by anything (gone to, picked, picked from), halving every 48 hours;
+- **frequency**: how much it is gone to and picked from, as "Frequently accessed" counts it: 0.5 for four uses lately,
+  0.75 for eight, and nearer 1 the more;
+- **this application**: how much this application was answered from it, as this picker picks: 0.5 for one use
+  lately, 0.75 for two, and nearer 1 the more.
+
+The eight that score most are shown, the newest first. The weights (recency 1.0, frequency 0.6, this application
+0.8), the half-life and how many are shown are the user's, kept in the preferences (`recentsView.relevance`); the
+button with sliders on it, on the Recents page alone, opens them over the page, a slider each, and every change is
+shown at once and kept, for every window. A slider dragged is kept as it is dragged, one change after another, and a
+window takes up what the preferences say of it only once the last it asked is kept (`BrowserState.recentsKeeping`),
+so that what was kept on the way does not take it back. "Reset" sets them back as prism has them.
+
+A run of two months of six applications (`RecentSimulationTest`) shows what comes of it: a browser's picker to save
+lists where it saves every day and every week; where it saved once is listed that evening, and a week of busy days
+later is not; a habit of the last week (uploads from one folder) is listed, and a one-off of weeks ago is not; an
+office suite's work moved from one folder to another lists the new one before the old; and an afternoon's walk through
+an archive's sixty folders lists none of them.
 
 **How much a folder is used** (`Recents.accesses`, a `prism.shared.Uses`): going to a folder counts as a use of it,
 in the explorer and in a picker, by whatever means (a click, a path typed, Back and Forward; not the folder read

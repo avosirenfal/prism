@@ -19,6 +19,7 @@ import org.junit.jupiter.api.io.TempDir
 import prism.desktop.freedesktop.XdgPlaces
 import prism.preferences.MemoryPreferences
 import prism.preferences.RecentSection
+import prism.preferences.RecentsView
 import prism.preferences.preferences
 import prism.shared.Used
 import prism.shared.Uses
@@ -230,8 +231,11 @@ class RecentUsesTest {
 				).takeUnless { path.fileName.toString() == "Gone" }
 		}
 
+	/** The page as it is shown in groups, every section open, but for its most relevant folders. */
 	private fun RecentPage.said(): List<Pair<String, List<String>>> =
-		sections.map { section -> section.kind.title to section.entries.map { it.row.name } }
+		sectionsOf(shown(Arrangement())).map { (title, names) ->
+			title to names.map { it.removeSuffix(" (stale)") }
+		}
 
 	@Test
 	fun thePageHasItsSixSectionsInOrder_ForAnApplication_ForNobody_AndForAFolderPicker() {
@@ -243,8 +247,8 @@ class RecentUsesTest {
 				"Recent files" to listOf("cat.png", "2025 return.pdf"),
 				"Recent folders for this application" to listOf("Downloads", "Screenshots"),
 				"Recent folders" to listOf("docs"),
-				// The most used first, whenever each was last used; one that is gone is not there.
-				"Frequently accessed" to listOf("prism", "Downloads", "Music"),
+				// The most used, the latest used first, as every section is; one that is gone is not there.
+				"Frequently accessed" to listOf("Downloads", "prism", "Music"),
 			),
 			page(firefox).said(),
 		)
@@ -254,7 +258,7 @@ class RecentUsesTest {
 				"New files" to listOf("new.txt"),
 				"Recent files" to listOf("cat.png", "invoice-4471.pdf", "2025 return.pdf"),
 				"Recent folders" to listOf("Downloads", "Screenshots", "docs"),
-				"Frequently accessed" to listOf("prism", "Downloads", "Music"),
+				"Frequently accessed" to listOf("Downloads", "prism", "Music"),
 			),
 			page(null).said(),
 		)
@@ -268,12 +272,14 @@ class RecentUsesTest {
 			page(firefox, shows = false).sections.map { it.kind.title },
 		)
 
-		// A folder in two sections is two rows, each its section's; and what is frequent is never long before.
-		val whole = page(firefox)
-		val downloads = whole.rows.filter { it.name == "Downloads" }
+		// A folder in two sections is two rows, each its section's (and a third, as one of the most relevant); and
+		// what is frequent is never long before.
+		val whole = page(firefox).shown(Arrangement())
+		val downloads = whole.rows.list.filter { it.name == "Downloads" }
 
 		assertEquals(
 			listOf(
+				RowId.Recent(home.resolve("Downloads"), RecentSection.Relevant),
 				RowId.Recent(home.resolve("Downloads"), RecentSection.Application),
 				RowId.Recent(home.resolve("Downloads"), RecentSection.Frequent),
 			),
@@ -281,9 +287,8 @@ class RecentUsesTest {
 		)
 		assertEquals(whole.rows.size, whole.marks.size)
 		assertTrue(
-			whole.sections
-				.last()
-				.entries
+			whole.marks.values
+				.filter { it.section == RecentPage.Kind.Frequent }
 				.none { it.stale },
 		)
 		// When a frequent folder was last used is what is said of it.
@@ -305,11 +310,15 @@ class RecentUsesTest {
 
 	// ---- hidden ------------------------------------------------------------------------------------------------
 
-	private fun shown(choosing: Choosing, asker: AppKey?): BrowserState {
+	private fun shown(
+		choosing: Choosing,
+		asker: AppKey?,
+		view: RecentsView = GROUPED,
+	): BrowserState {
 		val window =
 			opened(choosing, home, home, Fixtures.sidebar, filters = Fixtures.filters)
 				.settled(Fixtures.Memory)
-				.copy(asker = asker)
+				.copy(asker = asker, recentsView = view)
 
 		return step(
 			step(window, BrowserEvent.OpenedRecents).state,
@@ -330,11 +339,11 @@ class RecentUsesTest {
 		val picker = shown(Choosing.OneFile(), firefox)
 		val downloads = home.resolve("Downloads")
 
-		assertEquals(2, picker.names().count { it == "Downloads" })
+		assertEquals(3, picker.names().count { it == "Downloads" })
 		assertTrue("Hide from recent" in picker.menu("Downloads"))
 		assertTrue("Hide from recent" in picker.menu("invoice-4471.pdf"))
 
-		// Chosen and hidden: gone from both its sections at once, and what was chosen of it let go.
+		// Chosen and hidden: gone from every section it is in at once, and what was chosen of it let go.
 		val chosen =
 			step(
 				picker,
@@ -348,7 +357,7 @@ class RecentUsesTest {
 
 		assertEquals(0, hid.state.names().count { it == "Downloads" })
 		assertEquals(emptySet<RowId>(), hid.state.choosing.rows)
-		assertEquals(picker.entryCount - 2, hid.state.entryCount)
+		assertEquals(picker.entryCount - 3, hid.state.entryCount)
 		assertEquals(listOf<Effect>(Effect.HideRecent(listOf(downloads), true)), hid.effects)
 
 		// A section left with nothing has no heading.
@@ -417,6 +426,7 @@ class RecentUsesTest {
 		assertEquals(explorer.names(), showing.names())
 		assertEquals(
 			setOf(
+				RowId.Recent(downloads, RecentSection.Relevant),
 				RowId.Recent(downloads, RecentSection.Folders),
 				RowId.Recent(downloads, RecentSection.Frequent),
 			),

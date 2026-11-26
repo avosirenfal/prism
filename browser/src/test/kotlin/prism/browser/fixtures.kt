@@ -280,3 +280,30 @@ fun after(state: BrowserState, vararg inputs: Input): BrowserState =
 /** The effects [input] asks for of [state], answered or not. */
 fun effectsOf(state: BrowserState, input: Input): List<Effect> =
 	step(state, input).effects
+
+/**
+ * What [shown] shows in groups, but for its most relevant folders: each section's title, and its rows' names (none,
+ * where it is collapsed), each marked " (stale)" where it is drawn quieter.
+ */
+internal fun sectionsOf(shown: RecentPage.Shown): List<Pair<String, List<String>>> =
+	shown.headings
+		.filter { it.kind != RecentPage.Kind.Relevant }
+		.map { heading ->
+			val count =
+				if (heading.collapsed)
+					0
+				else
+					heading.count
+
+			heading.kind.title to
+				shown.rows.list.subList(heading.before, heading.before + count).map { row ->
+					row.name +
+						if (shown.marks.getValue(row.id).stale)
+							" (stale)"
+						else
+							""
+				}
+		}
+
+/** The Recents page shown in groups, each section under its heading: what the tests of its headings look at. */
+internal val GROUPED = prism.preferences.RecentsView(tabbed = false)

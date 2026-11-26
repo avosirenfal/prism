@@ -210,9 +210,10 @@ otherwise the terminal chosen, in one of the forms "Choosing the terminal" (belo
 preferences leaves every default in place, and is copied beside itself with `.unreadable` after its name before
 anything is written over it, so nothing written by hand is lost.
 
-Recents, first in quick access, is the page docs/picker.md describes ("Recents"). In the explorer it shows the
-newest files the index saw made, the files and the folders pickers were lately answered with (for every
-application together), and the folders gone to most. The explorer records no file or folder as recent, but the
+Recents, first in quick access, is the page docs/picker.md describes ("Recents"). In the explorer it shows the most
+relevant folders (among those it shows, and wherever any application was answered from), the newest files the index
+saw made, the files and the folders pickers were lately answered with (for every application together), and the
+folders gone to most: as tabs or in groups, and as a list or a gallery, as a picker's page is. The explorer records no file or folder as recent, but the
 folders it goes to are counted for "Frequently accessed". It is also where what is hidden from the page is gone
 through: "Show hidden", at the end of the page's bar, lists it, faint, to be put back from its menu.
 

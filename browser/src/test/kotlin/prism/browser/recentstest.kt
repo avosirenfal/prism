@@ -47,6 +47,7 @@ import prism.preferences.Preferences
 import prism.preferences.QuickAccess
 import prism.preferences.QuickItem
 import prism.preferences.RecentSection
+import prism.preferences.RecentsView
 import prism.preferences.preferences
 import prism.shared.orElse
 
@@ -59,6 +60,9 @@ class RecentsTest {
 	lateinit var root: Path
 
 	private val now = Instant.parse("2026-11-12T10:00:00Z")
+
+	/** What a picker that opens files finds its most relevant folders among: the folders files were opened from. */
+	private val opensFiles = setOf(Picked.Opened)
 	private val firefox = AppKey.of("org.mozilla.firefox")!!
 	private val gimp = AppKey.of("org.gimp.GIMP")!!
 
@@ -84,35 +88,55 @@ class RecentsTest {
 	}
 
 	@Test
-	fun aListKeepsTheTenLastUsed_TheLatestFirst_EachOnce() {
-		val folders = (1..12).map { Path("/data/$it") }
+	fun aListKeepsTheLastUsedOfEachKind_TheLatestFirst_EachOnce() {
+		val most = RecentList.MOST
+		val folders = (1..most + 2).map { Path("/data/$it") }
 		val list =
 			folders.foldIndexed(RecentList.NONE) { index, list, folder ->
 				list.used(listOf(folder), now.plusSeconds(index.toLong()))
 			}
 
 		// The two first used have gone, to make room.
-		assertEquals(RecentList.MOST, list.entries.size)
+		assertEquals(most, list.entries.size)
 		assertEquals(folders.drop(2).reversed(), list.paths)
-		assertEquals(now.plusSeconds(11), list.entries.first().at)
+		assertEquals(now.plusSeconds(most + 1L), list.entries.first().at)
 
 		// One used again is first again, once, with when it was used now.
-		val again = list.used(listOf(Path("/data/5")), now.plusSeconds(60))
+		val again = list.used(listOf(Path("/data/5")), now.plusSeconds(600))
 
 		assertEquals(Path("/data/5"), again.paths.first())
-		assertEquals(RecentList.MOST, again.entries.size)
+		assertEquals(most, again.entries.size)
 		assertEquals(1, again.paths.count { it == Path("/data/5") })
-		assertEquals(now.plusSeconds(60), again.entries.first().at)
+		assertEquals(now.plusSeconds(600), again.entries.first().at)
 
-		// However it is made, it is so: twelve given at once are ten, and one given twice is its latest use.
+		// However it is made, it is so: more given at once are as many as it keeps, and one given twice is its
+		// latest use.
 		val given =
 			RecentList.of(
 				folders.mapIndexed { index, it -> Recent(it, now.plusSeconds(index.toLong())) } +
-					Recent(Path("/data/1"), now.plusSeconds(100)),
+					Recent(Path("/data/1"), now.plusSeconds(1_000)),
 			)
 
-		assertEquals(RecentList.MOST, given.entries.size)
+		assertEquals(most, given.entries.size)
 		assertEquals(Path("/data/1"), given.paths.first())
+
+		// What is saved is kept apart from what is opened: however much more is opened after it, a file saved stays.
+		val saved = list.used(listOf(Path("/data/saved")), now.plusSeconds(700), Picked.Saved)
+		val opened =
+			(1..most).fold(saved) { kept, it ->
+				kept.used(listOf(Path("/data/opened-$it")), now.plusSeconds(800L + it))
+			}
+
+		assertEquals(most + 1, opened.entries.size)
+		assertEquals(
+			Path("/data/saved"),
+			opened.entries
+				.single {
+					it.picked == Picked.Saved
+				}.path,
+		)
+		assertEquals(most, opened.entries.count { it.picked == Picked.Opened })
+		assertEquals(opened.entries.sortedByDescending { it.at }, opened.entries)
 	}
 
 	@Test
@@ -171,6 +195,38 @@ class RecentsTest {
 		assertTrue(
 			read.accesses.weightOf(Path("/data/a"), now) >
 				read.accesses.weightOf(Path("/data/c"), now),
+		)
+	}
+
+	@Test
+	fun aFileSavedIsRecordedThoughTheApplicationHasNotWrittenItYet() {
+		val downloads = folder("Downloads")
+		val store = RecentsFiles(root.resolve("state"))
+		val opened = file("Downloads/old.pdf")
+		// What a browser is told to save to: nothing is there until the picker has answered and the browser writes it.
+		val saved = downloads.resolve("statement.pdf")
+
+		store.picked(listOf(opened), Choosing.OneFile(), firefox, ago(minutes = 20))
+		store.picked(
+			listOf(saved),
+			Choosing.SaveAs("statement.pdf"),
+			firefox,
+			ago(minutes = 10),
+		)
+
+		assertEquals(
+			listOf(saved, opened),
+			store
+				.read()
+				.files
+				.of(firefox)
+				.paths,
+		)
+		assertEquals(
+			listOf(saved, opened),
+			store
+				.read()
+				.files.all.paths,
 		)
 	}
 
@@ -368,11 +424,12 @@ class RecentsTest {
 		}
 	}
 
+	/**
+	 * The page as it is shown in groups, every section open, but for its most relevant folders: each section's
+	 * title, and its rows' names, each marked where it is drawn quieter.
+	 */
 	private fun RecentPage.shown(): List<Pair<String, List<String>>> =
-		sections.map { section ->
-			section.kind.title to
-				section.entries.map { it.row.name + if (it.stale) " (stale)" else "" }
-		}
+		sectionsOf(shown(Arrangement()))
 
 	@Test
 	fun thePageShowsNewFiles_TheApplicationsFolders_ThenTheOthers_EachFolderOnce() {
@@ -450,7 +507,7 @@ class RecentsTest {
 		)
 
 		// What the page says of a row is what its section does.
-		val made = page(newest, folders)
+		val made = page(newest, folders).shown(Arrangement())
 
 		val old =
 			made.marks.getValue(
@@ -460,7 +517,7 @@ class RecentsTest {
 		assertEquals(RecentPage.Kind.NewFiles, old.section)
 		assertEquals(ago(days = 12), old.at)
 		assertTrue(old.stale)
-		assertEquals(made.rows.map { it.id }, made.marks.keys.toList())
+		assertEquals(made.rows.list.map { it.id }, made.marks.keys.toList())
 	}
 
 	@Test
@@ -665,8 +722,16 @@ class RecentsTest {
 
 	private val home = Fixtures.home
 
-	/** A page as a person's might be: new files of several folders, an application's folders, and the rest. */
-	private fun drawnPage(asker: AppKey?, read: Instant = now): RecentPage {
+	/**
+	 * A page as a person's might be, read at [read] for [asker]: new files of several folders, an application's folders,
+	 * and the rest; without its most relevant folders where it is not [relevant], for what is about the other sections
+	 * alone.
+	 */
+	private fun drawnPage(
+		asker: AppKey?,
+		read: Instant = now,
+		relevant: Boolean = true,
+	): RecentPage {
 		val newest =
 			listOf(
 				"Pictures/Screenshots/Screenshot 2026-11-12 09-58-12.png" to ago(minutes = 2),
@@ -693,21 +758,32 @@ class RecentsTest {
 
 		val files = newest.map { it.path }.toSet()
 
-		return RecentPage.of(newest, Recents(folders = folders), asker, read) { path ->
-			Fixtures
-				.row(path.fileName.toString(), 48_000L.takeIf { path in files }, folder = path.parent)
-		}
+		val page =
+			RecentPage.of(newest, Recents(folders = folders), asker, read) { path ->
+				Fixtures
+					.row(
+						path.fileName.toString(),
+						48_000L.takeIf { path in files },
+						folder = path.parent,
+					)
+			}
+
+		return if (relevant)
+			page
+		else
+			RecentPage(page.sections, page.read)
 	}
 
 	private fun drawn(
 		choosing: Choosing,
 		asker: AppKey?,
 		page: RecentPage = drawnPage(asker),
+		view: RecentsView = GROUPED,
 	): BrowserState {
 		val window =
 			opened(choosing, home, home, Fixtures.sidebar, filters = Fixtures.filters)
 				.settled(Fixtures.Memory)
-				.copy(asker = asker)
+				.copy(asker = asker, recentsView = view)
 
 		return step(
 			step(window, BrowserEvent.OpenedRecents).state,
@@ -794,7 +870,7 @@ class RecentsTest {
 
 	@Test
 	fun aSectionCollapsedIsItsHeadingAlone_ItsEntriesNoRowsOfTheListing() {
-		val open = drawn(Choosing.Files(), asker)
+		val open = drawn(Choosing.Files(), asker, drawnPage(asker, relevant = false))
 
 		assertEquals(17, open.rows.size)
 		assertEquals(17, open.entryCount)
@@ -895,7 +971,7 @@ class RecentsTest {
 
 	@Test
 	fun theCursorAndWhatIsChosenLeaveASectionAsItCollapses() {
-		val open = drawn(Choosing.Files(), asker)
+		val open = drawn(Choosing.Files(), asker, drawnPage(asker, relevant = false))
 		val invoice = recent("Downloads/invoice-4471.pdf")
 		val flac = recent("Music/Field recordings/harbour.flac")
 
@@ -955,7 +1031,7 @@ class RecentsTest {
 	fun whatIsCollapsedIsThePreferences_EveryWindows_AndTheApplicationsSectionWhoeverAsks() {
 		val preferences = MemoryPreferences()
 		val services = Services(Fixtures.Memory, preferences = preferences, clock = { now })
-		val open = drawn(Choosing.OneFile(), asker)
+		val open = drawn(Choosing.OneFile(), asker, drawnPage(asker, relevant = false))
 
 		// Collapsed here, it is written where every window reads it.
 		step(
@@ -1006,7 +1082,7 @@ class RecentsTest {
 
 		val asked =
 			step(
-				drawn(Choosing.OneFile(), gimp, theirs),
+				drawn(Choosing.OneFile(), gimp, RecentPage(theirs.sections, theirs.read)),
 				Answer.RecentsFolded(setOf(RecentSection.Application)),
 			).state
 
@@ -1028,7 +1104,10 @@ class RecentsTest {
 
 		assertEquals(
 			7,
-			step(reading.state, Answer.RecentsRead(drawnPage(asker))).state.rows.size,
+			step(
+				reading.state,
+				Answer.RecentsRead(drawnPage(asker, relevant = false)),
+			).state.rows.size,
 		)
 
 		// Elsewhere than on the page, what is collapsed arranges nothing: a folder's rows are the same rows.
@@ -1054,7 +1133,7 @@ class RecentsTest {
 	@OptIn(ExperimentalTestApi::class)
 	@Test
 	fun aHeadingUnderThePointerIsDarker_ArrowAndTitleTogether() {
-		val picker = drawn(Choosing.OneFile(), asker)
+		val picker = drawn(Choosing.OneFile(), asker, drawnPage(asker, relevant = false))
 
 		val one =
 			step(
@@ -1093,7 +1172,7 @@ class RecentsTest {
 	): BrowserState =
 		opened(choosing, root, root, sidebarOf(XdgPlaces(), root))
 			.settled(JvmDisk())
-			.copy(asker = asker)
+			.copy(asker = asker, recentsView = GROUPED)
 
 	@Test
 	fun recentsIsFirstInQuickAccess_AndAddedToOneArrangedBeforeItWas() {
@@ -1143,14 +1222,18 @@ class RecentsTest {
 
 		val opening = step(picker, BrowserEvent.OpenedRecents)
 
-		assertEquals(listOf(Effect.ReadRecents(asker, TypeFilter.ALL_FILES)), opening.effects)
+		assertEquals(
+			listOf(Effect.ReadRecents(asker, TypeFilter.ALL_FILES, opensFiles)),
+			opening.effects,
+		)
 		assertEquals(Location.Recents, opening.state.at)
 		assertEquals(Listing.Reading, opening.state.listing)
 
 		val shown = opening.settled(services)
 
 		assertEquals("Recents", shown.placeName)
-		assertEquals(listOf("new.txt", "used"), shown.rows.list.map { it.name })
+		// The folder is the most relevant there is, and one of the application's.
+		assertEquals(listOf("used", "new.txt", "used"), shown.rows.list.map { it.name })
 		assertEquals(listOf(Location.Folder(root)), shown.history.back)
 
 		// A folder of it gone into, and Back: the page again, read again.
@@ -1165,14 +1248,17 @@ class RecentsTest {
 		val back = step(into, BrowserEvent.Back)
 
 		assertEquals(Location.Recents, back.state.at)
-		assertEquals(listOf(Effect.ReadRecents(asker, TypeFilter.ALL_FILES)), back.effects)
+		assertEquals(
+			listOf(Effect.ReadRecents(asker, TypeFilter.ALL_FILES, opensFiles)),
+			back.effects,
+		)
 
 		// Asked for where it is shown, and refreshed, it is read again, what it shows staying meanwhile.
 		for (again in listOf(BrowserEvent.OpenedRecents, BrowserEvent.Refreshed)) {
 			val rereading = step(shown, again)
 
 			assertEquals(
-				listOf(Effect.ReadRecents(asker, TypeFilter.ALL_FILES)),
+				listOf(Effect.ReadRecents(asker, TypeFilter.ALL_FILES, opensFiles)),
 				rereading.effects,
 			)
 			assertEquals(shown.rows.list, rereading.state.rows.list)
@@ -1196,7 +1282,7 @@ class RecentsTest {
 			).settled(JvmDisk())
 
 		assertEquals(
-			listOf(Effect.ReadRecents(null, images)),
+			listOf(Effect.ReadRecents(null, images, opensFiles)),
 			step(
 				step(filtering, BrowserEvent.OpenedRecents).settled(services),
 				BrowserEvent.Filtered(images),
@@ -1302,9 +1388,10 @@ class RecentsTest {
 				.any { it.label == "Show in folder" },
 		)
 
-		// What is typed over the listing narrows the page, as it narrows a folder.
+		// What is typed over the listing narrows the page, as it narrows a folder: the folder, as one of the most
+		// relevant, and as a recent one.
 		assertEquals(
-			listOf("used"),
+			listOf("used", "used"),
 			step(exploring, BrowserEvent.Searched("use"))
 				.state.rows.list
 				.map { it.name },
@@ -1328,6 +1415,11 @@ class RecentsTest {
 
 			val services = services(index, recents)
 			val running = arrayOfNulls<Session>(1)
+
+			// In groups, and the most relevant folders put away: this is of the other sections and their headings.
+			services.preferences.update {
+				copy(recentsView = GROUPED, recentsCollapsed = setOf(RecentSection.Relevant))
+			}
 
 			setContent {
 				val scope = rememberCoroutineScope()
@@ -1383,7 +1475,7 @@ class RecentsTest {
 			onNodeWithTag("recent-older").assertDoesNotExist()
 			waitUntil(timeoutMillis = 5_000) {
 				services.preferences.preferences.value.recentsCollapsed ==
-					setOf(RecentSection.Folders)
+					setOf(RecentSection.Relevant, RecentSection.Folders)
 			}
 			onNodeWithTag("recent-section:Recent folders").performClick()
 			waitUntil(timeoutMillis = 5_000) { session.state.value.rows.size == 4 }
@@ -1391,8 +1483,8 @@ class RecentsTest {
 			onNodeWithTag("row:used").assertExists()
 			onNodeWithTag("recent-count:Recent folders").assertDoesNotExist()
 			waitUntil(timeoutMillis = 5_000) {
-				services.preferences.preferences.value.recentsCollapsed
-					.isEmpty()
+				services.preferences.preferences.value.recentsCollapsed ==
+					setOf(RecentSection.Relevant)
 			}
 
 			// A row clicked is chosen; the arrows go on from it, across the heading, and Enter goes into a folder.
